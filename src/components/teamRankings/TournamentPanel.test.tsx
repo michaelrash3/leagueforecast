@@ -52,12 +52,57 @@ describe("the tournament field", () => {
     const odds = within(panel).getByRole("table", { name: "Tournament odds" });
     const rows = within(odds).getAllByRole("row").slice(1);
     expect(rows).toHaveLength(3);
-    const wins = rows.map((row) =>
-      Number(within(row).getAllByRole("cell")[4]!.textContent!.replace("%", ""))
-    );
+    // The last column, Win.
+    const wins = rows.map((row) => {
+      const cells = within(row).getAllByRole("cell");
+      return Number(cells[cells.length - 1]!.textContent!.replace("%", ""));
+    });
     // Rounded to whole percents, so within a point or two of the one winner there is.
     expect(Math.abs(wins.reduce((a, b) => a + b, 0) - 100)).toBeLessThanOrEqual(2);
     expect(panel).toHaveTextContent(/Field strength: average rating/);
+  });
+
+  it("gives each club's record and rating, and our margin and chance against it", async () => {
+    const user = userEvent.setup();
+    const panel = await open(user);
+    await user.click(within(panel).getByRole("button", { name: "Add our next opponents" }));
+    const odds = within(panel).getByRole("table", { name: "Tournament odds" });
+    const headings = within(odds)
+      .getAllByRole("columnheader")
+      .map((cell) => cell.textContent);
+    expect(headings).toEqual([
+      "Club",
+      "Pool",
+      "Record",
+      "Rating",
+      "Us by",
+      "Our chance",
+      "Win pool",
+      "Final",
+      "Win",
+    ]);
+    const rowOf = (name: string) =>
+      within(odds)
+        .getAllByRole("row")
+        .find((row) => row.textContent?.includes(name)) as HTMLElement;
+    const cells = (name: string) =>
+      within(rowOf(name))
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent);
+    // The Otters are us: no margin against themselves.
+    expect(cells("River Otters").slice(2, 6)).toEqual([
+      "2-0",
+      expect.stringMatching(/^[+-]\d\.\d$/),
+      "—",
+      "—",
+    ]);
+    // The Cubs lost to everyone, us included: we are favoured, by a margin the chance agrees with.
+    const [, , record, rating, margin, chance] = cells("Cubs");
+    expect(record).toBe("0-2");
+    expect(rating).toMatch(/^-\d\.\d$/);
+    expect(margin).toMatch(/^\+\d\.\d$/);
+    expect(Number(chance?.replace("%", ""))).toBeGreaterThan(50);
+    expect(panel).toHaveTextContent("Us by and Our chance are for River Otters against each club.");
   });
 
   it("adds a club by name, saves the field, and opens it again", async () => {

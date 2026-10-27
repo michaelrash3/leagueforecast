@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { lastBackupTakenAt, noteBackupTaken } from "../lib/lastBackup";
 import { reloadApp, resetApp } from "../lib/resetApp";
 import { myTeamGlance } from "../lib/myTeamGlance";
@@ -152,8 +161,11 @@ import { ArchiveSection } from "./teamRankings/ArchiveSection";
 import { isPoolBusy, isPullLive, watchPull } from "../lib/pullSession";
 import { usePoolTidy } from "../hooks/usePoolTidy";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { card } from "../styles/tokens";
 import { GameChangerImportPanel } from "./GameChangerImportPanel";
-import { TEAM_PANEL_ID, TeamDetailPanel } from "./TeamDetailPanel";
+import { ClubSheet } from "./teamRankings/ClubSheet";
+import { leftClubSheet, markClubSheet } from "../lib/clubSheetHistory";
+import { useWatchList } from "../lib/watchList";
 import { GamesSection, EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/GamesSection";
 import type { NamedChecker } from "./ScheduleImportPanel";
 import { checkNamedGames, type NamedGame } from "../lib/teamRankings/namedGames";
@@ -180,6 +192,14 @@ import { useRankingsPages } from "../hooks/useRankingsPages";
 import { useRankingsWorker } from "../hooks/useRankingsWorker";
 import { useStateTop } from "../hooks/useStateTop";
 import type { ToastTone } from "../hooks/useToast";
+
+/**
+ * A club's panel, fetched as a club is first opened (`ClubSheet`), as the live board's is: opening
+ * Team Rankings fetched it with the page whether or not a club was opened.
+ */
+const TeamDetailPanel = lazy(() =>
+  import("./TeamDetailPanel").then((module) => ({ default: module.TeamDetailPanel }))
+);
 
 type ConfirmOptions = {
   title: string;
@@ -413,6 +433,20 @@ export function TeamRankingsView({
   const [pullProgress, setPullProgress] = useState(() => loadPullProgress());
   const [refreshLog, setRefreshLog] = useState(() => loadRefreshLog());
   const [openTeamId, setOpenTeamId] = useState<string | null>(handover?.openTeamId ?? null);
+  /*
+   * A club's sheet (`ClubSheet`): opened with the history entry Back closes it by, shut by Back,
+   * the history having moved already, or closed by its own controls, which take the entry back
+   * (`clubSheetHistory.ts`).
+   */
+  const openClub = useCallback((teamId: string) => {
+    markClubSheet();
+    setOpenTeamId(teamId);
+  }, []);
+  const shutClub = useCallback(() => setOpenTeamId(null), []);
+  const closeClub = useCallback(() => {
+    setOpenTeamId(null);
+    leftClubSheet();
+  }, []);
   const [stateFilter, setStateFilter] = useState(handover?.stateFilter ?? "");
   const [showAll, setShowAll] = useState(handover?.showAll ?? false);
   // Somebody went to search on the live board: the search they asked for, now it has its list.
@@ -782,6 +816,18 @@ export function TeamRankingsView({
       .map((row) => byId.get(row.teamId))
       .filter((team): team is ScoutTeam => team !== undefined);
   }, [rankings, allKnown.teams]);
+  /** A club's row on the board on screen, by id: what a matchup's What if is worked out from. */
+  const rankingRowOf = useMemo(() => {
+    const byId = new Map(rankings.map((row) => [row.teamId, row]));
+    return (teamId: string) => byId.get(teamId);
+  }, [rankings]);
+  // The clubs watched on this page, on this device (`watchList.ts`).
+  const watchList = useWatchList(selectedAgeGroupId);
+  const { toggle: toggleWatch } = watchList;
+  const watchCard = useMemo(
+    () => ({ watched: watchList.watched, rowOf: rankingRowOf, onStop: toggleWatch }),
+    [watchList.watched, rankingRowOf, toggleWatch]
+  );
 
   const availableStates = useMemo(() => statesInUse(rankedTeams), [rankedTeams]);
 
@@ -1916,7 +1962,7 @@ export function TeamRankingsView({
   const openSearchedTeam = (teamId: string) => {
     const page = pageOf(teamId);
     if (page) openPage(page.ageGroupId);
-    setOpenTeamId(teamId);
+    openClub(teamId);
   };
 
   /**
@@ -1948,10 +1994,7 @@ export function TeamRankingsView({
         .filter((group): group is AgeGroup => group !== undefined)
         .sort((a, b) => (ageGroupYear(b) ?? 0) - (ageGroupYear(a) ?? 0))[0]?.id;
     if (page) openPage(page, page === pageId ? segment : undefined);
-    setOpenTeamId(teamId);
-    window.requestAnimationFrame(() =>
-      document.getElementById(TEAM_PANEL_ID)?.scrollIntoView?.({ block: "start" })
-    );
+    openClub(teamId);
   };
 
   const openTeam = openTeamId ? (allKnown.teams.find((t) => t.id === openTeamId) ?? null) : null;
@@ -2284,7 +2327,7 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
       if (wasTidy) saveTidyStamp(poolSignature(done.state));
       setArchives(loadArchiveIndex());
       pickPage("");
-      setOpenTeamId(null);
+      closeClub();
       setReportTeamId("");
       showToast(archivedSaid(year, { ...preview, tables: kept.map(archiveTableOf) }));
       onDataChange?.();
@@ -2329,7 +2372,7 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
       }
       setArchives(loadArchiveIndex());
       pickPage("");
-      setOpenTeamId(null);
+      closeClub();
       setReportTeamId("");
       showToast(
         `${year} deleted.` +
@@ -2463,11 +2506,18 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               placeOf={placeOf}
               isLeagueTeam={(teamId) => leagueGameTeamIds.has(teamId)}
               hasGamesFiledHere={hasGamesFiledHere}
-              onOpenTeam={setOpenTeamId}
+              onOpenTeam={openClub}
               onMarkMine={setMyTeam}
               myTeam={myTeam}
               {...(rankHistory ? { rankHistory } : {})}
               movementOf={boardMovement}
+              watch={watchCard}
+              onScoutNext={(opponentId) => {
+                // Our club's report, with its next opponent beside it in Compare with.
+                if (myTeamId !== undefined) setReportTeamId(myTeamId);
+                setCompareId(opponentId);
+                openSection("scouting");
+              }}
               onRemoveTeam={removeTeamById}
             />
           )}
@@ -2504,6 +2554,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               onSaveScore={saveGameScore}
               onToggleExcluded={toggleGameExcluded}
               onRemoveGame={(game) => void removeGame(game)}
+              ratingRowOf={rankingRowOf}
             />
           )}
 
@@ -2680,45 +2731,66 @@ This cannot be undone. Cancel and download the backups first if there is any cha
       </div>
 
       {openTeam && (
-        <TeamDetailPanel
-          // Keyed by team, so opening a different one gets a fresh panel. Without this React keeps
-          // the instance and its rename draft still holds the previous team's name — which would
-          // arm Merge to fold the newly opened team into the one you were just looking at.
-          key={openTeam.id}
-          team={openTeam}
-          allGames={allKnownGames}
-          ageGroupId={selectedAgeGroupId}
-          ageGroups={ageGroups}
-          // The half the board behind it is showing, so its record is the row's record.
-          {...(selectedSegment === undefined ? {} : { segment: selectedSegment })}
-          ageGroupName={selectedGroupName}
-          teamNameById={teamNameById}
-          leagueLink={
-            // A club the roster does not hold is one League Standings made, named there and
-            // nowhere else: a rename would have no club to write to.
-            !scoutTeams.some((team) => team.id === openTeam.id)
-              ? "name"
-              : leagueGameTeamIds.has(openTeam.id)
-                ? allKnown.pickedOnly.has(openTeam.id)
-                  ? "pick"
-                  : "name"
-                : undefined
-          }
-          onRename={(nextName) => void renameTeam(openTeam.id, nextName)}
-          onUnlinkGc={(gcTeamId) => unlinkGc(openTeam.id, gcTeamId)}
-          onMergeInto={(intoTeamId) => void mergeInto(openTeam.id, intoTeamId)}
-          {...(openTeamAge ? { age: openTeamAge } : {})}
-          onSetAge={(level) => setTeamAge(openTeam.id, level)}
-          onClearAge={() => clearTeamAge(openTeam.id)}
-          notThisTeam={{
-            offered: (game) => filedByNameOn(game, openTeam, (id) => scoutTeamById.get(id)),
-            onRefuse: (game) => notThisTeam(openTeam.id, game),
-          }}
-          mergeCandidates={mergeCandidatesFor(openTeam.id)}
-          onSetState={(state) => setTeamState(openTeam.id, state)}
-          onClose={() => setOpenTeamId(null)}
-        />
+        <ClubSheet label={openTeam.name} onShut={shutClub} onClose={closeClub}>
+          <ErrorBoundary area="The club" onReset={closeClub}>
+            <Suspense fallback={<ClubOpening />}>
+              <TeamDetailPanel
+                // Keyed by team, so opening a different one gets a fresh panel. Without this React keeps
+                // the instance and its rename draft still holds the previous team's name — which would
+                // arm Merge to fold the newly opened team into the one you were just looking at.
+                key={openTeam.id}
+                team={openTeam}
+                allGames={allKnownGames}
+                ageGroupId={selectedAgeGroupId}
+                ageGroups={ageGroups}
+                // The half the board behind it is showing, so its record is the row's record.
+                {...(selectedSegment === undefined ? {} : { segment: selectedSegment })}
+                ageGroupName={selectedGroupName}
+                teamNameById={teamNameById}
+                leagueLink={
+                  // A club the roster does not hold is one League Standings made, named there and
+                  // nowhere else: a rename would have no club to write to.
+                  !scoutTeams.some((team) => team.id === openTeam.id)
+                    ? "name"
+                    : leagueGameTeamIds.has(openTeam.id)
+                      ? allKnown.pickedOnly.has(openTeam.id)
+                        ? "pick"
+                        : "name"
+                      : undefined
+                }
+                onRename={(nextName) => void renameTeam(openTeam.id, nextName)}
+                onUnlinkGc={(gcTeamId) => unlinkGc(openTeam.id, gcTeamId)}
+                onMergeInto={(intoTeamId) => void mergeInto(openTeam.id, intoTeamId)}
+                {...(openTeamAge ? { age: openTeamAge } : {})}
+                onSetAge={(level) => setTeamAge(openTeam.id, level)}
+                onClearAge={() => clearTeamAge(openTeam.id)}
+                notThisTeam={{
+                  offered: (game) => filedByNameOn(game, openTeam, (id) => scoutTeamById.get(id)),
+                  onRefuse: (game) => notThisTeam(openTeam.id, game),
+                }}
+                mergeCandidates={mergeCandidatesFor(openTeam.id)}
+                onSetState={(state) => setTeamState(openTeam.id, state)}
+                onClose={closeClub}
+                ratingRowOf={rankingRowOf}
+                watch={{
+                  on: watchList.watched.some((club) => club.id === openTeam.id),
+                  full: watchList.full,
+                  onToggle: (name) => toggleWatch({ id: openTeam.id, name }),
+                }}
+              />
+            </Suspense>
+          </ErrorBoundary>
+        </ClubSheet>
       )}
     </div>
+  );
+}
+
+/** The sheet while a club's panel is fetched, the first time one is opened. */
+function ClubOpening() {
+  return (
+    <section className={`${card} p-5`} role="status" aria-live="polite">
+      <p className="text-sm text-slate-500 dark:text-slate-400">Opening the club…</p>
+    </section>
   );
 }

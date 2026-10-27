@@ -43,7 +43,7 @@ const pool = () => ({
 const openTeam = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
   await user.click(screen.getByRole("button", { name: /show all/i }));
   await user.click(within(screen.getByRole("table")).getByRole("button", { name }));
-  return screen.getByRole("region", { name });
+  return await screen.findByRole("region", { name });
 };
 
 /** The merge picker is a search box; its list only exists once it has the focus. */

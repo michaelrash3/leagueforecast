@@ -60,6 +60,41 @@ describe("comparing two clubs in Scouting", () => {
     expect(cubs).toHaveTextContent("W 9–0");
   });
 
+  it("gives each club's profile, form and record by strength, and the common-opponent edge", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    await user.click(screen.getByRole("tab", { name: /scouting/i }));
+    await pickCompare(user, "hawks");
+    const panel = screen.getByRole("region", { name: "River Otters and Hill Hawks compared" });
+    const profiles = within(panel).getByRole("table", { name: "Profiles" });
+    const row = (label: string) =>
+      within(profiles)
+        .getByRole("rowheader", { name: label })
+        .closest("tr")!
+        .querySelectorAll("td");
+    const both = (label: string) => [...row(label)].map((cell) => cell.textContent);
+    // The Otters: 4-6, 8-3 and 1-2; the Hawks: 6-4, 6-5 and 9-0.
+    expect(both("Runs a game")).toEqual(["4.3 – 3.7", "7.0 – 3.0"]);
+    expect(both("Average margin")).toEqual(["+0.7", "+4.0"]);
+    expect(both("Form")).toEqual(["LWL", "WWW"]);
+    // Every opponent is in one of the three, so the three add up to the record.
+    for (const [at, games] of [
+      [0, 3],
+      [1, 3],
+    ] as const) {
+      const played = ["Vs stronger", "Vs similar", "Vs weaker"]
+        .map((label) => row(label)[at]?.textContent ?? "")
+        .filter((text) => text !== "—")
+        .flatMap((text) => text.split("-").map(Number))
+        .reduce((sum, count) => sum + count, 0);
+      expect(played).toBe(games);
+    }
+    // Bears: +5 against +1; Cubs: -1 against +9. Three runs a game the Hawks' way.
+    expect(panel).toHaveTextContent(
+      "Hill Hawks did 3.0 runs a game better than River Otters against the 2 clubs both have played."
+    );
+  });
+
   it("answers first: who should win, who should lose and by how many runs", async () => {
     // The question the box asks is "how would this team fare", so the answer leads, above the games
     // behind it and above the write-up of the team's own rank.

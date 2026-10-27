@@ -50,7 +50,7 @@ describe("GameChanger's record on each link", () => {
     await user.click(screen.getByRole("button", { name: /^Fall 2026/ }));
     await user.click(screen.getByRole("button", { name: /show all/i }));
     await user.click(within(screen.getByRole("table")).getByRole("button", { name: "Aces" }));
-    const panel = screen.getByRole("region", { name: "Aces" });
+    const panel = await screen.findByRole("region", { name: "Aces" });
 
     expect(within(panel).getByText("GameChanger 5-3-1, pulled 2 days ago")).toBeInTheDocument();
     // The spring id, pulled never and with no record of GameChanger's, says nothing.

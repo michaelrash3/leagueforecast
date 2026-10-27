@@ -112,6 +112,28 @@ const ownWrites = (keys: readonly string[]) => {
   return tidy < 0 ? keys : keys.slice(0, tidy);
 };
 
+describe("a club opened from the board", () => {
+  it("opens in a sheet over the board, which Back closes", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool({ search: "?age=10&year=2027" }));
+    await user.click(await screen.findByRole("button", { name: /show all \d+ teams/i }));
+    await user.click(within(screen.getByRole("table")).getByRole("button", { name: "Rays" }));
+    const sheet = await screen.findByRole("dialog", { name: "Rays" });
+    expect(await within(sheet).findByRole("region", { name: "Rays" })).toBeTruthy();
+    expect(window.history.state).toMatchObject({ clubSheet: true });
+    // Each game's What if, from the board behind the sheet.
+    const whatIf = within(sheet).getAllByRole("button", {
+      name: /^What if Rays and .+ met today$/,
+    });
+    expect(whatIf.length).toBeGreaterThan(0);
+    if (whatIf[0]) await user.click(whatIf[0]);
+    expect(sheet).toHaveTextContent(/Win chance: \w+ \d+%/);
+    act(() => window.history.back());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("table")).toBeTruthy();
+  });
+});
+
 describe("a game's score and whether it counts", () => {
   it("takes a score entered for a game still to be played, in its own year alone", async () => {
     const user = userEvent.setup();

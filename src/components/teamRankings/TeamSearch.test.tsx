@@ -84,7 +84,7 @@ describe("finding a team from the Rankings tab", () => {
     await user.click(within(results()[0]!).getByRole("button"));
 
     // Landed on the right page, with the team open — without knowing the season or the level.
-    expect(screen.getByRole("region", { name: "Canes Triad Black" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Canes Triad Black" })).toBeInTheDocument();
     expect(new URLSearchParams(window.location.search).get("age")).toBe("11");
     expect(new URLSearchParams(window.location.search).get("year")).toBe("2028");
   });
@@ -95,7 +95,7 @@ describe("finding a team from the Rankings tab", () => {
     const { results } = await search(user, "raptors");
     await user.click(within(results()[0]!).getByRole("button"));
 
-    expect(screen.getByRole("region", { name: "River City Raptors" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "River City Raptors" })).toBeInTheDocument();
     expect(new URLSearchParams(window.location.search).get("age")).toBe("10");
   });
 

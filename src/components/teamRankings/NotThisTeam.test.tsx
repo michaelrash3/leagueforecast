@@ -75,7 +75,7 @@ const pool = (): Pool => ({
 const openClub = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
   await user.click(await screen.findByRole("button", { name: /show all \d+ teams/i }));
   await user.click(within(screen.getByRole("table")).getByRole("button", { name }));
-  return screen.getByRole("region", { name });
+  return await screen.findByRole("region", { name });
 };
 
 /** The panel's line for the game against `opponent`. */
@@ -107,7 +107,7 @@ describe("Not this team, on a page kept in this browser", () => {
     await user.click(
       within(screen.getByRole("table")).getByRole("button", { name: "Prairie Hawks" })
     );
-    const theirs = screen.getByRole("region", { name: "Prairie Hawks" });
+    const theirs = await screen.findByRole("region", { name: "Prairie Hawks" });
     expect(within(theirs).queryByRole("button", { name: /^Not this team/ })).toBeNull();
   });
 
@@ -122,7 +122,7 @@ describe("Not this team, on a page kept in this browser", () => {
     // Onto the "Eagles" a pull of the Hawks would have filed it against, had the name found nobody.
     await waitFor(() => expect(stored(byName.id)?.teamBId).toBe(ourEagles.id));
     expect(loadScoutTeams().map((entry) => entry.id)).toEqual(pool().teams.map((t) => t.id));
-    const after = screen.getByRole("region", { name: "Eagles" });
+    const after = await screen.findByRole("region", { name: "Eagles" });
     expect(within(after).getByText(/^1-0 in 9U 2027, from 1 game\./)).toBeInTheDocument();
     expect(within(after).queryByText("Prairie Hawks")).toBeNull();
 
@@ -132,7 +132,7 @@ describe("Not this team, on a page kept in this browser", () => {
     expect(call[1]).toMatchObject({ tone: "undo", actionLabel: "Undo" });
     act(() => (call[1] as { onAction: () => void }).onAction());
     await waitFor(() => expect(stored(byName.id)).toEqual(byName));
-    expect(screen.getByRole("region", { name: "Eagles" })).toHaveTextContent(
+    expect(await screen.findByRole("region", { name: "Eagles" })).toHaveTextContent(
       /2-0 in 9U 2027, from 2 games\./
     );
   });
@@ -184,7 +184,7 @@ describe("Not this team, on a page kept in this browser", () => {
       )
     );
     expect(harness.toasts().some((said) => said.includes("nowhere near"))).toBe(false);
-    expect(screen.getByRole("region", { name: "Eagles" })).toHaveTextContent(
+    expect(await screen.findByRole("region", { name: "Eagles" })).toHaveTextContent(
       /2-0 in 9U 2027, from 2 games\./
     );
 
@@ -196,7 +196,7 @@ describe("Not this team, on a page kept in this browser", () => {
     expect(stored(second.id)).toEqual(second);
     expect(loadScoutTeams().map((entry) => entry.id)).toEqual(teams.map((entry) => entry.id));
     expect([...loadNotThisTeam()]).toEqual([]);
-    expect(screen.getByRole("region", { name: "Eagles" })).toHaveTextContent(
+    expect(await screen.findByRole("region", { name: "Eagles" })).toHaveTextContent(
       /4-0 in 9U 2027, from 4 games\./
     );
   });

@@ -9,7 +9,7 @@ import type { LiveEdits } from "../../hooks/useLiveEdits";
 import { gameBreakdown } from "../../lib/gameBreakdown";
 import { gameNotesOf } from "../../lib/live/gameWords";
 import { overlayCard, takenWithOnCard } from "../../lib/live/liveEdits";
-import type { BoardView } from "../../lib/live/views/boardShape";
+import { withMine, type BoardView } from "../../lib/live/views/boardShape";
 import { mintStandInId, takenOffSaid } from "../../lib/notThisTeam";
 import type { AgeGroup, SeasonSegment } from "../../lib/teamRankings";
 import { normalizeState } from "../../lib/teamRankings/names";
@@ -64,6 +64,7 @@ export default function LiveClubPanel({
   onClose,
   onCannot,
   board,
+  watch,
 }: {
   source: LiveViewSource;
   year: number | undefined;
@@ -87,6 +88,8 @@ export default function LiveClubPanel({
    * rating is over as the panel names it, and whether the club is the page's own.
    */
   board?: { view: BoardView; groups: AgeGroup[]; span: string; own: boolean };
+  /** Whether the club is watched on this page, and the way to change it (`TeamDetailPanel`). */
+  watch?: { on: boolean; full: boolean; onToggle: (name: string) => void };
 }) {
   const { card, failed } = useClubCard(source, year, teamId);
   useEffect(() => {
@@ -138,6 +141,13 @@ export default function LiveClubPanel({
       ? gameNotesOf(breakdown, { span: board.span, own: board.own, cap: fit.cap })
       : undefined;
   }, [board, card, teamId, ageGroupId, segment]);
+  // The board's rows by id, for each game's What if (`WhatIf`).
+  const rowOf = useMemo(() => {
+    if (!board) return undefined;
+    // Whose club is the page's own says nothing of a match's odds.
+    const byId = new Map(withMine(board.view.rows, undefined).map((row) => [row.teamId, row]));
+    return (id: string) => byId.get(id);
+  }, [board]);
   const others = useMemo(
     () => candidates.filter((candidate) => candidate.id !== teamId),
     [candidates, teamId]
@@ -207,6 +217,8 @@ export default function LiveClubPanel({
         {...(leagueLink ? { leagueLink } : {})}
         {...(shown.age ? { age: shown.age } : {})}
         mergeCandidates={others}
+        {...(rowOf ? { ratingRowOf: rowOf } : {})}
+        {...(watch ? { watch } : {})}
         onRename={(name) => void rename(name)}
         onSetState={(typed) => {
           const state = typed.trim() === "" ? null : (normalizeState(typed) ?? null);

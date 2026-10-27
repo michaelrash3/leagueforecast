@@ -30,9 +30,11 @@ describe("Team Rankings taking over from the live board", () => {
     expect(screen.queryByRole("button", { name: "Hide the full table" })).toBeNull();
   });
 
-  it("opens the club tapped on the board", () => {
+  it("opens the club tapped on the board", async () => {
     renderTeamRankings({ ...pool(), handover: { openTeamId: "S-B" } });
-    expect(document.getElementById(TEAM_PANEL_ID)?.textContent).toContain("Badgers");
+    await waitFor(() =>
+      expect(document.getElementById(TEAM_PANEL_ID)?.textContent).toContain("Badgers")
+    );
   });
 
   it("keeps the state boards and the full table as they were", () => {

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { ScoutGame, ScoutTeam } from "../../lib/teamRankings";
+import type { ScoutGame, ScoutRankingRow, ScoutTeam } from "../../lib/teamRankings";
 import { isScoutGamePlayed } from "../../lib/teamRankings";
 import { formatIsoDayShort } from "../../lib/date";
 import { windowGames, type GamesWindow } from "../../lib/teamRankings/gamesWindow";
@@ -7,6 +7,8 @@ import type { ToastTone } from "../../hooks/useToast";
 import { ScheduleImportPanel, type NamedChecker } from "../ScheduleImportPanel";
 import type { NamedGame } from "../../lib/teamRankings/namedGames";
 import { TeamNameCombobox } from "../TeamNameCombobox";
+import { TeamSearchSelect } from "../TeamSearchSelect";
+import { WhatIf, WhatIfButton } from "./WhatIf";
 import { button, card, pill } from "../../styles/tokens";
 
 /**
@@ -73,6 +75,11 @@ type GamesSectionProps = {
   onSaveScore: (gameId: string) => void;
   onToggleExcluded: (game: ScoutGame) => void;
   onRemoveGame: (game: ScoutGame) => void;
+  /**
+   * A club's row on the page's board, for a game's What if, worked out from the ratings shown
+   * (`WhatIf`). Absent, or a club the board has no row for, and the game has none.
+   */
+  ratingRowOf?: (teamId: string) => ScoutRankingRow | undefined;
 };
 
 /** Everything that puts a result into the pool by hand: the form, the paste/CSV import, the log. */
@@ -120,6 +127,7 @@ export function GamesSection({
   onSaveScore,
   onToggleExcluded,
   onRemoveGame,
+  ratingRowOf,
 }: GamesSectionProps) {
   /*
    * Whether every game is listed rather than the one day's. Keyed on the page
@@ -132,7 +140,31 @@ export function GamesSection({
     () => windowGames(loggedGames, gamesWindow, keep),
     [loggedGames, gamesWindow, keep]
   );
-  const listed = showingAll ? loggedGames : windowed.shown;
+  /*
+   * One club's games, every one of them on the page whatever their day, picked by name: a page of
+   * thousands of games listed a day at a time, and a club's season was a scroll through all of them.
+   * Kept per page, as every game listed is.
+   */
+  const [clubFor, setClubFor] = useState<{ page: string; id: string } | null>(null);
+  const club = clubFor !== null && clubFor.page === ageGroupId ? clubFor.id : null;
+  const clubOptions = useMemo(() => {
+    const ids = new Set<string>();
+    for (const game of loggedGames) {
+      ids.add(game.teamAId);
+      ids.add(game.teamBId);
+    }
+    return [...ids].map((id) => ({ id, label: teamNameById.get(id) ?? "?" }));
+  }, [loggedGames, teamNameById]);
+  const clubGames = useMemo(
+    () =>
+      club === null
+        ? null
+        : loggedGames.filter((game) => game.teamAId === club || game.teamBId === club),
+    [club, loggedGames]
+  );
+  const listed = clubGames ?? (showingAll ? loggedGames : windowed.shown);
+  // The game whose What if is open.
+  const [whatIf, setWhatIf] = useState<string | null>(null);
   const day = formatIsoDayShort(gamesWindow.day);
   const windowLine =
     gamesWindow.basis === "today"
@@ -150,7 +182,7 @@ export function GamesSection({
    * switch between the day and every game, starts at the top again by itself, and nothing has to
    * fire after render to make it so.
    */
-  const listKey = `${ageGroupId}|${showingAll ? "all" : "window"}`;
+  const listKey = `${ageGroupId}|${club ?? (showingAll ? "all" : "window")}`;
   const [listLimit, setListLimit] = useState({ key: listKey, count: GAMES_SHOWN_FIRST });
   const shown = listLimit.key === listKey ? listLimit.count : GAMES_SHOWN_FIRST;
   const shownGames = listed.slice(0, shown);
@@ -281,7 +313,33 @@ export function GamesSection({
           schedule (played and upcoming) counts in the rankings and the scouting report but
           isn&apos;t listed here.
         </p>
-        {loggedGames.length > 0 && (showingAll || windowed.hidden > 0) && (
+        {clubOptions.length > 1 && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+            <label htmlFor="scout-games-club" className="font-semibold">
+              One club&apos;s games
+            </label>
+            <div className="min-w-[14rem] flex-1">
+              <TeamSearchSelect
+                id="scout-games-club"
+                value={club ?? ""}
+                onChange={(id) => setClubFor({ page: ageGroupId, id })}
+                options={clubOptions}
+                placeholder="Find a club on this page"
+              />
+            </div>
+            {club !== null && (
+              <>
+                <span>
+                  {gamesCount(clubGames?.length ?? 0)} for {teamNameById.get(club) ?? "?"}.
+                </span>
+                <button type="button" onClick={() => setClubFor(null)} className={button.ghost}>
+                  Every club
+                </button>
+              </>
+            )}
+          </div>
+        )}
+        {club === null && loggedGames.length > 0 && (showingAll || windowed.hidden > 0) && (
           <div
             className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400"
             data-testid="games-window"
@@ -309,101 +367,115 @@ export function GamesSection({
         <ul className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
           {shownGames.map((game) => {
             const played = isScoutGamePlayed(game);
+            const rowA = ratingRowOf?.(game.teamAId);
+            const rowB = ratingRowOf?.(game.teamBId);
+            const nameA = teamNameById.get(game.teamAId) ?? "?";
+            const nameB = teamNameById.get(game.teamBId) ?? "?";
             return (
-              <li
-                key={game.id}
-                className="flex flex-col gap-2 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between"
-              >
-                <span>
-                  {played ? (
-                    <>
-                      <span className="font-bold text-slate-950 dark:text-white">
-                        {teamNameById.get(game.teamAId) ?? "?"} {game.teamAScore}
+              <li key={game.id} className="py-2.5 text-sm">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <span>
+                    {played ? (
+                      <>
+                        <span className="font-bold text-slate-950 dark:text-white">
+                          {nameA} {game.teamAScore}
+                        </span>
+                        {" – "}
+                        <span className="font-bold text-slate-950 dark:text-white">
+                          {nameB} {game.teamBScore}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-bold text-slate-950 dark:text-white">
+                          {nameA} vs {nameB}
+                        </span>
+                        <span className={`ml-2 ${pill("neutral")}`}>Scheduled</span>
+                      </>
+                    )}
+                    {game.excluded && (
+                      <span className={`ml-2 ${pill("amber")}`} title="Kept, but not counted">
+                        Not counted
                       </span>
-                      {" – "}
-                      <span className="font-bold text-slate-950 dark:text-white">
-                        {teamNameById.get(game.teamBId) ?? "?"} {game.teamBScore}
+                    )}
+                    {game.event && (
+                      <span className="ml-2 text-slate-500 dark:text-slate-400">{game.event}</span>
+                    )}
+                    {game.date && <span className="ml-2 text-slate-400">{game.date}</span>}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    {!played && editingGameId === game.id ? (
+                      <span className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          value={editScoreA}
+                          onChange={(event) => onEditScoreA(event.target.value)}
+                          placeholder="Score"
+                          className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-800 dark:bg-slate-900"
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          value={editScoreB}
+                          onChange={(event) => onEditScoreB(event.target.value)}
+                          placeholder="Score"
+                          className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-800 dark:bg-slate-900"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => onSaveScore(game.id)}
+                          className="text-xs font-bold text-emerald-700 hover:underline dark:text-emerald-400"
+                        >
+                          Save
+                        </button>
                       </span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="font-bold text-slate-950 dark:text-white">
-                        {teamNameById.get(game.teamAId) ?? "?"} vs{" "}
-                        {teamNameById.get(game.teamBId) ?? "?"}
-                      </span>
-                      <span className={`ml-2 ${pill("neutral")}`}>Scheduled</span>
-                    </>
-                  )}
-                  {game.excluded && (
-                    <span className={`ml-2 ${pill("amber")}`} title="Kept, but not counted">
-                      Not counted
-                    </span>
-                  )}
-                  {game.event && (
-                    <span className="ml-2 text-slate-500 dark:text-slate-400">{game.event}</span>
-                  )}
-                  {game.date && <span className="ml-2 text-slate-400">{game.date}</span>}
-                </span>
-                <span className="flex items-center gap-2">
-                  {!played && editingGameId === game.id ? (
-                    <span className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        min={0}
-                        value={editScoreA}
-                        onChange={(event) => onEditScoreA(event.target.value)}
-                        placeholder="Score"
-                        className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-800 dark:bg-slate-900"
-                      />
-                      <input
-                        type="number"
-                        min={0}
-                        value={editScoreB}
-                        onChange={(event) => onEditScoreB(event.target.value)}
-                        placeholder="Score"
-                        className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-800 dark:bg-slate-900"
-                      />
+                    ) : (
+                      !played && (
+                        <button
+                          type="button"
+                          onClick={() => onStartEditScore(game.id)}
+                          className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                        >
+                          Enter score
+                        </button>
+                      )
+                    )}
+                    {played && (
                       <button
                         type="button"
-                        onClick={() => onSaveScore(game.id)}
-                        className="text-xs font-bold text-emerald-700 hover:underline dark:text-emerald-400"
+                        onClick={() => onToggleExcluded(game)}
+                        className="text-xs font-bold text-amber-700 hover:underline dark:text-amber-500"
+                        title={
+                          game.excluded
+                            ? "Count this game toward the rankings again"
+                            : "Keep this game logged, but leave it out of the rankings"
+                        }
                       >
-                        Save
+                        {game.excluded ? "Count it" : "Don't count"}
                       </button>
-                    </span>
-                  ) : (
-                    !played && (
-                      <button
-                        type="button"
-                        onClick={() => onStartEditScore(game.id)}
-                        className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-                      >
-                        Enter score
-                      </button>
-                    )
-                  )}
-                  {played && (
+                    )}
+                    {rowA && rowB && (
+                      <WhatIfButton
+                        open={whatIf === game.id}
+                        onToggle={() => setWhatIf((open) => (open === game.id ? null : game.id))}
+                        label={`${nameA} and ${nameB}`}
+                      />
+                    )}
                     <button
                       type="button"
-                      onClick={() => onToggleExcluded(game)}
-                      className="text-xs font-bold text-amber-700 hover:underline dark:text-amber-500"
-                      title={
-                        game.excluded
-                          ? "Count this game toward the rankings again"
-                          : "Keep this game logged, but leave it out of the rankings"
-                      }
+                      onClick={() => onRemoveGame(game)}
+                      className={button.danger}
                     >
-                      {game.excluded ? "Count it" : "Don't count"}
+                      Remove
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => onRemoveGame(game)}
-                    className={button.danger}
-                  >
-                    Remove
-                  </button>
-                </span>
+                  </span>
+                </div>
+                {whatIf === game.id && rowA && rowB && (
+                  <div className="mt-1">
+                    <WhatIf a={rowA} b={rowB} />
+                  </div>
+                )}
               </li>
             );
           })}

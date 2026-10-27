@@ -38,7 +38,7 @@ const openAces = async (user: ReturnType<typeof userEvent.setup>) => {
   const table = screen.getByRole("table");
   const row = within(table).getByRole("button", { name: "Aces" }).closest("tr")!;
   await user.click(within(table).getByRole("button", { name: "Aces" }));
-  return { panel: screen.getByRole("region", { name: "Aces" }), row };
+  return { panel: await screen.findByRole("region", { name: "Aces" }), row };
 };
 
 const openHalf = async (user: ReturnType<typeof userEvent.setup>, label: RegExp) => {

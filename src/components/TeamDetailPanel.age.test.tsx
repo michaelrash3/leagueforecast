@@ -92,7 +92,7 @@ const openHive = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(
     within(within(list).getByRole("option", { name: /Nettlefield Hive/ })).getByRole("button")
   );
-  return screen.getByRole("region", { name: "Nettlefield Hive *Fall Ball*" });
+  return await screen.findByRole("region", { name: "Nettlefield Hive *Fall Ball*" });
 };
 
 describe("setting a club's age on its panel", () => {
@@ -219,7 +219,7 @@ describe("finding a club by its GameChanger link", () => {
     const option = within(list).getByRole("option", { name: /Nettlefield Gales/ });
     expect(option).toHaveTextContent("9U 2027");
     await user.click(within(option).getByRole("button"));
-    expect(screen.getByRole("region", { name: "Nettlefield Gales" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Nettlefield Gales" })).toBeInTheDocument();
   });
 
   it("says where an id is that no club carries", async () => {
@@ -316,7 +316,9 @@ describe("finding a club known only from other clubs' schedules", () => {
     const option = within(list).getByRole("option", { name: /Nettlefield Wasps/ });
     expect(option).toHaveTextContent("9U 2027");
     await user.click(within(option).getByRole("button"));
-    expect(screen.getByRole("region", { name: "Nettlefield Wasps" })).toHaveTextContent("Owls");
+    expect(await screen.findByRole("region", { name: "Nettlefield Wasps" })).toHaveTextContent(
+      "Owls"
+    );
   });
 });
 
@@ -419,7 +421,7 @@ describe("the age choice on a panel left open", () => {
 
     await user.selectOptions(screen.getByLabelText("Season"), "2026");
 
-    const still = screen.getByRole("region", { name: "Nettlefield Hive *Fall Ball*" });
+    const still = await screen.findByRole("region", { name: "Nettlefield Hive *Fall Ball*" });
     expect(within(still).getByLabelText("Age")).toHaveValue("10");
   });
 });

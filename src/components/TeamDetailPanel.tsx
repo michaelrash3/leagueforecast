@@ -17,6 +17,7 @@ import {
   type GcAgeSource,
   type GcTeamLink,
   type ScoutGame,
+  type ScoutRankingRow,
   type ScoutTeam,
   type SeasonSegment,
 } from "../lib/teamRankings";
@@ -26,6 +27,7 @@ import { coachesOf } from "../lib/gcStaff";
 import { agoLabel } from "../lib/date";
 import { TeamSearchSelect } from "./TeamSearchSelect";
 import { TEAM_PANEL_ID } from "./teamPanelId";
+import { WhatIf, WhatIfButton } from "./teamRankings/WhatIf";
 import { button, card, pill, textRole } from "../styles/tokens";
 
 /** The panel's element id, for a list elsewhere on the page that opens a team to scroll to it. */
@@ -115,6 +117,13 @@ type TeamDetailPanelProps = {
     key: string;
     byGame: ReadonlyMap<string, readonly string[]>;
   };
+  /**
+   * A club's row on the board behind the panel, for each game's What if, worked out from the
+   * ratings shown (`WhatIf`). Absent, or either club without a row, and the game has none.
+   */
+  ratingRowOf?: (teamId: string) => ScoutRankingRow | undefined;
+  /** Whether the club is watched on this page, and the way to watch it or stop (`watchList.ts`). */
+  watch?: { on: boolean; full: boolean; onToggle: (name: string) => void };
 };
 
 /** Which rule of the import filed a link at its level, as the link line says it. */
@@ -190,7 +199,12 @@ export function TeamDetailPanel({
   onClose,
   readOnly = false,
   gameNotes,
+  ratingRowOf,
+  watch,
 }: TeamDetailPanelProps) {
+  // The game whose What if is open.
+  const [whatIf, setWhatIf] = useState<string | null>(null);
+  const ownRow = ratingRowOf?.(team.id);
   const [draftName, setDraftName] = useState(team.name);
   // The state box holds what is being typed: one letter is a state on its way, not a state to
   // save, and saved as it was typed the club's state was cleared at the first letter and the box
@@ -343,6 +357,15 @@ export function TeamDetailPanel({
       ([id, name]) => id !== team.id && teamNameKey(name) === teamNameKey(trimmed)
     );
 
+  const closeButton = (
+    <button
+      type="button"
+      onClick={onClose}
+      className="text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
+    >
+      Close
+    </button>
+  );
   return (
     // A region rather than a plain box: this opens in answer to a click somewhere else on the
     // page, and naming it after the team is what tells a screen-reader user which team arrived.
@@ -381,13 +404,27 @@ export function TeamDetailPanel({
               : ""}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
-        >
-          Close
-        </button>
+        {watch ? (
+          <span className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => watch.onToggle(team.name)}
+              aria-pressed={watch.on}
+              disabled={!watch.on && watch.full}
+              title={
+                !watch.on && watch.full
+                  ? "Five clubs are watched on this page already. Stop watching one first."
+                  : undefined
+              }
+              className="text-xs font-bold text-blue-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline dark:text-blue-400"
+            >
+              {watch.on ? "Watching" : "Watch"}
+            </button>
+            {closeButton}
+          </span>
+        ) : (
+          closeButton
+        )}
       </div>
 
       {!readOnly && (
@@ -683,6 +720,9 @@ export function TeamDetailPanel({
             // counted over: the window holds only games that count (`countsTowardRating`, so
             // played, not set aside and not against the club's own name) in the half on screen.
             const clauses = notes && inWindow.has(game.id) ? notes.byGame.get(game.id) : undefined;
+            const opponentRow = ratingRowOf?.(
+              game.teamAId === team.id ? game.teamBId : game.teamAId
+            );
             return (
               <li
                 key={game.id}
@@ -752,7 +792,19 @@ export function TeamDetailPanel({
                       Not this team
                     </button>
                   )}
+                  {ownRow && opponentRow && (
+                    <WhatIfButton
+                      open={whatIf === game.id}
+                      onToggle={() => setWhatIf((open) => (open === game.id ? null : game.id))}
+                      label={`${team.name} and ${line.opponent}`}
+                    />
+                  )}
                 </span>
+                {whatIf === game.id && ownRow && opponentRow && (
+                  <div className="basis-full">
+                    <WhatIf a={ownRow} b={opponentRow} />
+                  </div>
+                )}
                 {clauses && (
                   // Each clause moves to the next line whole where it does not fit beside the one
                   // before, and wraps inside only where it is wider than the line itself. Kept on

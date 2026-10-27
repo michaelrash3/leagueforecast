@@ -211,6 +211,17 @@ export function ScoutingSection({
     [rankings, placeOf, coachesFor]
   );
 
+  /**
+   * Scout from Next up: the opponent set beside the report's club in Compare with, the one card a
+   * pick there by hand reads, and the reader taken up to it.
+   */
+  const scout = (teamId: string) => {
+    onCompareChange?.(teamId);
+    window.requestAnimationFrame(() =>
+      document.getElementById("scout-compare-team")?.scrollIntoView?.({ block: "center" })
+    );
+  };
+
   /** The same options, minus the team the report is about — it cannot be its own opponent. */
   // One shape rendered, the way the rankings table does it: see `useWideViewport`.
   const wide = useWideViewport();
@@ -389,6 +400,12 @@ export function ScoutingSection({
                         open={whatIfGameId === row.gameId}
                         onToggle={onToggleWhatIf}
                       />
+                      {onCompareChange && row.tier !== undefined && (
+                        <ScoutButton
+                          name={row.opponentName}
+                          onScout={() => scout(row.opponentId)}
+                        />
+                      )}
                     </td>
                     {/* An opponent nobody has pulled has no rating, and a made-up one would be
                       worse than none: the row says so and stops there. */}
@@ -447,6 +464,9 @@ export function ScoutingSection({
               <div className="mt-1 font-bold wrap-break-word text-slate-950 dark:text-white">
                 {row.opponentName}
               </div>
+              {onCompareChange && row.tier !== undefined && (
+                <ScoutButton name={row.opponentName} onScout={() => scout(row.opponentId)} />
+              )}
               {placeOf(row.opponentId) && (
                 <div className="text-xs text-slate-500 dark:text-slate-400">
                   {placeOf(row.opponentId)}
@@ -909,5 +929,19 @@ function WhatIfPanel({
         </p>
       )}
     </div>
+  );
+}
+
+/** Scout, beside a game still to play: its opponent into Compare with. */
+export function ScoutButton({ name, onScout }: { name: string; onScout: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onScout}
+      aria-label={`Scout ${name}`}
+      className="mt-1 block text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+    >
+      Scout
+    </button>
   );
 }

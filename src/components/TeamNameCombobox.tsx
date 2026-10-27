@@ -61,7 +61,10 @@ export function TeamNameCombobox({
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={(event) => {
-          if (event.key === "Escape") setOpen(false);
+          if (event.key !== "Escape") return;
+          // Said used, so a sheet the box is in closes the list alone (`ClubSheet`).
+          if (open) event.preventDefault();
+          setOpen(false);
         }}
         placeholder={placeholder}
         className={className}

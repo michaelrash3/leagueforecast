@@ -607,6 +607,21 @@ results of one day stay in the order the pool lists them, as a club's panel list
 them. The forecast is one number; this is the evidence it is made of. Names and
 scores only.
 
+Above the games, a profile of each side from the same games: runs scored and allowed
+a game and the average margin; the record against opponents rated more than 1.5 runs
+above the club, within 1.5 runs, and more than 1.5 below (`SIMILAR_BAND`, where a
+matchup reads about 60-40 at 12U; an opponent with no rating on the board is in none,
+and a club with none of its own has no split); and its form, the last five as letters,
+newest first. Under the common opponents' heading, the edge in words: each common
+opponent's margin for one club less the other's, averaged over the opponents ("Hill
+Hawks did 3.0 runs a game better than River Otters against the 2 clubs both have
+played"). Nothing more is read for it than Compare already reads.
+
+**Scout**, beside each rated game still to play on Next up, and beside the next game
+on the board's own-club card, sets that opponent in Compare with: the one card a pick
+there by hand would read, and nothing more. From the board it opens Scouting on our
+own club's report first.
+
 **Tournament field** plays a weekend out before it is played. Build the field by
 name, or from the report team's own next opponents in one press, choose pools and
 a bracket of two, four or eight, and the event is simulated 2,000 times on the
@@ -617,8 +632,12 @@ game is won with the scouting report's chance. Ties on wins are drawn, because a
 tournament's run-differential rules are its own. The panel gives the field's
 strength (average rating and rank, and its best club) and each club's chance to
 win its pool, reach the final and win, marking as a guess a club whose rating was
-worked out against a different set of teams from most of the field. Fields are
-saved in this browser by name, per age group.
+worked out against a different set of teams from most of the field. Beside the
+odds are each club's record and rating on the board, and, where the report's club
+is ranked here, its projected margin and chance against each one (Us by, Our
+chance), from the same preview a matchup row's What if reads, so the table reads as
+the weekend from our bench and not only as odds. Fields are saved in this browser
+by name, per age group.
 
 The projection is the rating difference, capped at 14 runs, put through a
 logistic curve; no home-field term, because at this level which side is "home" is
@@ -2006,6 +2025,18 @@ does not vanish the moment it goes in. On the pool of 29 September 2026 the 12U
 page of 2027 held 45,107 games: 326 of them were that day's, against 11,348
 within a week either side, and 2,465 dated earlier had no score yet. The list
 still draws them a hundred at a time (`gamesWindow.ts`, `GamesSection`).
+
+**One club's games.** A box above the list finds a club on the page by name and lists every
+game it has there, whatever the day, newest first; **Every club** goes back to the day's list.
+A club's season was otherwise a scroll through a whole page's games, every one of them listed.
+Kept per page, as everything else the list shows is.
+
+**What if?** Beside any game whose two clubs both have a row on the board on screen, on the
+Games tab and in a club's panel, on the live board and this device's copy alike. It opens a
+line under the game: the two clubs met today, on the ratings the board shows, worked out on the
+device (`previewMatchup`) and said as Compare with says it (`forecastWords`), with the same
+warning where nothing joins the two. On a played game it is what the board makes of the two
+now, not what anyone expected then. Nothing is fetched for it (`WhatIf`).
 
 ### Importing
 
@@ -6987,7 +7018,24 @@ a test, 33 of 33, two of them only after their tests were tightened.
 **A club's panel.** A club tapped on the board opens its panel from its card
 (`LiveClubPanel`): its bucket read through the same checks as a board, and drawn by
 Team Rankings' own panel. The panel and the pool's codec it checks a card by load
-only when a club is opened. A club whose card cannot be read (no card, a bucket
+only when a club is opened. It opens in a sheet over the board (`ClubSheet`), on this
+device's copy too, where it was drawn at the foot of the page and scrolled to, and the
+place on the board was lost: Close, Esc, the shade beside it or Back closes it and
+puts focus back on what opened it. Back closes it because opening it adds a history
+entry, the page's own address marked `clubSheet`, in the click rather than an effect,
+which React's strict mode runs twice; closed by its own controls the entry is taken
+back with `history.back()`, whose popstate is let pass (`clubSheetHistory.ts`). Tab
+stays in the sheet, the page behind does not scroll, and an Esc a name box used to
+close its list is left to the box. This device's copy fetches the panel as a club is
+first opened too, which took 4.5 KB off opening Team Rankings.
+
+**Watching a few clubs.** A club's panel has **Watch**, and the clubs watched on a page, up to
+five (the owner's choice of 26 October 2026), are a card at the top of that page's board: each
+one's place, record and rating on the board on screen, a tap from its panel, and **Stop**. A
+sixth's Watch is off until one is let go. Kept on this device alone (`watchList.ts`, by page,
+each club with its name as it was watched, so one with no row on the board on screen, the other
+half of the season, is still named and says so), on the live board and this device's copy alike.
+Nothing about it reaches the cloud copy. A club whose card cannot be read (no card, a bucket
 damaged or gone, or offline with none kept) says so in the panel's place, with Try
 again and Close (1.6e), kept with the meta it was read by, as a list not read is, so
 the panel is drawn again, reading the card, once the cloud publishes; a refusal

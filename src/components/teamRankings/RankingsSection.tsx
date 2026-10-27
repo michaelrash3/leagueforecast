@@ -10,6 +10,8 @@ import { useWideViewport } from "../../hooks/useWideViewport";
 import type { MyTeamGlance } from "../../lib/myTeamGlance";
 import type { Movement } from "../../lib/rankMovement";
 import { MyTeamCard } from "./MyTeamCard";
+import { WatchCard } from "./WatchCard";
+import type { Watched } from "../../lib/watchList";
 import type { RankHistoryPoint } from "../../hooks/useRankingsWorker";
 import { card, focusRing, pill, textRole } from "../../styles/tokens";
 
@@ -94,6 +96,14 @@ type RankingsSectionProps = {
   myTeamNextPending?: boolean;
   /** Whether the marked club's next game could not be read (`MyTeamCard`). */
   myTeamNextUnread?: boolean;
+  /** Scouting's Compare with on our next game's opponent (`MyTeamCard`). */
+  onScoutNext?: (opponentId: string) => void;
+  /** The clubs watched on this page, for the card at the top of its board (`WatchCard`). */
+  watch?: {
+    watched: readonly Watched[];
+    rowOf: (teamId: string) => ScoutRankingRow | undefined;
+    onStop: (club: Watched) => void;
+  };
 };
 
 /**
@@ -154,6 +164,8 @@ export function RankingsSection({
   searchFailed = false,
   myTeamNextPending = false,
   myTeamNextUnread = false,
+  watch,
+  onScoutNext,
 }: RankingsSectionProps) {
   // Keyed on the filter, so choosing another state starts at the top again without an effect.
   const [rowLimit, setRowLimit] = useState({ key: stateFilter, count: ROWS_SHOWN_FIRST });
@@ -246,6 +258,7 @@ export function RankingsSection({
         </div>
       ) : (
         <>
+          {watch && <WatchCard {...watch} onOpenTeam={onOpenTeam} />}
           {myTeam && (
             <MyTeamCard
               glance={myTeam}
@@ -254,6 +267,7 @@ export function RankingsSection({
               onOpenTeam={onOpenTeam}
               nextPending={myTeamNextPending}
               nextUnread={myTeamNextUnread}
+              {...(onScoutNext ? { onScout: onScoutNext } : {})}
             />
           )}
           {thisWeek && <ThisWeekCard movers={thisWeek} onOpenTeam={onOpenTeam} />}

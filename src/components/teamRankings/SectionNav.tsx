@@ -42,9 +42,12 @@ const SECTION_ICONS: Partial<Record<RankingsSection, ReactNode>> = {
 export function SectionNav({
   current,
   onSelect,
+  inBar = false,
 }: {
   current: RankingsSection;
   onSelect: (section: RankingsSection) => void;
+  /** Drawn in a row of its own (`RankingsHeader`), which spaces it, rather than under the card's. */
+  inBar?: boolean;
 }) {
   const narrow = useNarrowViewport();
   const modeSwitch = useContext(ModeSwitchContext);
@@ -67,7 +70,11 @@ export function SectionNav({
       narrow={narrow}
       primary={PHONE_SECTIONS}
       actions={modeSwitch ? [modeSwitch] : []}
-      className="mt-3 -mx-1 border-t border-slate-100 px-1 pt-3 dark:border-slate-800"
+      className={
+        inBar
+          ? "-mx-1 px-1"
+          : "mt-3 -mx-1 border-t border-slate-100 px-1 pt-3 dark:border-slate-800"
+      }
     />
   );
 }

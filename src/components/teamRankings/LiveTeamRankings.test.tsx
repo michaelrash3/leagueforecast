@@ -1,3 +1,4 @@
+import { forgetWatchList, watchedOn } from "../../lib/watchList";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { NO_REMOVALS } from "../../lib/autoRemoved";
 import { BROUGHT_BACK } from "../../lib/gcIdWhereabouts";
@@ -1402,6 +1403,15 @@ describe("a club's panel on the cloud's board", () => {
     release();
     await waitFor(() => expect(mine.textContent).toContain("vs Placeholder S-1 (#1)"));
     expect(mine.textContent).not.toContain("loading");
+    // Scout takes our club's report to Scouting, its next opponent in Compare with.
+    fireEvent.click(within(mine).getByRole("button", { name: "Scout Placeholder S-1" }));
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /scouting/i })).toHaveAttribute(
+        "aria-selected",
+        "true"
+      )
+    );
+    expect(window.location.search).toContain("section=scouting");
   });
 
   it("marks a club as the page's own through the edit function, with the club as its card has it, drawn at once", async () => {
@@ -1476,6 +1486,22 @@ describe("a club's panel on the cloud's board", () => {
     expect(screen.getAllByText("★ My team").length).toBeGreaterThan(0);
   });
 
+  it("watches a club from its panel, at the top of the board, on this device", async () => {
+    window.localStorage.removeItem("lf_watch_v1");
+    forgetWatchList();
+    await withCard();
+    open(sourcesOf(live));
+    await tapClub("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Watch" }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Close" }));
+    const card = await screen.findByRole("region", { name: "Watching" });
+    expect(within(card).getByRole("button", { name: "Placeholder S-1" })).toBeTruthy();
+    expect(watchedOn(PAGE)).toEqual([{ id: "S-1", name: "Placeholder S-1" }]);
+    window.localStorage.removeItem("lf_watch_v1");
+    forgetWatchList();
+  });
+
   it("opens from its card, with its record and games", async () => {
     await withCard();
     open(sourcesOf(live));
@@ -1490,6 +1516,17 @@ describe("a club's panel on the cloud's board", () => {
     // Its card names no game it has by a name alone, so none is offered to take off it.
     expect(within(panel).queryByRole("button", { name: /^Not this team/ })).toBeNull();
     expect(handedOver()).toBeNull();
+    // Each game's What if, from the board behind the panel.
+    const whatIf = within(panel).getAllByRole("button", {
+      name: "What if Placeholder S-1 and Placeholder S-2 met today",
+    })[0];
+    if (whatIf) fireEvent.click(whatIf);
+    expect(panel).toHaveTextContent(/Win chance: Placeholder S-\d \d+%/);
+    // In a sheet over the board, which Back closes.
+    expect(screen.getByRole("dialog", { name: "Placeholder S-1" })).toContainElement(panel);
+    expect(window.history.state).toMatchObject({ clubSheet: true });
+    act(() => window.history.back());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   const pause = (ms: number) => act(() => new Promise((resolve) => setTimeout(resolve, ms)));
@@ -2122,6 +2159,18 @@ describe("the Games tab on the cloud's board", () => {
       ["S-9", "Placeholder S-9"],
     ]),
   };
+
+  it("offers each game's What if from the board on screen", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    onGames();
+    open(sourcesOf(live));
+    await screen.findByText(/^Today's games/);
+    const button = screen.getByRole("button", {
+      name: "What if Placeholder S-1 and Placeholder S-2 met today",
+    });
+    fireEvent.click(button);
+    expect(button.closest("li")).toHaveTextContent(/Win chance: Placeholder S-\d \d+%/);
+  });
 
   it("lists the page's games from its list, today's first, each with its own buttons", async () => {
     await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
