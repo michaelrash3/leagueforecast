@@ -113,9 +113,11 @@ import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
 import { downloadCsv, fileDay } from "../lib/download";
 import {
   flushPoolWrites,
+  loadAgeGroups,
   loadAgeUnknown,
   loadRefreshCadence,
   loadScoutGames,
+  loadScoutTeams,
   loadScoutGamesForPages,
   saveRefreshCadence,
   loadPullLog,
@@ -207,8 +209,9 @@ type GameChangerImportPanelProps = {
    * its pull. Up, for the same reason as the clubs thrown out: the marks are the view's state. With
    * the clubs the tidy spares (the real list and every club a League Standings team links), which
    * the view deletes none of when it deletes the clubs a lopsided score marked (`lopsidedDrops`).
+   * Answers with the clubs it deleted, which this run's working copy still holds.
    */
-  onSwept?: (change: MarksChange, spared: ReadonlySet<string>) => void;
+  onSwept?: (change: MarksChange, spared: ReadonlySet<string>) => readonly string[];
   /** Which levels have already had their turn today, and how to record that they have. */
   refreshLog: RefreshLog;
   onRefreshLog: (log: RefreshLog) => void;
@@ -1351,10 +1354,23 @@ export function GameChangerImportPanel({
       // Thrown out like a club somebody deleted by hand, which is the page's to do.
       if (lists.invented.length > 0) onInvented(lists.invented);
       if (outcome?.marks) {
-        onSwept?.(
+        const deleted = onSwept?.(
           outcome.marks,
           new Set([...loadRealClubs(), ...leagueLinkedClubsOf(outcome.state, readStoredSeason)])
         );
+        /*
+         * The clubs it deleted are gone from storage and not from this run's working copy, which
+         * the pairings below are offered from and an approved pairing saves whole: left as it was,
+         * pairing any two clubs put the deleted ones and their games back (Codex, #469). Read back
+         * from the store, as the whole pool is read back for the ending above.
+         */
+        if (deleted && deleted.length > 0) {
+          heldRef.current = holdingNow(heldRef.current, {
+            ageGroups: loadAgeGroups(),
+            teams: loadScoutTeams(),
+            games: loadScoutGames(),
+          });
+        }
       }
 
       track(() => {

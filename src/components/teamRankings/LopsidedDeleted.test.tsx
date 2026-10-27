@@ -47,6 +47,7 @@ vi.mock("../../lib/gameChangerClient", async () => {
                 id: teamId,
                 name: rout ? "Wexcombe Wreckers 12U" : "Real Club 12U",
                 ageLevel: 12,
+                ...(rout ? {} : { state: "KY", avatarKey: "real-club-badge" }),
                 season: { season: "fall", year: 2026 },
               },
               games: [
@@ -92,6 +93,48 @@ describe("a pull from the page that meets a club reporting a game won by 40 or m
     expect(loadAutoRemoved().has(ROUT)).toBe(false);
     expect(loadScoutGames().filter((game) => game.id.includes(ROUT))).toEqual([]);
     expect(holds(REAL)).toBe(true);
+  });
+
+  it("stays deleted when a squad pairing is approved at the end of the same pull", async () => {
+    // The pull's working copy still held the club after the page deleted it, and approving any
+    // pairing saved that copy whole: the club and its 80-0 came back (Codex, #469).
+    const user = userEvent.setup();
+    const page = ageGroup(11, 2026);
+    renderTeamRankings({
+      ageGroups: [page],
+      teams: [
+        {
+          // The same squad's spring id a year younger, which the pulled fall one carries on from.
+          id: "S-REALSPR",
+          name: "Real Club",
+          state: "KY",
+          gcTeams: [
+            {
+              teamId: "RealSpri0003",
+              name: "Real Club 11U",
+              ageGroupId: page.id,
+              ageLevel: 11,
+              season: "spring",
+              seasonYear: 2026,
+              avatarKey: "real-club-badge",
+            },
+          ],
+        },
+      ],
+      games: [],
+      search: "?section=import",
+    });
+    await user.type(await screen.findByLabelText("Teams"), `${ROUT}\n${REAL}`);
+    await user.click(screen.getByRole("button", { name: /^Pull \d+ schedules?$/ }));
+    await waitFor(() => expect([...loadDroppedClubs()]).toEqual([ROUT]));
+    await user.click(await screen.findByRole("checkbox", { name: /Spring 2026 → Fall 2026/ }));
+    await user.click(screen.getByRole("button", { name: "Pair 1 and finish" }));
+    await waitFor(() =>
+      expect(loadScoutTeams().filter((team) => team.name.startsWith("Real Club"))).toHaveLength(1)
+    );
+    expect(holds("RealSpri0003") && holds(REAL)).toBe(true);
+    expect(holds(ROUT)).toBe(false);
+    expect(loadScoutGames().filter((game) => game.id.includes(ROUT))).toEqual([]);
   });
 
   it("keeps one a League Standings team picks, marked and on its boards", async () => {

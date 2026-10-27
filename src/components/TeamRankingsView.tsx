@@ -2579,9 +2579,9 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 runCommand({ kind: "autoRemoved", ...change }, { quiet: true });
                 // ...and those marked for a game their own schedule reports won or lost by 40 or
                 // more deleted outright, as the nightly deletes them (`lopsidedDrops`).
-                for (const teamId of lopsidedDrops(loadAutoRemoved(), loadScoutTeams(), spared)) {
-                  runCommand({ kind: "club.drop", teamId }, { quiet: true });
-                }
+                return lopsidedDrops(loadAutoRemoved(), loadScoutTeams(), spared).filter(
+                  (teamId) => runCommand({ kind: "club.drop", teamId }, { quiet: true }).ok
+                );
               }}
               savedProgress={pullProgress}
               onPersist={(next, holding) => {
