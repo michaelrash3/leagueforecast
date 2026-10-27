@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DAY_CHECK_TIDY_RULES,
   refileStandIns,
   resettleOffLevel,
   tidyChangedAnything,
@@ -70,12 +71,14 @@ const pool = (games: ScoutGame[], teams: ScoutTeam[] = []): GcImportState => ({
 const against = (state: GcImportState, id: string): string | undefined =>
   state.games.find((game) => game.id === id)?.teamBId;
 
-const IN_STATE: TidyRules = { inState: { rareAmong: 1, nearLevel: false } };
-const NEAR: TidyRules = { inState: { rareAmong: 1, nearLevel: true } };
+const IN_STATE: TidyRules = { inState: { rareAmong: 1, nearLevel: false, vouched: false } };
+const NEAR: TidyRules = { inState: { rareAmong: 1, nearLevel: true, vouched: false } };
 
 describe("a stand-in of the one pulled club of its name in the namer's state", () => {
-  it("stays a stand-in under the rules as shipped, its club having no game of its own that day", () => {
-    expect(refileStandIns(pool([fromEdmond, fromNorman])).refiled).toBe(0);
+  it("stays a stand-in under the day check, its club having no game of its own that day", () => {
+    expect(
+      refileStandIns(pool([fromEdmond, fromNorman]), undefined, DAY_CHECK_TIDY_RULES).refiled
+    ).toBe(0);
   });
 
   it("is filed onto that club where the rules read it so", () => {
@@ -90,8 +93,8 @@ describe("a stand-in of the one pulled club of its name in the namer's state", (
   it("is left there by the step that takes a name's rows off a club with no game that day", () => {
     const { state } = refileStandIns(pool([fromEdmond, fromNorman]), undefined, IN_STATE);
     expect(resettleOffLevel(state, undefined, IN_STATE).resettled).toBe(0);
-    // Under the rules as shipped the same step takes both off, which is why the two must agree.
-    expect(resettleOffLevel(state).resettled).toBe(2);
+    // Under the day check the same step takes both off, which is why the two must agree.
+    expect(resettleOffLevel(state, undefined, DAY_CHECK_TIDY_RULES).resettled).toBe(2);
   });
 
   it("stays filed through a whole tidy, and a second tidy changes nothing", () => {
@@ -163,7 +166,7 @@ describe("a stand-in of the one pulled club of its name in the namer's state", (
     const commonCats = Array.from({ length: 3 }, (_, n) =>
       pulled(`S-CAT${n}`, `Choctaw Cats ${n}x`, "FL", `gcCAT${String(n).padStart(7, "0")}`, 12)
     );
-    const rare: TidyRules = { inState: { rareAmong: 2_000, nearLevel: false } };
+    const rare: TidyRules = { inState: { rareAmong: 2_000, nearLevel: false, vouched: false } };
     // "mudcats" is in one name of 4,000-odd: rare enough.
     expect(refileStandIns(pool([fromEdmond], many), undefined, rare).refiled).toBe(1);
     // With "choctaw" in four names and "mudcats" in three, neither is one in 2,000.
@@ -174,6 +177,45 @@ describe("a stand-in of the one pulled club of its name in the namer's state", (
       refileStandIns(pool([fromEdmond], [...many, ...commonCats, ...others]), undefined, rare)
         .refiled
     ).toBe(0);
+  });
+});
+
+/*
+ * The rule as it ships asks the two clubs to be neighbours by their own schedules: the measurement
+ * of 27 October 2026 found the name alone filing a rec league's "Angels" onto the one Angels pulled
+ * in Texas, any of a dozen.
+ */
+describe("the rule as it ships", () => {
+  const ownVsTulsa = row(mudcats, tulsa.id, "2026-09-06", "15:00", {
+    teamAScore: 3,
+    teamBScore: 2,
+  });
+  const edmondVsTulsa = row(edmond, tulsa.id, "2026-09-07", "15:00", {
+    teamAScore: 1,
+    teamBScore: 6,
+  });
+
+  it("files a name onto the club the namer shares an opponent with on their own schedules", () => {
+    const { state } = refileStandIns(pool([fromEdmond, fromNorman, ownVsTulsa, edmondVsTulsa]));
+    expect(against(state, fromEdmond.id)).toBe(mudcats.id);
+    // The Storm have played nobody the Mudcats have, on either schedule.
+    expect(against(state, fromNorman.id)).toBe(named.id);
+    // And the resettle leaves it there. (It takes the two games against the Drillers off them,
+    // which their own schedule does not hold, as the day check always has.)
+    expect(against(resettleOffLevel(state).state, fromEdmond.id)).toBe(mudcats.id);
+  });
+
+  it("files it where the club's own schedule has played the namer, on another day", () => {
+    const met = row(mudcats, norman.id, "2026-09-26", "15:00", { teamAScore: 6, teamBScore: 1 });
+    const { state } = refileStandIns(pool([fromNorman, met]));
+    expect(against(state, fromNorman.id)).toBe(mudcats.id);
+  });
+
+  it("leaves a name the namer alone vouches for: its own rows against the club say nothing", () => {
+    // The Heat's schedule has the Mudcats twice, filed by name; nothing of the Mudcats' own has
+    // the Heat or a club the Heat has played.
+    const again = row(edmond, mudcats.id, "2026-09-20", "10:00", { teamAScore: 2, teamBScore: 9 });
+    expect(refileStandIns(pool([fromEdmond, again])).refiled).toBe(0);
   });
 });
 

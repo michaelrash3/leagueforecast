@@ -1380,6 +1380,37 @@ the same question. On the backup of 29 September 2026 the tidy filed 3,660 stand
 clubs, 1,047 of them scored, which emptied 1,985 stand-ins; four games two clubs had each filed
 against a stand-in for the other were then one game, not two. A second tidy moved nothing.
 
+**A name its namer's neighbour carries.** The day check reads a club's own schedule as the whole
+of its season, and a club that keeps only some of its games on GameChanger is not: every game its
+opponents scored and it did not stood against a stand-in of its name. On 27 October 2026 a third of
+the squad year's games had a stand-in on a side, and the user said the rules were "way too tight".
+The second model sweep (**The model, measured**) found 7,540 clubs known only by name with one
+pulled club of the name on their page in a state of the clubs naming them. So a name also files a
+row onto the one pulled club of it at the row's level and squad year in the namer's state, though
+that club has no game that day (`inStateNamesakes`): on a day no earlier than a week before its own
+first game of the year, never where one of its own rows that day starts within the hour against
+another club, and only where the two clubs are neighbours by their own schedules
+(`areOwnNeighbours`): the club's own schedule has played the namer, or each has played a third
+pulled club on its own. The refile files such a row and the resettle leaves it, asking the same
+question (tidy rules 33).
+
+The neighbour test is what the measurement asked for. Tidied in memory on the cloud copy of 27
+October (GitHub run 40448331357), the tidy as it shipped moved nothing, so it was doing what its
+rules said; read as the one club of the name in the state, any name, names moved 12,104 rows off
+stand-ins and the games leaning on one fell from 33.4% to 30.3%. Of those rows the namer and the
+club had met or shared a pulled opponent 50.7% of the time, against 9.7% for another club of the
+namer's state on the page put in its place; and a sample showed a rec league's names among them,
+"Rangers" naming "Angels" onto the one Angels pulled in Texas. A wrong club passes the neighbour
+test about as often as those decoys, so of the rows that pass no more than 10.4% can be wrong
+(0.097 of at most 54.6%, over 0.507). Reading a level either side as well added 4,006 rows whose
+clubs were neighbours 16.4% of the time, near the decoys' rate, so the rule reads only the row's
+level. The model sweep's `--stand-in-rules` mode reads these again (`src/lib/standInRules.ts`).
+
+What no reading of a name reaches: of the 58,519 clubs known only by name, 35,437 holding 70,254
+games have no pulled club of the name, or near it, anywhere in the year. Those are clubs nobody
+has pulled, and only pulling them moves them: the file of every club worth pulling
+(`unpulledClubs`), most games first, is where to start.
+
 **Not this team.** The matcher will still be wrong sometimes, and the club's panel is where that
 shows. Beside each game a club has only because a name on another club's schedule was matched to
 it, the panel offers **Not this team** (`filedByNameOn`): a row off GameChanger, off a schedule of

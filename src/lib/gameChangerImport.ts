@@ -6986,16 +6986,72 @@ export type InStateRule = {
   rareAmong: number;
   /** Failing one of the name at the row's level in the state, one a level either side. */
   nearLevel: boolean;
+  /**
+   * Only a club the namer is a neighbour of by their own schedules (`ownNeighbours`): a game both
+   * clubs' own schedules hold, or a pulled club each has played on its own schedule.
+   */
+  vouched: boolean;
 };
 
-/** The rules of the tidy that are still being measured, as `tidyPool` takes them. */
+/** The tidy's rules that a measurement reads one way and another, as `tidyPool` takes them. */
 export type TidyRules = { inState: InStateRule | null };
 
-/** The tidy as it ships. */
-export const SHIPPED_TIDY_RULES: TidyRules = { inState: null };
+/**
+ * The tidy as it ships: the one pulled club of a name in the namer's state, any name, at the row's
+ * level, where the two are neighbours by their own schedules (`inStateNamesakes`).
+ */
+export const SHIPPED_TIDY_RULES: TidyRules = {
+  inState: { rareAmong: 1, nearLevel: false, vouched: true },
+};
+
+/** The tidy before 27 October 2026, which read no name as the one club of it in a state. */
+export const DAY_CHECK_TIDY_RULES: TidyRules = { inState: null };
 
 /** A row a name filed, as `inStateNamesakes` asks of it: the start time too. */
 type TimedNamedRow = NamedRow & { start: string | undefined };
+
+/**
+ * The pulled clubs each pulled club has played in a game its own schedules hold: a row of its own,
+ * folded in or on record (`ownRowDays`). A row another club's schedule filed against it by name is
+ * not its own word, so it never makes two clubs neighbours (`areOwnNeighbours`).
+ */
+export const ownOpponentsOf = (state: GcImportState): Map<string, Set<string>> => {
+  const clubOfSchedule = new Map<string, string>();
+  state.teams.forEach((team) =>
+    team.gcTeams?.forEach((link) => clubOfSchedule.set(link.teamId, team.id))
+  );
+  const pulledIds = new Set(clubOfSchedule.values());
+  const opponents = new Map<string, Set<string>>();
+  state.games.forEach((game) =>
+    ownRowDays(game, (schedule) => clubOfSchedule.get(schedule)).forEach(([club]) => {
+      const other = club === game.teamAId ? game.teamBId : game.teamAId;
+      if (!pulledIds.has(other) || other === club) return;
+      const met = opponents.get(club) ?? new Set<string>();
+      met.add(other);
+      opponents.set(club, met);
+    })
+  );
+  return opponents;
+};
+
+/**
+ * Whether a namer and a club are neighbours by their own schedules (`ownOpponentsOf`): the club's
+ * own schedule has a game against the namer, or the two have each played a third pulled club on
+ * their own. A row on the namer's schedule alone, the one a name filed, never vouches for itself.
+ */
+export const areOwnNeighbours = (
+  opponents: ReadonlyMap<string, ReadonlySet<string>>,
+  namerId: string,
+  clubId: string
+): boolean => {
+  const theirs = opponents.get(clubId);
+  if (!theirs) return false;
+  if (theirs.has(namerId)) return true;
+  const mine = opponents.get(namerId);
+  if (!mine) return false;
+  for (const other of theirs) if (other !== namerId && mine.has(other)) return true;
+  return false;
+};
 
 /**
  * The pulled club a name means because it is the one pulled club of that name, at that level and
@@ -7011,6 +7067,24 @@ type TimedNamedRow = NamedRow & { start: string | undefined };
  * a game that day (`unlisted`), or where no other club in the country carries the name and it holds
  * a word nearly nobody's does (`soleNamesakes`); a club that keeps only some of its games on
  * GameChanger fails it for every game it left off.
+ *
+ * Measured on the cloud copy the same day (GitHub run 40448331357), the whole pool tidied in
+ * memory: the tidy as it shipped changed nothing, so it was doing what its rules said. Read as the
+ * one club of the name in the namer's state, any name, at the row's level, names moved 12,104 rows
+ * off stand-ins and the games leaning on one fell from 33.4% of the year to 30.3%; only names with a
+ * word in no more than 1 in 2,000 pulled names, 6,736 rows and 31.7%; a level either side as well,
+ * 16,110 rows and 29.3%. Of the rows moved, the namer and the club had met or shared a pulled
+ * opponent 50.7% of the time, against 9.7% for another club of the namer's state on the page picked
+ * in its place; the 4,006 rows a level either side added did so 16.4% of the time, close to the
+ * decoys, so most of those were somebody else's and the rule reads no level but the row's. A sample
+ * showed why the name alone is not enough: "Rangers named Angels", "Giants named Guardians", a rec
+ * league's names, where the one Angels pulled in Texas is any of a dozen. So the rule asks the two
+ * clubs to be neighbours by their own schedules (`vouched`, `areOwnNeighbours`). A wrong club passes
+ * that about as often as the decoys did, so of the rows that pass, the wrong share is the decoys'
+ * rate times the wrong share of all the rows, over the rate all the rows passed at: 0.097 w / 0.507,
+ * and since no more than 54.6% of the rows can be wrong for 50.7% of them to be neighbours, no more
+ * than 10.4% of the rows it files, whatever the rate is for a right one. (The run read neighbours off
+ * every game between two pulled clubs; read off the clubs' own schedules both rates are lower.)
  *
  * Both tidy steps that read a club's own days ask this of the same row, and must agree, as with
  * `soleNamesakes`: the refile files the row, and the step that takes a name's rows off a club with
@@ -7041,6 +7115,7 @@ export const inStateNamesakes = (
     ownStarts = starts;
     return starts;
   };
+  let opponents: Map<string, Set<string>> | undefined;
   return ({ pool, key, level, namer, date, start }) => {
     if (date === undefined || level === undefined || !namer?.state) return undefined;
     const pulled = pulledNow();
@@ -7057,8 +7132,14 @@ export const inStateNamesakes = (
     if (isPlaceholderName(club.name) || namesNobody(club.name)) return undefined;
     if (!holdsRareWord(key, pulled, rule.rareAmong)) return undefined;
     if (!inItsSeason(pulled, club.id, pool, date)) return undefined;
+    if (
+      rule.vouched &&
+      !areOwnNeighbours((opponents ??= ownOpponentsOf(state)), namer.id, club.id)
+    ) {
+      return undefined;
+    }
     const clash = (ownStartsNow().get(`${club.id}\u0000${date}`) ?? []).some(
-      (own) => own.other !== namer.id && startsWithinTheHour(own.start, start)
+      (row) => row.other !== namer.id && startsWithinTheHour(row.start, start)
     );
     return clash ? undefined : club;
   };
@@ -9041,8 +9122,11 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *       own at the hour of the game it fits
  *  32 — a scored game against a slot listed as TBD set not to count, the owner's rule of 26
  *       October 2026
+ *  33 — a stand-in filed onto the one pulled club of its name at its level in the namer's state,
+ *       where the two are neighbours by their own schedules, though the club's own schedules have
+ *       no game that day (`inStateNamesakes`), and such a row left on it
  */
-const TIDY_RULES_VERSION = 32;
+const TIDY_RULES_VERSION = 33;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this

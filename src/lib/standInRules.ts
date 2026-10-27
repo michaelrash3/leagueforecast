@@ -1,26 +1,31 @@
-import type { GcImportState, PoolTidy, TidyRules } from "./gameChangerImport";
 import {
-  ageGroupYear,
-  isScoutGamePlayed,
-  startsWithinTheHour,
-  type ScoutGame,
-  type ScoutTeam,
-} from "./teamRankings";
+  areOwnNeighbours,
+  ownOpponentsOf,
+  type GcImportState,
+  type PoolTidy,
+  type TidyRules,
+} from "./gameChangerImport";
+import { ageGroupYear, isScoutGamePlayed, type ScoutGame, type ScoutTeam } from "./teamRankings";
 
 /*
  * The measurement before the stand-in rule ships (`inStateNamesakes`): the pool tidied under each
  * reading of it, and for each, how much of the squad year still leans on a stand-in or a slot, and
  * whether the rows it filed look like the club's. A research tool's arithmetic, kept here so a test
- * can hold it; `scripts/standInSweep.ts` reads the cloud copy and prints it.
+ * can hold it; `scripts/modelSweep.ts --stand-in-rules` reads the cloud copy and prints it.
  *
  * Whether a row filed onto a club is right has no answer in the data: the row is filed there
  * because the club's own schedule does not have it. So it is read off who the club plays. A youth
  * club's games are against its neighbours, so the club a schedule named and the club whose schedule
- * named it share a pulled opponent, or have met, when the name was right; for a club of the
- * namer's state picked at random from the same page, they do much less often. The rows the rules as
- * shipped already file by name (the club's own schedules not holding them) say how often a right
- * one does; a decoy for each row filed says how often a wrong one would. Between the two the share
- * of the new rows that are wrong is read off where theirs falls: `wrongShare`.
+ * named it are neighbours by their own schedules (`areOwnNeighbours`) more often when the name was
+ * right; for a club of the namer's state picked at random from the same page, much less often. The
+ * rows the rules as shipped already file by name say how often a right one is; a decoy for each row
+ * filed says how often a wrong one would be. Between the two the share of the new rows that are
+ * wrong is read off where theirs falls: `wrongShare`.
+ *
+ * The first run of it (GitHub run 40448331357, 27 October 2026) read neighbours off every game
+ * between two pulled clubs, the row filed by name among them, so the rows already filed by name read
+ * as neighbours every time (18,216 of 18,216) and the wrong share it printed meant nothing. Read off
+ * the clubs' own schedules, a row on the namer's schedule alone never vouches for itself.
  */
 
 /** How much of a squad year leans on a club known only by name, or on a slot. */
@@ -79,70 +84,6 @@ export const leaningOf = (state: GcImportState, year: number): Leaning => {
   return out;
 };
 
-/**
- * The year's played games against a slot, and of those with a start, how many have a row of
- * another schedule against a club known only by name within the hour that day: a game a better
- * reading of a name might yet pair the slot with. The rest have nothing at that hour to pair with,
- * however the names are read: the other side's schedule was never pulled.
- */
-export type SlotsRead = { played: number; timed: number; standInAtTheHour: number };
-
-export const slotsRead = (state: GcImportState, year: number): SlotsRead => {
-  const byId = new Map(state.teams.map((team) => [team.id, team]));
-  const games = gamesOfYear(state, year);
-  const standInStarts = new Map<string, string[]>();
-  for (const game of games) {
-    if (!game.date || !game.startTs) continue;
-    const a = byId.get(game.teamAId);
-    const b = byId.get(game.teamBId);
-    if ((isNameOnly(a) && isPulled(b)) || (isNameOnly(b) && isPulled(a))) {
-      const at = standInStarts.get(game.date) ?? [];
-      at.push(game.startTs);
-      standInStarts.set(game.date, at);
-    }
-  }
-  const out: SlotsRead = { played: 0, timed: 0, standInAtTheHour: 0 };
-  for (const game of games) {
-    const slot = [game.teamAId, game.teamBId].some((id) => byId.get(id)?.placeholder === true);
-    if (!slot || !isScoutGamePlayed(game)) continue;
-    out.played += 1;
-    if (!game.date || !game.startTs) continue;
-    out.timed += 1;
-    const start = game.startTs;
-    if ((standInStarts.get(game.date) ?? []).some((other) => startsWithinTheHour(other, start))) {
-      out.standInAtTheHour += 1;
-    }
-  }
-  return out;
-};
-
-/** Who each pulled club has met in a game against another pulled club. */
-const metOf = (state: GcImportState): Map<string, Set<string>> => {
-  const byId = new Map(state.teams.map((team) => [team.id, team]));
-  const met = new Map<string, Set<string>>();
-  const note = (a: string, b: string) => {
-    const seen = met.get(a) ?? new Set<string>();
-    seen.add(b);
-    met.set(a, seen);
-  };
-  for (const game of state.games) {
-    if (!isPulled(byId.get(game.teamAId)) || !isPulled(byId.get(game.teamBId))) continue;
-    note(game.teamAId, game.teamBId);
-    note(game.teamBId, game.teamAId);
-  }
-  return met;
-};
-
-/** Whether two pulled clubs have met, or share a pulled opponent: neighbours. */
-const neighbours = (met: Map<string, Set<string>>, a: string, b: string): boolean => {
-  const mine = met.get(a);
-  const theirs = met.get(b);
-  if (!mine || !theirs) return false;
-  if (mine.has(b)) return true;
-  for (const club of mine) if (club !== b && theirs.has(club)) return true;
-  return false;
-};
-
 /** How many rows of a kind, and of those how many between neighbours. */
 export type NearCount = { rows: number; near: number };
 
@@ -155,7 +96,6 @@ export type RuleReading = {
   /** Rows against a slot or a stand-in settled from the other team's schedule. */
   named: number;
   after: Leaning;
-  slots: SlotsRead;
   /** Rows of the year that stood against a stand-in and now stand against a pulled club. */
   moved: NearCount;
   /** The same rows asked of a decoy: another pulled club of the namer's state on that page. */
@@ -176,7 +116,7 @@ export const filedByName = (state: GcImportState, year: number): NearCount => {
   state.teams.forEach((team) =>
     team.gcTeams?.forEach((link) => scheduleOf.set(link.teamId, team.id))
   );
-  const met = metOf(state);
+  const met = ownOpponentsOf(state);
   const out: NearCount = { rows: 0, near: 0 };
   for (const game of gamesOfYear(state, year)) {
     const namer = game.source ? scheduleOf.get(game.source.teamId) : undefined;
@@ -189,7 +129,7 @@ export const filedByName = (state: GcImportState, year: number): NearCount => {
       (game.alsoFrom ?? []).some((schedule) => own.includes(schedule));
     if (listed) continue;
     out.rows += 1;
-    if (neighbours(met, namer, club)) out.near += 1;
+    if (areOwnNeighbours(met, namer, club)) out.near += 1;
   }
   return out;
 };
@@ -238,7 +178,7 @@ export const readRules = (
   const byIdBefore = new Map(before.teams.map((team) => [team.id, team]));
   const byIdAfter = new Map(after.teams.map((team) => [team.id, team]));
   const gameAfter = new Map(after.games.map((game) => [game.id, game]));
-  const met = metOf(before);
+  const met = ownOpponentsOf(before);
   const scheduleOf = new Map<string, string>();
   before.teams.forEach((team) =>
     team.gcTeams?.forEach((link) => scheduleOf.set(link.teamId, team.id))
@@ -275,7 +215,7 @@ export const readRules = (
     const namer = game.source ? scheduleOf.get(game.source.teamId) : undefined;
     if (!namer || namer === clubId) continue;
     moved.rows += 1;
-    if (neighbours(met, namer, clubId)) moved.near += 1;
+    if (areOwnNeighbours(met, namer, clubId)) moved.near += 1;
     const namerTeam = byIdBefore.get(namer);
     const pool =
       (namerTeam?.state && onPage.get(`${game.ageGroupId}\u0000${namerTeam.state}`)) || [];
@@ -283,7 +223,7 @@ export const readRules = (
     if (choices.length > 0) {
       const pick = choices[hashOf(game.id) % choices.length]!;
       decoy.rows += 1;
-      if (neighbours(met, namer, pick)) decoy.near += 1;
+      if (areOwnNeighbours(met, namer, pick)) decoy.near += 1;
     }
     if (sample.length < sampleSize && hashOf(`${key}|${game.id}`) % 7 === 0) {
       sample.push({
@@ -301,7 +241,6 @@ export const readRules = (
     resettled: result.resettled,
     named: result.named,
     after: leaningOf(after, year),
-    slots: slotsRead(after, year),
     moved,
     decoy,
     sample,

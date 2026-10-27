@@ -54,6 +54,7 @@ import { loadPoolFrom, sparedByTidy } from "../src/lib/cloud/cloudRunner.ts";
 import { failureWords } from "../src/lib/cloud/firestoreRest.ts";
 import { todayIsoDay } from "../src/lib/date.ts";
 import {
+  DAY_CHECK_TIDY_RULES,
   describeTidy,
   SHIPPED_TIDY_RULES,
   tidyPool,
@@ -72,7 +73,6 @@ import {
   filedByName,
   leaningOf,
   readRules,
-  slotsRead,
   wrongShare,
   type Leaning,
   type NearCount,
@@ -419,21 +419,21 @@ const describeStandIns = (report: StandInReport) => {
 
 /** The readings of the stand-in rule measured, the rules as shipped first. */
 const RULE_READINGS: { key: string; why: string; rules: TidyRules }[] = [
+  {
+    key: "day-check",
+    why: "the tidy before 27 October 2026: a name filed onto a club only on a day of its own",
+    rules: DAY_CHECK_TIDY_RULES,
+  },
   { key: "shipped", why: "the tidy as it ships", rules: SHIPPED_TIDY_RULES },
   {
     key: "in-state",
     why: "the one pulled club of the name in the namer's state, at the row's level, any name",
-    rules: { inState: { rareAmong: 1, nearLevel: false } },
+    rules: { inState: { rareAmong: 1, nearLevel: false, vouched: false } },
   },
   {
     key: "in-state-rare",
     why: "the same, only a name with a word in no more than 1 in 2,000 pulled clubs' names",
-    rules: { inState: { rareAmong: 2_000, nearLevel: false } },
-  },
-  {
-    key: "in-state-near",
-    why: "the same as in-state, or failing one at the row's level, one a level either side",
-    rules: { inState: { rareAmong: 1, nearLevel: true } },
+    rules: { inState: { rareAmong: 2_000, nearLevel: false, vouched: false } },
   },
 ];
 
@@ -455,10 +455,6 @@ const describeReading = (reading: RuleReading, right: NearCount, why: string) =>
       ` resettled, ${reading.named} slot or stand-in rows settled (${reading.seconds.toFixed(0)} s)`
   );
   describeLeaning("  after", reading.after);
-  say(
-    `    played slot games: ${reading.slots.played}; ${reading.slots.timed} with a start,` +
-      ` ${reading.slots.standInAtTheHour} with a stand-in's row at the hour`
-  );
   say(`    rows moved off a stand-in onto a pulled club: ${reading.moved.rows}`);
   say(
     `      between neighbours: ${nearShare(reading.moved)}; their decoys: ${nearShare(reading.decoy)}`
@@ -493,13 +489,8 @@ const measureStandInRules = (source: Source, year: number) => {
   const tidy = (state: GcImportState, rules: TidyRules) =>
     tidyPool(state, undefined, apart, refused, spared, rules);
   describeLeaning("before", leaningOf(pool, year));
-  const slots = slotsRead(pool, year);
-  say(
-    `  played slot games: ${slots.played}; ${slots.timed} with a start, ${slots.standInAtTheHour}` +
-      " with a stand-in's row at the hour (the rest have nothing at that hour to pair with)"
-  );
   const right = filedByName(pool, year);
-  say(`  rows filed by name as shipped (the club's own schedules not holding them): ${right.rows}`);
+  say(`  rows filed by name (the club's own schedules not holding them): ${right.rows}`);
   say(`    between neighbours: ${nearShare(right)} (how often a right reading of a name is)`);
   for (const { key, why, rules } of RULE_READINGS) {
     try {
