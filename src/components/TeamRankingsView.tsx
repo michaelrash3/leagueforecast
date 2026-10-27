@@ -2512,6 +2512,12 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               {...(rankHistory ? { rankHistory } : {})}
               movementOf={boardMovement}
               watch={watchCard}
+              onScoutNext={(opponentId) => {
+                // Our club's report, with its next opponent beside it in Compare with.
+                if (myTeamId !== undefined) setReportTeamId(myTeamId);
+                setCompareId(opponentId);
+                openSection("scouting");
+              }}
               onRemoveTeam={removeTeamById}
             />
           )}

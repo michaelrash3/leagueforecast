@@ -96,6 +96,8 @@ type RankingsSectionProps = {
   myTeamNextPending?: boolean;
   /** Whether the marked club's next game could not be read (`MyTeamCard`). */
   myTeamNextUnread?: boolean;
+  /** Scouting's Compare with on our next game's opponent (`MyTeamCard`). */
+  onScoutNext?: (opponentId: string) => void;
   /** The clubs watched on this page, for the card at the top of its board (`WatchCard`). */
   watch?: {
     watched: readonly Watched[];
@@ -163,6 +165,7 @@ export function RankingsSection({
   myTeamNextPending = false,
   myTeamNextUnread = false,
   watch,
+  onScoutNext,
 }: RankingsSectionProps) {
   // Keyed on the filter, so choosing another state starts at the top again without an effect.
   const [rowLimit, setRowLimit] = useState({ key: stateFilter, count: ROWS_SHOWN_FIRST });
@@ -264,6 +267,7 @@ export function RankingsSection({
               onOpenTeam={onOpenTeam}
               nextPending={myTeamNextPending}
               nextUnread={myTeamNextUnread}
+              {...(onScoutNext ? { onScout: onScoutNext } : {})}
             />
           )}
           {thisWeek && <ThisWeekCard movers={thisWeek} onOpenTeam={onOpenTeam} />}

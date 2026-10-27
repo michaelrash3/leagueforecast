@@ -1055,6 +1055,12 @@ function LiveBoard({
             {...(rankHistory ? { rankHistory } : {})}
             movementOf={boardMovement}
             watch={watchCard}
+            onScoutNext={(opponentId) => {
+              // Our club's report, with its next opponent beside it in Compare with.
+              if (myTeamId !== undefined) setScoutedTeam(myTeamId);
+              setComparedTeam(opponentId);
+              openSection("scouting");
+            }}
           />
         ) : (
           readingBoard

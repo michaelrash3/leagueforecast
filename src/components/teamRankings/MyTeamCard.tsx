@@ -21,6 +21,8 @@ type MyTeamCardProps = {
    * the card says nothing of a next game rather than that there is none.
    */
   nextUnread?: boolean;
+  /** Scouting's Compare with on the next game's opponent, beside our club (`ScoutButton`). */
+  onScout?: (opponentId: string) => void;
 };
 
 /**
@@ -100,6 +102,7 @@ export function MyTeamCard({
   history,
   nextPending = false,
   nextUnread = false,
+  onScout,
 }: MyTeamCardProps) {
   const { next } = glance;
   return (
@@ -157,6 +160,19 @@ export function MyTeamCard({
                 : next.unconnected
                   ? ` — ${Math.round(next.winProb * 100)}% to win, a guess: no shared opponents yet`
                   : ` — ${Math.round(next.winProb * 100)}% to win`}
+              {onScout && next.winProb !== undefined && (
+                <>
+                  {" · "}
+                  <button
+                    type="button"
+                    onClick={() => onScout(next.opponentId)}
+                    aria-label={`Scout ${next.opponentName}`}
+                    className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+                  >
+                    Scout
+                  </button>
+                </>
+              )}
             </>
           ) : nextPending ? (
             "Next game: loading…"

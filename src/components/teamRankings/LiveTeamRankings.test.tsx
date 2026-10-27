@@ -1403,6 +1403,15 @@ describe("a club's panel on the cloud's board", () => {
     release();
     await waitFor(() => expect(mine.textContent).toContain("vs Placeholder S-1 (#1)"));
     expect(mine.textContent).not.toContain("loading");
+    // Scout takes our club's report to Scouting, its next opponent in Compare with.
+    fireEvent.click(within(mine).getByRole("button", { name: "Scout Placeholder S-1" }));
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /scouting/i })).toHaveAttribute(
+        "aria-selected",
+        "true"
+      )
+    );
+    expect(window.location.search).toContain("section=scouting");
   });
 
   it("marks a club as the page's own through the edit function, with the club as its card has it, drawn at once", async () => {

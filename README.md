@@ -617,6 +617,11 @@ opponent's margin for one club less the other's, averaged over the opponents ("H
 Hawks did 3.0 runs a game better than River Otters against the 2 clubs both have
 played"). Nothing more is read for it than Compare already reads.
 
+**Scout**, beside each rated game still to play on Next up, and beside the next game
+on the board's own-club card, sets that opponent in Compare with: the one card a pick
+there by hand would read, and nothing more. From the board it opens Scouting on our
+own club's report first.
+
 **Tournament field** plays a weekend out before it is played. Build the field by
 name, or from the report team's own next opponents in one press, choose pools and
 a bracket of two, four or eight, and the event is simulated 2,000 times on the
