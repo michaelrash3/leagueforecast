@@ -6109,7 +6109,9 @@ would have done"):
 
 - **The nightly held a save that would have taken too much** (`blastRadius.ts`): before it
   saves, a live nightly weighs, year by year, the games and clubs of the copy as it read it that
-  the pool as filed no longer holds anywhere; one moved to another year is not taken away. Past
+  the pool as filed no longer holds anywhere; one moved to another year is not taken away, nor is
+  a club known only by name whose every game the pool still holds, filed onto the club it named
+  (tidy rules 33 retires thousands of those at once, near the 2% line). Past
   5% of a year's games or 2% of its clubs, and at least 50 games or 20 clubs, so a year of a few
   dozen games is never held for a pair of folded rows, it saves nothing, ends red, and the issue
   gives each year's numbers. The copy stays as it was, its views unpublished, for a person to

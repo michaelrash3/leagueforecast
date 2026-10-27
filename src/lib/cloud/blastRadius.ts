@@ -10,6 +10,16 @@ import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings/types";
  * something else: a changed answer read as every schedule emptied, a rule gone wrong. Saved, it is
  * every device's pool the next morning; held, the copy stays as it was and the issue says what the
  * night would have done, for a person to look at.
+ *
+ * A club known only by name (`ScoutTeam.nameOnly`: somebody's opponent, never pulled, left out of
+ * the tables) is not taken away when the tidy files its rows onto the club it named and drops it
+ * from the roster, left with nothing on it: every game it stood in is still in the pool, on the
+ * club it was. Tidy rules 33 (27 October 2026) does that in bulk. On the cloud copy read that day
+ * (158,068 clubs, in the one year it held), filing by the name alone retired 6,150 such clubs; the
+ * rule as shipped files only rows whose clubs are neighbours, which were 50.7% of that reading's,
+ * so something near 3,100 clubs against the 3,161 that 2% is. Counted, they could have held that
+ * night's save, and with the copy unchanged every night's after it. One whose games went with it
+ * is taken away, and a pulled club gone is counted, its games kept or not, as before.
  */
 
 /** The share of a year's games, and of its clubs, a save may take away before it is held. */
@@ -25,8 +35,14 @@ export const BLAST_CLUB_SHARE = 0.02;
 export const BLAST_GAME_FLOOR = 50;
 export const BLAST_CLUB_FLOOR = 20;
 
-/** What the pool held, by squad year: each year's game ids and club ids. */
-export type PoolYears = Map<number, { games: Set<string>; clubs: Set<string> }>;
+/**
+ * What the pool held, by squad year: each year's game ids and club ids, and the games of the year
+ * each club known only by name stood in.
+ */
+export type PoolYears = Map<
+  number,
+  { games: Set<string>; clubs: Set<string>; named: Map<string, string[]> }
+>;
 
 /** One year's count before the save, and how many of them the save would take away. */
 export type YearRadius = {
@@ -50,11 +66,14 @@ export const poolYears = (pool: {
   const yearOf = new Map<string, number>();
   for (const group of pool.ageGroups)
     if (group.year !== undefined) yearOf.set(group.id, group.year);
+  const nameOnly = new Set(
+    pool.teams.filter((team) => team.nameOnly && !team.gcTeams?.length).map((team) => team.id)
+  );
   const years: PoolYears = new Map();
   const of = (year: number) => {
     let held = years.get(year);
     if (!held) {
-      held = { games: new Set(), clubs: new Set() };
+      held = { games: new Set(), clubs: new Set(), named: new Map() };
       years.set(year, held);
     }
     return held;
@@ -64,8 +83,13 @@ export const poolYears = (pool: {
     if (year === undefined) continue;
     const held = of(year);
     held.games.add(game.id);
-    held.clubs.add(game.teamAId);
-    held.clubs.add(game.teamBId);
+    for (const club of [game.teamAId, game.teamBId]) {
+      held.clubs.add(club);
+      if (!nameOnly.has(club)) continue;
+      const stood = held.named.get(club);
+      if (stood) stood.push(game.id);
+      else held.named.set(club, [game.id]);
+    }
   }
   for (const team of pool.teams) {
     for (const link of team.gcTeams ?? []) {
@@ -78,7 +102,8 @@ export const poolYears = (pool: {
 
 /**
  * What the save would take away, year by year: a game of the year before it that the pool after
- * holds nowhere, and a club of the year before it that the pool after holds nowhere. A game or club
+ * holds nowhere, and a club of the year before it that the pool after holds nowhere, unless it was
+ * known only by name and the pool after holds every game of the year it stood in. A game or club
  * that moved to another year is not taken away. In year order.
  */
 export const blastRadius = (
@@ -91,7 +116,12 @@ export const blastRadius = (
       let gamesRemoved = 0;
       for (const id of held.games) if (!after.games.has(id)) gamesRemoved += 1;
       let clubsRemoved = 0;
-      for (const id of held.clubs) if (!after.clubs.has(id)) clubsRemoved += 1;
+      for (const id of held.clubs) {
+        if (after.clubs.has(id)) continue;
+        // Filed onto the club it named, not taken away (above).
+        if (held.named.get(id)?.every((game) => after.games.has(game))) continue;
+        clubsRemoved += 1;
+      }
       return {
         year,
         games: held.games.size,

@@ -9,6 +9,7 @@ import {
   type TidyRules,
 } from "../gameChangerImport";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
+import { blastRadius, poolYears } from "../cloud/blastRadius";
 
 /*
  * The one pulled club of a name in the namer's own state, on a day its own schedule skipped: the
@@ -110,6 +111,20 @@ describe("a stand-in of the one pulled club of its name in the namer's state", (
     expect(against(first.state, fromNorman.id)).toBe(mudcats.id);
     const second = tidyPool(first.state, undefined, undefined, undefined, undefined, IN_STATE);
     expect(tidyChangedAnything(second)).toBe(false);
+  });
+
+  it("leaves the nightly's cap no club taken away for the stand-in it retires (blastRadius.ts)", () => {
+    // Tidy rules 33 retired stand-ins in bulk: counted as clubs taken away, they would have held
+    // the night's save past the 2% line, every night after.
+    const before = pool([fromEdmond, fromNorman]);
+    const { state } = tidyPool(before, undefined, undefined, undefined, undefined, IN_STATE);
+    expect(state.teams.some((team) => team.id === named.id)).toBe(false);
+    expect(
+      blastRadius(poolYears(before), {
+        games: new Set(state.games.map((game) => game.id)),
+        clubs: new Set(state.teams.map((team) => team.id)),
+      })
+    ).toEqual([{ year: 2027, games: 3, gamesRemoved: 0, clubs: 7, clubsRemoved: 0 }]);
   });
 
   it("stays a stand-in a level off where the club's own schedule has a game within the hour", () => {
