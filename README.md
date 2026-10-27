@@ -642,7 +642,7 @@ by name, per age group.
 
 The projection is the rating difference, capped at 14 runs, put through a
 logistic curve; no home-field term, because at this level which side is "home" is
-a coin flip. The curve's spread rises with age, 3.75 runs at 8U and 0.10 more a
+a coin flip. The curve's spread rises with age, 4.125 runs at 8U and 0.11 more a
 year, because a margin says less about who wins as players get older. It was 2.8
 at every level, and on the pool of 26 September, fitted up to three different
 days and scored on the games after each, that was overconfident: favourites it
@@ -651,7 +651,12 @@ spread rising from 2.95 by 0.09 a year fixed that for ratings capped at 8 runs;
 when the cap went to 12 (below) the ratings stretched and the spread was fitted
 again, the same way, through the app's own fit. Favourites it calls at about 75%
 won 73 to 75% of the time, and at about 85% won 85 to 86.5%. The cap and the
-curve move together: cap 12 on the old curve read worse than cap 8 on it.
+curve move together: cap 12 on the old curve read worse than cap 8 on it. On 27
+October 2026 the model sweep (**The model, measured**) scored the boards on the
+cloud copy's later games and found that curve, 3.75 runs at 8U and 0.10 more a
+year, 1.7 to 3.3 points too sure from 60% to 90%; a tenth wider forecast the
+same games better (log loss 0.0008 lower, z 4.6), so it is 4.125 at 8U and 0.11
+more a year now.
 
 **What if?** Under each fixture is the question the projection cannot answer: not
 who is favoured on Saturday, but where Saturday leaves you. A rating here is not a
