@@ -177,6 +177,46 @@ describe("the research sweep of the shipped model", () => {
     expect(wide.variants[0]!.squared).toBe((MATCHUP_MARGIN_CAP - RATING_CAP) ** 2);
   });
 
+  it("scores only the matchups a board states, and counts a game across ages apart", () => {
+    // A board's clubs are one age, so no board states a forecast for a game across ages. An 11U
+    // club plays five of the 10Us in August, each side's level recorded, in both pools; its later
+    // game against one of them is left out of every reading and counted at each cut. Nobody's
+    // level moves with it, so every reading must be the same to the digit.
+    const older: ScoutTeam = { id: "S-OLD", name: "Older" };
+    const across = (id: string, a: number, date: string, scores: [number, number]): ScoutGame => ({
+      id,
+      ageGroupId: PAGE,
+      teamAId: `S-${a}`,
+      teamBId: "S-OLD",
+      teamAScore: scores[0],
+      teamBScore: scores[1],
+      ageLevelA: 10,
+      ageLevelB: 11,
+      date,
+    });
+    const august = [0, 1, 2, 3, 4].map((a) =>
+      across(`up-${a}`, a, `2026-08-${12 + a}`, [3 + a, 6])
+    );
+    const pool = (extra: ScoutGame[]) =>
+      runModelSweep({
+        ageGroups: groups,
+        teams: [...teams, older],
+        games: [...games, ...august, ...extra],
+        year: 2027,
+        today: "2026-10-31",
+      });
+    const without = pool([]);
+    const withIt = pool([across("later", 3, "2026-10-01", [4, 9])]);
+    expect(sweep.crossAge).toBe(0);
+    expect(without.crossAge).toBe(0);
+    expect(withIt.crossAge).toBe(3);
+    expect(withIt.games).toBe(without.games);
+    const readings = (of: typeof sweep) =>
+      of.variants.map(({ logLoss, brier, squared }) => [logLoss, brier, squared]);
+    expect(readings(withIt)).toEqual(readings(without));
+    expect(withIt.calibration).toEqual(without.calibration);
+  });
+
   it("bands the favourite's chance and how often it won, every decided game in one band", () => {
     expect(sweep.calibration).toHaveLength(10);
     expect(sweep.calibration.reduce((sum, band) => sum + band.games, 0)).toBe(sweep.decided / 1);

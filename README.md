@@ -3920,8 +3920,10 @@ no published board to explain.
 
 `scripts/modelSweep.ts` (`npm run model:sweep`) asks how well the boards forecast, the way the
 counted level and the recency weights were measured: the squad year is fitted as its boards would
-have been on 1, 8 and 15 September, and every later game between two clubs that fit rated, from
-23 September to the board's day, is scored on the ratings the board showed
+have been on 1, 8 and 15 September, and every later game between two clubs of one age that fit
+rated, from 23 September to the board's day, is scored on the ratings the board showed, as
+`predictMatchup` states the matchup. A board's clubs are one age, so no board states a forecast
+across ages, and those games are counted apart rather than scored
 (`src/lib/modelSweep.ts`). It reads the shipped model's log loss and Brier score on the decided
 games, the squared error of its margin on all of them (the margin a board states, held to 14
 runs), and its calibration: the favourite's chance in bands of five points beside how often the
