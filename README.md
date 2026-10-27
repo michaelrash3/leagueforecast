@@ -3958,6 +3958,18 @@ branch marked `[run-sweep]`). A public log gets numbers only; the stand-ins' nam
 `scripts/researchSeal.pub.pem` and opened with its private half, which is never committed. What it
 finds becomes a constant only by a later commit that pins the boards first.
 
+What it found on the cloud copy of 27 October 2026 (GitHub run 40443133874; 127,961 later games
+a board states, 124,311 decided): the shipped model's log loss is 0.6146 and its Brier score
+0.2134. No setting of the fit beats it: the ridge either way and a fit cap of 8 are clearly worse,
+a cap of 10 or 14 is level, and 16 worse. A floor of 2% or 5% is better by a hair (z 1.9 and
+2.5), and 12% worse. The odds curve a twentieth to three twentieths wider is clearly better (log
+loss +0.0006 to +0.0008, z 6.3, 4.6 and 3.1), a fifth wider is level, and three tenths or a twentieth
+narrower worse: the boards are 1.7 to 3.3 points too sure of the favourite from 60% to 90%. Of the
+year's 391,391 games, 33.4% have a stand-in on a side (28.7% of the played). Of the 58,489 clubs known
+only by name: 7,540 have one pulled club of the name on their page in a state of the clubs naming
+them, 3,208 one in another state, 4,327 several, 1,151 one or several spelled near it, 6,826 a
+namesake only on another page, and 35,437, holding 70,254 games, nothing of the name at all.
+
 ## Postseason format
 
 Not every league has a playoff cut line, so the season's ending is a setting:
