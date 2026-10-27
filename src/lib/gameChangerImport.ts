@@ -6856,51 +6856,24 @@ type NamedRow = {
   date: string | undefined;
 };
 
-/**
- * The pulled club a name can mean and no other, though its own schedules have no game that day:
- * the one pulled club carrying the name at that level in that squad year anywhere, in the namer's
- * state or one bordering it, under a name holding a word no other club's name has
- * (`RARE_WORD_AMONG`), on a day no earlier than a week before its own first game of the year,
- * where it has one.
- *
- * A name is where to look, not who played, and a club's own schedule says whether it played that
- * day (`refileStandIns`, `unlisted`). But a schedule is written ahead only as far as its coach has
- * got: "513 Force - Bouley" of Cincinnati had one game of its own on 29 September 2026, and a
- * Kentucky club's and an Ohio club's schedules each named it for a game in October. The rule left
- * both rows on stand-ins of the name, and the search showed the club three times. The user said on
- * 29 September that a name that specific can only be the one club — and that a vague "Eagles" can't
- * be combined, which the rare word is for. On the backup of that day the tidy filed 3,660 stand-in
- * rows onto 2,018 clubs, 1,047 of them scored, which emptied 1,985 stand-ins; four games two clubs
- * had each filed against a stand-in for the other were then one game, not two. A second tidy
- * moved nothing.
- *
- * A club whose own schedule is empty is held to no first day, since it has none to be held to and
- * never will: the name is all there is to go on. On the backup of 29 September 246 pulled clubs
- * had no game of their own anywhere in the pool, each one link already pulled, and other clubs'
- * schedules named them on 575 rows, 313 of them scored, from August to June. Holding them to a
- * first day would leave every one of those on a stand-in for good, the rule refusing outright the
- * one club a name that specific can mean.
- *
- * Both tidy steps that read a club's own days ask this of the same row, and must agree: the refile
- * files the row, and the step that takes a name's rows off a club with no game that day leaves it.
- * Read only once a row asks, since most tidies ask nothing.
- */
-const soleNamesakes = (
+/** What `soleNamesakes` and `inStateNamesakes` read of the pulled clubs' names, built once a row asks. */
+type PulledNames = {
+  /** Pulled clubs by pool, name and level, as the refile files them. */
+  clubs: Map<string, ScoutTeam[]>;
+  /** How many pulled names hold each word. */
+  holding: Map<string, number>;
+  names: number;
+  /** Each pulled club's first day with a row of its own, by club and pool. */
+  firstDay: Map<string, string>;
+};
+
+/** The pulled clubs' names, read once a row asks and shared by every rule that reads them. */
+const pulledNamesOf = (
   state: GcImportState,
   poolKeyOf: (ageGroupId: string) => string
-): ((row: NamedRow) => ScoutTeam | undefined) => {
-  let index:
-    | {
-        /** Pulled clubs by pool, name and level, as the refile files them. */
-        clubs: Map<string, ScoutTeam[]>;
-        /** How many pulled names hold each word. */
-        holding: Map<string, number>;
-        names: number;
-        /** Each pulled club's first day with a row of its own, by club and pool. */
-        firstDay: Map<string, string>;
-      }
-    | undefined;
-  const indexNow = () => {
+): (() => PulledNames) => {
+  let index: PulledNames | undefined;
+  return () => {
     if (index) return index;
     const clubs = new Map<string, ScoutTeam[]>();
     const keys = new Set<string>();
@@ -6934,10 +6907,62 @@ const soleNamesakes = (
     index = { clubs, holding, names: keys.size, firstDay };
     return index;
   };
+};
+
+/** Whether a name holds a word in no more than one in `among` of the pulled clubs' names. */
+const holdsRareWord = (key: string, pulled: PulledNames, among: number): boolean => {
+  const words = key.split(" ").filter(Boolean);
+  if (words.length === 0) return false;
+  const rarest = Math.min(...words.map((word) => pulled.holding.get(word) ?? 0));
+  return rarest * among <= pulled.names;
+};
+
+/** Whether `date` is no earlier than a week before the club's first game of its own in the pool. */
+const inItsSeason = (pulled: PulledNames, clubId: string, pool: string, date: string): boolean => {
+  // No first day is no limit: a schedule that is empty says nothing of when the season began.
+  const first = pulled.firstDay.get(`${clubId}\u0000${pool}`);
+  const from = first === undefined ? undefined : isoDayFrom(first, -NAMED_BEFORE_OWN_DAYS);
+  return from === undefined || date >= from;
+};
+
+/**
+ * The pulled club a name can mean and no other, though its own schedules have no game that day:
+ * the one pulled club carrying the name at that level in that squad year anywhere, in the namer's
+ * state or one bordering it, under a name holding a word no other club's name has
+ * (`RARE_WORD_AMONG`), on a day no earlier than a week before its own first game of the year,
+ * where it has one.
+ *
+ * A name is where to look, not who played, and a club's own schedule says whether it played that
+ * day (`refileStandIns`, `unlisted`). But a schedule is written ahead only as far as its coach has
+ * got: "513 Force - Bouley" of Cincinnati had one game of its own on 29 September 2026, and a
+ * Kentucky club's and an Ohio club's schedules each named it for a game in October. The rule left
+ * both rows on stand-ins of the name, and the search showed the club three times. The user said on
+ * 29 September that a name that specific can only be the one club — and that a vague "Eagles" can't
+ * be combined, which the rare word is for. On the backup of that day the tidy filed 3,660 stand-in
+ * rows onto 2,018 clubs, 1,047 of them scored, which emptied 1,985 stand-ins; four games two clubs
+ * had each filed against a stand-in for the other were then one game, not two. A second tidy
+ * moved nothing.
+ *
+ * A club whose own schedule is empty is held to no first day, since it has none to be held to and
+ * never will: the name is all there is to go on. On the backup of 29 September 246 pulled clubs
+ * had no game of their own anywhere in the pool, each one link already pulled, and other clubs'
+ * schedules named them on 575 rows, 313 of them scored, from August to June. Holding them to a
+ * first day would leave every one of those on a stand-in for good, the rule refusing outright the
+ * one club a name that specific can mean.
+ *
+ * Both tidy steps that read a club's own days ask this of the same row, and must agree: the refile
+ * files the row, and the step that takes a name's rows off a club with no game that day leaves it.
+ * Read only once a row asks, since most tidies ask nothing.
+ */
+const soleNamesakes = (
+  state: GcImportState,
+  poolKeyOf: (ageGroupId: string) => string,
+  pulledNow: () => PulledNames = pulledNamesOf(state, poolKeyOf)
+): ((row: NamedRow) => ScoutTeam | undefined) => {
   return ({ pool, key, level, namer, date }) => {
     if (date === undefined || !namer?.state) return undefined;
-    const { clubs, holding, names, firstDay } = indexNow();
-    const found = (clubs.get(`${pool}\u0000${key}\u0000${level}`) ?? []).filter(
+    const pulled = pulledNow();
+    const found = (pulled.clubs.get(`${pool}\u0000${key}\u0000${level}`) ?? []).filter(
       (club) => club.id !== namer.id
     );
     if (found.length !== 1) return undefined;
@@ -6946,14 +6971,96 @@ const soleNamesakes = (
     if (club.state !== namer.state && !borderingStates(namer.state).has(club.state)) {
       return undefined;
     }
-    const words = key.split(" ").filter(Boolean);
-    const rarest = Math.min(...words.map((word) => holding.get(word) ?? 0));
-    if (words.length === 0 || rarest * RARE_WORD_AMONG > names) return undefined;
-    // No first day is no limit: a schedule that is empty says nothing of when the season began.
-    const first = firstDay.get(`${club.id}\u0000${pool}`);
-    const from = first === undefined ? undefined : isoDayFrom(first, -NAMED_BEFORE_OWN_DAYS);
-    if (from !== undefined && date < from) return undefined;
+    if (!holdsRareWord(key, pulled, RARE_WORD_AMONG)) return undefined;
+    if (!inItsSeason(pulled, club.id, pool, date)) return undefined;
     return club;
+  };
+};
+
+/**
+ * How far a name is read as the one pulled club of it in the namer's own state, though that club's
+ * own schedules have no game that day (`inStateNamesakes`); null reads no name so.
+ */
+export type InStateRule = {
+  /** A word of the name in no more than one in this many pulled clubs' names; 1 lets any name. */
+  rareAmong: number;
+  /** Failing one of the name at the row's level in the state, one a level either side. */
+  nearLevel: boolean;
+};
+
+/** The rules of the tidy that are still being measured, as `tidyPool` takes them. */
+export type TidyRules = { inState: InStateRule | null };
+
+/** The tidy as it ships. */
+export const SHIPPED_TIDY_RULES: TidyRules = { inState: null };
+
+/** A row a name filed, as `inStateNamesakes` asks of it: the start time too. */
+type TimedNamedRow = NamedRow & { start: string | undefined };
+
+/**
+ * The pulled club a name means because it is the one pulled club of that name, at that level and
+ * squad year, in the state of the club whose schedule wrote it down, though that club's own
+ * schedules have no game that day: on a day no earlier than a week before its own first game of the
+ * year, and never where one of its own rows that day starts within the hour against another club,
+ * since a club plays one game at a time.
+ *
+ * The owner, 27 October 2026: "your tidy is not working properly or your rules are way too tight".
+ * The second model sweep's read of the cloud copy that day found 7,540 clubs known only by name with
+ * one pulled club of the name on their page in a state of the clubs naming them, holding 13,164
+ * games. The rule of 28 September files a name onto a pulled club only where its own schedules have
+ * a game that day (`unlisted`), or where no other club in the country carries the name and it holds
+ * a word nearly nobody's does (`soleNamesakes`); a club that keeps only some of its games on
+ * GameChanger fails it for every game it left off.
+ *
+ * Both tidy steps that read a club's own days ask this of the same row, and must agree, as with
+ * `soleNamesakes`: the refile files the row, and the step that takes a name's rows off a club with
+ * no game that day leaves it.
+ */
+export const inStateNamesakes = (
+  state: GcImportState,
+  poolKeyOf: (ageGroupId: string) => string,
+  rule: InStateRule | null,
+  pulledNow: () => PulledNames = pulledNamesOf(state, poolKeyOf)
+): ((row: TimedNamedRow) => ScoutTeam | undefined) => {
+  if (!rule) return () => undefined;
+  /** Each pulled club's own rows by day, at their start and against whom: what a clash reads. */
+  let ownStarts: Map<string, { start: string | undefined; other: string }[]> | undefined;
+  const ownStartsNow = () => {
+    if (ownStarts) return ownStarts;
+    const clubOfSchedule = new Map<string, string>();
+    state.teams.forEach((team) =>
+      team.gcTeams?.forEach((link) => clubOfSchedule.set(link.teamId, team.id))
+    );
+    const starts = new Map<string, { start: string | undefined; other: string }[]>();
+    state.games.forEach((game) =>
+      ownRowDays(game, (schedule) => clubOfSchedule.get(schedule)).forEach(([club, day]) => {
+        const other = club === game.teamAId ? game.teamBId : game.teamAId;
+        push(starts, `${club}\u0000${day}`, { start: game.startTs, other });
+      })
+    );
+    ownStarts = starts;
+    return starts;
+  };
+  return ({ pool, key, level, namer, date, start }) => {
+    if (date === undefined || level === undefined || !namer?.state) return undefined;
+    const pulled = pulledNow();
+    const inState = (at: number) =>
+      (pulled.clubs.get(`${pool}\u0000${key}\u0000${at}`) ?? []).filter(
+        (club) => club.id !== namer.id && club.state === namer.state
+      );
+    let found = inState(level);
+    if (found.length === 0 && rule.nearLevel) {
+      found = [...new Set([...inState(level - 1), ...inState(level + 1)])];
+    }
+    if (found.length !== 1) return undefined;
+    const club = found[0]!;
+    if (isPlaceholderName(club.name) || namesNobody(club.name)) return undefined;
+    if (!holdsRareWord(key, pulled, rule.rareAmong)) return undefined;
+    if (!inItsSeason(pulled, club.id, pool, date)) return undefined;
+    const clash = (ownStartsNow().get(`${club.id}\u0000${date}`) ?? []).some(
+      (own) => own.other !== namer.id && startsWithinTheHour(own.start, start)
+    );
+    return clash ? undefined : club;
   };
 };
 
@@ -7016,7 +7123,9 @@ export const resettleOffLevel = (
    * schedule that wrote it, comes off the club as a row the rules refuse it does, and goes onto no
    * namesake it is refused either.
    */
-  refused: NotThisTeam = NO_REFUSALS
+  refused: NotThisTeam = NO_REFUSALS,
+  /** The rules still being measured (`TidyRules`), the refile's as well, so the two agree. */
+  rules: TidyRules = SHIPPED_TIDY_RULES
 ): { state: GcImportState; resettled: number } => {
   const poolKeyOf = buildPoolKeyOf(state.ageGroups);
   const levelOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
@@ -7043,7 +7152,9 @@ export const resettleOffLevel = (
     game.source !== undefined && (ownIds.get(teamId)?.has(game.source.teamId) ?? false);
   const within = (seen: ReadonlySet<number> | undefined, level: number, slack: number): boolean =>
     [...(seen ?? [])].some((at) => Math.abs(at - level) <= slack);
-  const sole = soleNamesakes(state, poolKeyOf);
+  const pulled = pulledNamesOf(state, poolKeyOf);
+  const sole = soleNamesakes(state, poolKeyOf, pulled);
+  const oneInState = inStateNamesakes(state, poolKeyOf, rules.inState, pulled);
 
   /**
    * What each pulled club's own schedules say of it: the levels its own rows were played at and the
@@ -7263,15 +7374,19 @@ export const resettleOffLevel = (
     const offByRule =
       refusedHere || farOff || twoOff(namedId, typed, game.date) || unvouched(namedId, moverId);
     // A name no other club carries is the club's though it has no game that day, which is where
-    // the refile files it (`soleNamesakes`).
-    const meant = () =>
-      sole({
+    // the refile files it (`soleNamesakes`); so is the one club of it in the namer's state, where
+    // the rules read it so (`inStateNamesakes`).
+    const meant = () => {
+      const row = {
         pool: poolKeyOf(game.ageGroupId),
         key: teamNameKey(named.name),
         level,
         namer: teamById.get(moverId),
         date: game.date,
-      })?.id === namedId;
+        start: game.startTs,
+      };
+      return sole(row)?.id === namedId || oneInState(row)?.id === namedId;
+    };
     if (!offByRule && (!unlisted(namedId, game.date) || meant())) return game;
 
     /*
@@ -7349,7 +7464,9 @@ export const resettleOffLevel = (
 export const refileStandIns = (
   state: GcImportState,
   /** The names the owner has said are not a club (`notThisTeam.ts`), never refiled onto it. */
-  refused: NotThisTeam = NO_REFUSALS
+  refused: NotThisTeam = NO_REFUSALS,
+  /** The rules still being measured (`TidyRules`): a name read as its one club in the namer's state. */
+  rules: TidyRules = SHIPPED_TIDY_RULES
 ): { state: GcImportState; refiled: number } => {
   const poolKeyOf = buildPoolKeyOf(state.ageGroups);
   const levelOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
@@ -7390,7 +7507,9 @@ export const refileStandIns = (
     );
   };
 
-  const sole = soleNamesakes(state, poolKeyOf);
+  const pulled = pulledNamesOf(state, poolKeyOf);
+  const sole = soleNamesakes(state, poolKeyOf, pulled);
+  const oneInState = inStateNamesakes(state, poolKeyOf, rules.inState, pulled);
   let refiled = 0;
   const games = state.games.map((game) => {
     const a = teamById.get(game.teamAId);
@@ -7422,8 +7541,8 @@ export const refileStandIns = (
             ? inState.filter((club) => townKey(club.city) === pullerTown)
             : []
           : namesakes.filter((club) => club.state !== undefined && near.has(club.state));
-    if (chosen.length !== 1) return game;
-    const club = chosen[0]!;
+    const row = { pool, key, level, namer: puller, date: game.date, start: game.startTs };
+    const pick = chosen.length === 1 ? chosen[0]! : undefined;
     /*
      * ...and only a club whose own schedules have a game that day. A name is where to look, not
      * who played: the club it points at either played that day or did not play this game, and its
@@ -7437,9 +7556,15 @@ export const refileStandIns = (
      * Unless the name can mean no other club (`soleNamesakes`): "513 Force - Bouley" is its club's
      * on a day its coach has not yet put on its schedule.
      */
+    const vouched =
+      pick !== undefined && (listsThatDay(pick.id, game.date) || sole(row)?.id === pick.id);
+    // Or, where the rules read it so, the one club of the name in the namer's own state, which the
+    // resettle leaves where this files it (`inStateNamesakes`).
+    const club = vouched ? pick : oneInState(row);
     if (
-      !listsThatDay(club.id, game.date) &&
-      sole({ pool, key, level, namer: puller, date: game.date })?.id !== club.id
+      !club ||
+      club.id === puller.id ||
+      refusesName(refused, game.source?.teamId, standIn.name, club)
     ) {
       return game;
     }
@@ -8528,7 +8653,8 @@ const tidyOnce = (
   watch?: TidyWatcher,
   apart?: KeptApart,
   refused: NotThisTeam = NO_REFUSALS,
-  real: ReadonlySet<string> = NONE_REAL
+  real: ReadonlySet<string> = NONE_REAL,
+  rules: TidyRules = SHIPPED_TIDY_RULES
 ): Omit<PoolTidy, "passes" | "idle"> => {
   /*
    * Reported from here rather than from the passes themselves: each one is a pure function of a
@@ -8604,10 +8730,10 @@ const tidyOnce = (
   // After the fixture, which is better evidence than a level, and before the refile, which then
   // gets a look at whatever this had to leave as a stand-in.
   starting("resettled", moved.state);
-  const graded = resettleOffLevel(moved.state, refused);
+  const graded = resettleOffLevel(moved.state, refused, rules);
   finished("resettled", graded.resettled, graded.state);
   starting("refiled", graded.state);
-  const placed = refileStandIns(graded.state, refused);
+  const placed = refileStandIns(graded.state, refused, rules);
   finished("refiled", placed.refiled, placed.state);
   // After the refile, which files a stand-in's rows onto a club where it can, so only the stand-ins
   // that stay stand-ins are made one; and before the claims, which read the day against them.
@@ -8712,7 +8838,9 @@ export const tidyPool = (
    * caller adds the clubs a League Standings team links (`leagueLinkedClubs`), which only the League
    * pass can see.
    */
-  real: ReadonlySet<string> = NONE_REAL
+  real: ReadonlySet<string> = NONE_REAL,
+  /** The rules still being measured (`TidyRules`); every caller but a measurement leaves them. */
+  rules: TidyRules = SHIPPED_TIDY_RULES
 ): PoolTidy => {
   const total: PoolTidy = {
     state,
@@ -8741,7 +8869,7 @@ export const tidyPool = (
     passes: 0,
   };
   for (let pass = 0; pass < TIDY_MAX_PASSES; pass += 1) {
-    const step = tidyOnce(total.state, pass + 1, watch, apart, refused, real);
+    const step = tidyOnce(total.state, pass + 1, watch, apart, refused, real, rules);
     total.passes += 1;
     total.state = step.state;
     total.named += step.named;
