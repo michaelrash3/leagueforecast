@@ -4,6 +4,7 @@ import {
   inSegment,
   isScoutGamePlayed,
   previewMatchup,
+  scoreSeenBy,
   type ScoutGame,
   type ScoutRankingRow,
   type SeasonSegment,
@@ -70,8 +71,9 @@ const placeOf = (row: ScoutRankingRow): number => row.overallRank ?? row.rank;
 
 /**
  * The winner's chance in a game, by the board's ratings as the page reads a matchup: undefined for
- * a game that does not count, a tie, a club the board has no row for, or two clubs nothing in the
- * pool compares (`previewMatchup`'s `unconnected`), whose odds are a guess.
+ * a game that does not count, a tie, a club the board has no row for, two clubs nothing in the pool
+ * compares (`previewMatchup`'s `unconnected`), whose odds are a guess, or a game whose two clubs'
+ * own schedules (`scoreSeenBy`) do not agree who won, which is no upset of either's.
  */
 export const winnerChance = (
   game: ScoutGame,
@@ -79,15 +81,21 @@ export const winnerChance = (
   today?: string
 ): number | undefined => {
   if (!countsTowardRating(game, today)) return undefined;
-  const runsA = game.teamAScore!;
-  const runsB = game.teamBScore!;
+  const byA = scoreSeenBy(game, game.teamAId)!;
+  const byB = scoreSeenBy(game, game.teamBId)!;
+  if (byA.own === byA.opponent || byB.own === byB.opponent) return undefined;
+  const aWon = byA.own > byA.opponent;
+  if (aWon === byB.own > byB.opponent) return undefined;
   const a = rowOf(game.teamAId);
   const b = rowOf(game.teamBId);
-  if (runsA === runsB || !a || !b || a.teamId === b.teamId) return undefined;
+  if (!a || !b || a.teamId === b.teamId) return undefined;
   const odds = previewMatchup(a, b);
   if (odds.unconnected) return undefined;
-  return runsA > runsB ? odds.winProb : 1 - odds.winProb;
+  return aWon ? odds.winProb : 1 - odds.winProb;
 };
+
+/** A club's runs and its opponent's in a game, as its own schedule gave them (`scoreSeenBy`). */
+const ownScore = (game: ScoutGame, teamId: string) => scoreSeenBy(game, teamId)!;
 
 /** Whether a game is one the ratings called the other way (`UPSET_CHANCE`). */
 export const isUpset = (
@@ -107,8 +115,9 @@ const byWhen = (a: ScoutGame, b: ScoutGame): number =>
 export type WeeklyHalf = { year: number | undefined; segment: SeasonSegment | undefined };
 
 /**
- * The page's week, from its board's rows and its games, of which only the page's own in the
- * board's half are read: a streak is the board's, as its record is. `today` is an ISO day: the
+ * The page's week, from its board's rows and its rating pool's games of the board's half: the
+ * upsets and the game ahead off the page's own, a streak off every page of the pool, as the
+ * board's record is. `today` is an ISO day: the
  * week just played is the `WEEK_DAYS` before it, and the week ahead starts on it.
  */
 export const theWeekly = (
@@ -122,11 +131,11 @@ export const theWeekly = (
   const rowOf = (teamId: string) => byId.get(teamId);
   const since = shiftIsoDay(today, -WEEK_DAYS);
   const until = shiftIsoDay(today, WEEK_DAYS);
-  const page = games.filter(
-    (game) =>
-      game.ageGroupId === pageId &&
-      (half === undefined || inSegment(game.date, half.year, half.segment))
+  // The pool's games of the board's half, as its record reads them, and of those the page's own.
+  const pool = games.filter(
+    (game) => half === undefined || inSegment(game.date, half.year, half.segment)
   );
+  const page = pool.filter((game) => game.ageGroupId === pageId);
 
   // The least likely first, and a result both schedules hold is one upset.
   const upsets = new Map<string, WeeklyUpset>();
@@ -148,7 +157,7 @@ export const theWeekly = (
   }
 
   let ahead: WeeklyGame | null = null;
-  let nearest = Infinity;
+  let nearest = { far: Infinity, pair: Infinity };
   for (const game of page) {
     if (game.date === undefined || game.date < today || game.date >= until) continue;
     if (isScoutGamePlayed(game) || game.excluded === true || game.countedElsewhere === true)
@@ -159,11 +168,16 @@ export const theWeekly = (
     if (placeOf(a) > MARQUEE_WITHIN || placeOf(b) > MARQUEE_WITHIN) continue;
     const odds = previewMatchup(a, b);
     if (odds.unconnected) continue;
-    // Nearest even first; then the higher pair; then the sooner.
+    // Nearest even first; on a tie of that, the higher pair; on a tie of both, the sooner.
     const far = Math.abs(odds.winProb - 0.5);
-    const score = far * 1e6 + (placeOf(a) + placeOf(b)) * 10;
-    if (score < nearest || (score === nearest && ahead !== null && game.date < ahead.date)) {
-      nearest = score;
+    const pair = placeOf(a) + placeOf(b);
+    const nearer =
+      far < nearest.far ||
+      (far === nearest.far &&
+        (pair < nearest.pair ||
+          (pair === nearest.pair && ahead !== null && game.date < ahead.date)));
+    if (nearer) {
+      nearest = { far, pair };
       ahead = {
         teamAId: a.teamId,
         teamBId: b.teamId,
@@ -174,9 +188,13 @@ export const theWeekly = (
     }
   }
 
-  // Each ranked club's games that count, read back from its latest until one it did not win.
+  /*
+   * Each ranked club's games that count, read back from its latest until one it did not win: its
+   * games on every page of the pool, as the board's record counts them (`recordsFor`), so a loss
+   * filed on another age's page ends a run as it does on the club's record.
+   */
   const played = new Map<string, ScoutGame[]>();
-  for (const game of page) {
+  for (const game of pool) {
     if (game.date === undefined || !countsTowardRating(game, today)) continue;
     for (const club of new Set([game.teamAId, game.teamBId])) {
       if (!byId.has(club)) continue;
@@ -191,9 +209,9 @@ export const theWeekly = (
     let wins = 0;
     for (let at = list.length - 1; at >= 0; at -= 1) {
       const game = list[at]!;
-      const mine = game.teamAId === teamId ? game.teamAScore! : game.teamBScore!;
-      const theirs = game.teamAId === teamId ? game.teamBScore! : game.teamAScore!;
-      if (mine <= theirs) break;
+      // Its own schedule's word, as its record on the board reads it.
+      const { own, opponent } = ownScore(game, teamId);
+      if (own <= opponent) break;
       wins += 1;
     }
     if (wins >= STREAK_LEAST) streaks.push({ teamId, wins });
@@ -242,11 +260,11 @@ export const teamWeek = (
     if (game.date === undefined || game.date < since || game.date >= today) continue;
     if (!countsTowardRating(game, today)) continue;
     any = true;
-    const mine = game.teamAId === teamId ? game.teamAScore! : game.teamBScore!;
-    const theirs = game.teamAId === teamId ? game.teamBScore! : game.teamAScore!;
+    // Its own schedule's word, as its record on the board reads it.
+    const { own, opponent: theirs } = ownScore(game, teamId);
     const opponent = game.teamAId === teamId ? game.teamBId : game.teamAId;
-    if (mine === theirs) week.ties += 1;
-    else if (mine < theirs) week.losses += 1;
+    if (own === theirs) week.ties += 1;
+    else if (own < theirs) week.losses += 1;
     else {
       week.wins += 1;
       const place = placeById.get(opponent);
