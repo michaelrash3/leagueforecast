@@ -1,5 +1,11 @@
 import type { ScoutRankingRow, UpcomingMatchup } from "./teamRankings";
 import { movementOf, type Movement } from "./rankMovement";
+import {
+  scheduleRankInState,
+  weekendAhead,
+  type ScheduleRank,
+  type WeekendAhead,
+} from "./clubForm";
 
 /** Where one club stands on a board, and what it plays next: the card above the boards. */
 export type MyTeamGlance = {
@@ -18,6 +24,10 @@ export type MyTeamGlance = {
   next?: UpcomingMatchup;
   /** Places climbed on this page since last week, once last week's board is known. */
   movement?: Movement;
+  /** How hard its schedule has been beside its state's clubs here (`scheduleRankInState`). */
+  schedule?: ScheduleRank;
+  /** Its next weekend with a dated game, where it has two games or more on it (`weekendAhead`). */
+  weekend?: WeekendAhead;
 };
 
 /**
@@ -54,6 +64,8 @@ export const myTeamGlance = (
   const next = upcoming[0];
   const nationalRank = row.overallRank ?? row.rank;
   const movement = movementOf(row.teamId, nationalRank, lastWeek);
+  const schedule = scheduleRankInState(rankings, myTeamId, stateOf);
+  const weekend = weekendAhead(upcoming);
   return {
     teamId: row.teamId,
     teamName: row.teamName,
@@ -64,5 +76,7 @@ export const myTeamGlance = (
     rating: row.rating,
     ...(next ? { next } : {}),
     ...(movement !== undefined ? { movement } : {}),
+    ...(schedule ? { schedule } : {}),
+    ...(weekend && weekend.games.length >= 2 ? { weekend } : {}),
   };
 };

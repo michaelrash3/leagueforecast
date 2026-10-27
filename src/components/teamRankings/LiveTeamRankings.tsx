@@ -46,8 +46,10 @@ import { myTeamGlance } from "../../lib/myTeamGlance";
 import { movementOf } from "../../lib/rankMovement";
 import { weekMovers } from "../../lib/thisWeek";
 import { teamWeek } from "../../lib/theWeekly";
+import { recordVsExpected } from "../../lib/clubForm";
 import {
   buildUpcomingSchedule,
+  inSegment,
   rankingPoolGroupIds,
   type ScoutRankingRow,
   type SeasonSegment,
@@ -649,6 +651,19 @@ function LiveBoard({
     () => myTeamGlance(rows, myTeamId, (teamId) => stateById.get(teamId), myUpcoming, lastWeek),
     [rows, myTeamId, stateById, myUpcoming, lastWeek]
   );
+  // Its record against the clubs rated here beside the one its ratings expected, over the board's
+  // half, off the same card (`recordVsExpected`).
+  const myExpected = useMemo(() => {
+    if (!mineCard.card || !myTeamId) return undefined;
+    return recordVsExpected(
+      myTeamId,
+      poolGamesOfCard(mineCard.card, poolIds).filter((game) =>
+        inSegment(game.date, selectedYear, live.segment)
+      ),
+      rowOf,
+      today
+    );
+  }, [mineCard.card, myTeamId, poolIds, selectedYear, live.segment, rowOf, today]);
   // The page's own club's week just played, off the same card (`teamWeek`).
   const myWeek = useMemo(
     () =>
@@ -1061,6 +1076,7 @@ function LiveBoard({
             thisWeek={thisWeek}
             weekly={board?.view.weekly ?? null}
             myWeek={myWeek}
+            {...(myExpected ? { myExpected } : {})}
             myTeamNextPending={myTeamId !== undefined && !mineCard.card && !mineCard.failed}
             myTeamNextUnread={mineCard.failed}
             {...(rankHistory ? { rankHistory } : {})}

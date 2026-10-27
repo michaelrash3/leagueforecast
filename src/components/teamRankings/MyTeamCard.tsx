@@ -3,6 +3,7 @@ import { formatIsoDayShort } from "../../lib/date";
 import { formatRating, MovementMark } from "./RankingList";
 import { card } from "../../styles/tokens";
 import type { RankHistoryPoint } from "../../hooks/useRankingsWorker";
+import type { ExpectedRecord } from "../../lib/clubForm";
 
 type MyTeamCardProps = {
   glance: MyTeamGlance;
@@ -23,6 +24,36 @@ type MyTeamCardProps = {
   nextUnread?: boolean;
   /** Scouting's Compare with on the next game's opponent, beside our club (`ScoutButton`). */
   onScout?: (opponentId: string) => void;
+  /** Its record against the clubs rated here beside the one its ratings expected (`clubForm.ts`). */
+  expected?: ExpectedRecord;
+};
+
+/** "1st", "2nd", "3rd", "11th", "22nd". */
+export const ordinal = (n: number): string => {
+  const tens = n % 100;
+  const suffix =
+    tens >= 11 && tens <= 13
+      ? "th"
+      : (({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ?? "th");
+  return `${n.toLocaleString()}${suffix}`;
+};
+
+/**
+ * A record beside the one the ratings expected, in words: "9–11 against rated clubs, about one win
+ * better than the ratings expect (8.1)". Within half a win is "about what the ratings expect".
+ */
+export const expectedWords = (expected: ExpectedRecord): string => {
+  const { wins, losses, ties, expectedWins, oneRun } = expected;
+  const record = `${wins}–${losses}${ties > 0 ? `–${ties}` : ""}`;
+  const off = wins - expectedWins;
+  const by = Math.round(Math.abs(off));
+  const said =
+    Math.abs(off) < 0.5
+      ? "about what the ratings expect"
+      : `about ${by === 1 ? "one win" : `${by} wins`} ${off > 0 ? "better" : "worse"} than the ratings expect`;
+  const close =
+    oneRun.wins + oneRun.losses > 0 ? ` · one-run games ${oneRun.wins}–${oneRun.losses}` : "";
+  return `${record} against rated clubs, ${said} (${expectedWins.toFixed(1)})${close}`;
 };
 
 /**
@@ -130,7 +161,9 @@ export function MyTeamCard({
   nextPending = false,
   nextUnread = false,
   onScout,
+  expected,
 }: MyTeamCardProps) {
+  const { schedule, weekend } = glance;
   const { next } = glance;
   return (
     <section aria-label="My team" className={`${card} p-4`}>
@@ -174,6 +207,18 @@ export function MyTeamCard({
         {" · "}
         {glance.record} · {formatRating(glance.rating)}
       </p>
+      {(schedule || expected) && (
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+          {schedule && glance.state && (
+            <>
+              Schedule: <strong>{ordinal(schedule.rank)} toughest</strong> of{" "}
+              {schedule.of.toLocaleString()} in {glance.state}
+            </>
+          )}
+          {schedule && glance.state && expected && " · "}
+          {expected && expectedWords(expected)}
+        </p>
+      )}
       {history && (
         <StandingLine history={history} now={glance.nationalRank} nowOf={glance.nationalOf} />
       )}
@@ -207,6 +252,21 @@ export function MyTeamCard({
             "Next game: loading…"
           ) : (
             "No game on the schedule yet."
+          )}
+        </p>
+      )}
+      {weekend && (
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+          Weekend to {shortDay(weekend.sunday)}: {weekend.games.length} games, about{" "}
+          {weekend.expectedWins.toFixed(1)} wins expected
+          {weekend.toughest && weekend.likeliest && (
+            <>
+              {" · toughest vs "}
+              <strong>{weekend.toughest.opponentName}</strong> (
+              {Math.round(weekend.toughest.winProb! * 100)}%){" · likeliest vs "}
+              <strong>{weekend.likeliest.opponentName}</strong> (
+              {Math.round(weekend.likeliest.winProb! * 100)}%)
+            </>
           )}
         </p>
       )}

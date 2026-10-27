@@ -3,6 +3,7 @@ import type { ScoutRankingRow } from "../../lib/teamRankings";
 import { UNKNOWN_STATE } from "../../lib/teamRankings";
 import type { WeekMovers } from "../../lib/thisWeek";
 import type { TeamWeek, Weekly } from "../../lib/theWeekly";
+import type { ExpectedRecord } from "../../lib/clubForm";
 import { ThisWeekCard } from "./ThisWeekCard";
 import { RankingMethodButton, RankingMethodPanel } from "../RankingMethodPanel";
 import { RankingList, formatRating } from "./RankingList";
@@ -77,6 +78,8 @@ type RankingsSectionProps = {
   weekly?: Weekly | null;
   /** The page's own club's week just played (`teamWeek`). */
   myWeek?: TeamWeek | null;
+  /** The page's own club's record beside the one its ratings expected (`recordVsExpected`). */
+  myExpected?: ExpectedRecord;
   /** The marked club's place week by week, oldest first, ending a week ago (`useRankingsWorker`). */
   rankHistory?: RankHistoryPoint[];
   /** How far a row has moved on this page since last week (`movementOf`). */
@@ -162,6 +165,7 @@ export function RankingsSection({
   thisWeek,
   weekly = null,
   myWeek = null,
+  myExpected,
   rankHistory,
   movementOf,
   standInNote,
@@ -280,6 +284,7 @@ export function RankingsSection({
               nextPending={myTeamNextPending}
               nextUnread={myTeamNextUnread}
               {...(onScoutNext ? { onScout: onScoutNext } : {})}
+              {...(myExpected ? { expected: myExpected } : {})}
             />
           )}
           <ThisWeekCard

@@ -106,3 +106,13 @@ describe("The Weekly on this device", () => {
     await waitFor(() => expect(week.textContent).toContain("Biggest climbs: Does #4 → #1 (up 3)"));
   });
 });
+
+describe("the My Team card's season on this device", () => {
+  it("says the schedule's toughness in its state and the record beside the expected one", async () => {
+    renderTeamRankings(pool("S-DOE"));
+    const card = await screen.findByRole("region", { name: "My team" });
+    // Does lost to Bees and Cows, then beat Aces and Bees: 2-2 against clubs all rated here.
+    await waitFor(() => expect(card.textContent).toMatch(/2–2 against rated clubs, .+ \(\d\.\d\)/));
+    expect(card.textContent).toMatch(/Schedule: [1-3](st|nd|rd) toughest of 3 in OH/);
+  });
+});
