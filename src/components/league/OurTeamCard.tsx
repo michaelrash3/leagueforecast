@@ -3,6 +3,7 @@ import type { OurTeamSummary } from "../../lib/ourTeam";
 import { displayName } from "../../lib/format";
 import { formatGameDate, todayIsoDay } from "../../lib/date";
 import type { LeagueClubRank } from "../../lib/leagueClubRanks";
+import { topShare } from "../../lib/standing";
 import { button as buttonClasses, card } from "../../styles/tokens";
 
 type OurTeamCardProps = {
@@ -109,7 +110,7 @@ export function OurTeamCard({ summary, teams, onPick, onEnterScore, clubRank }: 
       {clubRank && (
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
           Team Rankings: <strong>{ordinal(clubRank.rank)}</strong> of {clubRank.of.toLocaleString()}{" "}
-          nationally{moved(clubRank.movement)}
+          nationally{moved(clubRank.movement)} · top {topShare(clubRank.rank, clubRank.of)}%
           {clubRank.state && clubRank.stateRank !== undefined && clubRank.stateOf !== undefined && (
             <>
               {" · "}

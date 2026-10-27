@@ -124,7 +124,7 @@ describe("the Our team card", () => {
     );
     const region = screen.getByRole("region", { name: "Our team" });
     expect(region).toHaveTextContent(
-      "Team Rankings: 37th of 1,812 nationally (▲3) · 4th of 160 in OH · 9U 2027 · Fall 2026, as of 9/27"
+      "Team Rankings: 37th of 1,812 nationally (▲3) · top 3% · 4th of 160 in OH · 9U 2027 · Fall 2026, as of 9/27"
     );
   });
 
