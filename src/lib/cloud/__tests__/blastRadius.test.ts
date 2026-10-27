@@ -84,6 +84,75 @@ describe("what a save would take away", () => {
     });
   });
 
+  describe("a club known only by name, its rows filed onto the club it named", () => {
+    // 1,000 pulled clubs on the page and 40 stand-ins, each named twice by a pulled club: 4% of
+    // the year's clubs, past the 2% line if they counted as taken away.
+    const pulled = Array.from(
+      { length: 1000 },
+      (_, at) =>
+        ({
+          id: `p${at}`,
+          name: "",
+          gcTeams: [{ teamId: `gc${at}`, ageGroupId: "9u" }],
+        }) as ScoutTeam
+    );
+    const standIns = Array.from(
+      { length: 40 },
+      (_, at) => ({ id: `s${at}`, name: "", nameOnly: true }) as ScoutTeam
+    );
+    const named = standIns.flatMap((standIn, at) =>
+      [0, 1].map((row) => ({
+        id: `n${at}-${row}`,
+        teamAId: `p${(at * 2 + row) % 1000}`,
+        teamBId: standIn.id,
+        ageGroupId: "9u",
+      }))
+    );
+    const own = games(1000, "9u", "o").map((game) => ({
+      ...game,
+      teamAId: `p${Number(game.teamAId.slice(2))}`,
+      teamBId: `p${Number(game.teamBId.slice(2))}`,
+    }));
+    const was = poolYears({
+      ageGroups: [page("9u", 2027)],
+      teams: [...pulled, ...standIns],
+      games: [...own, ...named],
+    });
+    // The tidy files each stand-in's rows onto the pulled club of its name and drops the
+    // stand-in, left with nothing on it, from the roster.
+    const filed = named.map((game, at) => ({ ...game, teamBId: `p${500 + (at >> 1)}` }));
+    const year = (pool: { games: readonly ScoutGame[]; teams: readonly ScoutTeam[] }) =>
+      blastRadius(was, after(pool)).find((one) => one.year === 2027)!;
+
+    it("is not taken away, so the save is not held for it", () => {
+      const radius = year({ games: [...own, ...filed], teams: pulled });
+      expect(radius).toMatchObject({ clubs: 1040, clubsRemoved: 0, gamesRemoved: 0 });
+      expect(pastTheLine([radius])).toHaveLength(0);
+    });
+
+    it("is taken away where any game it held went with it", () => {
+      const radius = year({ games: [...own, ...filed.slice(1)], teams: pulled });
+      expect(radius).toMatchObject({ clubsRemoved: 1, gamesRemoved: 1 });
+      // Every stand-in's games gone with them: 40 clubs and 80 games, held.
+      expect(pastTheLine([year({ games: own, teams: pulled })])).toHaveLength(1);
+    });
+
+    it("leaves a pulled club folded into another counted as taken away, its games kept", () => {
+      const folded = own.map((game) =>
+        game.teamAId === "p90"
+          ? { ...game, teamAId: "p91" }
+          : game.teamBId === "p90"
+            ? { ...game, teamBId: "p91" }
+            : game
+      );
+      const radius = year({
+        games: [...folded, ...filed],
+        teams: pulled.filter((team) => team.id !== "p90"),
+      });
+      expect(radius).toMatchObject({ clubsRemoved: 1, gamesRemoved: 0 });
+    });
+  });
+
   it("says what it would have done, in numbers", () => {
     expect(
       radiusWords({ year: 2027, games: 1000, gamesRemoved: 60, clubs: 100, clubsRemoved: 3 })
