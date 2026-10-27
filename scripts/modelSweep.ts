@@ -713,17 +713,12 @@ const measureStandInHalves = (source: Source, year: number) => {
     [1, "starts to the minute"],
   ] as const) {
     say(`\n   ${words}:`);
-    describeNearScores("every stand-in", nearScores(known.teams, games, levelOf, within));
-    describeNearScores(
-      '"unmatched"',
-      nearScores(
-        known.teams,
-        games,
-        levelOf,
-        within,
-        (row) => whyOf.get(row.standInId) === "unmatched"
-      )
-    );
+    const [every, unmatchedOnly] = nearScores(known.teams, games, levelOf, within, [
+      () => true,
+      (row) => whyOf.get(row.standInId) === "unmatched",
+    ]);
+    describeNearScores("every stand-in", every!);
+    describeNearScores('"unmatched"', unmatchedOnly!);
   }
 
   // The funnel where the answer is known: games both clubs' own schedules list, one side held out.

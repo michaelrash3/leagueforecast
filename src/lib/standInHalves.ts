@@ -161,8 +161,14 @@ export const funnelEnd = ({ left, furthest }: Funnelled): FunnelEnd => {
 
 /** One pulled club's own row of a game, keyed by its day and its result from that club's seat. */
 type OwnRow = { game: ScoutGame; clubId: string; opponentId: string; settled: boolean };
-/** An own row with its result from its own seat and its start, as an instant. */
-type StartedRow = OwnRow & { own: number; opponent: number; at: number };
+/** An own row with its result from its own seat, its start as an instant, its club's state, its level. */
+type StartedRow = OwnRow & {
+  own: number;
+  opponent: number;
+  at: number;
+  state: string | undefined;
+  level?: number;
+};
 type RowAgainst = { game: ScoutGame; namerId: string; standInId: string };
 
 /** A row as its own club's schedule gave it: its day, its start, its result from that seat, its level. */
@@ -242,7 +248,15 @@ const halfIndex = (
       const at = Date.parse(game.startTs ?? "");
       if (!Number.isFinite(at)) continue;
       const day = byDay.get(game.date!);
-      const started = { ...row, own: seen.own, opponent: seen.opponent, at };
+      const level = levelOf(game.ageGroupId);
+      const started = {
+        ...row,
+        own: seen.own,
+        opponent: seen.opponent,
+        at,
+        state: byId.get(side)?.state,
+        ...(level === undefined ? {} : { level }),
+      };
       if (day) day.push(started);
       else byDay.set(game.date!, [started]);
     }
@@ -555,11 +569,12 @@ export const nearScores = (
   games: readonly ScoutGame[],
   levelOf: (ageGroupId: string) => number | undefined,
   withinMinutes: number,
-  keep: (row: { namerId: string; standInId: string }) => boolean = () => true,
+  /** The groups of rows to tally, each by its own test, read in one pass. */
+  groups: ReadonlyArray<(row: { namerId: string; standInId: string }) => boolean> = [() => true],
   decoyWeeks: readonly number[] = DECOY_WEEKS
-): NearScoreTally => {
+): NearScoreTally[] => {
   const index = halfIndex(teams, games, levelOf);
-  const tally: NearScoreTally = {
+  const tallies = groups.map((): NearScoreTally => ({
     rows: 0,
     noStart: 0,
     exact: 0,
@@ -571,15 +586,16 @@ export const nearScores = (
     decoyExact: 0,
     decoyNear: 0,
     decoyNearOne: 0,
-  };
+  }));
   const weeks = Math.max(1, decoyWeeks.length);
   const sign = (a: number, b: number) => Math.sign(a - b);
-  /** The runs off, in all, of each candidate at the row's start, moved by `week`. */
-  const offs = (view: RowView, week: number): Array<{ off: number; sameWinner: boolean }> => {
-    const found: Array<{ off: number; sameWinner: boolean }> = [];
+  /** What the rows at the row's start, moved by `week`, say: exact, near (how many, a same winner), far. */
+  const read = (view: RowView, week: number) => {
+    const out = { exact: false, near: 0, sameWinner: false, far: false };
     const day = index.byDay.get(shiftDay(view.date, week)!) ?? [];
     const from = Date.parse(view.startTs!) + week * DAY_MS - withinMinutes * MINUTE_MS;
     const to = from + 2 * withinMinutes * MINUTE_MS;
+    const namerState = index.byId.get(view.namerId)?.state;
     // The first row starting at `from` or later, by halves: a day can hold thousands.
     let low = 0;
     let high = day.length;
@@ -590,50 +606,56 @@ export const nearScores = (
     }
     for (let at = low; at < day.length && day[at]!.at <= to; at += 1) {
       const other = day[at]!;
+      // The runs off first, which is arithmetic: once one row three or more off is known, another
+      // says nothing more, and most rows at a start are that.
+      const off = Math.abs(other.own - view.opponent) + Math.abs(other.opponent - view.own);
+      if (off > 2 && out.far) continue;
       if (other.clubId === view.namerId || !index.kindOf(other, view.namerId)) continue;
-      const candidate = index.facts(
-        view,
-        week,
-        { game: other.game, clubId: other.clubId, opponentId: other.opponentId, kind: "namer" },
-        other.game.date!,
-        other.game.startTs,
-        levelOf(other.game.ageGroupId)
-      );
-      if (!candidate.inRegion || (candidate.levelGap ?? 0) > 2) continue;
-      found.push({
-        off: Math.abs(other.own - view.opponent) + Math.abs(other.opponent - view.own),
+      if (!inOneRegion(namerState, other.state)) continue;
+      if (view.level !== undefined && other.level !== undefined) {
+        if (Math.abs(view.level - other.level) > 2) continue;
+      }
+      if (off === 0) out.exact = true;
+      else if (off <= 2) {
+        out.near += 1;
         // The other club's own win is the namer's loss, read from the namer's seat.
-        sameWinner: sign(other.opponent, other.own) === sign(view.own, view.opponent),
-      });
+        if (sign(other.opponent, other.own) === sign(view.own, view.opponent)) {
+          out.sameWinner = true;
+        }
+      } else out.far = true;
     }
-    return found;
+    return out;
   };
   for (const row of index.against) {
-    if (!keep(row)) continue;
-    tally.rows += 1;
+    const kept = tallies.filter((_, at) => groups[at]!(row));
+    if (kept.length === 0) continue;
     const view = viewOf(row, levelOf);
     if (!Number.isFinite(Date.parse(view.startTs ?? ""))) {
-      tally.noStart += 1;
+      kept.forEach((tally) => {
+        tally.rows += 1;
+        tally.noStart += 1;
+      });
       continue;
     }
-    const found = offs(view, 0);
-    const near = found.filter((one) => one.off >= 1 && one.off <= 2);
-    if (found.some((one) => one.off === 0)) tally.exact += 1;
-    else if (near.length > 0) {
-      tally.near += 1;
-      if (near.length === 1) tally.nearOne += 1;
-      if (near.some((one) => one.sameWinner)) tally.nearSameWinner += 1;
-    } else if (found.length > 0) tally.far += 1;
-    else tally.none += 1;
-    for (const week of decoyWeeks) {
-      const decoy = offs(view, week);
-      const decoyNear = decoy.filter((one) => one.off >= 1 && one.off <= 2);
-      if (decoy.some((one) => one.off === 0)) tally.decoyExact += 1 / weeks;
-      else if (decoyNear.length > 0) {
-        tally.decoyNear += 1 / weeks;
-        if (decoyNear.length === 1) tally.decoyNearOne += 1 / weeks;
+    const found = read(view, 0);
+    const decoys = decoyWeeks.map((week) => read(view, week));
+    for (const tally of kept) {
+      tally.rows += 1;
+      if (found.exact) tally.exact += 1;
+      else if (found.near > 0) {
+        tally.near += 1;
+        if (found.near === 1) tally.nearOne += 1;
+        if (found.sameWinner) tally.nearSameWinner += 1;
+      } else if (found.far) tally.far += 1;
+      else tally.none += 1;
+      for (const decoy of decoys) {
+        if (decoy.exact) tally.decoyExact += 1 / weeks;
+        else if (decoy.near > 0) {
+          tally.decoyNear += 1 / weeks;
+          if (decoy.near === 1) tally.decoyNearOne += 1 / weeks;
+        }
       }
     }
   }
-  return tally;
+  return tallies;
 };

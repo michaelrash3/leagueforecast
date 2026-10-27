@@ -366,8 +366,8 @@ describe("results a run or two apart at the same start", () => {
       levelOf,
       1,
       // The Owls' row only: the Bats' and the Hawks' rows against "Owls Blue" are rows too.
-      (one) => one.namerId === "N"
-    );
+      [(one) => one.namerId === "N"]
+    )[0];
     expect(tally).toEqual({
       rows: 1,
       noStart: 0,
@@ -385,7 +385,7 @@ describe("results a run or two apart at the same start", () => {
 
   it("puts an exact mirror first, three runs off apart, a flipped winner apart, and a row with no start aside", () => {
     const read = (games: ScoutGame[], within = 1) =>
-      nearScores(TEAMS, games, levelOf, within, (one) => one.namerId === "N");
+      nearScores(TEAMS, games, levelOf, within, [(one) => one.namerId === "N"])[0];
     expect(
       read([
         against,
@@ -411,6 +411,27 @@ describe("results a run or two apart at the same start", () => {
     const later = row("C", "C", "N", "2026-09-12", [3, 4], { startTs: "2026-09-12T14:40:00Z" });
     expect(read([against, later])).toMatchObject({ near: 0, none: 1 });
     expect(read([against, later], 60)).toMatchObject({ near: 1 });
+    // Two hours before is outside the hour either way.
+    const earlier = row("C", "C", "N", "2026-09-12", [3, 4], { startTs: "2026-09-12T12:00:00Z" });
+    expect(read([against, earlier], 60)).toMatchObject({ near: 0, none: 1 });
+  });
+});
+
+describe("results a run or two apart, groups read in one pass", () => {
+  it("tallies each group of rows by its own test", () => {
+    const games = [
+      row("N", "N", "X", "2026-09-12", [5, 3]),
+      row("C", "C", "N", "2026-09-12", [3, 4]),
+      row("E", "E", "Y", "2026-09-19", [3, 5]),
+    ];
+    const [every, owls, none] = nearScores(TEAMS, games, levelOf, 60, [
+      () => true,
+      (one) => one.namerId === "N",
+      () => false,
+    ]);
+    expect(every).toMatchObject({ rows: 2, near: 1 });
+    expect(owls).toMatchObject({ rows: 1, near: 1 });
+    expect(none).toMatchObject({ rows: 0, near: 0 });
   });
 });
 
