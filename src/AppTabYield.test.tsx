@@ -2,8 +2,19 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { prefetchAllViews } from "./components/league/leagueViews";
-import { loadLogs, saveMatchups, saveTeams } from "./lib/storage";
+import { loadLogs, saveLogs, saveMatchups, saveTeams } from "./lib/storage";
 import { flushBeforeYield } from "./lib/tabTurn";
+
+const EMPTY_LOG = {
+  awayRuns: "",
+  homeRuns: "",
+  awayHits: "",
+  homeHits: "",
+  awayK: "",
+  homeK: "",
+  innings: "6",
+  isFinal: false,
+};
 
 // League's views load on demand (2.1); loaded first here, so a tab is drawn as soon as it opens.
 beforeAll(() => prefetchAllViews());
@@ -30,8 +41,12 @@ describe("a tab giving its turn to another", () => {
     saveTeams([
       { id: "A", name: "Aces" },
       { id: "B", name: "Bears" },
+      { id: "C", name: "Cubs" },
     ]);
-    saveMatchups([{ id: "g1", date: "5/1", away: "A", home: "B" }]);
+    saveMatchups([
+      { id: "g1", date: "5/1", away: "A", home: "B" },
+      { id: "g2", date: "5/8", away: "B", home: "C" },
+    ]);
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -50,8 +65,47 @@ describe("a tab giving its turn to another", () => {
     });
     expect(loadLogs().g1?.awayRuns ?? "").toBe("");
 
-    act(() => flushBeforeYield());
+    let wrote = false;
+    act(() => {
+      wrote = flushBeforeYield();
+    });
 
+    expect(wrote).toBe(true);
     expect(loadLogs().g1?.awayRuns).toBe("7");
+    // Written once: asked again, it has nothing more to write.
+    act(() => {
+      wrote = flushBeforeYield();
+    });
+    expect(wrote).toBe(false);
+  });
+
+  it("writes a score it holds beside one another tab wrote meanwhile, not over it", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: /schedule/i }));
+    const away = await screen.findByLabelText("Aces Runs");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    act(() => {
+      fireEvent.change(away, { target: { value: "7" } });
+    });
+    // The other tab's score for the second game, written while this one held its own.
+    saveLogs({ g2: { ...EMPTY_LOG, awayRuns: "4", homeRuns: "2", isFinal: true } });
+    act(() => {
+      flushBeforeYield();
+    });
+    expect(loadLogs().g1?.awayRuns).toBe("7");
+    expect(loadLogs().g2?.awayRuns).toBe("4");
+  });
+
+  it("writes nothing, and says so, with no score held", async () => {
+    render(<App />);
+    await screen.findByRole("tab", { name: /schedule/i });
+    // The scores as this tab read them, written again, could undo one another tab saved since.
+    saveLogs({ g1: { ...EMPTY_LOG, awayRuns: "4", homeRuns: "2", isFinal: true } });
+    let wrote = true;
+    act(() => {
+      wrote = flushBeforeYield();
+    });
+    expect(wrote).toBe(false);
+    expect(loadLogs().g1?.awayRuns).toBe("4");
   });
 });

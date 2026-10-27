@@ -467,8 +467,10 @@ const rowFromLine = (line: string, context: DateContext): ParsedGameRow | null =
 
   // Status markers come off first: with "W 6-5 Final" still intact the score regex cannot reach
   // the numbers, and the whole result would end up inside the opponent's name. Looped because
-  // "F/6 Final" stacks two of them.
+  // "F/6 Final" stacks two of them. Every marker but "postponed" says the game was played.
+  let played = false;
   for (let i = 0; i < 3 && STATUS_SUFFIX.test(rest); i += 1) {
+    if (!/postponed\s*$/i.test(rest)) played = true;
     rest = rest.replace(STATUS_SUFFIX, "").trim();
   }
 
@@ -477,7 +479,8 @@ const rowFromLine = (line: string, context: DateContext): ParsedGameRow | null =
   // The result letter is read with the numbers: it decides who won (`parseScorePair`).
   const trailing = /\s((?:[wlt]\s*)?\d{1,3}\s*[-–—]\s*\d{1,3})\s*$/i.exec(rest);
   // Two ages a year apart with no result letter may be the name's age range ("Majors 11-12"):
-  // put back on the name below if the game is still to come, when it cannot be a result.
+  // put back on the name below if the game is still to come, when it cannot be a result. A game
+  // of today may be over, and one marked final was, so theirs stay a result.
   let ageSpan: string | undefined;
   if (trailing) {
     scores = parseScorePair(trailing[1] ?? "");
@@ -502,7 +505,11 @@ const rowFromLine = (line: string, context: DateContext): ParsedGameRow | null =
     }
   }
 
-  if (ageSpan && (date === undefined || context.today === undefined || date >= context.today)) {
+  if (
+    ageSpan &&
+    !played &&
+    (date === undefined || context.today === undefined || date > context.today)
+  ) {
     rest = `${rest} ${ageSpan}`;
     scores = undefined;
   }

@@ -1,5 +1,5 @@
 import type { GameLog, Matchup, Settings, TeamBase } from "./types";
-import { parseDateValue, seasonStartMonth } from "./date";
+import { seasonStartMonth } from "./date";
 import { attachAdjustedRatings, calculateTeams, predictGame } from "./sim";
 import { buildPredictionEngine, playedOn, type ExternalResult } from "./predictionEngine";
 import { isFinal } from "./util";
@@ -60,10 +60,14 @@ export const backtestPredictions = (
     ...matchups.map((game) => game.date),
     ...outside.map((result) => result.date ?? ""),
   ]);
-  const ordered = [...matchups].sort(
-    (a, b) =>
-      parseDateValue(a.date, start) - parseDateValue(b.date, start) || a.id.localeCompare(b.id)
-  );
+  // On the one timeline the outside results are filtered on (`playedOn`): with a squad year, each
+  // "M/D" in its own year, so results long after the season, which can move where the year seems
+  // to start, cannot put January's game before October's. With none, as it always was.
+  const dayOf = (game: Matchup) => {
+    const day = playedOn(game.date, squadYear, start);
+    return Number.isFinite(day) ? day : Number.POSITIVE_INFINITY;
+  };
+  const ordered = [...matchups].sort((a, b) => dayOf(a) - dayOf(b) || a.id.localeCompare(b.id));
   const progressiveLogs: Record<string, GameLog> = {};
   const rows: Array<{
     p: number;
