@@ -115,8 +115,9 @@ const byWhen = (a: ScoutGame, b: ScoutGame): number =>
 export type WeeklyHalf = { year: number | undefined; segment: SeasonSegment | undefined };
 
 /**
- * The page's week, from its board's rows and its games, of which only the page's own in the
- * board's half are read: a streak is the board's, as its record is. `today` is an ISO day: the
+ * The page's week, from its board's rows and its rating pool's games of the board's half: the
+ * upsets and the game ahead off the page's own, a streak off every page of the pool, as the
+ * board's record is. `today` is an ISO day: the
  * week just played is the `WEEK_DAYS` before it, and the week ahead starts on it.
  */
 export const theWeekly = (
@@ -130,11 +131,11 @@ export const theWeekly = (
   const rowOf = (teamId: string) => byId.get(teamId);
   const since = shiftIsoDay(today, -WEEK_DAYS);
   const until = shiftIsoDay(today, WEEK_DAYS);
-  const page = games.filter(
-    (game) =>
-      game.ageGroupId === pageId &&
-      (half === undefined || inSegment(game.date, half.year, half.segment))
+  // The pool's games of the board's half, as its record reads them, and of those the page's own.
+  const pool = games.filter(
+    (game) => half === undefined || inSegment(game.date, half.year, half.segment)
   );
+  const page = pool.filter((game) => game.ageGroupId === pageId);
 
   // The least likely first, and a result both schedules hold is one upset.
   const upsets = new Map<string, WeeklyUpset>();
@@ -187,9 +188,13 @@ export const theWeekly = (
     }
   }
 
-  // Each ranked club's games that count, read back from its latest until one it did not win.
+  /*
+   * Each ranked club's games that count, read back from its latest until one it did not win: its
+   * games on every page of the pool, as the board's record counts them (`recordsFor`), so a loss
+   * filed on another age's page ends a run as it does on the club's record.
+   */
   const played = new Map<string, ScoutGame[]>();
-  for (const game of page) {
+  for (const game of pool) {
     if (game.date === undefined || !countsTowardRating(game, today)) continue;
     for (const club of new Set([game.teamAId, game.teamBId])) {
       if (!byId.has(club)) continue;

@@ -164,6 +164,15 @@ describe("The Weekly", () => {
     expect(theWeekly(PAGE, ROWS, [disputed], TODAY).upsets).toEqual([]);
   });
 
+  it("reads a club's run off every page of the pool, as its record is counted", () => {
+    const run = days(1, 5).map((date) => game("C", "E", date, 4, 1));
+    // C's latest game, a loss, is filed on another age's page of the pool.
+    const lost = game("E", "C", "2026-09-06", 3, 2, { ageGroupId: "ag11" });
+    expect(theWeekly(PAGE, ROWS, [...run, lost], TODAY).streaks).toEqual([]);
+    const won = game("C", "E", "2026-09-06", 3, 2, { ageGroupId: "ag11" });
+    expect(theWeekly(PAGE, ROWS, [...run, won], TODAY).streaks).toEqual([{ teamId: "C", wins: 6 }]);
+  });
+
   it("ends a run at a tie, as at a loss", () => {
     const run = days(1, 5).map((date) => game("C", "E", date, 4, 1));
     expect(theWeekly(PAGE, ROWS, run, TODAY).streaks).toEqual([{ teamId: "C", wins: 5 }]);
