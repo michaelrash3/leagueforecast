@@ -1453,7 +1453,13 @@ there by chance for nine rows in ten, so the candidates are narrowed a step at a
 net first (the owner's way): the namer's region, levels within two (a club plays up in the fall
 and files the game at its own level), the same day, starts within the hour, the same level. A row
 stops at the first step that leaves it one, and the weeks either side go through the same steps
-for the rate each settles on one by chance.
+for the rate each settles on one by chance. The same funnel is tried where the answer is known
+(`testKnownPairs`): a game both clubs' own schedules list, one club's row read as if it had named a
+stand-in and the other's put back among the year's rows as that schedule gave it, so how often it
+settles on the wrong club is counted rather than guessed. And since two scorekeepers' books of one
+game can differ by a run or two, it counts the rows with another club's row at the same date and
+start (within the hour, and to the minute) whose result is off by one or two runs in all rather
+than mirrored (`nearScores`), beside the same a week either side.
 
 **Not this team.** The matcher will still be wrong sometimes, and the club's panel is where that
 shows. Beside each game a club has only because a name on another club's schedule was matched to

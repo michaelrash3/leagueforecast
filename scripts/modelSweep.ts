@@ -22,7 +22,8 @@
  * narrowed a step at a time until one is left (`HALF_FUNNEL`: the region, the levels, the day, the
  * start, the level), and the same a week either side for the rate each step settles on one by
  * chance; for every stand-in and for those with nothing of their name pulled (`standInReport`'s
- * "unmatched").
+ * "unmatched"); and the same funnel where the answer is known (`testKnownPairs`), for how often it
+ * settles on the wrong club.
  *
  * Options: --year=2027 (the squad year), --today=DAY (the board's day; the members' day by
  * default), --top=25 (the stand-ins named, most games first), --public (numbers only),
@@ -86,7 +87,11 @@ import {
   HALF_FUNNEL,
   HALF_KINDS,
   tallyFunnel,
+  nearScores,
+  testKnownPairs,
   type FunnelTally,
+  type KnownPairTally,
+  type NearScoreTally,
   type HalfKind,
   type StandInRow,
 } from "../src/lib/standInHalves.ts";
@@ -610,6 +615,49 @@ const describeFunnel = (label: string, tally: FunnelTally) => {
   );
 };
 
+const describeKnownPairs = (label: string, tally: KnownPairTally) => {
+  say(
+    `\n  ${label}: ${tally.pairs} games; the two rows' results do not mirror: ${tally.notMirrored}`
+  );
+  const tried = tally.pairs - tally.notMirrored;
+  let right = 0;
+  let wrong = 0;
+  HALF_FUNNEL.forEach((step, at) => {
+    right += tally.right[at]!;
+    wrong += tally.wrong[at]!;
+    say(
+      `      ${step.key}: right ${tally.right[at]}, wrong ${tally.wrong[at]}; so far right ${right}` +
+        ` (${share(right, tried)}), wrong ${wrong} (${share(wrong, tried)}),` +
+        ` wrong of those settled ${share(wrong, right + wrong)}`
+    );
+  });
+  say(
+    `    emptied ${tally.emptied} (${share(tally.emptied, tried)}); several still ${tally.several}` +
+      ` (${share(tally.several, tried)})`
+  );
+};
+
+const describeNearScores = (label: string, tally: NearScoreTally) => {
+  const read = tally.rows - tally.noStart;
+  const of = (part: number) => share(part, read);
+  say(
+    `    ${label}: ${tally.rows} rows, ${tally.noStart} with no start of their own; of the ${read} with one:`
+  );
+  say(
+    `      the result mirrored exactly: ${tally.exact} (${of(tally.exact)}; by chance` +
+      ` ${tally.decoyExact.toFixed(1)}, ${of(tally.decoyExact)})`
+  );
+  say(
+    `      none exact, off by one or two runs in all: ${tally.near} (${of(tally.near)}; by chance` +
+      ` ${tally.decoyNear.toFixed(1)}, ${of(tally.decoyNear)}); exactly one such: ${tally.nearOne}` +
+      ` (by chance ${tally.decoyNearOne.toFixed(1)}); the same winner ${tally.nearSameWinner}`
+  );
+  say(
+    `      all off by three or more: ${tally.far} (${of(tally.far)}); nothing at that start:` +
+      ` ${tally.none} (${of(tally.none)})`
+  );
+};
+
 const measureStandInHalves = (source: Source, year: number) => {
   say(`\n${"=".repeat(78)}\nThe other half of each game against a stand-in\n${"=".repeat(78)}`);
   const page = source.ageGroups.find(
@@ -638,7 +686,8 @@ const measureStandInHalves = (source: Source, year: number) => {
       ` ${report.why.unmatched.clubs}, holding ${report.why.unmatched.games} games.`
   );
   const levels = new Map(source.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
-  const search = findHalves(known.teams, games, (id) => levels.get(id));
+  const levelOf = (id: string) => levels.get(id);
+  const search = findHalves(known.teams, games, levelOf);
   say(
     `  Played rows against a stand-in: ${search.rows.length}; not read (no result, set not to` +
       ` count): ${search.unplayed}. Searched in ${since()}.`
@@ -652,6 +701,46 @@ const measureStandInHalves = (source: Source, year: number) => {
   describeFunnel(
     "Stand-ins with a pulled club of the name somewhere",
     tallyFunnel(search, known.teams, HALF_FUNNEL, (row) => !unmatched(row))
+  );
+
+  // The owner's question: the same date and start, the result a run or two off.
+  say(
+    `\n  Another club's own row at the same date and start (the namer's region, levels within two),` +
+      ` its result mirrored or off by a run or two (${since()}):`
+  );
+  for (const [within, words] of [
+    [60, "starts within an hour either way"],
+    [1, "starts to the minute"],
+  ] as const) {
+    say(`\n   ${words}:`);
+    describeNearScores("every stand-in", nearScores(known.teams, games, levelOf, within));
+    describeNearScores(
+      '"unmatched"',
+      nearScores(
+        known.teams,
+        games,
+        levelOf,
+        within,
+        (row) => whyOf.get(row.standInId) === "unmatched"
+      )
+    );
+  }
+
+  // The funnel where the answer is known: games both clubs' own schedules list, one side held out.
+  say(
+    `\n  The funnel where the answer is known: a game both clubs' schedules list, one club's row read` +
+      ` as if it had named a stand-in, the other's put back among the year's rows (${since()}).`
+  );
+  describeKnownPairs("Every such game", testKnownPairs(known.teams, games, levelOf));
+  describeKnownPairs(
+    "Those the claim step took from a name (the stand-in case itself)",
+    testKnownPairs(
+      known.teams,
+      games,
+      levelOf,
+      HALF_FUNNEL,
+      (row) => row.filedAgainst !== undefined
+    )
   );
 
   // A sample of the unmatched rows settled, to read by eye: names, sealed. Evenly through the

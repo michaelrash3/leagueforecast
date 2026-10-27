@@ -5,13 +5,15 @@ import {
   funnelEnd,
   HALF_FUNNEL,
   HALF_KINDS,
+  nearScores,
   shiftDay,
   tallyFunnel,
+  testKnownPairs,
   type HalfCandidate,
   type HalfKind,
   type HalfStep,
 } from "../standInHalves";
-import type { ScoutGame, ScoutTeam } from "../teamRankings";
+import type { FoldedRow, ScoutGame, ScoutTeam } from "../teamRankings";
 
 /*
  * Where the other half of a game against a stand-in is: another pulled club's own row a day either
@@ -270,6 +272,145 @@ describe("the tally", () => {
     ];
     const tally = tallyFunnel(findHalves(TEAMS, games, levelOf), TEAMS);
     expect(tally).toMatchObject({ agreeing: 0, split: 1, agreeingRows: 0, namesFit: 1 });
+  });
+});
+
+describe("the funnel where the answer is known", () => {
+  /** A game both clubs' schedules list: the Owls' row, and the other club's own row folded in. */
+  const pair = (other: string, folded: Partial<FoldedRow>, more: Partial<ScoutGame> = {}) =>
+    row("N", "N", other, "2026-09-12", [5, 3], {
+      alsoRows: [
+        {
+          teamId: `gc-${other}`,
+          gameId: "theirs",
+          startTs: "2026-09-12T14:20:00Z",
+          ownScore: 3,
+          opponentScore: 5,
+          onSideB: true,
+          ...folded,
+        },
+      ],
+      ...more,
+    });
+  // The Hawks' row against a stand-in, the same result: away. The Bats': in the region.
+  const hawks = row("D", "D", "Y", "2026-09-12", [3, 5]);
+  const bats = row("E", "E", "Y", "2026-09-12", [3, 5]);
+
+  it("settles on the club whose own schedule lists the game, its row held out and put back", () => {
+    expect(testKnownPairs(TEAMS, [pair("C", {}), hawks], levelOf)).toEqual({
+      pairs: 1,
+      notMirrored: 0,
+      right: [0, 1, 0, 0, 0, 0],
+      wrong: [0, 0, 0, 0, 0, 0],
+      emptied: 0,
+      several: 0,
+    });
+  });
+
+  it("is wrong where its own row was dated a day off and another club's was not", () => {
+    const off = pair("C", { date: "2026-09-13", startTs: "2026-09-13T14:00:00Z" });
+    expect(testKnownPairs(TEAMS, [off, bats], levelOf)).toMatchObject({
+      right: [0, 0, 0, 0, 0, 0],
+      wrong: [0, 0, 0, 1, 0, 0],
+    });
+  });
+
+  it("reads the club's level off its own schedule's page", () => {
+    // The Flames' schedule is filed a level up; the Bats', on the Owls' own level, the same start.
+    const teams = TEAMS.map((team) =>
+      team.id === "C"
+        ? { ...team, gcTeams: [{ ...team.gcTeams![0]!, ageGroupId: "ag_11u_2027" }] }
+        : team
+    );
+    const sameStart = pair("C", { startTs: "2026-09-12T14:00:00Z" });
+    expect(testKnownPairs(teams, [sameStart, bats], levelOf)).toMatchObject({
+      wrong: [0, 0, 0, 0, 0, 1],
+    });
+    expect(testKnownPairs(TEAMS, [sameStart, bats], levelOf)).toMatchObject({ several: 1 });
+  });
+
+  it("counts a pair whose results do not mirror, and reads only the pairs kept", () => {
+    const apart = pair("C", { ownScore: 4 });
+    expect(testKnownPairs(TEAMS, [apart], levelOf)).toMatchObject({ pairs: 1, notMirrored: 1 });
+    const claimed = pair("C", { filedAgainst: "X" });
+    // Another pair, by another result so the two are not each other's candidates, not claimed.
+    const plain = pair("E", { ownScore: 7, opponentScore: 5 }, { teamAScore: 5, teamBScore: 7 });
+    expect(
+      testKnownPairs(TEAMS, [claimed, plain], levelOf, HALF_FUNNEL, (one) =>
+        Boolean(one.filedAgainst)
+      )
+    ).toMatchObject({ pairs: 1, right: [1, 0, 0, 0, 0, 0] });
+    expect(testKnownPairs(TEAMS, [claimed, plain], levelOf)).toMatchObject({
+      pairs: 2,
+      right: [2, 0, 0, 0, 0, 0],
+    });
+  });
+});
+
+describe("results a run or two apart at the same start", () => {
+  const against = row("N", "N", "X", "2026-09-12", [5, 3]);
+
+  it("counts a row whose other club's row at its start is off by a run or two, and by how many", () => {
+    const tally = nearScores(
+      TEAMS,
+      [
+        against,
+        // The Flames at the same start, 3-4 from their seat: the Owls' 5 read as 4, one run off.
+        row("C", "C", "N", "2026-09-12", [3, 4]),
+        // The Bats at 4 PM, and the Hawks away, both mirrored exactly: neither read.
+        row("E", "E", "Y", "2026-09-12", [3, 5], { startTs: "2026-09-12T16:00:00Z" }),
+        row("D", "D", "Y", "2026-09-12", [3, 5]),
+        // A week on at the same hour, one off: the chance rate.
+        row("E", "E", "Y", "2026-09-19", [3, 6]),
+      ],
+      levelOf,
+      1,
+      // The Owls' row only: the Bats' and the Hawks' rows against "Owls Blue" are rows too.
+      (one) => one.namerId === "N"
+    );
+    expect(tally).toEqual({
+      rows: 1,
+      noStart: 0,
+      exact: 0,
+      near: 1,
+      nearOne: 1,
+      nearSameWinner: 1,
+      far: 0,
+      none: 0,
+      decoyExact: 0,
+      decoyNear: 0.5,
+      decoyNearOne: 0.5,
+    });
+  });
+
+  it("puts an exact mirror first, three runs off apart, a flipped winner apart, and a row with no start aside", () => {
+    const read = (games: ScoutGame[], within = 1) =>
+      nearScores(TEAMS, games, levelOf, within, (one) => one.namerId === "N");
+    expect(
+      read([
+        against,
+        row("C", "C", "N", "2026-09-12", [3, 5]),
+        row("E", "E", "Y", "2026-09-12", [3, 4]),
+      ])
+    ).toMatchObject({ exact: 1, near: 0 });
+    expect(read([against, row("C", "C", "N", "2026-09-12", [6, 4])])).toMatchObject({ far: 1 });
+    // 5-3 read as 5-5 from the other seat: two off, no longer the same winner.
+    expect(read([against, row("C", "C", "N", "2026-09-12", [5, 5])])).toMatchObject({
+      near: 1,
+      nearSameWinner: 0,
+    });
+    expect(read([noStart(against), row("C", "C", "N", "2026-09-12", [3, 4])])).toMatchObject({
+      noStart: 1,
+      near: 0,
+    });
+    // Another squad four levels up is not read.
+    expect(
+      read([against, row("C", "C", "N", "2026-09-12", [3, 4], { ageGroupId: "ag_14u_2027" })])
+    ).toMatchObject({ near: 0, none: 1 });
+    // Within the hour, a start forty minutes on is read.
+    const later = row("C", "C", "N", "2026-09-12", [3, 4], { startTs: "2026-09-12T14:40:00Z" });
+    expect(read([against, later])).toMatchObject({ near: 0, none: 1 });
+    expect(read([against, later], 60)).toMatchObject({ near: 1 });
   });
 });
 

@@ -1,7 +1,12 @@
 import { inOneRegion } from "./stateBorders";
 import { scoreSeenBy } from "./teamRankings/games";
 import { nameFitter, nameFitWords } from "./teamRankings/names";
-import { isScoutGamePlayed, type ScoutGame, type ScoutTeam } from "./teamRankings/types";
+import {
+  isScoutGamePlayed,
+  type FoldedRow,
+  type ScoutGame,
+  type ScoutTeam,
+} from "./teamRankings/types";
 
 /*
  * Where the other half of a game against a stand-in is, if anywhere: research, which nothing in the
@@ -158,22 +163,37 @@ export const funnelEnd = ({ left, furthest }: Funnelled): FunnelEnd => {
 type OwnRow = { game: ScoutGame; clubId: string; opponentId: string; settled: boolean };
 type RowAgainst = { game: ScoutGame; namerId: string; standInId: string };
 
+/** A row as its own club's schedule gave it: its day, its start, its result from that seat, its level. */
+type RowView = {
+  namerId: string;
+  date: string;
+  startTs?: string;
+  own: number;
+  opponent: number;
+  level?: number;
+  /** A game whose rows are not candidates: the one a known pair is, its other half held out. */
+  skip?: string;
+};
+
+const dayNumber = (day: string) => Date.parse(`${day}T00:00:00Z`) / DAY_MS;
+
 /**
- * Every played row a pulled club's own schedule gave against a stand-in, its candidates through the
- * funnel, and the same a week either side.
+ * The pool indexed once: every pulled club's own played rows by day and result, every played row a
+ * pulled club's own schedule gave against a stand-in, and the search for a row's candidates.
  */
-export const findHalves = (
+const halfIndex = (
   teams: readonly ScoutTeam[],
   games: readonly ScoutGame[],
-  /** The level a page is at (`ageGroupLevel`), undefined where it has none. */
-  levelOf: (ageGroupId: string) => number | undefined,
-  steps: readonly HalfStep[] = HALF_FUNNEL,
-  decoyWeeks: readonly number[] = DECOY_WEEKS
-): HalfSearch => {
+  levelOf: (ageGroupId: string) => number | undefined
+) => {
   const byId = new Map(teams.map((team) => [team.id, team]));
   const clubOfSchedule = new Map<string, string>();
+  const pageOfSchedule = new Map<string, string>();
   teams.forEach((team) =>
-    team.gcTeams?.forEach((link) => clubOfSchedule.set(link.teamId, team.id))
+    team.gcTeams?.forEach((link) => {
+      clubOfSchedule.set(link.teamId, team.id);
+      pageOfSchedule.set(link.teamId, link.ageGroupId);
+    })
   );
   /** The clubs whose own schedules gave a game a row: its own, folded in, or on record. */
   const listers = (game: ScoutGame): Set<string> => {
@@ -191,6 +211,8 @@ export const findHalves = (
   };
 
   const own = new Map<string, OwnRow[]>();
+  /** The same rows by day alone, each with its result from its own seat, for results that differ. */
+  const byDay = new Map<string, Array<OwnRow & { own: number; opponent: number }>>();
   const against: RowAgainst[] = [];
   let unplayed = 0;
   for (const game of games) {
@@ -212,59 +234,189 @@ export const findHalves = (
       const bucket = own.get(key);
       if (bucket) bucket.push(row);
       else own.set(key, [row]);
+      const day = byDay.get(game.date!);
+      const scored = { ...row, own: seen.own, opponent: seen.opponent };
+      if (day) day.push(scored);
+      else byDay.set(game.date!, [scored]);
     }
   }
 
+  /** What a row is filed against, as the search reads it, or nothing for a game that is theirs. */
+  const kindOf = (other: OwnRow, namerId: string): HalfKind | undefined =>
+    other.opponentId === namerId
+      ? "namer"
+      : isUnpaired(byId.get(other.opponentId))
+        ? "standIn"
+        : isPulled(byId.get(other.opponentId)) && !other.settled
+          ? "other"
+          : undefined;
+
+  /** A candidate's facts beside the row's: its kind as given, the days, the start, region, level. */
+  const facts = (
+    view: RowView,
+    week: number,
+    found: Pick<HalfCandidate, "game" | "clubId" | "opponentId" | "kind">,
+    date: string,
+    startTs: string | undefined,
+    level: number | undefined
+  ): HalfCandidate => {
+    const start = Date.parse(view.startTs ?? "");
+    const otherStart = Date.parse(startTs ?? "");
+    const gap =
+      Number.isFinite(start) && Number.isFinite(otherStart)
+        ? Math.abs(otherStart - start - week * DAY_MS) / MINUTE_MS
+        : undefined;
+    return {
+      ...found,
+      daysApart: Math.abs(dayNumber(date) - dayNumber(view.date) - week),
+      ...(gap === undefined ? {} : { minutesApart: gap }),
+      inRegion: inOneRegion(byId.get(view.namerId)?.state, byId.get(found.clubId)?.state),
+      ...(view.level === undefined || level === undefined
+        ? {}
+        : { levelGap: Math.abs(view.level - level) }),
+    };
+  };
+
   /** The rows a day either side of the row's date, moved by `week`, whose result mirrors it. */
-  function* search(row: RowAgainst, week: number): Generator<HalfCandidate> {
-    const seen = scoreSeenBy(row.game, row.namerId)!;
-    const namerState = byId.get(row.namerId)?.state;
-    const level = levelOf(row.game.ageGroupId);
-    const start = Date.parse(row.game.startTs ?? "");
+  function* search(view: RowView, week: number): Generator<HalfCandidate> {
     for (let off = -1; off <= 1; off += 1) {
-      const day = shiftDay(row.game.date!, week + off);
-      for (const other of own.get(`${day}|${seen.opponent}|${seen.own}`) ?? []) {
-        if (other.clubId === row.namerId) continue;
-        const kind: HalfKind | undefined =
-          other.opponentId === row.namerId
-            ? "namer"
-            : isUnpaired(byId.get(other.opponentId))
-              ? "standIn"
-              : isPulled(byId.get(other.opponentId)) && !other.settled
-                ? "other"
-                : undefined;
+      const day = shiftDay(view.date, week + off);
+      for (const other of own.get(`${day}|${view.opponent}|${view.own}`) ?? []) {
+        if (other.clubId === view.namerId || other.game.id === view.skip) continue;
+        const kind = kindOf(other, view.namerId);
         if (!kind) continue;
-        const otherStart = Date.parse(other.game.startTs ?? "");
-        const otherLevel = levelOf(other.game.ageGroupId);
-        const gap =
-          Number.isFinite(start) && Number.isFinite(otherStart)
-            ? Math.abs(otherStart - start - week * DAY_MS) / MINUTE_MS
-            : undefined;
-        yield {
-          game: other.game,
-          clubId: other.clubId,
-          opponentId: other.opponentId,
-          kind,
-          daysApart: Math.abs(off),
-          ...(gap === undefined ? {} : { minutesApart: gap }),
-          inRegion: inOneRegion(namerState, byId.get(other.clubId)?.state),
-          ...(level === undefined || otherLevel === undefined
-            ? {}
-            : { levelGap: Math.abs(level - otherLevel) }),
-        };
+        yield facts(
+          view,
+          week,
+          { game: other.game, clubId: other.clubId, opponentId: other.opponentId, kind },
+          other.game.date!,
+          other.game.startTs,
+          levelOf(other.game.ageGroupId)
+        );
       }
     }
   }
 
+  return { byId, clubOfSchedule, pageOfSchedule, against, unplayed, facts, search, byDay, kindOf };
+};
+
+/** A row against a stand-in as its own club's schedule gave it. */
+const viewOf = (row: RowAgainst, levelOf: (ageGroupId: string) => number | undefined): RowView => {
+  const seen = scoreSeenBy(row.game, row.namerId)!;
+  const level = levelOf(row.game.ageGroupId);
   return {
-    unplayed,
-    decoyWeeks,
-    rows: against.map((row) => ({
-      ...row,
-      found: funnel(search(row, 0), steps),
-      decoys: decoyWeeks.map((week) => funnel(search(row, week), steps)),
-    })),
+    namerId: row.namerId,
+    date: row.game.date!,
+    ...(row.game.startTs ? { startTs: row.game.startTs } : {}),
+    own: seen.own,
+    opponent: seen.opponent,
+    ...(level === undefined ? {} : { level }),
   };
+};
+
+/**
+ * Every played row a pulled club's own schedule gave against a stand-in, its candidates through the
+ * funnel, and the same a week either side.
+ */
+export const findHalves = (
+  teams: readonly ScoutTeam[],
+  games: readonly ScoutGame[],
+  /** The level a page is at (`ageGroupLevel`), undefined where it has none. */
+  levelOf: (ageGroupId: string) => number | undefined,
+  steps: readonly HalfStep[] = HALF_FUNNEL,
+  decoyWeeks: readonly number[] = DECOY_WEEKS
+): HalfSearch => {
+  const index = halfIndex(teams, games, levelOf);
+  return {
+    unplayed: index.unplayed,
+    decoyWeeks,
+    rows: index.against.map((row) => {
+      const view = viewOf(row, levelOf);
+      return {
+        ...row,
+        found: funnel(index.search(view, 0), steps),
+        decoys: decoyWeeks.map((week) => funnel(index.search(view, week), steps)),
+      };
+    }),
+  };
+};
+
+/**
+ * The funnel tried where the answer is known: a game two pulled clubs' own schedules both list, one
+ * club's row read as if it had named a stand-in and the other's row, as that schedule gave it (its
+ * own day, start and result, at its own schedule's level), put back among the year's rows as one
+ * candidate. Settled on that club is right; on another club, wrong; and the rest, nothing said.
+ */
+export type KnownPairTally = {
+  pairs: number;
+  /** Pairs whose two rows do not mirror a result, which no search by the result can find. */
+  notMirrored: number;
+  /** Settled on the right club, and on a wrong one, at each step. */
+  right: number[];
+  wrong: number[];
+  emptied: number;
+  several: number;
+};
+
+export const testKnownPairs = (
+  teams: readonly ScoutTeam[],
+  games: readonly ScoutGame[],
+  levelOf: (ageGroupId: string) => number | undefined,
+  steps: readonly HalfStep[] = HALF_FUNNEL,
+  /** Which pairs to read: all, or only the rows the claim step took from a name (`filedAgainst`). */
+  keep: (row: FoldedRow) => boolean = () => true
+): KnownPairTally => {
+  const index = halfIndex(teams, games, levelOf);
+  const tally: KnownPairTally = {
+    pairs: 0,
+    notMirrored: 0,
+    right: steps.map(() => 0),
+    wrong: steps.map(() => 0),
+    emptied: 0,
+    several: 0,
+  };
+  const levelOfSchedule = (schedule: string | undefined, fallback: string) =>
+    levelOf((schedule === undefined ? undefined : index.pageOfSchedule.get(schedule)) ?? fallback);
+  for (const game of games) {
+    const namerId = game.source ? index.clubOfSchedule.get(game.source.teamId) : undefined;
+    if (!namerId || !counts(game) || (namerId !== game.teamAId && namerId !== game.teamBId))
+      continue;
+    const truthId = namerId === game.teamAId ? game.teamBId : game.teamAId;
+    const seen = scoreSeenBy(game, namerId)!;
+    for (const folded of game.alsoRows ?? []) {
+      if (index.clubOfSchedule.get(folded.teamId) !== truthId || !keep(folded)) continue;
+      if (folded.ownScore === undefined || folded.opponentScore === undefined) continue;
+      tally.pairs += 1;
+      if (folded.ownScore !== seen.opponent || folded.opponentScore !== seen.own) {
+        tally.notMirrored += 1;
+        continue;
+      }
+      const level = levelOfSchedule(game.source?.teamId, game.ageGroupId);
+      const view: RowView = {
+        namerId,
+        date: game.date!,
+        ...(game.startTs ? { startTs: game.startTs } : {}),
+        own: seen.own,
+        opponent: seen.opponent,
+        ...(level === undefined ? {} : { level }),
+        skip: game.id,
+      };
+      const truth = index.facts(
+        view,
+        0,
+        { game, clubId: truthId, opponentId: namerId, kind: "namer" },
+        folded.date ?? game.date!,
+        folded.startTs,
+        levelOfSchedule(folded.teamId, game.ageGroupId)
+      );
+      const end = funnelEnd(funnel([...index.search(view, 0), truth], steps));
+      if ("emptied" in end) tally.emptied += 1;
+      else if ("several" in end) tally.several += 1;
+      else if (end.one.clubId === truthId) tally.right[end.settled]! += 1;
+      else tally.wrong[end.settled]! += 1;
+    }
+  }
+  return tally;
 };
 
 /** Where the rows came out of the funnel, beside where the weeks either side did. */
@@ -359,5 +511,112 @@ export const tallyFunnel = (
       tally.agreeingRows += clubs.length;
     } else tally.split += 1;
   });
+  return tally;
+};
+
+/**
+ * The owner's question of 27 October 2026: of the rows against a stand-in, how many have another
+ * club's own row at the same date and start whose result is off by a run or two rather than
+ * mirrored, as two scorekeepers' books of one game can be. Read within the namer's region and levels
+ * within two, the start to the minute (`sameStart`) or within the hour, beside the same a week
+ * either side at the same hour for the rate it happens by chance.
+ */
+export type NearScoreTally = {
+  rows: number;
+  /** Rows with no start of their own, which no start can be matched to. */
+  noStart: number;
+  /** Rows with a candidate whose result mirrors exactly. */
+  exact: number;
+  /** Rows with none exact but one or more off by one or two runs in all, and exactly one such. */
+  near: number;
+  nearOne: number;
+  /** Of `near`, those whose one or more candidates name the same winner (or a tie both ways). */
+  nearSameWinner: number;
+  /** Rows whose candidates are all off by three runs or more, and rows with none at all. */
+  far: number;
+  none: number;
+  /** The same a week either side, a week on average. */
+  decoyExact: number;
+  decoyNear: number;
+  decoyNearOne: number;
+};
+
+export const nearScores = (
+  teams: readonly ScoutTeam[],
+  games: readonly ScoutGame[],
+  levelOf: (ageGroupId: string) => number | undefined,
+  withinMinutes: number,
+  keep: (row: { namerId: string; standInId: string }) => boolean = () => true,
+  decoyWeeks: readonly number[] = DECOY_WEEKS
+): NearScoreTally => {
+  const index = halfIndex(teams, games, levelOf);
+  const tally: NearScoreTally = {
+    rows: 0,
+    noStart: 0,
+    exact: 0,
+    near: 0,
+    nearOne: 0,
+    nearSameWinner: 0,
+    far: 0,
+    none: 0,
+    decoyExact: 0,
+    decoyNear: 0,
+    decoyNearOne: 0,
+  };
+  const weeks = Math.max(1, decoyWeeks.length);
+  const sign = (a: number, b: number) => Math.sign(a - b);
+  /** The runs off, in all, of each candidate at the row's start, moved by `week`. */
+  const offs = (view: RowView, week: number): Array<{ off: number; sameWinner: boolean }> => {
+    const start = Date.parse(view.startTs!);
+    const found: Array<{ off: number; sameWinner: boolean }> = [];
+    for (const other of index.byDay.get(shiftDay(view.date, week)!) ?? []) {
+      if (other.clubId === view.namerId || !index.kindOf(other, view.namerId)) continue;
+      const otherStart = Date.parse(other.game.startTs ?? "");
+      if (!Number.isFinite(otherStart)) continue;
+      if (Math.abs(otherStart - start - week * DAY_MS) / MINUTE_MS > withinMinutes) continue;
+      const candidate = index.facts(
+        view,
+        week,
+        { game: other.game, clubId: other.clubId, opponentId: other.opponentId, kind: "namer" },
+        other.game.date!,
+        other.game.startTs,
+        levelOf(other.game.ageGroupId)
+      );
+      if (!candidate.inRegion || (candidate.levelGap ?? 0) > 2) continue;
+      found.push({
+        off: Math.abs(other.own - view.opponent) + Math.abs(other.opponent - view.own),
+        // The other club's own win is the namer's loss, read from the namer's seat.
+        sameWinner: sign(other.opponent, other.own) === sign(view.own, view.opponent),
+      });
+    }
+    return found;
+  };
+  for (const row of index.against) {
+    if (!keep(row)) continue;
+    tally.rows += 1;
+    const view = viewOf(row, levelOf);
+    if (!Number.isFinite(Date.parse(view.startTs ?? ""))) {
+      tally.noStart += 1;
+      continue;
+    }
+    const found = offs(view, 0);
+    const near = found.filter((one) => one.off >= 1 && one.off <= 2);
+    if (found.some((one) => one.off === 0)) tally.exact += 1;
+    else if (near.length > 0) {
+      tally.near += 1;
+      if (near.length === 1) tally.nearOne += 1;
+      if (near.some((one) => one.sameWinner)) tally.nearSameWinner += 1;
+    } else if (found.length > 0) tally.far += 1;
+    else tally.none += 1;
+    for (const week of decoyWeeks) {
+      const decoy = offs(view, week);
+      const decoyNear = decoy.filter((one) => one.off >= 1 && one.off <= 2);
+      if (decoy.some((one) => one.off === 0)) tally.decoyExact += 1 / weeks;
+      else if (decoyNear.length > 0) {
+        tally.decoyNear += 1 / weeks;
+        if (decoyNear.length === 1) tally.decoyNearOne += 1 / weeks;
+      }
+    }
+  }
   return tally;
 };
