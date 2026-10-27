@@ -1,5 +1,5 @@
 import { useId, useMemo, useState } from "react";
-import type { ScoutRankingRow, UpcomingMatchup } from "../../lib/teamRankings";
+import { previewMatchup, type ScoutRankingRow, type UpcomingMatchup } from "../../lib/teamRankings";
 import { simulateTournament, TOURNAMENT_ITERATIONS } from "../../lib/tournamentSim";
 import {
   deleteField,
@@ -78,6 +78,12 @@ export function TournamentPanel({
   const ourWeekend = [reportForId, ...upcomingRows.map((row) => row.opponentId)].filter((id) =>
     rowById.has(id)
   );
+  /*
+   * The report's club, "us" as Add our next opponents has it: its projected margin and chance
+   * against each club of the field, on these ratings (`previewMatchup`), beside each club's own
+   * record and rating, so the table reads as the weekend from our bench and not only as odds.
+   */
+  const us = rowById.get(reportForId);
 
   return (
     <section aria-label="Tournament field" className={`${card} p-5`}>
@@ -257,6 +263,7 @@ export function TournamentPanel({
             rank #{Math.round(result.strength.averageRank).toLocaleString()}, best #
             {result.strength.bestRank.toLocaleString()}. Played as {result.format.pools} pool
             {result.format.pools === 1 ? "" : "s"} and a bracket of {result.format.advance}.
+            {us && ` Us by and Our chance are for ${us.teamName} against each club.`}
           </p>
           <div className="mt-2 overflow-x-auto">
             <table className="min-w-full text-sm" aria-label="Tournament odds">
@@ -264,34 +271,68 @@ export function TournamentPanel({
                 <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   <th className="py-1 pr-3">Club</th>
                   <th className="py-1 pr-3">Pool</th>
+                  <th className="py-1 pr-3">Record</th>
+                  <th className="py-1 pr-3 text-right">Rating</th>
+                  {us && (
+                    <>
+                      <th
+                        className="py-1 pr-3 text-right"
+                        title={`${us.teamName}'s projected margin`}
+                      >
+                        Us by
+                      </th>
+                      <th className="py-1 pr-3 text-right" title={`${us.teamName}'s chance to win`}>
+                        Our chance
+                      </th>
+                    </>
+                  )}
                   <th className="py-1 pr-3 text-right">Win pool</th>
                   <th className="py-1 pr-3 text-right">Final</th>
                   <th className="py-1 text-right">Win</th>
                 </tr>
               </thead>
               <tbody>
-                {result.field.map((row) => (
-                  <tr key={row.teamId}>
-                    <td className="py-1 pr-3">
-                      {row.teamName}{" "}
-                      <span className="text-xs text-slate-500 dark:text-slate-400">
-                        #{row.rank.toLocaleString()}
-                      </span>
-                      {row.apart && (
-                        <span
-                          className="ml-1 text-xs font-bold text-amber-700 dark:text-amber-400"
-                          title="Nothing in the games pulled so far links this club to most of the field, so its odds are a guess."
-                        >
-                          a guess
+                {result.field.map((row) => {
+                  const club = rowById.get(row.teamId);
+                  const ours =
+                    us && club && club.teamId !== us.teamId ? previewMatchup(us, club) : null;
+                  return (
+                    <tr key={row.teamId}>
+                      <td className="py-1 pr-3">
+                        {row.teamName}{" "}
+                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                          #{row.rank.toLocaleString()}
                         </span>
+                        {row.apart && (
+                          <span
+                            className="ml-1 text-xs font-bold text-amber-700 dark:text-amber-400"
+                            title="Nothing in the games pulled so far links this club to most of the field, so its odds are a guess."
+                          >
+                            a guess
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-1 pr-3">{row.pool}</td>
+                      <td className="py-1 pr-3 tabular-nums">{club?.record ?? "—"}</td>
+                      <td className="py-1 pr-3 text-right tabular-nums">
+                        {club ? formatRating(club.rating) : "—"}
+                      </td>
+                      {us && (
+                        <>
+                          <td className="py-1 pr-3 text-right tabular-nums">
+                            {ours ? formatRating(ours.projectedMargin) : "—"}
+                          </td>
+                          <td className="py-1 pr-3 text-right tabular-nums">
+                            {ours ? pct(ours.winProb) : "—"}
+                          </td>
+                        </>
                       )}
-                    </td>
-                    <td className="py-1 pr-3">{row.pool}</td>
-                    <td className="py-1 pr-3 text-right">{pct(row.winPool)}</td>
-                    <td className="py-1 pr-3 text-right">{pct(row.reachFinal)}</td>
-                    <td className="py-1 text-right font-bold">{pct(row.win)}</td>
-                  </tr>
-                ))}
+                      <td className="py-1 pr-3 text-right">{pct(row.winPool)}</td>
+                      <td className="py-1 pr-3 text-right">{pct(row.reachFinal)}</td>
+                      <td className="py-1 text-right font-bold">{pct(row.win)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

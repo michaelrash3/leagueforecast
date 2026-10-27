@@ -617,8 +617,12 @@ game is won with the scouting report's chance. Ties on wins are drawn, because a
 tournament's run-differential rules are its own. The panel gives the field's
 strength (average rating and rank, and its best club) and each club's chance to
 win its pool, reach the final and win, marking as a guess a club whose rating was
-worked out against a different set of teams from most of the field. Fields are
-saved in this browser by name, per age group.
+worked out against a different set of teams from most of the field. Beside the
+odds are each club's record and rating on the board, and, where the report's club
+is ranked here, its projected margin and chance against each one (Us by, Our
+chance), from the same preview a matchup row's What if reads, so the table reads as
+the weekend from our bench and not only as odds. Fields are saved in this browser
+by name, per age group.
 
 The projection is the rating difference, capped at 14 runs, put through a
 logistic curve; no home-field term, because at this level which side is "home" is
