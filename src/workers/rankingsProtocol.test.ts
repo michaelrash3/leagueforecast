@@ -8,7 +8,7 @@ import {
 } from "../lib/teamRankings";
 import { encodeScoutGames, encodeScoutTeams } from "../lib/teamRankingsCompact";
 import { whatIfCurve } from "../lib/scoutWhatIf";
-import { daysBefore, RANK_HISTORY_WEEKS, ranksAsOf } from "../lib/rankMovement";
+import { daysBefore, pastBoardAsOf, RANK_HISTORY_WEEKS, ranksAsOf } from "../lib/rankMovement";
 
 const groups: AgeGroup[] = [
   { id: "u10", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] },
@@ -208,12 +208,18 @@ describe("last week's places, from the pool the worker holds", () => {
     const all = ranksAsOf("u10", teams, games, groups, undefined, "2026-09-12");
     expect(answer.ranks).toEqual({ A: all.A });
     expect(answer.empty).toBe(false);
+    // And how many the page's board held that day, which the club's own answer cannot say.
+    expect(answer.of).toBe(
+      pastBoardAsOf("u10", teams, games, groups, undefined, "2026-09-12").sizes.u10
+    );
+    expect(answer.of).toBeGreaterThan(1);
 
     handle({ ...movement(3, "2025-01-01"), teamIds: ["A"] });
     const before = posted[2];
     if (before?.kind !== "movement") throw new Error("no answer");
     expect(before.ranks).toEqual({});
     expect(before.empty).toBe(true);
+    expect(before.of).toBeUndefined();
   });
 
   it("keeps every board of a rank line, so walking it does not push last week's out", () => {

@@ -568,8 +568,16 @@ apart, a reader who opened 8U first saw no arrows on 9U. A result posted since f
 recomputed can differ from what was on screen then. In the first week of a half there
 is no board a week ago and nothing is marked.
 
-**The rank line.** Under the card's place, a line of the club's place week by week:
-last week's board, then each week before it, then today's, first place at the top.
+**The standing line.** Under the card's place, a line of the club's standing week by
+week: last week's board, then each week before it, then today's, as the share of each
+board at or above it ("top 39%"), the top of the board at the top. It drew the place
+until 27 October 2026, and a board fills all season as clubs play their first games, so
+a club in the middle sank from #439 on 1 September to #2,737 of 7,126 by late October
+while holding its own, and read as a team getting worse. The share is the place over
+the clubs on that week's board, rounded up so it never reads better than the place,
+and the line spans at least a tenth of the board so a point or two is drawn as one.
+Each week's count comes off the same fit as its places (`pastBoardAsOf`); a week
+without one, a board published before it was counted, is left out of the line.
 Each week is another fit of the year as it stood that day, so the worker is asked
 for them one at a time, naming the club so only its place comes back, and keeps every
 board of a line and one more (`RANK_HISTORY_WEEKS`, eight at most, so nine boards, about
@@ -6326,9 +6334,10 @@ Each board also says how it stood a week before, as the page's arrows read it: e
 row's place on last week's board (`was`, absent for a club that was not on it), and
 the day of that board and whether anyone was on it (`past`), so a device can tell a
 club new to the board from a half that had not begun. A page that has its own club
-gets that club's rank line too (`history`): its place week by week, walked back from
-last week's board by the same step the page walks it with (`rankLineStep` in
-`rankMovement.ts`), with last week's place on the end. Each past week is another fit
+gets that club's rank line too (`history`): its place week by week, and how many
+clubs each week's board held (`of`, which the standing line reads the place against),
+walked back from last week's board by the same step the page walks it with
+(`rankLineStep` in `rankMovement.ts`), with last week's place on the end. Each past week is another fit
 of the year as it stood that day, kept for the build by page, half, fitted year and
 day, so the boards of a year that share a fit share its weeks. It is not free: on
 the 29 Sep backup, building all 33 boards went from 12.4 s to 37.2 s, the largest

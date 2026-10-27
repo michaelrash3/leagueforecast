@@ -20,7 +20,7 @@ import {
   type ModelCheckRunResult,
 } from "../lib/scoutBacktest";
 import type { PoolShipment, WorkerRequest, WorkerResponse } from "../workers/rankingsProtocol";
-import { daysBefore, rankLineStep, ranksAsOf } from "../lib/rankMovement";
+import { daysBefore, pastBoardAsOf, rankLineStep, type RankLinePoint } from "../lib/rankMovement";
 import { todayIsoDay } from "../lib/date";
 import { createWorker } from "./createWorker";
 
@@ -74,14 +74,17 @@ const NOT_ASKED: WhatIfState = { status: "idle" };
 /** A settled answer, remembered against the ask it answers so a stale one is never shown. */
 type WhatIfResult = { ask: WhatIfAsk; curve: WhatIfCurve | null };
 
-/** Every club's place on its page a week ago (`ranksAsOf`), and the day that was. */
-export type LastWeek = { asOf: string; ranks: Record<string, number> };
+/**
+ * Every club's place on its page a week ago (`ranksAsOf`), the day that was, and how many clubs
+ * the page's board held then (`of`, where known).
+ */
+export type LastWeek = { asOf: string; ranks: Record<string, number>; of?: number };
 
 /** Last week's places, remembered against the board they belong beside. */
 type LastWeekResult = { snapshot: RankingsInput; lastWeek: LastWeek };
 
-/** A club's place on a past week's board, or null when it had none yet. */
-export type RankHistoryPoint = { asOf: string; rank: number | null };
+/** A club's place on a past week's board, or null when it had none yet, and the board's size. */
+export type RankHistoryPoint = RankLinePoint;
 
 /**
  * The weeks before last week worked out so far for the marked club, oldest first, remembered
@@ -505,19 +508,22 @@ export function useRankingsWorker(input: RankingsInput): {
     if (idle) return;
     if (!small && settledSnapshot !== snapshot) return;
     const asOf = daysBefore(todayIsoDay());
-    const answer = (ranks: Record<string, number>) =>
-      setLastWeekResult({ snapshot, lastWeek: { asOf, ranks } });
-    const runInline = () =>
-      answer(
-        ranksAsOf(
-          snapshot.ageGroupId,
-          snapshot.teams,
-          snapshot.games,
-          snapshot.ageGroups,
-          snapshot.segment,
-          asOf
-        )
+    const answer = (ranks: Record<string, number>, of: number | undefined) =>
+      setLastWeekResult({
+        snapshot,
+        lastWeek: { asOf, ranks, ...(of === undefined ? {} : { of }) },
+      });
+    const runInline = () => {
+      const board = pastBoardAsOf(
+        snapshot.ageGroupId,
+        snapshot.teams,
+        snapshot.games,
+        snapshot.ageGroups,
+        snapshot.segment,
+        asOf
       );
+      answer(board.ranks, board.sizes[snapshot.ageGroupId]);
+    };
     if (small) {
       const soon = window.setTimeout(runInline, 0);
       return () => window.clearTimeout(soon);
@@ -558,7 +564,7 @@ export function useRankingsWorker(input: RankingsInput): {
       if (event.data.kind !== "movement" || event.data.id !== id) return;
       detach?.();
       detach = null;
-      answer(event.data.ranks);
+      answer(event.data.ranks, event.data.of);
     };
     // A failed worker is the board's to recover from; the arrows simply do not appear.
     const onError = () => {
@@ -602,19 +608,20 @@ export function useRankingsWorker(input: RankingsInput): {
     const done = historyHere?.points ?? [];
     const weeksBack = done.length + 2;
     const asOf = daysBefore(todayIsoDay(), 7 * weeksBack);
-    const answer = (ranks: Record<string, number>, empty: boolean) => {
+    const answer = (ranks: Record<string, number>, empty: boolean, of: number | undefined) => {
       const step = rankLineStep({
         points: done,
         lastWeekRank: lastWeek.ranks[historyTeam] ?? null,
         weeksBack,
         asOf,
         rank: ranks[historyTeam] ?? null,
+        ...(of === undefined ? {} : { of }),
         empty,
       });
       setHistoryResult({ snapshot, teamId: historyTeam, ...step });
     };
     const runInline = () => {
-      const ranks = ranksAsOf(
+      const board = pastBoardAsOf(
         snapshot.ageGroupId,
         snapshot.teams,
         snapshot.games,
@@ -622,7 +629,7 @@ export function useRankingsWorker(input: RankingsInput): {
         snapshot.segment,
         asOf
       );
-      answer(ranks, Object.keys(ranks).length === 0);
+      answer(board.ranks, Object.keys(board.ranks).length === 0, board.sizes[snapshot.ageGroupId]);
     };
     if (small) {
       const soon = window.setTimeout(runInline, 0);
@@ -655,7 +662,7 @@ export function useRankingsWorker(input: RankingsInput): {
       if (event.data.kind !== "movement" || event.data.id !== id) return;
       detach?.();
       detach = null;
-      answer(event.data.ranks, event.data.empty === true);
+      answer(event.data.ranks, event.data.empty === true, event.data.of);
     };
     // A failed worker is the board's to recover from; the line simply stops where it got to.
     const onError = () => {
@@ -679,7 +686,11 @@ export function useRankingsWorker(input: RankingsInput): {
     if (!lastWeek || historyTeam === undefined) return null;
     return [
       ...(historyHere?.points ?? []),
-      { asOf: lastWeek.asOf, rank: lastWeek.ranks[historyTeam] ?? null },
+      {
+        asOf: lastWeek.asOf,
+        rank: lastWeek.ranks[historyTeam] ?? null,
+        ...(lastWeek.of === undefined ? {} : { of: lastWeek.of }),
+      },
     ];
   }, [lastWeek, historyTeam, historyHere]);
 

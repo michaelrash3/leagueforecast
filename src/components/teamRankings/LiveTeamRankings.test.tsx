@@ -159,8 +159,8 @@ const SPRING = {
   history: {
     teamId: "S-2",
     points: [
-      { asOf: "2027-04-01", rank: 5 },
-      { asOf: "2027-04-08", rank: 2 },
+      { asOf: "2027-04-01", rank: 5, of: 6 },
+      { asOf: "2027-04-08", rank: 2, of: 4 },
     ],
   },
 };
@@ -456,7 +456,28 @@ describe("Team Rankings on the cloud's board", () => {
     expect(await screen.findAllByLabelText("up 2 since last week")).not.toHaveLength(0);
     expect(screen.getAllByText("new").length).toBeGreaterThan(0);
     const mine = screen.getByRole("region", { name: "My team" });
-    expect(mine.querySelector('[aria-label^="Place by week:"]')).not.toBeNull();
+    // 5th of 6, 2nd of 4, and 2nd of the 3 on the board now.
+    expect(
+      within(mine).getByRole("img", {
+        name: /^Standing by week: top 84% on .+, top 50% on .+, top 67% now$/,
+      })
+    ).toBeTruthy();
+  });
+
+  it("draws no standing line from a board published before its weeks were counted", async () => {
+    live = memoryLive();
+    const uncounted = {
+      ...SPRING,
+      history: {
+        ...SPRING.history,
+        points: SPRING.history.points.map(({ of: _of, ...point }) => point),
+      },
+    };
+    await publish(live, [{ key: `board:2027:${PAGE}:spring`, value: uncounted }]);
+    open(sourcesOf(live));
+    expect(await screen.findAllByLabelText("up 2 since last week")).not.toHaveLength(0);
+    const mine = screen.getByRole("region", { name: "My team" });
+    expect(mine.querySelector('[aria-label^="Standing by week:"]')).toBeNull();
   });
 
   it("draws no rank line made for another club than the page's own", async () => {
@@ -466,7 +487,7 @@ describe("Team Rankings on the cloud's board", () => {
     open(sourcesOf(live));
     expect(await screen.findAllByLabelText("up 2 since last week")).not.toHaveLength(0);
     const mine = screen.getByRole("region", { name: "My team" });
-    expect(mine.querySelector('[aria-label^="Place by week:"]')).toBeNull();
+    expect(mine.querySelector('[aria-label^="Standing by week:"]')).toBeNull();
   });
 
   /** The page's league seasons, as the meta names them, and the places a card was showing. */

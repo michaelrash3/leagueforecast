@@ -107,8 +107,12 @@ export type BoardFacts = { city?: string; state?: string; league?: true; was?: n
 /** A board's row as published: the owner's star left for each member's device to set. */
 export type BoardRow = Omit<ScoutRankingRow, "isMine"> & BoardFacts;
 
-/** A week of a club's place, oldest first in a rank line; null where it was not on the board. */
-export type HistoryPoint = { asOf: string; rank: number | null };
+/**
+ * A week of a club's place, oldest first in a rank line; null where it was not on the board. `of`
+ * is how many clubs that week's board held (`RankLinePoint.of`); a board published before it was
+ * counted has none, and an older build drops it unread.
+ */
+export type HistoryPoint = { asOf: string; rank: number | null; of?: number };
 
 /**
  * The version of a board's `fit` (`BoardFit.v`), raised by any change to what its fields hold or
@@ -276,7 +280,12 @@ const historyOf = (raw: unknown): BoardView["history"] | null => {
     if (!isRecord(point) || typeof point.asOf !== "string" || !ISO_DAY.test(point.asOf))
       return null;
     if (point.rank !== null && !isPlace(point.rank)) return null;
-    points.push({ asOf: point.asOf, rank: point.rank as number | null });
+    if (point.of !== undefined && !isPlace(point.of)) return null;
+    points.push({
+      asOf: point.asOf,
+      rank: point.rank as number | null,
+      ...(point.of === undefined ? {} : { of: point.of as number }),
+    });
   }
   return { teamId: raw.teamId, points };
 };

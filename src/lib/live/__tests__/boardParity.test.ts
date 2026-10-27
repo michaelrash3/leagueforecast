@@ -452,7 +452,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
     const built = buildBoardsAndFacts({ ...source, today: FIXTURE_TODAY });
     const views = new Map(boardViews(groups, built).map(({ key, value }) => [key, value]));
     const lastWeekDay = daysBefore(FIXTURE_TODAY);
-    const seen = { was: 0, fresh: 0, moved: 0, lines: 0, points: 0, pastAbsence: 0 };
+    const seen = { was: 0, fresh: 0, moved: 0, lines: 0, points: 0, counted: 0, pastAbsence: 0 };
     for (const page of [...new Set(groups.map((group) => group.id))].map((pageId) =>
       groups.find((group) => group.id === pageId)!
     )) {
@@ -517,7 +517,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
           continue;
         }
         const lastWeekRank = lastWeek.ranks[teamId] ?? null;
-        let points: Array<{ asOf: string; rank: number | null }> = [];
+        let points: Array<{ asOf: string; rank: number | null; of?: number }> = [];
         for (let weeksBack = 2; ; weeksBack += 1) {
           const asOf = daysBefore(FIXTURE_TODAY, 7 * weeksBack);
           // The newest week walked, or last week before any; a week without the club is null.
@@ -525,16 +525,23 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
           const newer = newest ? newest.rank : lastWeekRank;
           const answer = ask(asOf, [teamId]);
           const rank = answer.ranks[teamId] ?? null;
-          if (answer.empty !== true) points = [{ asOf, rank }, ...points];
+          // With how many the page's board held that week, which the standing line reads.
+          const of = answer.of === undefined ? {} : { of: answer.of };
+          if (answer.empty !== true) points = [{ asOf, rank, ...of }, ...points];
           if (answer.empty === true || weeksBack >= 8 || (rank === null && newer === null)) break;
         }
         // A line that went on past a week without its club, on the strength of last week's place.
         if (lastWeekRank !== null && points.length >= 2 && points[points.length - 1]?.rank === null)
           seen.pastAbsence += 1;
-        points.push({ asOf: lastWeekDay, rank: lastWeekRank });
+        points.push({
+          asOf: lastWeekDay,
+          rank: lastWeekRank,
+          ...(lastWeek.of === undefined ? {} : { of: lastWeek.of }),
+        });
         expect(view.history, key).toEqual({ teamId, points });
         seen.lines += 1;
         seen.points += points.length;
+        seen.counted += points.filter((point) => point.of !== undefined).length;
       }
     }
     return seen;

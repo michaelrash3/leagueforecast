@@ -39,39 +39,66 @@ const LINE_WIDTH = 168;
 const LINE_HEIGHT = 36;
 
 /**
- * The club's place week by week, as a line: higher is better, so first place is the top edge. Only
- * weeks it had a place are drawn, and nothing at all until two of them are known, because one
- * point is not a line and a week the half had not begun is not a place.
+ * Where a place stands among the clubs on its board, as the share at or above it: #1 of 200 is the
+ * top 1%, #2,737 of 7,126 the top 39%. Rounded up and never below 1%, so it never reads better
+ * than the place is.
  */
-export function RankLine({ history, now }: { history: RankHistoryPoint[]; now: number }) {
-  const points = [...history, { asOf: "", rank: now }].filter(
-    (point): point is { asOf: string; rank: number } => point.rank !== null
+export const topShare = (rank: number, of: number): number =>
+  Math.min(100, Math.max(1, Math.ceil((100 * rank) / of)));
+
+/**
+ * The least a line spans, as a share of the board: a club that moved a point or two in a month
+ * would otherwise be drawn as falling off a cliff, the line stretched to fill its height.
+ */
+const LEAST_SPAN = 0.1;
+
+/**
+ * The club's standing week by week, as a line: the share of its board at or above it, so a club
+ * that holds its own draws flat. The place alone sank all season for a club in the middle, as
+ * the board filled with clubs playing their first games (#439 of the clubs ranked on 1 September,
+ * #2,737 of 7,126 by late October), and read as a team getting worse. Higher is better, so the
+ * top of the board is the top edge. Only weeks it had a place on a board of known size are drawn,
+ * and nothing at all until two of them are known, because one point is not a line.
+ */
+export function StandingLine({
+  history,
+  now,
+  nowOf,
+}: {
+  history: RankHistoryPoint[];
+  now: number;
+  nowOf: number;
+}) {
+  const points = [...history, { asOf: "", rank: now, of: nowOf }].flatMap((point) =>
+    point.rank !== null && point.of !== undefined && point.of > 0
+      ? [{ asOf: point.asOf, share: point.rank / point.of, top: topShare(point.rank, point.of) }]
+      : []
   );
   if (points.length < 2) return null;
-  const ranks = points.map((point) => point.rank);
-  const best = Math.min(...ranks);
-  const worst = Math.max(...ranks);
+  const shares = points.map((point) => point.share);
+  const best = Math.min(...shares);
+  const worst = Math.max(best + LEAST_SPAN, ...shares);
   const x = (at: number) => 4 + (at * (LINE_WIDTH - 8)) / (points.length - 1);
-  const y = (rank: number) =>
-    worst === best ? LINE_HEIGHT / 2 : 4 + ((rank - best) * (LINE_HEIGHT - 8)) / (worst - best);
+  const y = (share: number) => 4 + ((share - best) * (LINE_HEIGHT - 8)) / (worst - best);
   const first = points[0]!;
+  const last = points[points.length - 1]!;
   const said = points
     .map((point) =>
-      point.asOf ? `#${point.rank} on ${shortDay(point.asOf)}` : `#${point.rank} now`
+      point.asOf ? `top ${point.top}% on ${shortDay(point.asOf)}` : `top ${point.top}% now`
     )
     .join(", ");
   return (
     <div className="mt-2 flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
       <svg
         role="img"
-        aria-label={`Place by week: ${said}`}
+        aria-label={`Standing by week: ${said}`}
         width={LINE_WIDTH}
         height={LINE_HEIGHT}
         viewBox={`0 0 ${LINE_WIDTH} ${LINE_HEIGHT}`}
         className="shrink-0 overflow-visible"
       >
         <polyline
-          points={points.map((point, at) => `${x(at)},${y(point.rank)}`).join(" ")}
+          points={points.map((point, at) => `${x(at)},${y(point.share)}`).join(" ")}
           fill="none"
           stroke="currentColor"
           strokeWidth={2}
@@ -82,14 +109,14 @@ export function RankLine({ history, now }: { history: RankHistoryPoint[]; now: n
           <circle
             key={point.asOf || "now"}
             cx={x(at)}
-            cy={y(point.rank)}
+            cy={y(point.share)}
             r={at === points.length - 1 ? 3 : 2}
             className="fill-blue-600 dark:fill-blue-400"
           />
         ))}
       </svg>
       <span>
-        #{first.rank.toLocaleString()} on {shortDay(first.asOf)}, #{now.toLocaleString()} now
+        Top {first.top}% on {shortDay(first.asOf)}, top {last.top}% now
       </span>
     </div>
   );
@@ -147,7 +174,9 @@ export function MyTeamCard({
         {" · "}
         {glance.record} · {formatRating(glance.rating)}
       </p>
-      {history && <RankLine history={history} now={glance.nationalRank} />}
+      {history && (
+        <StandingLine history={history} now={glance.nationalRank} nowOf={glance.nationalOf} />
+      )}
       {(next || !nextUnread) && (
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
           {next ? (

@@ -105,7 +105,10 @@ const DIST = "dist";
  * made the build split shared code out of the first download into files of their own (the
  * confidence words, `confidenceTier.ts`; the restore's kept data, handed to Settings by App; the
  * AI panel's check, by a context; and the summaries' members-only words, beside the summaries'
- * types). Before those it was 257.6 KB.
+ * types). Before those it was 257.6 KB. Team Rankings to 162.5 KB on 27 Oct 2026 for the My Team
+ * card's standing line, 162.1 KB against 161.9 KB on main (162,078 bytes against 161,946): the
+ * line draws each week's place as a share of that week's board (`topShare`, `StandingLine`), with
+ * the count of each past board carried beside its places (`pastBoardAsOf`).
  */
 const BUDGET = {
   firstDownload: 255_000,
@@ -121,7 +124,7 @@ const BUDGET = {
     "Data Quality": 3_500,
     Settings: 13_700,
     "Seasons at a glance": 4_400,
-    "Team Rankings": 162_000,
+    "Team Rankings": 162_500,
   },
 };
 

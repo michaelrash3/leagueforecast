@@ -21,7 +21,7 @@ import {
   type ModelCheckRunResult,
 } from "../lib/scoutBacktest";
 import { decodePoolGames, decodePoolTeams } from "../lib/teamRankingsCompact";
-import { RANK_HISTORY_WEEKS, ranksAsOf } from "../lib/rankMovement";
+import { RANK_HISTORY_WEEKS, pastBoardAsOf, type PastBoard } from "../lib/rankMovement";
 
 /**
  * What crosses between the page and the rankings worker, and what the worker does with it.
@@ -168,6 +168,8 @@ export type MovementResponse = {
   id: number;
   asOf: string;
   ranks: Record<string, number>;
+  /** How many clubs the asked page's board held that day, for the share above a club. */
+  of?: number;
   /** No club had a place on that day's board: the half had not started. */
   empty?: boolean;
   elapsedMs: number;
@@ -232,7 +234,7 @@ export const createRankingsHandler = (
    * another fits none of them again. Each is about 3 MB on a year of 76,792 clubs (measured in
    * Node, the ids shared with the pool), so the nine are about 28 MB beside the fit's 44.
    */
-  const pastBoards = new Map<string, Record<string, number>>();
+  const pastBoards = new Map<string, PastBoard>();
   const PAST_BOARDS_KEPT = RANK_HISTORY_WEEKS + 1;
   const pageRows = (request: RankingsRequest, pool: HeldPool): ScoutRankingRow[] => {
     const today = todayIsoDay();
@@ -323,7 +325,7 @@ export const createRankingsHandler = (
        * pushed a ranked page's rank line out (`PAST_BOARDS_KEPT` holds one line and a board more),
        * and going back to that page fitted the line again a week at a time.
        */
-      let ranks: Record<string, number> = {};
+      let board: PastBoard = { ranks: {}, sizes: {} };
       if (scoutFitRanks(request.ageGroupId, request.ageGroups)) {
         const key = JSON.stringify([
           held.revision,
@@ -335,9 +337,9 @@ export const createRankingsHandler = (
         ]);
         const kept = pastBoards.get(key);
         if (kept) pastBoards.delete(key);
-        ranks =
+        board =
           kept ??
-          ranksAsOf(
+          pastBoardAsOf(
             request.ageGroupId,
             held.teams,
             held.games,
@@ -345,13 +347,15 @@ export const createRankingsHandler = (
             request.segment,
             request.asOf
           );
-        pastBoards.set(key, ranks);
+        pastBoards.set(key, board);
         while (pastBoards.size > PAST_BOARDS_KEPT) {
           const oldest = pastBoards.keys().next().value;
           if (oldest === undefined) break;
           pastBoards.delete(oldest);
         }
       }
+      const { ranks } = board;
+      const of = board.sizes[request.ageGroupId];
       const wanted = request.teamIds;
       const answer = wanted
         ? Object.fromEntries(
@@ -366,6 +370,7 @@ export const createRankingsHandler = (
           id: request.id,
           asOf: request.asOf,
           ranks: answer,
+          ...(of === undefined ? {} : { of }),
           // Whether the board that day had anyone on it, which a club's own answer cannot say.
           empty: Object.keys(ranks).length === 0,
           elapsedMs: now() - start,

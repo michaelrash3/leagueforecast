@@ -23,8 +23,14 @@ export const daysBefore = (today: string, days: number = LAST_WEEK_DAYS): string
  */
 export const RANK_HISTORY_WEEKS = 8;
 
-/** A week of a club's place, oldest first in a rank line; null where it was not on the board. */
-export type RankLinePoint = { asOf: string; rank: number | null };
+/**
+ * A week of a club's place, oldest first in a rank line; null where it was not on the board. `of`
+ * is how many clubs that week's board of the page held, which the line needs to say what share of
+ * them stood above the club: a board grows all season as clubs play their first games, so the place
+ * alone sinks for a club that holds its own. Left out where it was not known: a board published
+ * before the count was.
+ */
+export type RankLinePoint = { asOf: string; rank: number | null; of?: number };
 
 /**
  * One step of the "My team" rank line, a week further back: the line so far, oldest first and
@@ -42,6 +48,7 @@ export const rankLineStep = ({
   weeksBack,
   asOf,
   rank,
+  of,
   empty,
 }: {
   points: readonly RankLinePoint[];
@@ -49,6 +56,8 @@ export const rankLineStep = ({
   weeksBack: number;
   asOf: string;
   rank: number | null;
+  /** How many clubs that week's board of the page held (`PastBoard.sizes`). */
+  of?: number;
   empty: boolean;
 }): { points: RankLinePoint[]; done: boolean } => {
   // The newest week walked so far, or last week before any: a week the club was missing from is
@@ -57,7 +66,7 @@ export const rankLineStep = ({
   const newest = points[0];
   const newer = newest ? newest.rank : lastWeekRank;
   return {
-    points: empty ? [...points] : [{ asOf, rank }, ...points],
+    points: empty ? [...points] : [{ asOf, rank, ...(of ? { of } : {}) }, ...points],
     done: empty || weeksBack >= RANK_HISTORY_WEEKS || (rank === null && newer === null),
   };
 };
@@ -80,16 +89,36 @@ export const ranksAsOf = (
   ageGroups: AgeGroup[],
   segment: SeasonSegment | undefined,
   asOf: string
-): Record<string, number> => {
+): Record<string, number> =>
+  pastBoardAsOf(ageGroupId, teams, games, ageGroups, segment, asOf).ranks;
+
+/**
+ * The boards of `ranksAsOf`'s day: every club's place, and how many clubs each page's board held
+ * (`sizes`, by page id), the count a place is read against in a rank line (`RankLinePoint.of`).
+ * Both come off the one fit, so the count costs nothing the places did not.
+ */
+export type PastBoard = { ranks: Record<string, number>; sizes: Record<string, number> };
+
+export const pastBoardAsOf = (
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[],
+  segment: SeasonSegment | undefined,
+  asOf: string
+): PastBoard => {
   const fit = fitScoutYearFor(ageGroupId, teams, games, ageGroups, segment, asOf);
-  if (!fit) return {};
+  if (!fit) return { ranks: {}, sizes: {} };
   const ranks: Record<string, number> = {};
+  const sizes: Record<string, number> = {};
   rankingPoolGroupIds(ageGroupId, ageGroups).forEach((pageId) => {
-    rowsOfYearFit(fit, pageId, undefined, ageGroups).forEach((row) => {
+    const rows = rowsOfYearFit(fit, pageId, undefined, ageGroups);
+    if (rows.length > 0) sizes[pageId] = rows.length;
+    rows.forEach((row) => {
       ranks[row.teamId] = row.rank;
     });
   });
-  return ranks;
+  return { ranks, sizes };
 };
 
 /** Places climbed since last week (negative for a fall), or "new" for a club that was not ranked. */
