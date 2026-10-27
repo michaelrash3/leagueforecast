@@ -161,6 +161,8 @@ export const funnelEnd = ({ left, furthest }: Funnelled): FunnelEnd => {
 
 /** One pulled club's own row of a game, keyed by its day and its result from that club's seat. */
 type OwnRow = { game: ScoutGame; clubId: string; opponentId: string; settled: boolean };
+/** An own row with its result from its own seat and its start, as an instant. */
+type StartedRow = OwnRow & { own: number; opponent: number; at: number };
 type RowAgainst = { game: ScoutGame; namerId: string; standInId: string };
 
 /** A row as its own club's schedule gave it: its day, its start, its result from that seat, its level. */
@@ -211,8 +213,11 @@ const halfIndex = (
   };
 
   const own = new Map<string, OwnRow[]>();
-  /** The same rows by day alone, each with its result from its own seat, for results that differ. */
-  const byDay = new Map<string, Array<OwnRow & { own: number; opponent: number }>>();
+  /**
+   * The same rows by day alone, each with its result from its own seat and its start, those with a
+   * start only and in the order they start, for results that differ (`nearScores`).
+   */
+  const byDay = new Map<string, StartedRow[]>();
   const against: RowAgainst[] = [];
   let unplayed = 0;
   for (const game of games) {
@@ -234,12 +239,16 @@ const halfIndex = (
       const bucket = own.get(key);
       if (bucket) bucket.push(row);
       else own.set(key, [row]);
+      const at = Date.parse(game.startTs ?? "");
+      if (!Number.isFinite(at)) continue;
       const day = byDay.get(game.date!);
-      const scored = { ...row, own: seen.own, opponent: seen.opponent };
-      if (day) day.push(scored);
-      else byDay.set(game.date!, [scored]);
+      const started = { ...row, own: seen.own, opponent: seen.opponent, at };
+      if (day) day.push(started);
+      else byDay.set(game.date!, [started]);
     }
   }
+
+  byDay.forEach((rows) => rows.sort((a, b) => a.at - b.at));
 
   /** What a row is filed against, as the search reads it, or nothing for a game that is theirs. */
   const kindOf = (other: OwnRow, namerId: string): HalfKind | undefined =>
@@ -567,13 +576,21 @@ export const nearScores = (
   const sign = (a: number, b: number) => Math.sign(a - b);
   /** The runs off, in all, of each candidate at the row's start, moved by `week`. */
   const offs = (view: RowView, week: number): Array<{ off: number; sameWinner: boolean }> => {
-    const start = Date.parse(view.startTs!);
     const found: Array<{ off: number; sameWinner: boolean }> = [];
-    for (const other of index.byDay.get(shiftDay(view.date, week)!) ?? []) {
+    const day = index.byDay.get(shiftDay(view.date, week)!) ?? [];
+    const from = Date.parse(view.startTs!) + week * DAY_MS - withinMinutes * MINUTE_MS;
+    const to = from + 2 * withinMinutes * MINUTE_MS;
+    // The first row starting at `from` or later, by halves: a day can hold thousands.
+    let low = 0;
+    let high = day.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (day[middle]!.at < from) low = middle + 1;
+      else high = middle;
+    }
+    for (let at = low; at < day.length && day[at]!.at <= to; at += 1) {
+      const other = day[at]!;
       if (other.clubId === view.namerId || !index.kindOf(other, view.namerId)) continue;
-      const otherStart = Date.parse(other.game.startTs ?? "");
-      if (!Number.isFinite(otherStart)) continue;
-      if (Math.abs(otherStart - start - week * DAY_MS) / MINUTE_MS > withinMinutes) continue;
       const candidate = index.facts(
         view,
         week,
