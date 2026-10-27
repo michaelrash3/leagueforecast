@@ -148,6 +148,17 @@ export const useLeagueSummary = (
           });
           return;
         }
+        // Off for the browser's sign-in, not broken: nothing was sent, and a later ask, signed
+        // in, goes through, so it is not latched.
+        if (outcome.reason === "members-only") {
+          setState({
+            ...IDLE_STATE,
+            status: "unavailable",
+            message: outcome.message,
+            reason: outcome.reason,
+          });
+          return;
+        }
         if (outcome.reason === "unconfigured" || outcome.reason === "endpoint-missing") {
           unconfiguredRef.current = true;
           latchedReasonRef.current = outcome.reason;

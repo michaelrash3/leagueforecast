@@ -20,6 +20,7 @@ export function ForecastWhy({
   gameModelChance,
   findings = NO_FINDINGS,
   record,
+  hasCutLine = true,
 }: {
   prediction: LeaguePrediction;
   nameOf: (id: string) => string;
@@ -29,6 +30,8 @@ export function ForecastWhy({
   findings?: readonly Finding[];
   /** The season's finished games replayed one at a time (`backtestPredictions`). */
   record?: { winnerAccuracy: number | null; sampleSize: number };
+  /** Whether the league has a cut line, and so a Gold % on its pages to tell this apart from. */
+  hasCutLine?: boolean;
 }) {
   const [every, setEvery] = useState(false);
   const everyId = useId();
@@ -164,7 +167,8 @@ export function ForecastWhy({
 
       <div>
         <h4 className={textRole.overline}>
-          {range ? "Five" : "Four"} numbers that are not the same
+          {["Three", "Four", "Five"][(range ? 1 : 0) + (hasCutLine ? 1 : 0)]} numbers that are not
+          the same
         </h4>
         <dl className="mt-1 space-y-1">
           <div>
@@ -198,13 +202,15 @@ export function ForecastWhy({
               chance of winning.
             </dd>
           </div>
-          <div>
-            <dt className="inline font-bold text-slate-950 dark:text-slate-100">Gold %: </dt>
-            <dd className="inline">
-              on Standings and Forecast, the chance of finishing above the cut line over the whole
-              season, not of winning this game.
-            </dd>
-          </div>
+          {hasCutLine && (
+            <div>
+              <dt className="inline font-bold text-slate-950 dark:text-slate-100">Gold %: </dt>
+              <dd className="inline">
+                on Standings and Forecast, the chance of finishing above the cut line over the whole
+                season, not of winning this game.
+              </dd>
+            </div>
+          )}
           <div>
             <dt className="inline font-bold text-slate-950 dark:text-slate-100">
               Accuracy so far:{" "}

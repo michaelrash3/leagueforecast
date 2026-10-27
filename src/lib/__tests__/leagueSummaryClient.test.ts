@@ -1,13 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setGcAuthorization } from "../gcAuthorization";
 import type { RecapItem } from "../insights";
 import { LEAGUE_SUMMARY_ENDPOINT } from "../leagueSummary";
 import {
-  describeLeagueSummaryHealth,
-  fetchLeagueSummaryHealth,
   buildForecastSummaryRequest,
   buildLeagueSummaryRequest,
   requestLeagueSummary,
 } from "../leagueSummaryClient";
+import { describeLeagueSummaryHealth, fetchLeagueSummaryHealth } from "../leagueSummaryHealth";
 
 const recapItems: RecapItem[] = [
   { kind: "clinched", text: "Stallions clinched a Gold Bracket spot.", impactScore: 95 },
@@ -23,6 +23,62 @@ const standings = [
 
 const jsonResponse = (status: number, body: unknown) =>
   ({ ok: status >= 200 && status < 300, status, json: async () => body }) as Response;
+
+// Signed in, as an account on the cloud copy's list, unless a test says otherwise.
+beforeEach(() => setGcAuthorization(async () => "member-token"));
+afterEach(() => setGcAuthorization(async () => null));
+
+describe("who asks for a write-up", () => {
+  /*
+   * The function answers the accounts on the cloud copy's list alone (`server/league-summary.ts`),
+   * so the app sends its sign-in with every ask, and with none to send asks nothing: the answer
+   * is known, and an ask would be one more call to a function billed by the call.
+   */
+  const request = buildLeagueSummaryRequest({ seasonLabel: "2026 Spring", cutoff: 8, recapItems });
+  const headerOf = (fetchImpl: typeof fetch) => {
+    const call = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0] ?? [];
+    return new Headers(call[1]?.headers).get("authorization");
+  };
+
+  it("sends the sign-in with a write-up and with a health check", async () => {
+    const story = vi.fn(async () =>
+      jsonResponse(200, { summary: "In.", model: "gemini-3-flash" })
+    ) as unknown as typeof fetch;
+    await requestLeagueSummary(request, { fetchImpl: story });
+    expect(headerOf(story)).toBe("Bearer member-token");
+
+    const health = vi.fn(async () =>
+      jsonResponse(200, { functionDeployed: true })
+    ) as unknown as typeof fetch;
+    await fetchLeagueSummaryHealth({ fetchImpl: health });
+    expect(headerOf(health)).toBe("Bearer member-token");
+  });
+
+  it("asks nothing with no sign-in, and says to sign in", async () => {
+    setGcAuthorization(async () => null);
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+
+    const outcome = await requestLeagueSummary(request, { fetchImpl });
+    expect(outcome).toMatchObject({ ok: false, reason: "members-only" });
+    expect(outcome.ok ? "" : outcome.message).toMatch(/Sign in/);
+    const health = await fetchLeagueSummaryHealth({ fetchImpl });
+    expect(health).toMatchObject({ ok: false, reason: "members-only" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(describeLeagueSummaryHealth(health)).toMatch(/cloud copy's list/);
+  });
+
+  it("passes on what the door says to an account it turns away", async () => {
+    const message = "This Google account is not on the cloud copy's list.";
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(403, { ok: false, reason: "members-only", message, status: 403 })
+    ) as unknown as typeof fetch;
+    await expect(requestLeagueSummary(request, { fetchImpl })).resolves.toEqual({
+      ok: false,
+      reason: "members-only",
+      message,
+    });
+  });
+});
 
 describe("buildLeagueSummaryRequest", () => {
   it("carries the recap facts through with their impact scores", () => {
@@ -386,7 +442,7 @@ describe("fetchLeagueSummaryHealth", () => {
 });
 
 describe("describeLeagueSummaryHealth", () => {
-  const working = { keyConfigured: true, keyLength: 39, vercelEnv: "production" };
+  const working = { keyConfigured: true, keyLength: 39, revision: "leaguesummary-00012-xov" };
 
   it("says Groq takes over, with the model it would ask first, when its key lists models", () => {
     const text = describeLeagueSummaryHealth({
@@ -433,7 +489,7 @@ describe("describeLeagueSummaryHealth", () => {
       ok: true,
       health: {
         keyConfigured: false,
-        vercelEnv: "production",
+        revision: "leaguesummary-00012-xov",
         groq: {
           keyConfigured: true,
           keyLength: 56,
@@ -442,7 +498,7 @@ describe("describeLeagueSummaryHealth", () => {
       },
     });
     expect(text).toBe(
-      "The function is deployed (env production) with no GEMINI_API_KEY, so Groq writes every story. Groq's key lists 4 usable models, llama-3.3-70b-versatile first."
+      "The function is deployed (revision leaguesummary-00012-xov) with no GEMINI_API_KEY, so Groq writes every story. Groq's key lists 4 usable models, llama-3.3-70b-versatile first."
     );
   });
 
@@ -460,18 +516,16 @@ describe("describeLeagueSummaryHealth", () => {
     expect(text).toContain("Firebase functions deployment");
   });
 
-  it("names the environment and build when the key is missing", () => {
+  it("names the revision serving it when the key is missing", () => {
     const text = describeLeagueSummaryHealth({
       ok: true,
       health: {
         functionDeployed: true,
         keyConfigured: false,
-        vercelEnv: "production",
-        commit: "abc1234",
+        revision: "leaguesummary-00012-xov",
       },
     });
-    expect(text).toContain("env production");
-    expect(text).toContain("build abc1234");
+    expect(text).toContain("revision leaguesummary-00012-xov");
     expect(text).toContain("redeploy");
   });
 
@@ -481,7 +535,6 @@ describe("describeLeagueSummaryHealth", () => {
       health: {
         keyConfigured: true,
         keyLength: 39,
-        vercelEnv: "production",
         probe: { ok: true, modelCount: 5, candidates: ["gemini-3-flash", "gemini-3-pro"] },
       },
     });

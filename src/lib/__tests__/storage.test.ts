@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { adoptTabTurn } from "../tabTurn";
+import { createTabTurn } from "../tabTurnChannel";
 import { resetCloudGuard } from "../cloud/cloudGuard";
 import { readLeagueClubRanks, writeLeagueClubRanks } from "../leagueClubRanks";
 import {
@@ -39,6 +41,8 @@ import {
   saveTeams,
   setActiveSeason,
 } from "../storage";
+
+afterEach(() => vi.restoreAllMocks());
 
 const backing = new Map<string, string>();
 
@@ -426,19 +430,35 @@ describe("what this device keeps of a season under its id", () => {
     expect(keptOnDevice(second.id)).toEqual(NONE);
     expect(keptOnDevice(first.id)).toEqual(ALL);
     const next = createSeason("Fall");
-    expect(next.id).toBe(second.id);
     expect(keptOnDevice(next.id)).toEqual(NONE);
   });
 
   it("is none of a season made here, whatever a season gone before left under its id", () => {
+    // The random letters pinned, so the id a new season is made under is known before it is.
+    vi.spyOn(Math, "random").mockReturnValue(0);
     // Left by a season deleted before its keeping went with it.
-    keepOnDevice("season-2");
-    keepOnDevice("season-3");
+    keepOnDevice("season-aaaaaaaa");
+    keepOnDevice("season-aaaaaaaa-8");
 
-    expect(createSeason("Spring").id).toBe("season-2");
-    expect(keptOnDevice("season-2")).toEqual(NONE);
-    expect(duplicateSeason("season-2", "Spring copy")?.id).toBe("season-3");
-    expect(keptOnDevice("season-3")).toEqual(NONE);
+    expect(createSeason("Spring").id).toBe("season-aaaaaaaa");
+    expect(keptOnDevice("season-aaaaaaaa")).toEqual(NONE);
+    // The same letters again are taken, so after a few draws it is told apart by a count.
+    expect(duplicateSeason("season-aaaaaaaa", "Spring copy")?.id).toBe("season-aaaaaaaa-8");
+    expect(keptOnDevice("season-aaaaaaaa-8")).toEqual(NONE);
+  });
+
+  /*
+   * Ids were counted from the seasons this browser holds, so a laptop and a phone tab left open
+   * since before it each made "season-2", and with League kept live the two seasons met in the
+   * cloud as one. An id is now eight random letters and digits, which two devices do not share.
+   */
+  it("is made under random letters, a new one each time", () => {
+    const made = Array.from({ length: 40 }, (_, at) => createSeason(`Season ${at}`).id);
+    for (const id of made) expect(id).toMatch(/^season-[a-z0-9]{8}$/);
+    expect(new Set(made).size).toBe(made.length);
+    const copy = duplicateSeason(made[0]!, "Copy");
+    expect(copy?.id).toMatch(/^season-[a-z0-9]{8}$/);
+    expect(made).not.toContain(copy?.id);
   });
 
   it("is none of a season arriving from elsewhere, and stays with one held here", () => {
@@ -691,5 +711,34 @@ describe("the one-time migration into a season namespace", () => {
     expect(loadTeams()).toEqual([{ id: "t1", name: "Trash Pandas" }]);
     expect(backing.get("league_teams_v1")).toBeUndefined();
     expect(backing.get("league_season_default_teams_v1")).toBeDefined();
+  });
+});
+
+describe("a tab another tab has the turn from", () => {
+  /*
+   * Read-only (`tabTurn.ts`): its saves would put back what it read when it opened over what the
+   * other tab saved since, and its switch of season would move where the other saves. Storage
+   * refuses every League write it makes; the cloud copy's own arriving is still laid in.
+   */
+  afterEach(() => adoptTabTurn(null));
+
+  it("writes no season, no score and no switch of season", () => {
+    const first = listSeasons()[0]!;
+    const second = createSeason("Spring");
+    saveTeams([{ id: "A", name: "Aces" }]);
+    const turn = createTabTurn({ channel: null, openedAt: 0, id: "t", claimed: () => false });
+    // Read-only as another tab answers it.
+    const forced = { ...turn, readOnly: () => true };
+    adoptTabTurn(forced);
+
+    expect(saveTeams([{ id: "B", name: "Bears" }])).toBe(false);
+    expect(loadTeams()).toEqual([{ id: "A", name: "Aces" }]);
+    expect(setActiveSeason(second.id)).toBe(false);
+    expect(getActiveSeasonId()).toBe(first.id);
+    expect(createSeason("Summer").id).toBeTruthy();
+    expect(listSeasons().map((season) => season.name)).not.toContain("Summer");
+
+    adoptTabTurn(null);
+    expect(saveTeams([{ id: "B", name: "Bears" }])).toBe(true);
   });
 });

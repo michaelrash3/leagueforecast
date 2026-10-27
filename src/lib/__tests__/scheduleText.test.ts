@@ -503,3 +503,84 @@ describe("parseScheduleText, pinned before its pieces were shared", () => {
     });
   });
 });
+
+/*
+ * Four more of the paste's misreadings, each reproduced with the real parser (PR 7): a start time
+ * read as a final score, a team name carrying an age range read as a score or skipped, and dates
+ * after December kept in the year before.
+ */
+describe("a pasted schedule's times, age ranges and new years", () => {
+  it("reads a start time as no score", () => {
+    expect(parseScorePair("6:00")).toBeUndefined();
+    expect(parseScorePair("12:30")).toBeUndefined();
+    // A colon between two runs is still a score.
+    expect(parseScorePair("6:5")).toEqual({ teamScore: 6, opponentScore: 5 });
+    expect(parseScheduleText("8/22/2026,Velocirabbits,6:00", "2026-10-26").games).toEqual([
+      { teamB: "Velocirabbits", date: "2026-08-22" },
+    ]);
+  });
+
+  it("keeps an age range in a team's name in a table", () => {
+    expect(parseScheduleText("Date,Opponent\n8/22/2026,Majors 11-12", "2026-10-26")).toEqual({
+      games: [{ teamB: "Majors 11-12", date: "2026-08-22" }],
+      skipped: [],
+    });
+    const away = parseScheduleText("Date,Home,Away\n8/22/2026,Aces,Bombers 9-10U", "2026-10-26");
+    expect(away.skipped).toEqual([]);
+    expect(away.games).toHaveLength(1);
+    expect(JSON.stringify(away.games[0])).toContain("Bombers 9-10U");
+  });
+
+  it("keeps an age range in the name of a game still to come, where it cannot be a result", () => {
+    expect(parseScheduleText("Sat 8/22/2026 vs Majors 11-12", "2026-08-01").games).toEqual([
+      { teamB: "Majors 11-12", date: "2026-08-22" },
+    ]);
+    // A result letter says it is one, whatever the numbers.
+    expect(parseScheduleText("Sat 8/22/2026 vs Majors 11-12 W 5-3", "2026-10-26").games).toEqual([
+      { teamB: "Majors 11-12", date: "2026-08-22", scoreA: 5, scoreB: 3 },
+    ]);
+  });
+
+  it("reads a game of today, or one marked final, as played whatever its numbers", () => {
+    // Today's game may be over already: its two numbers are its result.
+    expect(parseScheduleText("10/26/2026 vs Bears 6-7", "2026-10-26").games).toEqual([
+      { teamB: "Bears", date: "2026-10-26", scoreA: 6, scoreB: 7 },
+    ]);
+    // "Final" says it was played, today or on a day still to come by the device's clock.
+    for (const today of ["2026-10-26", "2026-10-01"]) {
+      expect(parseScheduleText("10/26/2026 vs Bears 6-7 Final", today).games).toEqual([
+        { teamB: "Bears", date: "2026-10-26", scoreA: 6, scoreB: 7 },
+      ]);
+    }
+    // A postponed game was not played: the range is still the name's.
+    expect(parseScheduleText("10/27/2026 vs Majors 11-12 Postponed", "2026-10-26").games).toEqual([
+      { teamB: "Majors 11-12", date: "2026-10-27" },
+    ]);
+  });
+
+  it("moves on a year when the dates turn from December to January", () => {
+    expect(
+      parseScheduleText("December 2026\n12/12 vs Aces\n1/9 vs Bears", "2026-10-26").games
+    ).toEqual([
+      { teamB: "Aces", date: "2026-12-12" },
+      { teamB: "Bears", date: "2027-01-09" },
+    ]);
+    expect(
+      parseScheduleText(
+        "December 2026\nSat 12 vs Aces\nJanuary\nSun 3 vs Comets\nSun 10 vs Ducks",
+        "2026-10-26"
+      )
+    ).toEqual({
+      games: [
+        { teamB: "Aces", date: "2026-12-12" },
+        { teamB: "Comets", date: "2027-01-03" },
+        { teamB: "Ducks", date: "2027-01-10" },
+      ],
+      skipped: [],
+    });
+    // A year written with the date is the date's, however the dates before it ran.
+    expect(
+      parseScheduleText("December 2026\n12/12 vs Aces\n1/9/2026 vs Bears", "2026-10-26").games[1]
+    ).toEqual({ teamB: "Bears", date: "2026-01-09" });
+  });
+});

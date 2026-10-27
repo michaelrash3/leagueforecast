@@ -22,6 +22,7 @@ import { PageHeader } from "../PageHeader";
 import type { NotifyPrefs } from "../../lib/seasonDigest";
 import { NotificationSettings } from "./NotificationSettings";
 import { EditLock } from "./EditLock";
+import { ReplacedBackupLine, type ReplacedBackupAccess } from "./ReplacedBackupLine";
 
 /** The order the tiebreaker pickers offer, and the "none" they also allow. */
 const TIEBREAKER_FACTORS: TiebreakerFactor[] = [
@@ -48,9 +49,12 @@ export function SettingsView({
   onNotifyPrefs,
   followedName,
   onOpenCloud,
+  replacedBackup,
 }: {
   /** Opens the cloud copy's panel; absent while the cloud is off. */
   onOpenCloud?: () => void;
+  /** What the last restore replaced, kept on this device (`ReplacedBackupLine`). */
+  replacedBackup: ReplacedBackupAccess;
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   teamsCount: number;
@@ -506,6 +510,7 @@ export function SettingsView({
           prefs={notifyPrefs}
           onPrefs={onNotifyPrefs}
           followedName={followedName}
+          hasCutLine={settings.postseasonFormat === "cut"}
         />
 
         <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900">
@@ -584,6 +589,7 @@ export function SettingsView({
               </button>
             </EditLock>
           </div>
+          <ReplacedBackupLine {...replacedBackup} />
         </div>
 
         {onOpenCloud && (

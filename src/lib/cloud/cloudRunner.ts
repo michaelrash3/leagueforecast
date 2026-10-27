@@ -229,6 +229,14 @@ export type CloudPullResult = {
   manifest?: CloudManifest;
 };
 
+/**
+ * Whether a pull asked GameChanger about teams and heard back about none: the proxy, GameChanger
+ * or the network down for the whole run. Such a run saves nothing, since nothing changed, and
+ * read as a quiet night; the nightly ends red on it, which is what raises its alarm.
+ */
+export const heardNothing = ({ asked, answered }: Pick<CloudPullResult, "asked" | "answered">) =>
+  asked > 0 && answered === 0;
+
 /** Tries at saving onto a copy that keeps moving before giving up on it. */
 const MAX_TRIES = 3;
 

@@ -106,6 +106,7 @@ describe("the Data Quality tab", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("is counted on the Dashboard, which leads to it", async () => {
@@ -276,6 +277,9 @@ describe("the Data Quality tab", () => {
   });
 
   it("puts nothing aside in a season made under the id of a deleted one", async () => {
+    // Season ids are drawn at random, so a deleted season's id is drawn again only by chance. The
+    // draw is pinned so that it is, which is the case this guards.
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
     const spring = createSeason("Spring");
     setActiveSeason(spring.id);
     seed();

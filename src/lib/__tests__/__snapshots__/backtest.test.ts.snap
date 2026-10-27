@@ -1,0 +1,29 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the backtest, as pinned > scores the league's own games as it always has where no outside result is given 1`] = `
+{
+  "averageMarginError": 4,
+  "brierScore": 0.1910574429341049,
+  "calibration": [
+    {
+      "actual": 0,
+      "max": 0.4,
+      "min": 0.30000000000000004,
+      "predicted": 0.363476114577299,
+      "samples": 1,
+    },
+    {
+      "actual": 1,
+      "max": 0.6000000000000001,
+      "min": 0.5,
+      "predicted": 0.5,
+      "samples": 1,
+    },
+  ],
+  "confidentMissRate": 0,
+  "highConfidenceAccuracy": null,
+  "highConfidenceSamples": 0,
+  "sampleSize": 2,
+  "winnerAccuracy": 1,
+}
+`;

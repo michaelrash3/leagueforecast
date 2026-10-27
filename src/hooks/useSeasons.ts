@@ -9,6 +9,7 @@ import {
   setActiveSeason,
   type SeasonMeta,
 } from "../lib/storage";
+import { TAB_READ_ONLY, tabReadOnly } from "../lib/tabTurn";
 import type { ConfirmState } from "./useConfirmation";
 import type { ToastTone } from "./useToast";
 
@@ -79,10 +80,26 @@ export function useSeasons({
 
   const refresh = useCallback(() => setAll(listSeasons()), []);
 
+  /**
+   * Whether this tab is read-only for another tab's turn (`tabTurn.ts`), said so where it is.
+   * Asked before a change to the list rather than left to storage to refuse: a delete goes to the
+   * cloud's copy first (`beforeDelete`), which storage refusing after could not undo, and a season
+   * made or copied was announced though storage had kept nothing.
+   */
+  const refusedHere = useCallback((): boolean => {
+    if (!tabReadOnly()) return false;
+    showToast(TAB_READ_ONLY, { tone: "error" });
+    return true;
+  }, [showToast]);
+
   const switchTo = useCallback(
     (id: string) => {
       if (id === getActiveSeasonId()) return;
-      if (!setActiveSeason(id)) return;
+      if (!setActiveSeason(id)) {
+        // Refused while another tab has the turn, which would then save into the season switched to.
+        if (tabReadOnly()) showToast(TAB_READ_ONLY, { tone: "error" });
+        return;
+      }
       reload();
       const name = listSeasons().find((season) => season.id === id)?.name ?? "season";
       showToast(`Switched to ${name}.`, { tone: "info" });
@@ -92,25 +109,28 @@ export function useSeasons({
 
   const create = useCallback(
     (name: string) => {
+      if (refusedHere()) return;
       const meta = createSeason(name);
       setAll(listSeasons());
       showToast(`Created ${meta.name}. Switch to it when ready.`, { tone: "success" });
     },
-    [showToast]
+    [showToast, refusedHere]
   );
 
   const duplicate = useCallback(
     (id: string, name: string) => {
+      if (refusedHere()) return;
       const meta = duplicateSeason(id, name);
       if (!meta) return;
       setAll(listSeasons());
       showToast(`Duplicated into ${meta.name}.`, { tone: "success" });
     },
-    [showToast]
+    [showToast, refusedHere]
   );
 
   const remove = useCallback(
     async (id: string) => {
+      if (refusedHere()) return;
       const target = listSeasons().find((season) => season.id === id);
       if (!target) return;
       const confirmed = await requestConfirmation({
@@ -132,7 +152,7 @@ export function useSeasons({
       else setAll(listSeasons());
       showToast(`Deleted ${target.name}.`, { tone: "success" });
     },
-    [reload, requestConfirmation, showToast, beforeDelete]
+    [reload, requestConfirmation, showToast, beforeDelete, refusedHere]
   );
 
   // Keeps the index's name for the active season in step with its editable label, so the header

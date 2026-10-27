@@ -44,6 +44,12 @@ import {
   needsAPerson,
 } from "./components/league/LiveLeagueBanner";
 import { EditLock, SeasonEditable } from "./components/league/EditLock";
+import { useTabReadOnly } from "./hooks/useTabReadOnly";
+import { saveBackupFile } from "./lib/backupFile";
+import { onReplacedKept, readReplaced } from "./lib/replacedBackup";
+import type { ReplacedBackupAccess } from "./components/league/ReplacedBackupLine";
+import { beforeTabYields, TAB_READ_ONLY, tabTurn } from "./lib/tabTurn";
+import { mergeHeldScores } from "./lib/heldScores";
 import { rankingsSearch } from "./lib/rankingsRoute";
 import { searchWithTab, tabFromSearch } from "./lib/leagueTab";
 import { ModeSwitchContext } from "./components/modeSwitch";
@@ -148,6 +154,7 @@ import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standi
 import { displayName, recordText } from "./lib/format";
 import { recapToMarkdown, recapToStoryBrief } from "./lib/insights";
 import { buildForecastSummaryRequest, buildLeagueSummaryRequest } from "./lib/leagueSummaryClient";
+import { AiHealthCheck } from "./components/aiHealthCheck";
 import { eliminationNumberForGold, magicForGold, neededResults } from "./lib/magic";
 import { backtestPredictions } from "./lib/backtest";
 import { buildPredictionEngine } from "./lib/predictionEngine";
@@ -384,6 +391,28 @@ const StartFromClubs = lazy(() =>
 const StartFromGcOrg = lazy(() =>
   import("./components/league/StartFromGcOrg").then((module) => ({
     default: module.StartFromGcOrg,
+  }))
+);
+/** What the AI panel's Check runs (`aiHealthCheck.ts`), fetched once it is pressed. */
+const checkAiHealth = async () => {
+  try {
+    const health = await import("./lib/leagueSummaryHealth");
+    return health.describeLeagueSummaryHealth(await health.fetchLeagueSummaryHealth());
+  } catch {
+    return "The check could not be fetched. Try again once connected.";
+  }
+};
+
+/** What Settings offers of the last restore's replaced data (`ReplacedBackupLine`). */
+const REPLACED_BACKUP: ReplacedBackupAccess = {
+  read: () => readReplaced(),
+  save: saveBackupFile,
+  listen: onReplacedKept,
+};
+/** Shown only in a tab another tab has the turn from (`tabTurn.ts`), which most never are. */
+const TabTurnBanner = lazy(() =>
+  import("./components/league/TabTurnBanner").then((module) => ({
+    default: module.TabTurnBanner,
   }))
 );
 const ShortcutsHelp = lazy(() =>
@@ -668,6 +697,8 @@ export default function App() {
   /** Only a "cut" league has a line to be inside or outside of. */
   const hasCutLine = postseasonFormat === "cut";
   const hasPostseason = postseasonFormat !== "none";
+  // How the table ranks, for the Standings tab's points and its tie notes.
+  const rankOptions = useMemo(() => rankOptionsFromSettings(settings), [settings]);
 
   /**
    * Effective cutoff driving the simulation and seeding (`effectiveGoldCutoff`): each format as
@@ -686,13 +717,35 @@ export default function App() {
     recordSaveResult(saveMatchups(matchups), "schedule", "Could not save schedule (storage full).");
   }, [matchups, recordSaveResult]);
 
+  // The scores as last written, by identity: what a flush as the turn goes has still to write.
+  const savedLogs = useRef(logs);
   useEffect(() => {
     const saveTimer = window.setTimeout(() => {
       recordSaveResult(saveLogs(logs), "scores", "Could not save scores (storage full).");
+      savedLogs.current = logs;
     }, 500);
 
     return () => window.clearTimeout(saveTimer);
   }, [logs, recordSaveResult]);
+
+  // Written at once when this tab gives the turn away (`tabTurn.ts`): to a tab asking with Use
+  // here, or, in the moment before this tab's channel code arrived, to a tab already writing or
+  // one opened before it. The half second above would end with this tab read-only, the score
+  // refused, and the other tab reading the season again without it.
+  useEffect(
+    () =>
+      beforeTabYields(() => {
+        // Only a score still held: written again, the scores as this tab read them could undo
+        // one the other tab saved since, and would have it read the season again for nothing.
+        if (logs === savedLogs.current) return false;
+        // And only the games this tab changed, over what storage holds now (`mergeHeldScores`).
+        const saved = saveLogs(mergeHeldScores(loadLogs(), savedLogs.current, logs));
+        recordSaveResult(saved, "scores", "Could not save scores (storage full).");
+        if (saved) savedLogs.current = logs;
+        return saved;
+      }),
+    [logs, recordSaveResult]
+  );
 
   useEffect(() => {
     recordSaveResult(
@@ -839,7 +892,9 @@ export default function App() {
     persist: writeSeasonData,
     adopt: adoptSeason,
   });
-  const leagueEditable = editable(liveLeague.state);
+  // Read-only while another tab of this browser has the turn (`tabTurn.ts`), however League is kept.
+  const tabReadOnly = useTabReadOnly();
+  const leagueEditable = editable(liveLeague.state) && !tabReadOnly;
   const { guardUndo, removeSeason } = liveLeague;
   const leagueReachable = reachable(liveLeague.state);
   // Kept live this moment, rather than switched on: a visitor, or a member's device offline or
@@ -850,7 +905,7 @@ export default function App() {
    * command palette, a shared link and a toast's Undo all reach the season from outside them, and
    * each is refused while the season may not be written, with the reason.
    */
-  const editingOff = editingOffBecause(liveLeague.state);
+  const editingOff = tabReadOnly ? TAB_READ_ONLY : editingOffBecause(liveLeague.state);
   // Locked as the page is drawn read-only, not a frame after, so no edit lands in between.
   useLayoutEffect(() => {
     seasonStore.lock(editingOff);
@@ -1014,6 +1069,15 @@ export default function App() {
   const projectionAnalysisEnabled = remainingGames.length <= PROJECT_STANDINGS_REMAINING_GAME_LIMIT;
   const exactScenarioAnalysisEnabled =
     activeView === "model" && remainingGames.length <= EXACT_SCENARIO_REMAINING_GAME_LIMIT;
+  /*
+   * The seed walk for one team's panel, whatever tab it was opened from: its Range and its swing
+   * games' seeds are that walk's. Run only on Forecast, a panel opened from the Dashboard or
+   * Standings showed the projection at both ends, as if nothing left could move the team. The
+   * whole-league table of every game's swing stays Forecast's alone.
+   */
+  const seedWalkEnabled =
+    (activeView === "model" || selectedTeamId !== null) &&
+    remainingGames.length <= EXACT_SCENARIO_REMAINING_GAME_LIMIT;
 
   const projected = useMemo(
     () =>
@@ -1115,9 +1179,18 @@ export default function App() {
    * about a quarter of a second on a phone, which every final on the Schedule used to wait behind.
    */
   const backtestShown = activeView === "dashboard" || activeView === "model";
+  // With the Team Rankings results the forecast reads, each game called from those played before
+  // its day: what is scored is the model shipped, not the league's games alone.
+  const backtestOutside = useMemo(
+    () => ({ outside: externalResults, squadYear: scoutBridge.squadYear }),
+    [externalResults, scoutBridge.squadYear]
+  );
   const backtestResult = useMemo(
-    () => (backtestShown ? rememberedBacktest(teams, matchups, finalLogs, settings) : NO_BACKTEST),
-    [backtestShown, teams, matchups, finalLogs, settings]
+    () =>
+      backtestShown
+        ? rememberedBacktest(teams, matchups, finalLogs, settings, 0.1, backtestOutside)
+        : NO_BACKTEST,
+    [backtestShown, teams, matchups, finalLogs, settings, backtestOutside]
   );
 
   // ---------- Dashboard / scenario computations ----------
@@ -1190,13 +1263,15 @@ export default function App() {
     () =>
       buildBracketProjection({
         teams: modelRows,
-        cutoff: Math.max(0, modelRows.length - goldCutoff),
+        // Everyone below the Gold bracket, where there is a postseason at all. With none, the Gold
+        // bracket is empty and this one took every team, so the Schedule offered bracket games.
+        cutoff: hasPostseason ? Math.max(0, modelRows.length - goldCutoff) : 0,
         startIndex: goldCutoff,
         idPrefix: "silver-bracket",
         logs: bracketLogs,
         settings,
       }),
-    [modelRows, goldCutoff, bracketLogs, settings]
+    [modelRows, goldCutoff, hasPostseason, bracketLogs, settings]
   );
 
   const bracketSeedingLocked = useMemo(
@@ -1225,7 +1300,7 @@ export default function App() {
   );
 
   const { seedForScenario, seedRangeForTeam } = useSeedRanges({
-    exact: exactScenarioAnalysisEnabled,
+    exact: seedWalkEnabled,
     liveTeams,
     remainingGames,
     settings,
@@ -1250,10 +1325,8 @@ export default function App() {
             projectedById.get(teamId)?.rank ??
             ranked.find((item) => item.id === teamId)?.rank ??
             99;
-          const winSeed = exactScenarioAnalysisEnabled
-            ? seedForScenario(teamId, game, teamId)
-            : baselineSeed;
-          const lossSeed = exactScenarioAnalysisEnabled
+          const winSeed = seedWalkEnabled ? seedForScenario(teamId, game, teamId) : baselineSeed;
+          const lossSeed = seedWalkEnabled
             ? seedForScenario(teamId, game, opponentId)
             : baselineSeed;
           const teamWinPct = teamIsAway ? prediction.awayWinPct : 1 - prediction.awayWinPct;
@@ -1280,7 +1353,7 @@ export default function App() {
       liveById,
       projectedById,
       ranked,
-      exactScenarioAnalysisEnabled,
+      seedWalkEnabled,
       seedForScenario,
     ]
   );
@@ -3435,7 +3508,7 @@ export default function App() {
   );
 
   return (
-    <>
+    <AiHealthCheck.Provider value={checkAiHealth}>
       {/*
        * Before this, a keyboard reached the content by tabbing the mode tablist and then seven
        * view tabs, on every single page. The link is the first thing in the tab order and shows
@@ -3640,6 +3713,11 @@ export default function App() {
             role="tabpanel"
             aria-labelledby={`tab-${activeView}`}
           >
+            {tabReadOnly && (
+              <Suspense fallback={null}>
+                <TabTurnBanner readOnly onUseHere={() => tabTurn()?.useHere()} />
+              </Suspense>
+            )}
             <LiveLeagueBanner state={liveLeague.state} />
             {/* Kept live, a season that may not be written is read-only: every control that edits
               it is off (`EditLock`), and what only reads it stays usable. */}
@@ -3700,6 +3778,7 @@ export default function App() {
                   ) : activeView === "dashboard" ? (
                     <DashboardView
                       seasonFinal={seasonFinal}
+                      hasCutLine={hasCutLine}
                       engine={predictionEngine}
                       gameOdds={(game) =>
                         predictGame(game, liveTeams, settings, liveById).awayWinPct
@@ -3739,6 +3818,7 @@ export default function App() {
                     <PowerRatingsView engine={predictionEngine} />
                   ) : activeView === "standings" ? (
                     <StandingsView
+                      rankOptions={rankOptions}
                       nationalRank={(teamId) => leagueClubRankFor(activeSeasonId, teamId)}
                       onScout={scoutClub}
                       goldCutoff={goldCutoff}
@@ -3929,6 +4009,7 @@ export default function App() {
                       </EditLock>
                       <SettingsView
                         onOpenCloud={cloud.kind === "off" ? undefined : cloudPanel.show}
+                        replacedBackup={REPLACED_BACKUP}
                         settings={settings}
                         setSettings={setSettings}
                         teamsCount={teams.length}
@@ -4143,7 +4224,7 @@ export default function App() {
 
         <ToastView toast={toast} onDismiss={dismissToast} />
       </div>
-    </>
+    </AiHealthCheck.Provider>
   );
 }
 
