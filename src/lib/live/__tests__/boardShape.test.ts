@@ -136,6 +136,41 @@ describe("a published board", () => {
     }
   });
 
+  it("reads the page's week, and drops one it cannot read while the board still reads", () => {
+    const weekly = {
+      asOf: "2027-04-14",
+      upsets: [
+        {
+          winnerId: "t2",
+          loserId: "t1",
+          winnerRuns: 5,
+          loserRuns: 3,
+          date: "2027-04-10",
+          chance: 0.1,
+        },
+      ],
+      ahead: { teamAId: "t1", teamBId: "t2", date: "2027-04-17", chanceA: 0.55, margin: 0.6 },
+      streaks: [{ teamId: "t1", wins: 6 }],
+    };
+    expect(coerceBoardView({ rows: [ROW], weekly })).toEqual({ rows: [ROW], weekly });
+    expect(coerceBoardView({ rows: [ROW], weekly: { ...weekly, ahead: null } })?.weekly).toEqual({
+      ...weekly,
+      ahead: null,
+    });
+    for (const bad of [
+      { ...weekly, asOf: "April" },
+      { ...weekly, upsets: [{ ...weekly.upsets[0], chance: 1.2 }] },
+      { ...weekly, upsets: [{ ...weekly.upsets[0], winnerRuns: -1 }] },
+      { ...weekly, ahead: { ...weekly.ahead, date: "Sat" } },
+      { ...weekly, streaks: [{ teamId: "t1", wins: 0 }] },
+      { ...weekly, streaks: "none" },
+    ]) {
+      expect(coerceBoardView({ rows: [ROW], weekly: bad }), JSON.stringify(bad)).toEqual({
+        rows: [ROW],
+      });
+    }
+  });
+
   it("reads how many each week's board held beside the place, where it was published", () => {
     const history = {
       teamId: "t1",

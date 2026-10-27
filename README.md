@@ -6350,6 +6350,29 @@ who fell out of it, and the three biggest climbs that end inside the top 100. Ea
 name opens the club's panel. Nothing is fetched or published for it, so it draws with
 the board, and a club that has left the board altogether is not named, since the
 board no longer holds its name.
+
+**The Weekly.** Since 27 October 2026 the same card is The Weekly, the owner's pick of the
+feature ideas that day, and says more of the week than the moves (`theWeekly.ts`):
+
+- the upset of the week, and up to two more: a result in the seven days before today whose
+  winner the board's ratings gave less than a quarter of a chance, as the page's odds read a
+  matchup (`previewMatchup`), least likely first. A tie, a game that does not count, a club
+  with no row and two clubs nothing compares are none, and a game both schedules list is one;
+- the game of the week ahead: of the games still to play in the next seven days between two
+  clubs of the board's top 50, the one whose odds are nearest even, the higher pair on a tie;
+- the winning streaks still running, five wins or more, the three longest: each club's games
+  of the board's half that count, read back from its latest until one it did not win;
+- the page's own club's week: its record in the week's games that count, on any page of its
+  rating pool, and its best win by the beaten club's place.
+
+The odds are the board's ratings now, after the week's games, so an upset reads a shade less
+unlikely than it was before it was played. A device works the week out from its pool; a
+published board carries it (`BoardView.weekly`), worked out in the build from the half's games
+the build already holds, a pass over them beside the year's fit, so a member's Rankings tab
+reads nothing beyond its board; the club's own week comes off the club card the My Team card
+already reads. A board without one, or one this build cannot read, draws the moves alone. The
+Games tab's Upsets lists every game of the page, or of the club picked, that the ratings shown
+called the other way, whatever its day.
 `boardParity.test.ts` holds each row's `was` to the arrow the worker's own last-week
 board draws, and each line to the one the page walks, a club that joined the board
 last week included. Each guard was broken in turn and seen to fail a test, 22 of 22,

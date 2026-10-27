@@ -1,7 +1,8 @@
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import type { ScoutRankingRow } from "../../lib/teamRankings";
 import { UNKNOWN_STATE } from "../../lib/teamRankings";
 import type { WeekMovers } from "../../lib/thisWeek";
+import type { TeamWeek, Weekly } from "../../lib/theWeekly";
 import { ThisWeekCard } from "./ThisWeekCard";
 import { RankingMethodButton, RankingMethodPanel } from "../RankingMethodPanel";
 import { RankingList, formatRating } from "./RankingList";
@@ -72,6 +73,10 @@ type RankingsSectionProps = {
   myTeam?: MyTeamGlance | null;
   /** The board's week (`weekMovers`), drawn under the page's own club. */
   thisWeek?: WeekMovers | null;
+  /** The page's week from its games (`theWeekly`), drawn in the same card. */
+  weekly?: Weekly | null;
+  /** The page's own club's week just played (`teamWeek`). */
+  myWeek?: TeamWeek | null;
   /** The marked club's place week by week, oldest first, ending a week ago (`useRankingsWorker`). */
   rankHistory?: RankHistoryPoint[];
   /** How far a row has moved on this page since last week (`movementOf`). */
@@ -155,6 +160,8 @@ export function RankingsSection({
   onRemoveTeam,
   myTeam,
   thisWeek,
+  weekly = null,
+  myWeek = null,
   rankHistory,
   movementOf,
   standInNote,
@@ -167,6 +174,11 @@ export function RankingsSection({
   watch,
   onScoutNext,
 }: RankingsSectionProps) {
+  // The page's rows by club, for the names and places The Weekly names.
+  const rowOf = useMemo(() => {
+    const byId = new Map(rankings.map((row) => [row.teamId, row]));
+    return (teamId: string) => byId.get(teamId);
+  }, [rankings]);
   // Keyed on the filter, so choosing another state starts at the top again without an effect.
   const [rowLimit, setRowLimit] = useState({ key: stateFilter, count: ROWS_SHOWN_FIRST });
   const shownRows = rowLimit.key === stateFilter ? rowLimit.count : ROWS_SHOWN_FIRST;
@@ -270,7 +282,14 @@ export function RankingsSection({
               {...(onScoutNext ? { onScout: onScoutNext } : {})}
             />
           )}
-          {thisWeek && <ThisWeekCard movers={thisWeek} onOpenTeam={onOpenTeam} />}
+          <ThisWeekCard
+            movers={thisWeek ?? null}
+            weekly={weekly}
+            myWeek={myWeek}
+            {...(myTeam ? { myTeamId: myTeam.teamId } : {})}
+            rowOf={rowOf}
+            onOpenTeam={onOpenTeam}
+          />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className={`${card} p-5`}>
               <div className="flex flex-wrap items-baseline justify-between gap-2">

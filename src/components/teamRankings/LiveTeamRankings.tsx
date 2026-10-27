@@ -45,6 +45,7 @@ import { scoutAsked, scoutTaken } from "../../lib/scoutRequest";
 import { myTeamGlance } from "../../lib/myTeamGlance";
 import { movementOf } from "../../lib/rankMovement";
 import { weekMovers } from "../../lib/thisWeek";
+import { teamWeek } from "../../lib/theWeekly";
 import {
   buildUpcomingSchedule,
   rankingPoolGroupIds,
@@ -648,6 +649,14 @@ function LiveBoard({
     () => myTeamGlance(rows, myTeamId, (teamId) => stateById.get(teamId), myUpcoming, lastWeek),
     [rows, myTeamId, stateById, myUpcoming, lastWeek]
   );
+  // The page's own club's week just played, off the same card (`teamWeek`).
+  const myWeek = useMemo(
+    () =>
+      mineCard.card && myTeamId
+        ? teamWeek(myTeamId, poolGamesOfCard(mineCard.card, poolIds), rows, today)
+        : null,
+    [mineCard.card, myTeamId, rows, poolIds, today]
+  );
   /*
    * A club marked as the page's own, or the mark taken off it, sent as the device's page sends it
    * (`page.myTeam`), with the club as its card has it, so one League Standings made joins the
@@ -1050,6 +1059,8 @@ function LiveBoard({
             readOnly={edits.locked !== null}
             myTeam={myTeam}
             thisWeek={thisWeek}
+            weekly={board?.view.weekly ?? null}
+            myWeek={myWeek}
             myTeamNextPending={myTeamId !== undefined && !mineCard.card && !mineCard.failed}
             myTeamNextUnread={mineCard.failed}
             {...(rankHistory ? { rankHistory } : {})}

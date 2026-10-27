@@ -1,3 +1,4 @@
+import type { Weekly, WeeklyGame, WeeklyStreak, WeeklyUpset } from "../../theWeekly";
 import type { ScoutRankingRow, SeasonSegment } from "../../teamRankings";
 
 /**
@@ -171,6 +172,9 @@ export type BoardFit = {
  *   is, and left out by a build not asked for it (`past: false`).
  * - `history`: the page's own club's place week by week, oldest first and ending a week ago, as
  *   the page's rank line walks it (`useRankingsWorker`), for the club the page names as its own.
+ * - `weekly`: the page's week (`theWeekly`): the upsets of the week just played, the game of the
+ *   week ahead and the winning streaks still running, on a board with rows. One this build cannot
+ *   read is dropped and the board still reads, as an older build drops it unread.
  * - `fit`: what its rows' games were fitted against (`BoardFit`), left out of a board with no
  *   rows. It raised no `LIVE_SCHEMA`: a device of an older build rebuilds a board field by field
  *   (`coerceBoardView`) and so drops it unread, and a board without it draws exactly as before.
@@ -184,6 +188,7 @@ export type BoardView = {
   rows: BoardRow[];
   past?: { asOf: string; empty: boolean };
   history?: { teamId: string; points: HistoryPoint[] };
+  weekly?: Weekly;
   fit?: BoardFit;
 };
 
@@ -293,6 +298,69 @@ const historyOf = (raw: unknown): BoardView["history"] | null => {
 const isNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
 
+const isRuns = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
+const isDay = (value: unknown): value is string => typeof value === "string" && ISO_DAY.test(value);
+
+const isChance = (value: unknown): value is number => isNumber(value) && value > 0 && value < 1;
+
+const upsetOf = (raw: unknown): WeeklyUpset | null =>
+  isRecord(raw) &&
+  isId(raw.winnerId) &&
+  isId(raw.loserId) &&
+  isRuns(raw.winnerRuns) &&
+  isRuns(raw.loserRuns) &&
+  isDay(raw.date) &&
+  isChance(raw.chance)
+    ? {
+        winnerId: raw.winnerId,
+        loserId: raw.loserId,
+        winnerRuns: raw.winnerRuns,
+        loserRuns: raw.loserRuns,
+        date: raw.date,
+        chance: raw.chance,
+      }
+    : null;
+
+const aheadOf = (raw: unknown): WeeklyGame | null | undefined => {
+  if (raw === null) return null;
+  return isRecord(raw) &&
+    isId(raw.teamAId) &&
+    isId(raw.teamBId) &&
+    isDay(raw.date) &&
+    isChance(raw.chanceA) &&
+    isNumber(raw.margin)
+    ? {
+        teamAId: raw.teamAId,
+        teamBId: raw.teamBId,
+        date: raw.date,
+        chanceA: raw.chanceA,
+        margin: raw.margin,
+      }
+    : undefined;
+};
+
+/** A board's week as published, or undefined for one this build cannot read (`BoardView`). */
+const weeklyOf = (raw: unknown): Weekly | undefined => {
+  if (!isRecord(raw) || !isDay(raw.asOf)) return undefined;
+  if (!Array.isArray(raw.upsets) || !Array.isArray(raw.streaks)) return undefined;
+  const upsets: WeeklyUpset[] = [];
+  for (const one of raw.upsets as unknown[]) {
+    const upset = upsetOf(one);
+    if (!upset) return undefined;
+    upsets.push(upset);
+  }
+  const streaks: WeeklyStreak[] = [];
+  for (const one of raw.streaks as unknown[]) {
+    if (!isRecord(one) || !isId(one.teamId) || !isPlace(one.wins)) return undefined;
+    streaks.push({ teamId: one.teamId, wins: one.wins as number });
+  }
+  const ahead = aheadOf(raw.ahead);
+  if (ahead === undefined) return undefined;
+  return { asOf: raw.asOf, upsets, ahead, streaks };
+};
+
 const isPositive = (value: unknown): value is number => isNumber(value) && value > 0;
 
 const basisOf = (raw: unknown): BoardFit["recency"] | undefined => {
@@ -343,10 +411,12 @@ export const coerceBoardView = (raw: unknown): BoardView | null => {
   const history = raw.history === undefined ? undefined : historyOf(raw.history);
   if (past === null || history === null) return null;
   const fit = raw.fit === undefined ? null : coerceBoardFit(raw.fit);
+  const weekly = raw.weekly === undefined ? undefined : weeklyOf(raw.weekly);
   return {
     rows,
     ...(past ? { past } : {}),
     ...(history ? { history } : {}),
+    ...(weekly ? { weekly } : {}),
     ...(fit ? { fit } : {}),
   };
 };

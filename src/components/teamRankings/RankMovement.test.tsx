@@ -87,3 +87,17 @@ describe("the standing line", () => {
     expect(within(card).queryByRole("img", { name: /^Standing by week:/ })).toBeNull();
   });
 });
+
+/*
+ * The Weekly on a page kept on this device: worked out from the pool as a published board carries
+ * it (`theWeekly`, `teamWeek`), with the board's movers since last week.
+ */
+describe("The Weekly on this device", () => {
+  it("says our club's week just played, with its best win, and the board's climbs", async () => {
+    renderTeamRankings(pool("S-DOE"));
+    const week = await screen.findByRole("region", { name: /^The Weekly/ });
+    // Does beat Aces on the 19th and Bees on the 20th, the week before the 21st.
+    expect(week.textContent).toMatch(/Your week: Does went 2–0; best win over (Aces|Bees) \(#\d\)/);
+    expect(week.textContent).toContain("Biggest climbs: Does #4 → #1 (up 3)");
+  });
+});

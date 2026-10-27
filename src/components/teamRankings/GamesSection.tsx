@@ -3,6 +3,7 @@ import type { ScoutGame, ScoutRankingRow, ScoutTeam } from "../../lib/teamRankin
 import { isScoutGamePlayed } from "../../lib/teamRankings";
 import { formatIsoDayShort } from "../../lib/date";
 import { windowGames, type GamesWindow } from "../../lib/teamRankings/gamesWindow";
+import { isUpset, UPSET_CHANCE } from "../../lib/theWeekly";
 import type { ToastTone } from "../../hooks/useToast";
 import { ScheduleImportPanel, type NamedChecker } from "../ScheduleImportPanel";
 import type { NamedGame } from "../../lib/teamRankings/namedGames";
@@ -162,7 +163,20 @@ export function GamesSection({
         : loggedGames.filter((game) => game.teamAId === club || game.teamBId === club),
     [club, loggedGames]
   );
-  const listed = clubGames ?? (showingAll ? loggedGames : windowed.shown);
+  /*
+   * The page's upsets: results its ratings called the other way (`isUpset`), every one of them
+   * whatever its day, the chosen club's alone when one is chosen. Kept per page, as a club is.
+   */
+  const [upsetsFor, setUpsetsFor] = useState<string | null>(null);
+  const upsetsOnly = upsetsFor === ageGroupId && ratingRowOf !== undefined;
+  const upsetGames = useMemo(
+    () =>
+      upsetsOnly && ratingRowOf
+        ? (clubGames ?? loggedGames).filter((game) => isUpset(game, ratingRowOf))
+        : null,
+    [upsetsOnly, ratingRowOf, clubGames, loggedGames]
+  );
+  const listed = upsetGames ?? clubGames ?? (showingAll ? loggedGames : windowed.shown);
   // The game whose What if is open.
   const [whatIf, setWhatIf] = useState<string | null>(null);
   const day = formatIsoDayShort(gamesWindow.day);
@@ -182,7 +196,7 @@ export function GamesSection({
    * switch between the day and every game, starts at the top again by itself, and nothing has to
    * fire after render to make it so.
    */
-  const listKey = `${ageGroupId}|${club ?? (showingAll ? "all" : "window")}`;
+  const listKey = `${ageGroupId}|${club ?? (showingAll ? "all" : "window")}|${upsetsOnly ? "upsets" : ""}`;
   const [listLimit, setListLimit] = useState({ key: listKey, count: GAMES_SHOWN_FIRST });
   const shown = listLimit.key === listKey ? listLimit.count : GAMES_SHOWN_FIRST;
   const shownGames = listed.slice(0, shown);
@@ -339,31 +353,59 @@ export function GamesSection({
             )}
           </div>
         )}
-        {club === null && loggedGames.length > 0 && (showingAll || windowed.hidden > 0) && (
-          <div
-            className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400"
-            data-testid="games-window"
-          >
-            <span>
-              {showingAll
-                ? `All ${gamesCount(loggedGames.length)} on this page.`
-                : `${windowLine}. ${windowed.hidden.toLocaleString()} more ${
-                    windowed.hidden === 1 ? "is" : "are"
-                  } hidden${hiddenParts.length > 0 ? ` (${hiddenParts.join(", ")})` : ""}.`}
-            </span>
-            <button
-              type="button"
-              onClick={() => setAllFor(showingAll ? null : ageGroupId)}
-              className={button.ghost}
-            >
-              {showingAll
-                ? gamesWindow.basis === "today"
-                  ? "Show only today's games"
-                  : `Show only ${day}`
-                : `Show all ${gamesCount(loggedGames.length)}`}
-            </button>
+        {ratingRowOf && loggedGames.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+            {upsetGames ? (
+              <>
+                <span>
+                  {gamesCount(upsetGames.length)}
+                  {club === null ? "" : ` for ${teamNameById.get(club) ?? "?"}`}{" "}
+                  {upsetGames.length === 1 ? "was an upset" : "were upsets"}: the winner had less
+                  than a {Math.round(UPSET_CHANCE * 100)}% chance by the ratings shown.
+                </span>
+                <button type="button" onClick={() => setUpsetsFor(null)} className={button.ghost}>
+                  Every game
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setUpsetsFor(ageGroupId)}
+                className={button.ghost}
+              >
+                Upsets
+              </button>
+            )}
           </div>
         )}
+        {club === null &&
+          !upsetsOnly &&
+          loggedGames.length > 0 &&
+          (showingAll || windowed.hidden > 0) && (
+            <div
+              className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400"
+              data-testid="games-window"
+            >
+              <span>
+                {showingAll
+                  ? `All ${gamesCount(loggedGames.length)} on this page.`
+                  : `${windowLine}. ${windowed.hidden.toLocaleString()} more ${
+                      windowed.hidden === 1 ? "is" : "are"
+                    } hidden${hiddenParts.length > 0 ? ` (${hiddenParts.join(", ")})` : ""}.`}
+              </span>
+              <button
+                type="button"
+                onClick={() => setAllFor(showingAll ? null : ageGroupId)}
+                className={button.ghost}
+              >
+                {showingAll
+                  ? gamesWindow.basis === "today"
+                    ? "Show only today's games"
+                    : `Show only ${day}`
+                  : `Show all ${gamesCount(loggedGames.length)}`}
+              </button>
+            </div>
+          )}
         <ul className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
           {shownGames.map((game) => {
             const played = isScoutGamePlayed(game);
