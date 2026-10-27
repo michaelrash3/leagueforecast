@@ -1,3 +1,4 @@
+import { lopsidedDrops } from "../lopsidedDrops";
 import { describe, expect, it } from "vitest";
 import {
   AHEAD_FEWEST_PLAYED,
@@ -418,6 +419,26 @@ describe("sign H: its own schedule reports a game it won or lost by 40 or more",
       });
     }
     expect(sweep({ teams, games: [game("W", "L", 39, 0, { filer: "L" })] }).size).toBe(0);
+  });
+
+  it("adds H to a club marked under another sign before, so the deletion reaches it", () => {
+    // Codex on #469: marked for its wins while the line stood at 50, the club's own 45-0 loss is H
+    // at 40, and a mark that never took H was spared the deletion an unmarked club gets.
+    const before: AutoRemovals = new Map([
+      ["gcL", { gcTeamId: "gcL", name: "Club L", on: "2026-09-01", signs: ["wins"] }],
+    ]);
+    const lost = game("W", "L", 45, 0, { filer: "L" });
+    const marks = sweep({ teams, games: [lost] }, {}, before);
+    expect(marks.get("gcL")).toEqual({
+      gcTeamId: "gcL",
+      name: "Club L",
+      on: "2026-09-01",
+      signs: ["wins", "hundred"],
+      reported: [{ gameId: lost.id, margin: 45, date: "2026-09-20" }],
+    } satisfies AutoRemoval);
+    expect(lopsidedDrops(marks, teams, new Set())).toEqual(["L"]);
+    // And a mark that already carries H is left as it is.
+    expect(sweep({ teams, games: [lost] }, {}, marks)).toBe(marks);
   });
 
   it("takes a club A's guards would keep: real opponents' schedules listing its games", () => {

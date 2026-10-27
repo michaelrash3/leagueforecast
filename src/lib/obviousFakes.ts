@@ -581,7 +581,24 @@ export const sweepMarks = (
     if (shown.length === 0 && verdict.named.size === 0) return;
     const team = teams.get(clubId)!;
     (team.gcTeams ?? []).forEach((link) => {
-      if (next.has(link.teamId)) return;
+      const held = next.get(link.teamId);
+      if (held) {
+        /*
+         * A mark made under another sign takes H where the club's own schedule now reports a game
+         * by the line, with the games it reports: H is what deletes a club (`lopsidedDrops`), and a
+         * club marked for its wins while the line stood at 50 was otherwise spared the deletion
+         * an unmarked club with the same 45-0 gets (Codex on #469).
+         */
+        if (shown.includes("hundred") && !held.signs.includes("hundred")) {
+          next.set(link.teamId, {
+            ...held,
+            signs: AUTO_SIGNS.filter((sign) => sign === "hundred" || held.signs.includes(sign)),
+            ...(verdict.reported.length > 0 ? { reported: verdict.reported } : {}),
+          });
+          changed = true;
+        }
+        return;
+      }
       const named = verdict.named.get(link.teamId);
       const signs = AUTO_SIGNS.filter((sign) =>
         sign === "named" ? named !== undefined : shown.includes(sign)

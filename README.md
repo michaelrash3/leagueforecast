@@ -3077,7 +3077,9 @@ signs and nothing keeps it:
   deletes one (`lopsidedDrops`), the club, every game it is in and its mark, its GameChanger ids
   refused by later pulls. Never a club said to be real or one a League Standings team links (the
   tidy's own spared set), and none at all on a night League could not be read; such a club stays
-  marked, under **Removed for you**, for **Put back on the boards** or **Delete for good**.
+  marked, under **Removed for you**, for **Put back on the boards** or **Delete for good**. A club
+  marked under another sign before takes H as well when its own schedule reports such a game, so
+  the deletion reaches a club marked for its wins while the line stood higher.
   Swept from no marks at the first line, 100, the pool of 26
   September 2026 as today's tidy leaves it, before the user's own sweep of the 28th, had 24 games won by 100 or more
   (the widest 9,999), and H marks the 20 clubs whose own schedules scored one of them so, 6 of
