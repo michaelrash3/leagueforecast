@@ -794,7 +794,8 @@ describe("buildScoutingReport", () => {
     // largest piece, so that piece is kept whole like the Elks and Foxes island: every club starts
     // 1.6 runs below average, which moves no margin between two of them, and these are the digits
     // from before the starting levels. While the largest piece was left a club apiece, each of its
-    // four clubs started by its own game count, and every preview but Aces' moved.
+    // four clubs started by its own game count, and every preview but Aces' moved. The odds curve a
+    // tenth wider (27 October 2026) moved every chance toward even and no margin or tier.
     const teams = ["Aces", "Bears", "Cubs", "Dogs", "Elks", "Foxes"].map((name) =>
       team(name.charAt(0), name)
     );
@@ -817,13 +818,13 @@ describe("buildScoutingReport", () => {
         preview.unconnected,
       ])
     ).toEqual([
-      ["A", "-5.333333333333", "0.216676456744", "Underdog", false],
-      ["E", "-2.556341630501", "0.350694937421", "Underdog", true],
-      ["D", "-0.889343482595", "0.446629186830", "Toss-up", false],
-      ["C", "-0.289999688435", "0.482537244758", "Toss-up", false],
-      ["F", "-0.270627344787", "0.483702922810", "Toss-up", true],
-      ["E", "-2.556341630501", "0.350694937421", "Underdog", true],
-      ["D", "-0.889343482595", "0.446629186830", "Toss-up", false],
+      ["A", "-5.333333333333", "0.237160667551", "Underdog", false],
+      ["E", "-2.556341630501", "0.363550418229", "Underdog", true],
+      ["D", "-0.889343482595", "0.451448999298", "Toss-up", false],
+      ["C", "-0.289999688435", "0.484123647334", "Toss-up", false],
+      ["F", "-0.270627344787", "0.485183564459", "Toss-up", true],
+      ["E", "-2.556341630501", "0.363550418229", "Underdog", true],
+      ["D", "-0.889343482595", "0.451448999298", "Toss-up", false],
     ]);
   });
 
