@@ -9,7 +9,7 @@ import type { LeagueStore } from "../lib/live/leagueStore";
 import { startLeagueSync, type LeagueSync, type LiveLeagueState } from "../lib/live/leagueSync";
 import { noteLeagueMet } from "../lib/preferences";
 import type { SeasonStore } from "../lib/seasonStore";
-import type { SeasonSnapshot } from "../lib/storage";
+import { leagueReplacements, type SeasonSnapshot } from "../lib/storage";
 
 const OFF: LiveLeagueState = { kind: "off" };
 const CONNECTING: LiveLeagueState = { kind: "connecting" };
@@ -142,6 +142,7 @@ export function useLiveLeague({
             persist: (id, parts) => latest.current.persist(id, parts),
             adopt: (id, createdAt) => latest.current.adopt(id, createdAt),
             editing: () => isTyping(document.activeElement),
+            replaced: leagueReplacements,
             onState: (next) => {
               if (!cancelled) setState(next);
             },

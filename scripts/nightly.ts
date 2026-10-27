@@ -32,7 +32,9 @@
 import { appendFileSync } from "node:fs";
 import type { CloudStore } from "../src/lib/cloud/cloudEngine.ts";
 import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
+import { heldWord, radiusWords } from "../src/lib/cloud/blastRadius.ts";
 import { heardNothing, runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.ts";
+import { ingestWord, ingestWords } from "../src/lib/cloud/ingestCanary.ts";
 import { failureWords } from "../src/lib/cloud/firestoreRest.ts";
 import {
   nightlyEndsTurn,
@@ -233,6 +235,9 @@ const main = async (): Promise<void> => {
         // The import pulls again, and the tidy keeps, every club a League Standings team links,
         // read as the boards read League.
         leagueDocs: opened.leagueDocs,
+        // A save that would take too much of a year away is held for a person to look at
+        // (`blastRadius.ts`), as a dry run would have shown it.
+        cap: true,
       }
     );
   } finally {
@@ -265,6 +270,20 @@ const main = async (): Promise<void> => {
       `  GameChanger answered none of the ${result.asked} teams asked: the proxy, GameChanger or the network was down.`
     );
     process.exitCode = 1;
+  }
+  // Held: the alarm issue says what the save would have taken (`npm run alarm -- nightly`), and a
+  // night that saved, or had nothing to save, settles it.
+  if (result.held && result.held.length > 0) {
+    console.log("  The save was held, the copy left as it was. It would have taken too much:");
+    for (const year of result.held) console.log(`    ${radiusWords(year)}`);
+    output("held", heldWord(result.held));
+  } else if (result.manifest) {
+    output("held", heldWord([]));
+  }
+  // Whether the night's answers still read as schedules (`ingestCanary.ts`), said every night.
+  if (result.ingest) {
+    console.log(`  Read: ${ingestWords(result.ingest)}.`);
+    output("ingest", ingestWord(result.ingest));
   }
   // Built from the copy the store now holds, and only when it holds one (`CloudPullResult.manifest`).
   let published: CopyPublish | null = null;
@@ -330,7 +349,8 @@ const main = async (): Promise<void> => {
     result.end === "gave-up" ||
     result.end === "copy-kept-changing" ||
     result.end === "copy-replaced" ||
-    result.end === "no-copy"
+    result.end === "no-copy" ||
+    result.end === "held"
   ) {
     process.exitCode = 1;
   }

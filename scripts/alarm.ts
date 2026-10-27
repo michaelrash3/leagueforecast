@@ -44,6 +44,8 @@ const verdicts: Verdict[] | null =
         closedLevel: env.CLOSED_LEVEL ?? "",
         billing: env.BILLING ?? "",
         dispatch: env.DISPATCH ?? "",
+        held: env.HELD ?? "",
+        ingest: env.INGEST ?? "",
       })
     : which === "republish"
       ? republishVerdicts({ outcome: env.OUTCOME ?? "" })

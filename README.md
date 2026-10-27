@@ -6004,7 +6004,30 @@ Three more, the owner's of 26 October 2026:
   first nightly to find it good for longer, or with no end, closes it. With no
   such secret set the pulls start on Google's machines, and nothing is read.
 
-The last two are read by their own step before the alarm (`scripts/upkeep.ts`),
+And two on what a night saves, the owner's rule of the same day ("hold a save that would
+remove more than 5% of a year's games or 2% of its clubs, and open an alarm issue saying what it
+would have done"):
+
+- **The nightly held a save that would have taken too much** (`blastRadius.ts`): before it
+  saves, a live nightly weighs, year by year, the games and clubs of the copy as it read it that
+  the pool as filed no longer holds anywhere; one moved to another year is not taken away. Past
+  5% of a year's games or 2% of its clubs, and at least 50 games or 20 clubs, so a year of a few
+  dozen games is never held for a pair of folded rows, it saves nothing, ends red, and the issue
+  gives each year's numbers. The copy stays as it was, its views unpublished, for a person to
+  look at what GameChanger answered. The next night that saves, or has nothing to save, closes
+  it. A pull a person starts saves what it files: the cap is the unattended night's.
+- **The nightly's answers stopped reading as schedules** (`ingestCanary.ts`): of the games
+  GameChanger listed that night, fewer than half could be filed, out of 500 or more. A cancelled
+  game, or one with no date, is a few in a hundred; a change in how GameChanger writes a game
+  reads as nearly all of them. The pull check above catches the score fields moving on one known
+  schedule; this one, across every answer of the night, reads only what the run already has. The
+  next night that reads as usual closes it.
+
+Both are a live run's alone, handed over as words with numbers only (`held=none`, or `held` and
+`2027:60/1000:3/100` a year; `ingest=fine` or `drift` and read/listed), which the alarm reads back
+as numbers and writes again in its own words.
+
+The two before them are read by their own step before the alarm (`scripts/upkeep.ts`),
 whatever became of the refresh, which hands each as a word (`billing=on` or `off`,
 `dispatch=fine`, `refused` or `expires` and a day); it never fails the run, and it
 prints neither the key nor the token.
@@ -7762,6 +7785,19 @@ switch is gone, and `lf_live_league_v1` is no longer read.
   one; a season here that held nothing takes the cloud's in whole and from then on
   carries its creation time (`adoptSeasonCreatedAt`), so the next visit knows it
   for the same season.
+- **A restore while live** (`applyFullBackup`) writes this browser's storage and
+  nothing in the cloud. Storage counts each time its seasons are replaced whole
+  (`leagueReplacements`), and the season the live store was watching is then
+  stale: what it held of that season, sent or not, is what the restore replaced,
+  so it is neither written back to storage nor sent. Before, switching to the
+  restore's own open season wrote the old one back over its restored copy, and a
+  season the restore put under the open id that the cloud knew as another was
+  sent over the cloud's. The open season is met afresh, from storage and its
+  kept base: what the restore changed is sent as this device's change since the
+  version last heard, a season made at another moment is kept apart, and every
+  other season goes the same way once it is next open here. A season the cloud
+  holds that the file leaves out stays there and comes back, since a restore
+  deletes nothing in the cloud; the restore's question says so.
 - **Undo** puts back only what no other device has changed since the step
   (`guardedUndo`): undoing a deleted game here does not take back a score
   entered there since.
@@ -8676,6 +8712,19 @@ shared handlers with recorded provider responses and require no deployed credent
   once every team's odds are known to two points by the same Wilson interval
   shown beside them, with a ceiling of 4,000 seasons, and the ± on screen is
   computed from the seasons actually played.
+- Each simulated game draws its winner at the model's chance and its margin from
+  a normal curve around the predicted margin, held to the winner's side of level,
+  8.0 runs wide for kid pitch and 6.7 for machine and coach pitch (the odds
+  curve's spread read as a normal curve); a league that has had ties draws them
+  at its own share, read as though ten games without one came first
+  (`drawMargin`). Before, every game was booked at the predicted score, so an
+  upset was always won by a run and run differential split two teams level on
+  points the same way in every season. On made-up leagues forecast part way and
+  scored against how each really finished, the Gold odds' log loss came out lower
+  in six of nine settings, level in two, and higher in one, a small league far
+  apart in strength whose games varied much less than the pool's do; drawing each
+  team's strength once a season as well counted the ratings' uncertainty twice
+  and made the odds too shy, so it is not done.
 - Hooks debounce updates and cancel in-flight runs. A run is keyed on the counts,
   the seed (every final score), the settings and each team's opponent-adjusted
   rating as a value, so linking a club or a pull in Team Rankings re-simulates the

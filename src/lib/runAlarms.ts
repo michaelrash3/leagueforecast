@@ -15,7 +15,15 @@
  */
 
 export type AlarmKind =
-  "nightly" | "republish" | "rebuilds" | "closedLevel" | "verifyGc" | "billing" | "dispatchToken";
+  | "nightly"
+  | "republish"
+  | "rebuilds"
+  | "closedLevel"
+  | "verifyGc"
+  | "billing"
+  | "dispatchToken"
+  | "heldSave"
+  | "ingest";
 
 /** The title each alarm's issue is found again by, among the issues the workflows opened. */
 export const ALARM_TITLES: Record<AlarmKind, string> = {
@@ -26,6 +34,8 @@ export const ALARM_TITLES: Record<AlarmKind, string> = {
   verifyGc: "The GameChanger pull check failed",
   billing: "The project's billing is off",
   dispatchToken: "The pull dispatch token is running out",
+  heldSave: "The nightly held a save that would have taken too much",
+  ingest: "The nightly's answers stopped reading as schedules",
 };
 
 /**
@@ -81,6 +91,55 @@ const closedLevelVerdict = (word: string): Verdict | null => {
   };
 };
 
+/** One year a held save would have taken too much of, as the nightly hands it over (`heldWord`). */
+const HELD_YEAR = /^(\d{4}):(\d+)\/(\d+):(\d+)\/(\d+)$/;
+
+/**
+ * The nightly's word on its save (`heldWord`), as a verdict: `none`, a night that saved or had
+ * nothing to save, settles the alarm; `held` and each year's numbers raise it, the numbers written
+ * again in fixed words; anything else, a night that never reached its save, leaves it as it is.
+ */
+const heldVerdict = (word: string): Verdict | null => {
+  if (word === "none") return { kind: "heldSave", failing: false };
+  if (!word.startsWith("held ")) return null;
+  const years = word.slice("held ".length).split(",");
+  const read = years.map((year) => HELD_YEAR.exec(year));
+  if (read.length === 0 || read.some((year) => year === null)) return null;
+  const percent = (part: number, whole: number) =>
+    whole === 0 ? "0%" : `${((100 * part) / whole).toFixed(1)}%`;
+  const said = read
+    .map((year) => {
+      const [squad, games, gamesOf, clubs, clubsOf] = (year ?? []).slice(1).map(Number) as [
+        number,
+        number,
+        number,
+        number,
+        number,
+      ];
+      return `${games.toLocaleString("en-US")} of ${squad}'s ${gamesOf.toLocaleString("en-US")} games (${percent(games, gamesOf)}) and ${clubs.toLocaleString("en-US")} of its ${clubsOf.toLocaleString("en-US")} clubs (${percent(clubs, clubsOf)})`;
+    })
+    .join("; ");
+  return { kind: "heldSave", failing: true, said };
+};
+
+const INGEST = /^(fine|drift) (\d+)\/(\d+)$/;
+
+/**
+ * The nightly's word on what it could read of GameChanger's answers (`ingestWord`), as a verdict:
+ * `drift` raises the alarm with its numbers, `fine` settles it, anything else leaves it as it is.
+ */
+const ingestVerdict = (word: string): Verdict | null => {
+  const read = INGEST.exec(word);
+  if (!read) return null;
+  if (read[1] === "fine") return { kind: "ingest", failing: false };
+  const [filed, listed] = [Number(read[2]), Number(read[3])];
+  return {
+    kind: "ingest",
+    failing: true,
+    said: `${filed.toLocaleString("en-US")} of the ${listed.toLocaleString("en-US")} games GameChanger listed could be filed`,
+  };
+};
+
 /**
  * The alarms a nightly raises or settles: its own from how its refresh step ended, and the
  * rebuilds' from their ledger as it read it (`rebuilds`: `paused` or `failing` raise it, `none` or
@@ -98,12 +157,18 @@ export const nightlyVerdicts = ({
   closedLevel = "",
   billing = "",
   dispatch = "",
+  held = "",
+  ingest = "",
 }: {
   outcome: string;
   event: string;
   mode: string;
   rebuilds?: string;
   closedLevel?: string;
+  /** What became of the night's save (`heldWord`): a live run's only, as only it saves. */
+  held?: string;
+  /** What the night could read of GameChanger's answers (`ingestWord`), a live run's only. */
+  ingest?: string;
   /** The project's billing as the nightly read it (`billingWord`). */
   billing?: string;
   /** The pull dispatch token as the nightly read it (`dispatchWord`). */
@@ -121,6 +186,10 @@ export const nightlyVerdicts = ({
   else if (rebuilds === "off") verdicts.push({ kind: "rebuilds", failing: false, said: "off" });
   const level = live ? closedLevelVerdict(closedLevel) : null;
   if (level) verdicts.push(level);
+  const save = live ? heldVerdict(held) : null;
+  if (save) verdicts.push(save);
+  const reading = live ? ingestVerdict(ingest) : null;
+  if (reading) verdicts.push(reading);
   // Read whatever the run, dry or live: neither is the refresh's own work.
   if (billing === "off") verdicts.push({ kind: "billing", failing: true, said: "off" });
   else if (billing === "on") verdicts.push({ kind: "billing", failing: false });
@@ -287,6 +356,18 @@ const WORDS: Record<
     fine: () =>
       "The nightly found the pull dispatch token good for more than two weeks, or with no end",
     closes: "Each nightly that finds it so again comments here, and the first to find it good",
+  },
+  heldSave: {
+    failed: (said) =>
+      `the nightly held its save, the copy left as it was, because it would have removed ${said}, past the line of 5% of a year's games or 2% of its clubs (blastRadius.ts). The run's log says what it filed. Look at what GameChanger answered before the next night saves it`,
+    fine: () => "The nightly saved its night, taking no more than the line allows",
+    closes: "Each night held again comments here, and the next that saves",
+  },
+  ingest: {
+    failed: (said) =>
+      `the nightly found that only ${said}, under half: GameChanger may have changed how it writes a game (ingestCanary.ts)`,
+    fine: () => "The nightly could file at least half of the games GameChanger listed",
+    closes: "Each night that finds it so again comments here, and the next that reads as usual",
   },
   closedLevel: {
     failed: (said) => `the weekly re-measure found ${said}`,

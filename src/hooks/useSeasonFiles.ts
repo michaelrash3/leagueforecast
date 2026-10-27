@@ -2,10 +2,8 @@ import { useCallback, useRef } from "react";
 import { coerceBackup, type FullBackup, type LiveSeasonData } from "../lib/backup";
 import { displayName } from "../lib/format";
 import { isFinal } from "../lib/util";
-import { buildSeasonImportPreview, formatSeasonImportPreview } from "../lib/importPreview";
 import { summarizeCsvImportIssues } from "../lib/importReport";
 import { buildScheduleCsv, scheduleCsvFilename } from "../lib/scheduleCsvExport";
-import { parseScheduleCsvImport } from "../lib/scheduleCsvImport";
 import {
   parseTeamRankingsCsv,
   parseTeamRankingsJson,
@@ -60,6 +58,8 @@ export type SeasonFilesOptions = {
    * off they are this device's own pool's, which it edits and keeps in step.
    */
   rankingsLive: boolean;
+  /** League Standings is kept live in the cloud, which a full restore says before it asks. */
+  leagueLive?: boolean;
   teams: TeamBase[];
   matchups: Matchup[];
   logs: Record<string, GameLog>;
@@ -128,6 +128,7 @@ export function useSeasonFiles({
   activeSeasonId,
   cloudSquadYear,
   rankingsLive,
+  leagueLive = false,
   teams,
   matchups,
   logs,
@@ -229,6 +230,12 @@ export function useSeasonFiles({
         if (typeof raw !== "string") throw new Error("File is not text");
         // The pool is read below, and may be written: once it is read in (`poolFill.ts`).
         await poolFilled();
+        // The reader and the preview are fetched as a file is opened, not with the page: nobody
+        // imports on most visits, and the first download has a budget (`bundleBudget.mjs`).
+        const [
+          { parseScheduleCsvImport },
+          { buildSeasonImportPreview, formatSeasonImportPreview },
+        ] = await Promise.all([import("../lib/scheduleCsvImport"), import("../lib/importPreview")]);
 
         /*
          * A Team Rankings backup is JSON and carries the pool alone — no schedule, no season. Sent
@@ -417,6 +424,7 @@ This will replace the current season data and save an undo snapshot.`,
     liveSeason,
     seasonCount,
     rankingsLive,
+    leagueLive,
     requestConfirmation,
     showToast,
     onRestored: afterFullRestore,
@@ -430,6 +438,9 @@ This will replace the current season data and save an undo snapshot.`,
     const backupTeamNameById = new Map(
       season.teams.map((team) => [team.id, displayName(team.name)])
     );
+    // Fetched as the file is opened, as the CSV reader is (`importCSV`).
+    const { buildSeasonImportPreview, formatSeasonImportPreview } =
+      await import("../lib/importPreview");
     const preview = buildSeasonImportPreview(
       season.teams,
       season.matchups,
