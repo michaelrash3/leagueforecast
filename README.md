@@ -1448,8 +1448,12 @@ has pulled: every team on GameChanger has been (the owner, 27 October 2026), so 
 club under a name its opponent's coach wrote, which only the game can tie to it. The model sweep's
 `--stand-in-halves` mode asks where the other half of each such game is (`src/lib/standInHalves.ts`):
 another pulled club's own row a day either side with the result mirrored, filed against the namer,
-against a stand-in or slot of its own, or against a third club, or nowhere, beside the same search
-a week either side for the rate it finds one by chance.
+against a stand-in or slot of its own, or against a third club. Across the whole year that is
+there by chance for nine rows in ten, so the candidates are narrowed a step at a time, the wide
+net first (the owner's way): the namer's region, levels within two (a club plays up in the fall
+and files the game at its own level), the same day, starts within the hour, the same level. A row
+stops at the first step that leaves it one, and the weeks either side go through the same steps
+for the rate each settles on one by chance.
 
 **Not this team.** The matcher will still be wrong sometimes, and the club's panel is where that
 shows. Beside each game a club has only because a name on another club's schedule was matched to

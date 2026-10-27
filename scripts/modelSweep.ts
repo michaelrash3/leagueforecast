@@ -19,9 +19,10 @@
  * With --stand-in-halves it measures where the other half of each played game against a stand-in is,
  * if anywhere (`src/lib/standInHalves.ts`): another pulled club's own row a day either side with the
  * result mirrored, filed against the namer, against a stand-in or slot, or against a third club,
- * within each of several reaches (`HALF_REACHES`: the page, the region, the day, the start), and
- * the same search a week either side for the rate each finds one by chance; for every stand-in and
- * for those with nothing of their name pulled (`standInReport`'s "unmatched").
+ * narrowed a step at a time until one is left (`HALF_FUNNEL`: the region, the levels, the day, the
+ * start, the level), and the same a week either side for the rate each step settles on one by
+ * chance; for every stand-in and for those with nothing of their name pulled (`standInReport`'s
+ * "unmatched").
  *
  * Options: --year=2027 (the squad year), --today=DAY (the board's day; the members' day by
  * default), --top=25 (the stand-ins named, most games first), --public (numbers only),
@@ -80,12 +81,13 @@ import {
 import type { PairedReading } from "../src/lib/scoutBacktest.ts";
 import { standInReport, type StandInReport, type StandInWhy } from "../src/lib/standInReport.ts";
 import {
+  findHalves,
+  funnelEnd,
+  HALF_FUNNEL,
   HALF_KINDS,
-  HALF_REACHES,
-  halfSearcher,
-  tallyHalves,
+  tallyFunnel,
+  type FunnelTally,
   type HalfKind,
-  type HalfTally,
   type StandInRow,
 } from "../src/lib/standInHalves.ts";
 import {
@@ -115,6 +117,7 @@ import {
   type ScoutGame,
   type ScoutTeam,
 } from "../src/lib/teamRankings.ts";
+import { ageGroupLevel } from "../src/lib/teamRankings/seasons.ts";
 import { openStores } from "./cloudPool.ts";
 import { poolFixture } from "./poolFixture.ts";
 import { readSweepFile, sweepTidy } from "./sweepTidy.ts";
@@ -575,34 +578,37 @@ const KIND_WORDS: Record<HalfKind, string> = {
   other: "against a third club",
 };
 
-const describeHalves = (label: string, tally: HalfTally) => {
+const describeFunnel = (label: string, tally: FunnelTally) => {
   const of = (part: number) => share(part, tally.rows);
-  say(`    ${label}: ${tally.rows} played rows against a stand-in`);
+  say(`\n  ${label}: ${tally.rows} played rows against a stand-in`);
   say(
-    `      none ${tally.none} (${of(tally.none)}); one ${tally.unique} (${of(tally.unique)}),` +
-      ` a week either side by chance ${tally.decoyUnique.toFixed(1)} (${of(tally.decoyUnique)});` +
-      ` two or more ${tally.several} (${of(tally.several)}); any by chance ${of(tally.decoyAny)}`
+    "    settled on one candidate at each step (a week either side, by chance, a week on average):"
   );
-  for (const kind of HALF_KINDS) {
-    const k = tally.kinds[kind];
+  let settled = 0;
+  let chance = 0;
+  HALF_FUNNEL.forEach((step, at) => {
+    settled += tally.settled[at]!;
+    chance += tally.decoySettled[at]!;
     say(
-      `      ${KIND_WORDS[kind]}: any ${k.rows} (chance ${k.decoyRows.toFixed(1)}); the one ${k.only}:` +
-        ` same day ${k.sameDay}, same start ${k.sameStart}, within the hour ${k.withinHour},` +
-        ` no start ${k.noStart}; region ${k.inRegion}, page ${k.samePage};` +
-        ` names fit ${k.namesFit}, share a word ${k.shareWord}`
+      `      ${step.key}: ${tally.settled[at]} (by chance ${tally.decoySettled[at]!.toFixed(1)});` +
+        ` so far ${settled} (${of(settled)}), by chance ${chance.toFixed(1)} (${of(chance)})`
     );
-  }
+  });
   say(
-    `      stand-ins whose two rows or more each have one candidate: the same club ${tally.agreeing}` +
-      ` (${tally.agreeingRows} rows), two clubs or more ${tally.split}`
+    `    emptied by a step before one was left: ${tally.emptied} (${of(tally.emptied)}; by chance` +
+      ` ${tally.decoyEmptied.toFixed(1)}); several still after the last: ${tally.several}` +
+      ` (${of(tally.several)}; by chance ${tally.decoySeveral.toFixed(1)})`
+  );
+  say(
+    `    the ${settled} settled: ` +
+      HALF_KINDS.map((kind) => `${KIND_WORDS[kind]} ${tally.kinds[kind]}`).join(", ") +
+      `; the same page ${tally.samePage}; names fit ${tally.namesFit}, share a word ${tally.shareWord}`
+  );
+  say(
+    `    stand-ins with two rows or more settled: on one club ${tally.agreeing}` +
+      ` (${tally.agreeingRows} rows), on two or more ${tally.split}`
   );
 };
-
-/** The narrower reaches whose single answers are sampled, by name, sealed. */
-const SAMPLED_REACHES = new Set([
-  "page and region, starts within the hour",
-  "page and region, the same day",
-]);
 
 const measureStandInHalves = (source: Source, year: number) => {
   say(`\n${"=".repeat(78)}\nThe other half of each game against a stand-in\n${"=".repeat(78)}`);
@@ -631,49 +637,55 @@ const measureStandInHalves = (source: Source, year: number) => {
     `  Clubs known only by name: ${report.nameOnly}; with nothing of the name pulled ("unmatched"):` +
       ` ${report.why.unmatched.clubs}, holding ${report.why.unmatched.games} games.`
   );
+  const levels = new Map(source.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
+  const search = findHalves(known.teams, games, (id) => levels.get(id));
+  say(
+    `  Played rows against a stand-in: ${search.rows.length}; not read (no result, set not to` +
+      ` count): ${search.unplayed}. Searched in ${since()}.`
+  );
   const unmatched = (row: StandInRow) => whyOf.get(row.standInId) === "unmatched";
-  const search = halfSearcher(known.teams, games);
+  describeFunnel("Every stand-in", tallyFunnel(search, known.teams));
+  describeFunnel(
+    'Stand-ins with nothing of their name pulled ("unmatched")',
+    tallyFunnel(search, known.teams, HALF_FUNNEL, unmatched)
+  );
+  describeFunnel(
+    "Stand-ins with a pulled club of the name somewhere",
+    tallyFunnel(search, known.teams, HALF_FUNNEL, (row) => !unmatched(row))
+  );
+
+  // A sample of the unmatched rows settled, to read by eye: names, sealed. Evenly through the
+  // list, not its first few, which one namer's schedule would fill.
   const byId = new Map(known.teams.map((team) => [team.id, team]));
   const nameOf = (id: string) => {
     const team = byId.get(id);
     return team ? `${team.name}${team.state ? ` (${team.state})` : ""}` : id;
   };
-  const sample = Number(flag("top") || 12);
-  for (const reach of HALF_REACHES) {
-    const found = search(reach);
-    say(`\n  Reach: ${reach.key} (${found.unplayed} rows with no result not read; ${since()})`);
-    describeHalves("every stand-in", tallyHalves(found, known.teams));
-    describeHalves(
-      'nothing of the name pulled ("unmatched")',
-      tallyHalves(found, known.teams, unmatched)
-    );
-    describeHalves(
-      "a pulled club of the name somewhere",
-      tallyHalves(found, known.teams, (row) => !unmatched(row))
-    );
-    if (!SAMPLED_REACHES.has(reach.key)) continue;
-    // A sample of the unmatched rows each answered by one candidate, to read by eye: names, sealed.
-    // Evenly through the list, not its first few, which one namer's schedule would fill.
-    const picked = found.rows.filter((row) => unmatched(row) && row.candidates.length === 1);
-    const step = Math.max(1, Math.floor(picked.length / sample));
-    sayNamed(
-      picked
-        .filter((_, at) => at % step === 0)
-        .slice(0, sample)
-        .map((row) => {
-          const only = row.candidates[0]!;
-          const runs = `${row.game.teamAScore}-${row.game.teamBScore}`;
-          const gap =
-            only.minutesApart === undefined ? "no start" : `${Math.round(only.minutesApart)} min`;
-          return (
-            `    ${row.game.date} ${nameOf(row.namerId)} v "${nameOf(row.standInId)}" ${runs}` +
-            ` -> ${nameOf(only.clubId)} v ${nameOf(only.opponentId)}; ${KIND_WORDS[only.kind]};` +
-            ` ${only.daysApart} day(s), ${gap}`
-          );
-        }),
-      `Unmatched stand-ins answered by one row, ${reach.key}:`
-    );
-  }
+  const settled = search.rows.flatMap((row) => {
+    const end = funnelEnd(row.found);
+    return unmatched(row) && "settled" in end ? [{ row, end }] : [];
+  });
+  const sample = Number(flag("top") || 16);
+  const step = Math.max(1, Math.floor(settled.length / sample));
+  sayNamed(
+    settled
+      .filter((_, at) => at % step === 0)
+      .slice(0, sample)
+      .map(({ row, end }) => {
+        const runs = `${row.game.teamAScore}-${row.game.teamBScore}`;
+        const gap =
+          end.one.minutesApart === undefined
+            ? "no start"
+            : `${Math.round(end.one.minutesApart)} min`;
+        return (
+          `    ${row.game.date} ${nameOf(row.namerId)} v "${nameOf(row.standInId)}" ${runs}` +
+          ` -> ${nameOf(end.one.clubId)} v ${nameOf(end.one.opponentId)}; at` +
+          ` "${HALF_FUNNEL[end.settled]!.key}"; ${end.one.daysApart} day(s), ${gap},` +
+          ` ${end.one.levelGap ?? "?"} level(s) apart`
+        );
+      }),
+    "Unmatched stand-ins the funnel settled on one club:"
+  );
 };
 
 /* -------------------------------------------------------------------------------------- run */

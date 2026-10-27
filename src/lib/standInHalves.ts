@@ -14,58 +14,24 @@ import { isScoutGamePlayed, type ScoutGame, type ScoutTeam } from "./teamRanking
  * refile, by a namesake in the namer's state (`refileStandIns`). What is left is what none of them
  * could prove. Every team on GameChanger has been pulled (the owner, 27 October 2026), so a
  * stand-in is a pulled club under a name its opponent's coach wrote; the question is whether that
- * club's own schedule holds the game at all, and if it does, what kept the steps from pairing it.
+ * club's own schedule holds the game at all, and if it does, what would find it.
  *
- * So for each played row against a stand-in, another pulled club's own row near it with the result
- * mirrored is a candidate for its other half, by what that row is filed against:
+ * Every other pulled club's own row a day either side with the result mirrored is a candidate for
+ * the game's other half, by what that row is filed against:
  * - `namer`: the namer itself, the claim step's case;
  * - `standIn`: a stand-in or a bracket slot of its own, the crossed halves' case;
  * - `other`: a third pulled club whose own schedules do not list it, a row filed by name onto the
  *   wrong club. A game both clubs' schedules list is theirs and is not offered.
- * How near is a reach (`HalfReach`): the days either side, the row's own page or any of the year's,
- * the two clubs in one region or anywhere, the starts within so many minutes or not compared. The
- * same search a week either side, where the game is not, gives the rate each reach finds one by
- * chance. Searched across the whole year, a day either side, a mirrored result is there by chance
- * for nine rows in ten (the cloud copy of 27 October 2026), so only a narrower reach can say
- * anything, and the run reads several.
+ * Across the whole year that net is wide — on the cloud copy of 27 October 2026 a mirrored result
+ * was there a week off, where the game is not, for nine rows in ten — so the candidates are then
+ * narrowed a step at a time (`HALF_FUNNEL`, the owner's way: the wide net first, then narrower),
+ * and a row stops at the first step that leaves it one. A step can then never take a row's only
+ * candidate from it. The weeks either side go through the same funnel, which gives the rate each
+ * step settles on one candidate by chance.
  */
 
 export type HalfKind = "namer" | "standIn" | "other";
 export const HALF_KINDS: readonly HalfKind[] = ["namer", "standIn", "other"];
-
-/** How near another club's row has to be to a row against a stand-in to be its other half. */
-export type HalfReach = {
-  key: string;
-  /** Days either side of the row's date. */
-  days: number;
-  /** Filed on the row's own page (one age level of one year), not just any page of the year. */
-  samePage: boolean;
-  /** The namer and the club in one state or two that share a border (`inOneRegion`). */
-  inRegion: boolean;
-  /** Starts no more than this many minutes apart, both given; undefined compares no start. */
-  withinMinutes?: number;
-};
-
-/** The reaches a run reads, the widest first: the first run's, then narrower. */
-export const HALF_REACHES: readonly HalfReach[] = [
-  { key: "the year, a day either side", days: 1, samePage: false, inRegion: false },
-  { key: "page and region, a day either side", days: 1, samePage: true, inRegion: true },
-  { key: "page and region, the same day", days: 0, samePage: true, inRegion: true },
-  {
-    key: "page and region, starts within the hour",
-    days: 1,
-    samePage: true,
-    inRegion: true,
-    withinMinutes: 60,
-  },
-  {
-    key: "region, any page, starts within the hour",
-    days: 1,
-    samePage: false,
-    inRegion: true,
-    withinMinutes: 60,
-  },
-];
 
 /** Another pulled club's own row that could be the other half of a row against a stand-in. */
 export type HalfCandidate = {
@@ -75,26 +41,55 @@ export type HalfCandidate = {
   /** Who that row is filed against. */
   opponentId: string;
   kind: HalfKind;
-  /** Days between the two rows' dates, either way. */
+  /** Days between the two rows' dates, either way, a decoy week's own shift taken off. */
   daysApart: number;
-  /** Minutes between their starts, a decoy week's own shift taken off; undefined where either has none. */
+  /** Minutes between their starts, the same; undefined where either has none. */
   minutesApart?: number;
+  /** The namer and the club in one state or two that share a border (`inOneRegion`). */
+  inRegion: boolean;
+  /** Levels between the two rows' pages; undefined where either page has none. */
+  levelGap?: number;
 };
 
-/** What the weeks either side found for a row: how many found any, and exactly one, and of which kind. */
-export type HalfDecoys = { any: number; unique: number; kinds: Record<HalfKind, number> };
+/** One step of the funnel: what a candidate must also be to stay. */
+export type HalfStep = { key: string; keeps: (candidate: HalfCandidate) => boolean };
 
-/** A played row against a stand-in and its candidates within a reach. */
+/**
+ * The funnel, the widest step first and each narrowing the one before. Levels rather than the row's
+ * own page, since in the fall a club often plays up and files the game under its own level, not the
+ * namer's (the owner, 27 October 2026); within two, as the import reads a squad playing up
+ * (`PLAYS_UP_TO`: 99.845% of the pool's games had their two sides within two). The same level comes
+ * last, to settle what the clock could not. A page with no level is no disagreement; a row with no
+ * start fails the step that compares starts.
+ */
+export const HALF_FUNNEL: readonly HalfStep[] = [
+  { key: "the year, a day either side", keeps: () => true },
+  { key: "the namer's region", keeps: (one) => one.inRegion },
+  { key: "levels within two", keeps: (one) => one.levelGap === undefined || one.levelGap <= 2 },
+  { key: "the same day", keeps: (one) => one.daysApart === 0 },
+  {
+    key: "starts within the hour",
+    keeps: (one) => one.minutesApart !== undefined && one.minutesApart <= 60,
+  },
+  { key: "the same level", keeps: (one) => one.levelGap === undefined || one.levelGap === 0 },
+];
+
+/**
+ * A row's candidates through the funnel, without keeping them all: how many are left at each step,
+ * and one that goes furthest, which is the row's one candidate wherever a step leaves exactly one.
+ */
+export type Funnelled = { left: number[]; furthest?: HalfCandidate };
+
+/** A played row against a stand-in, its candidates through the funnel, and each decoy week's. */
 export type StandInRow = {
   game: ScoutGame;
   namerId: string;
   standInId: string;
-  candidates: HalfCandidate[];
-  decoys: HalfDecoys;
+  found: Funnelled;
+  decoys: Funnelled[];
 };
 
 export type HalfSearch = {
-  reach: HalfReach;
   rows: StandInRow[];
   /** Rows against a stand-in not read: no result yet, or set not to count. */
   unplayed: number;
@@ -122,18 +117,59 @@ const isPulled = (team: ScoutTeam | undefined): boolean => Boolean(team?.gcTeams
 const counts = (game: ScoutGame) =>
   !game.excluded && !game.withdrawn && game.date !== undefined && isScoutGamePlayed(game);
 
+/** How many steps of the funnel a candidate stays through, the first included. */
+export const depthOf = (candidate: HalfCandidate, steps: readonly HalfStep[]): number => {
+  let depth = 0;
+  while (depth < steps.length && steps[depth]!.keeps(candidate)) depth += 1;
+  return depth;
+};
+
+/** Candidates through the funnel, counted as they come. */
+export const funnel = (
+  candidates: Iterable<HalfCandidate>,
+  steps: readonly HalfStep[]
+): Funnelled => {
+  const left = steps.map(() => 0);
+  let furthest: HalfCandidate | undefined;
+  let deepest = 0;
+  for (const candidate of candidates) {
+    const depth = depthOf(candidate, steps);
+    for (let step = 0; step < depth; step += 1) left[step]! += 1;
+    if (depth > deepest) {
+      deepest = depth;
+      furthest = candidate;
+    }
+  }
+  return furthest ? { left, furthest } : { left };
+};
+
+/** Where a row came out: settled on one candidate at a step, emptied at a step, or several still. */
+export type FunnelEnd =
+  { settled: number; one: HalfCandidate } | { emptied: number } | { several: true };
+export const funnelEnd = ({ left, furthest }: Funnelled): FunnelEnd => {
+  for (let step = 0; step < left.length; step += 1) {
+    if (left[step] === 1) return { settled: step, one: furthest! };
+    if (left[step] === 0) return { emptied: step };
+  }
+  return { several: true };
+};
+
 /** One pulled club's own row of a game, keyed by its day and its result from that club's seat. */
 type OwnRow = { game: ScoutGame; clubId: string; opponentId: string; settled: boolean };
 type RowAgainst = { game: ScoutGame; namerId: string; standInId: string };
 
 /**
- * The pool indexed once, and a search of it for any reach: every pulled club's own played rows by
- * day and result, and every played row a pulled club's own schedule gave against a stand-in.
+ * Every played row a pulled club's own schedule gave against a stand-in, its candidates through the
+ * funnel, and the same a week either side.
  */
-export const halfSearcher = (
+export const findHalves = (
   teams: readonly ScoutTeam[],
-  games: readonly ScoutGame[]
-): ((reach: HalfReach, decoyWeeks?: readonly number[]) => HalfSearch) => {
+  games: readonly ScoutGame[],
+  /** The level a page is at (`ageGroupLevel`), undefined where it has none. */
+  levelOf: (ageGroupId: string) => number | undefined,
+  steps: readonly HalfStep[] = HALF_FUNNEL,
+  decoyWeeks: readonly number[] = DECOY_WEEKS
+): HalfSearch => {
   const byId = new Map(teams.map((team) => [team.id, team]));
   const clubOfSchedule = new Map<string, string>();
   teams.forEach((team) =>
@@ -179,25 +215,16 @@ export const halfSearcher = (
     }
   }
 
-  /** The rows within `reach` of `row`, its date moved by `week`, whose result mirrors the row's. */
-  const search = (row: RowAgainst, reach: HalfReach, week: number): HalfCandidate[] => {
+  /** The rows a day either side of the row's date, moved by `week`, whose result mirrors it. */
+  function* search(row: RowAgainst, week: number): Generator<HalfCandidate> {
     const seen = scoreSeenBy(row.game, row.namerId)!;
     const namerState = byId.get(row.namerId)?.state;
+    const level = levelOf(row.game.ageGroupId);
     const start = Date.parse(row.game.startTs ?? "");
-    const found: HalfCandidate[] = [];
-    for (let off = -reach.days; off <= reach.days; off += 1) {
+    for (let off = -1; off <= 1; off += 1) {
       const day = shiftDay(row.game.date!, week + off);
       for (const other of own.get(`${day}|${seen.opponent}|${seen.own}`) ?? []) {
         if (other.clubId === row.namerId) continue;
-        if (reach.samePage && other.game.ageGroupId !== row.game.ageGroupId) continue;
-        if (reach.inRegion && !inOneRegion(namerState, byId.get(other.clubId)?.state)) continue;
-        const otherStart = Date.parse(other.game.startTs ?? "");
-        const gap =
-          Number.isFinite(start) && Number.isFinite(otherStart)
-            ? Math.abs(otherStart - start - week * DAY_MS) / MINUTE_MS
-            : undefined;
-        if (reach.withinMinutes !== undefined && (gap === undefined || gap > reach.withinMinutes))
-          continue;
         const kind: HalfKind | undefined =
           other.opponentId === row.namerId
             ? "namer"
@@ -207,170 +234,130 @@ export const halfSearcher = (
                 ? "other"
                 : undefined;
         if (!kind) continue;
-        found.push({
+        const otherStart = Date.parse(other.game.startTs ?? "");
+        const otherLevel = levelOf(other.game.ageGroupId);
+        const gap =
+          Number.isFinite(start) && Number.isFinite(otherStart)
+            ? Math.abs(otherStart - start - week * DAY_MS) / MINUTE_MS
+            : undefined;
+        yield {
           game: other.game,
           clubId: other.clubId,
           opponentId: other.opponentId,
           kind,
           daysApart: Math.abs(off),
           ...(gap === undefined ? {} : { minutesApart: gap }),
-        });
+          inRegion: inOneRegion(namerState, byId.get(other.clubId)?.state),
+          ...(level === undefined || otherLevel === undefined
+            ? {}
+            : { levelGap: Math.abs(level - otherLevel) }),
+        };
       }
     }
-    return found;
-  };
+  }
 
-  return (reach, decoyWeeks = DECOY_WEEKS) => ({
-    reach,
+  return {
     unplayed,
     decoyWeeks,
-    rows: against.map((row): StandInRow => {
-      const decoys: HalfDecoys = { any: 0, unique: 0, kinds: { namer: 0, standIn: 0, other: 0 } };
-      for (const week of decoyWeeks) {
-        const found = search(row, reach, week);
-        if (found.length > 0) decoys.any += 1;
-        if (found.length === 1) decoys.unique += 1;
-        new Set(found.map((candidate) => candidate.kind)).forEach(
-          (kind) => (decoys.kinds[kind] += 1)
-        );
-      }
-      return { ...row, candidates: search(row, reach, 0), decoys };
-    }),
-  });
+    rows: against.map((row) => ({
+      ...row,
+      found: funnel(search(row, 0), steps),
+      decoys: decoyWeeks.map((week) => funnel(search(row, week), steps)),
+    })),
+  };
 };
 
-/** One reach searched, as `halfSearcher` searches it. */
-export const findHalves = (
-  teams: readonly ScoutTeam[],
-  games: readonly ScoutGame[],
-  reach: HalfReach = HALF_REACHES[0]!,
-  decoyWeeks: readonly number[] = DECOY_WEEKS
-): HalfSearch => halfSearcher(teams, games)(reach, decoyWeeks);
-
-/** What the rows of one kind of candidate say, of the rows whose one candidate is of it. */
-export type KindTally = {
-  /** Rows with one or more candidates of this kind. */
+/** Where the rows came out of the funnel, beside where the weeks either side did. */
+export type FunnelTally = {
   rows: number;
-  /** The rows a week either side found one of this kind, a week on average: the chance rate. */
-  decoyRows: number;
-  /** Rows whose only candidate is of this kind, and of those: */
-  only: number;
-  sameDay: number;
-  /** Starts within a minute, within the hour (the minute included), and either with none. */
-  sameStart: number;
-  withinHour: number;
-  noStart: number;
-  /** The two clubs in one state or two that share a border (`inOneRegion`). */
-  inRegion: number;
-  /** Filed on the same page as the row against the stand-in. */
-  samePage: number;
+  /** Rows settled on one candidate at each step; the weeks either side the same, a week on average. */
+  settled: number[];
+  decoySettled: number[];
+  /** Rows a step emptied before any left one, and rows several still had after the last. */
+  emptied: number;
+  several: number;
+  decoyEmptied: number;
+  decoySeveral: number;
+  /** Of the rows settled: the kind of row each settled on. */
+  kinds: Record<HalfKind, number>;
   /** The stand-in's name fits the club's (`nameFitter`), or shares a word with it at least. */
   namesFit: number;
   shareWord: number;
-};
-
-export type HalfTally = {
-  rows: number;
-  /** Rows with no candidate at all within the reach. */
-  none: number;
-  /** Rows with exactly one candidate, and with two or more, which nothing here chooses between. */
-  unique: number;
-  several: number;
-  /** The same a week either side, a week on average: rows with any, and with exactly one. */
-  decoyAny: number;
-  decoyUnique: number;
-  kinds: Record<HalfKind, KindTally>;
+  /** Filed on the same page as the row against the stand-in. */
+  samePage: number;
   /**
-   * Stand-ins with two rows or more each answered by one candidate: all the same club, or not; and
-   * the rows of the agreeing ones, which a rule of two games agreeing would file.
+   * Stand-ins with two rows or more settled: all on the same club, or not; and the rows of the
+   * agreeing ones, which a rule of two games agreeing would file.
    */
   agreeing: number;
   split: number;
   agreeingRows: number;
 };
 
-const emptyKind = (): KindTally => ({
-  rows: 0,
-  decoyRows: 0,
-  only: 0,
-  sameDay: 0,
-  sameStart: 0,
-  withinHour: 0,
-  noStart: 0,
-  inRegion: 0,
-  samePage: 0,
-  namesFit: 0,
-  shareWord: 0,
-});
-
-export const tallyHalves = (
+export const tallyFunnel = (
   search: HalfSearch,
   teams: readonly ScoutTeam[],
+  steps: readonly HalfStep[] = HALF_FUNNEL,
   keep: (row: StandInRow) => boolean = () => true
-): HalfTally => {
+): FunnelTally => {
   const byId = new Map(teams.map((team) => [team.id, team]));
   const fits = nameFitter();
-  const kinds: Record<HalfKind, KindTally> = {
-    namer: emptyKind(),
-    standIn: emptyKind(),
-    other: emptyKind(),
-  };
   const weeks = Math.max(1, search.decoyWeeks.length);
-  const answeredBy = new Map<string, Set<string>>();
-  const answered = new Map<string, number>();
-  const tally = {
+  const tally: FunnelTally = {
     rows: 0,
-    none: 0,
-    unique: 0,
+    settled: steps.map(() => 0),
+    decoySettled: steps.map(() => 0),
+    emptied: 0,
     several: 0,
-    decoyAny: 0,
-    decoyUnique: 0,
+    decoyEmptied: 0,
+    decoySeveral: 0,
+    kinds: { namer: 0, standIn: 0, other: 0 },
+    namesFit: 0,
+    shareWord: 0,
+    samePage: 0,
+    agreeing: 0,
+    split: 0,
+    agreeingRows: 0,
   };
+  const settledOn = new Map<string, string[]>();
   for (const row of search.rows) {
     if (!keep(row)) continue;
     tally.rows += 1;
-    tally.decoyAny += row.decoys.any / weeks;
-    tally.decoyUnique += row.decoys.unique / weeks;
-    HALF_KINDS.forEach((kind) => {
-      if (row.candidates.some((candidate) => candidate.kind === kind)) kinds[kind].rows += 1;
-      kinds[kind].decoyRows += row.decoys.kinds[kind] / weeks;
-    });
-    if (row.candidates.length === 0) tally.none += 1;
-    if (row.candidates.length > 1) tally.several += 1;
-    const only = row.candidates.length === 1 ? row.candidates[0]! : undefined;
-    if (!only) continue;
-    tally.unique += 1;
-    const kind = kinds[only.kind];
-    kind.only += 1;
-    if (only.daysApart === 0) kind.sameDay += 1;
-    if (only.minutesApart === undefined) kind.noStart += 1;
-    else {
-      if (only.minutesApart < 1) kind.sameStart += 1;
-      if (only.minutesApart <= 60) kind.withinHour += 1;
+    for (const decoy of row.decoys) {
+      const end = funnelEnd(decoy);
+      if ("settled" in end) tally.decoySettled[end.settled]! += 1 / weeks;
+      else if ("emptied" in end) tally.decoyEmptied += 1 / weeks;
+      else tally.decoySeveral += 1 / weeks;
     }
+    const end = funnelEnd(row.found);
+    if ("emptied" in end) {
+      tally.emptied += 1;
+      continue;
+    }
+    if ("several" in end) {
+      tally.several += 1;
+      continue;
+    }
+    tally.settled[end.settled]! += 1;
+    tally.kinds[end.one.kind] += 1;
+    if (end.one.game.ageGroupId === row.game.ageGroupId) tally.samePage += 1;
     const standIn = byId.get(row.standInId);
-    const club = byId.get(only.clubId);
-    if (inOneRegion(byId.get(row.namerId)?.state, club?.state)) kind.inRegion += 1;
-    if (only.game.ageGroupId === row.game.ageGroupId) kind.samePage += 1;
+    const club = byId.get(end.one.clubId);
     if (standIn && club) {
-      if (fits(standIn.name, club.name)) kind.namesFit += 1;
+      if (fits(standIn.name, club.name)) tally.namesFit += 1;
       const words = nameFitWords(club.name);
-      if ([...nameFitWords(standIn.name)].some((word) => words.has(word))) kind.shareWord += 1;
+      if ([...nameFitWords(standIn.name)].some((word) => words.has(word))) tally.shareWord += 1;
     }
-    const clubs = answeredBy.get(row.standInId) ?? new Set<string>();
-    clubs.add(only.clubId);
-    answeredBy.set(row.standInId, clubs);
-    answered.set(row.standInId, (answered.get(row.standInId) ?? 0) + 1);
+    const clubs = settledOn.get(row.standInId) ?? [];
+    clubs.push(end.one.clubId);
+    settledOn.set(row.standInId, clubs);
   }
-  let agreeing = 0;
-  let split = 0;
-  let agreeingRows = 0;
-  answered.forEach((times, standInId) => {
-    if (times < 2) return;
-    if (answeredBy.get(standInId)!.size === 1) {
-      agreeing += 1;
-      agreeingRows += times;
-    } else split += 1;
+  settledOn.forEach((clubs) => {
+    if (clubs.length < 2) return;
+    if (new Set(clubs).size === 1) {
+      tally.agreeing += 1;
+      tally.agreeingRows += clubs.length;
+    } else tally.split += 1;
   });
-  return { ...tally, kinds, agreeing, split, agreeingRows };
+  return tally;
 };
