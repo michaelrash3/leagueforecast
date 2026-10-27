@@ -21,7 +21,8 @@ import {
   type ScoutTeam,
   type SeasonSegment,
 } from "../lib/teamRankings";
-import { MAX_AGE_LEVEL, MIN_AGE_LEVEL } from "../lib/teamRankings/seasons";
+import { ageGroupYear, inSegment, MAX_AGE_LEVEL, MIN_AGE_LEVEL } from "../lib/teamRankings/seasons";
+import { formOf } from "../lib/clubForm";
 import { describeRoster, rosterStanding } from "../lib/gcRoster";
 import { coachesOf } from "../lib/gcStaff";
 import { agoLabel } from "../lib/date";
@@ -285,6 +286,20 @@ export function TeamDetailPanel({
     [team.id, ageGroupId, allGames, ageGroups, segment]
   );
   const { wins, losses, ties } = record;
+  // Its last games against the margins its ratings expected, over the record's pool and half
+  // (`formOf`): a card names the club's games of every year, and another year's could otherwise
+  // take a place in the last five.
+  const form = useMemo(() => {
+    if (!ratingRowOf) return undefined;
+    const year = ageGroupYear(ageGroups.find((group) => group.id === ageGroupId));
+    return formOf(
+      team.id,
+      allGames.filter(
+        (game) => poolIds.has(game.ageGroupId) && inSegment(game.date, year, segment)
+      ),
+      ratingRowOf
+    );
+  }, [ratingRowOf, ageGroups, ageGroupId, team.id, allGames, poolIds, segment]);
   const inWindow = useMemo(
     () =>
       new Set(here.filter((game) => countedInWindow(game, ageGroups, segment)).map((g) => g.id)),
@@ -403,6 +418,15 @@ export function TeamDetailPanel({
               ? ` ${elsewhere} more game${elsewhere === 1 ? "" : "s"} in another season, not counted here.`
               : ""}
           </p>
+          {form && (
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+              <span className="font-semibold">Form, last {form.games.length}:</span>{" "}
+              {form.games.map((one) => (one.tied ? "T" : one.won ? "W" : "L")).join(" ")} · beat the
+              margin its ratings expected in {form.beat} of {form.games.length},{" "}
+              {Math.abs(form.average).toFixed(1)} runs a game{" "}
+              {form.average >= 0 ? "better" : "worse"} on average
+            </p>
+          )}
         </div>
         {watch ? (
           <span className="flex items-center gap-3">

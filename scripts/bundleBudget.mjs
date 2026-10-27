@@ -113,6 +113,12 @@ const DIST = "dist";
  * 162,078): the week's upsets, game ahead and streaks worked out on the device (`theWeekly.ts`), the
  * card that says them and the club's own week, the Games tab's Upsets, and the reader of a published
  * board's week. The first download, 252.9 KB against 252.6 KB, carries that reader with the board's.
+ * Team Rankings to 165.5 KB the same day for the My Team card's season and a club's form, 164.8 KB
+ * against 163.9 KB on main (164,834 bytes against 163,944): the schedule's rank in its state, the
+ * record beside the one the ratings expected and its one-run games, the weekend ahead, and the
+ * panel's last five games against the margins expected (`clubForm.ts`). They are added on the Team
+ * Rankings pages (`withSeason`) rather than in `myTeamGlance`, which League Standings reads: there
+ * they had put 0.8 KB on the first download, which stays 252.9 KB.
  */
 const BUDGET = {
   firstDownload: 255_000,
@@ -128,7 +134,7 @@ const BUDGET = {
     "Data Quality": 3_500,
     Settings: 13_700,
     "Seasons at a glance": 4_400,
-    "Team Rankings": 164_500,
+    "Team Rankings": 165_500,
   },
 };
 

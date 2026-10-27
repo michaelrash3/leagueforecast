@@ -14,6 +14,7 @@ import { myTeamGlance } from "../lib/myTeamGlance";
 import { movementOf } from "../lib/rankMovement";
 import { weekMovers } from "../lib/thisWeek";
 import { teamWeek, theWeekly } from "../lib/theWeekly";
+import { recordVsExpected, withSeason } from "../lib/clubForm";
 import { compareClubs } from "../lib/clubCompare";
 import { setClubAge } from "../lib/clubAge";
 import { createAgeGroupId } from "../lib/teamRankings/seasons";
@@ -35,6 +36,7 @@ import {
   filedTeamIds,
   findDuplicateGame,
   gcLinkSquadYear,
+  inSegment,
   isScoutGamePlayed,
   ASK_MARGIN,
   mergeScoutTeams,
@@ -969,6 +971,18 @@ export function TeamRankingsView({
     () => (myTeamId === undefined ? null : teamWeek(myTeamId, poolGames, rankings, today)),
     [myTeamId, poolGames, rankings, today]
   );
+  // Its record against the clubs rated here, beside the one its ratings expected, over the half.
+  const myExpected = useMemo(() => {
+    if (myTeamId === undefined) return undefined;
+    const year = ageGroupYear(ageGroups.find((group) => group.id === selectedAgeGroupId));
+    const byId = new Map(rankings.map((row) => [row.teamId, row]));
+    return recordVsExpected(
+      myTeamId,
+      poolGames.filter((game) => inSegment(game.date, year, selectedSegment)),
+      (teamId) => byId.get(teamId),
+      today
+    );
+  }, [myTeamId, ageGroups, selectedAgeGroupId, rankings, poolGames, selectedSegment, today]);
 
   /** The team marked as yours, where it stands on this page and what it plays next. */
   const myTeam = useMemo(() => {
@@ -978,13 +992,9 @@ export function TeamRankingsView({
       myTeamId === reportForId
         ? upcomingRows
         : buildUpcomingSchedule(myTeamId, rankings, poolGames, allKnown.teams, today);
-    return myTeamGlance(
-      rankings,
-      myTeamId,
-      (teamId) => stateById.get(teamId),
-      upcoming,
-      lastWeek?.ranks ?? null
-    );
+    const stateOf = (teamId: string) => stateById.get(teamId);
+    const glance = myTeamGlance(rankings, myTeamId, stateOf, upcoming, lastWeek?.ranks ?? null);
+    return glance && withSeason(glance, rankings, stateOf, upcoming);
   }, [
     lastWeek,
     myTeamId,
@@ -2538,6 +2548,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               thisWeek={thisWeek}
               weekly={weekly}
               myWeek={myWeek}
+              {...(myExpected ? { myExpected } : {})}
               {...(rankHistory ? { rankHistory } : {})}
               movementOf={boardMovement}
               watch={watchCard}

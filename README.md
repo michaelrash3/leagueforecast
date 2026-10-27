@@ -586,6 +586,29 @@ back to a page fits none of them again. A page switch waits on at most one week'
 and the walk stops at a week whose board was empty, where the half had not begun, or
 at two weeks running without the club on it. Nothing is drawn until two weeks have a place.
 
+**The season beside the ratings.** Since 27 October 2026 the card says three more things
+(`clubForm.ts`), each left out where it is not known:
+
+- how tough the club's schedule has been: its place among its state's clubs on the board by
+  the fit's own strength of schedule, "11th toughest of 98 in KY";
+- its record against the clubs rated here and compared with it, beside the wins its ratings
+  expected of those games (each game's chance summed, as the page reads a matchup), "9–11
+  against rated clubs, about one win better than the ratings expect (8.1)", within half a win
+  "about what the ratings expect", and its record in games decided by one run. The ratings are
+  fitted on margins, not results, so a club that wins its close games reads better than its
+  ratings;
+- its next weekend with a game on it, Friday to Sunday (a midweek game is no weekend's), where it
+  has two games or more on it: how many, the wins they add up to, said of the games the ratings
+  can call ("from the 2 the ratings can call" where an opponent is unrated, nothing where none
+  is), and the game it is least and most likely to win.
+
+The club's panel says its form: its last five games against the clubs rated here, newest
+first, each beside the margin the ratings expected (a blowout read at the 14 runs a
+projection can state), how many it beat that margin in and by how many runs a game on
+average. Both read the club's games of the board's year and half, as its record does: a device
+off its pool, a member's device off the club's card it already reads, which names its games of
+every year.
+
 ### Scouting report
 
 Pick a team and it answers two questions. **Next up** is the games still on that

@@ -1,5 +1,6 @@
 import type { ScoutRankingRow, UpcomingMatchup } from "./teamRankings";
 import { movementOf, type Movement } from "./rankMovement";
+import type { ScheduleRank, WeekendAhead } from "./clubForm";
 
 /** Where one club stands on a board, and what it plays next: the card above the boards. */
 export type MyTeamGlance = {
@@ -18,6 +19,13 @@ export type MyTeamGlance = {
   next?: UpcomingMatchup;
   /** Places climbed on this page since last week, once last week's board is known. */
   movement?: Movement;
+  /**
+   * How hard its schedule has been beside its state's clubs here, and its next weekend with two
+   * games or more, added by the Team Rankings page (`withSeason`): League Standings reads the
+   * glance too, and so carries none of what works them out.
+   */
+  schedule?: ScheduleRank;
+  weekend?: WeekendAhead;
 };
 
 /**

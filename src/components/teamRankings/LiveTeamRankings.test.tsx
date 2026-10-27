@@ -1136,6 +1136,10 @@ describe("the cloud's board while it is open", () => {
         "No game on the schedule yet."
       )
     );
+    // And its record beside the one its ratings expected, off the same card: a win over S-1.
+    expect(screen.getByRole("region", { name: "My team" }).textContent).toMatch(
+      /1–0 against rated clubs, .+ \(0\.\d\)/
+    );
   });
 
   it("leaves the board on screen as it is when a publish names the same one", async () => {
