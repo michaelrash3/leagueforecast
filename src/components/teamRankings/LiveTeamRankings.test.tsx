@@ -1,3 +1,4 @@
+import { forgetWatchList, watchedOn } from "../../lib/watchList";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { NO_REMOVALS } from "../../lib/autoRemoved";
 import { BROUGHT_BACK } from "../../lib/gcIdWhereabouts";
@@ -1474,6 +1475,22 @@ describe("a club's panel on the cloud's board", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: /Mark mine/ })).toBeNull());
     // The page's own club still shown as it is.
     expect(screen.getAllByText("★ My team").length).toBeGreaterThan(0);
+  });
+
+  it("watches a club from its panel, at the top of the board, on this device", async () => {
+    window.localStorage.removeItem("lf_watch_v1");
+    forgetWatchList();
+    await withCard();
+    open(sourcesOf(live));
+    await tapClub("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Watch" }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Close" }));
+    const card = await screen.findByRole("region", { name: "Watching" });
+    expect(within(card).getByRole("button", { name: "Placeholder S-1" })).toBeTruthy();
+    expect(watchedOn(PAGE)).toEqual([{ id: "S-1", name: "Placeholder S-1" }]);
+    window.localStorage.removeItem("lf_watch_v1");
+    forgetWatchList();
   });
 
   it("opens from its card, with its record and games", async () => {

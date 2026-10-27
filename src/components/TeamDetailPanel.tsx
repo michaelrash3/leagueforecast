@@ -122,6 +122,8 @@ type TeamDetailPanelProps = {
    * ratings shown (`WhatIf`). Absent, or either club without a row, and the game has none.
    */
   ratingRowOf?: (teamId: string) => ScoutRankingRow | undefined;
+  /** Whether the club is watched on this page, and the way to watch it or stop (`watchList.ts`). */
+  watch?: { on: boolean; full: boolean; onToggle: (name: string) => void };
 };
 
 /** Which rule of the import filed a link at its level, as the link line says it. */
@@ -198,6 +200,7 @@ export function TeamDetailPanel({
   readOnly = false,
   gameNotes,
   ratingRowOf,
+  watch,
 }: TeamDetailPanelProps) {
   // The game whose What if is open.
   const [whatIf, setWhatIf] = useState<string | null>(null);
@@ -354,6 +357,15 @@ export function TeamDetailPanel({
       ([id, name]) => id !== team.id && teamNameKey(name) === teamNameKey(trimmed)
     );
 
+  const closeButton = (
+    <button
+      type="button"
+      onClick={onClose}
+      className="text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
+    >
+      Close
+    </button>
+  );
   return (
     // A region rather than a plain box: this opens in answer to a click somewhere else on the
     // page, and naming it after the team is what tells a screen-reader user which team arrived.
@@ -392,13 +404,27 @@ export function TeamDetailPanel({
               : ""}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
-        >
-          Close
-        </button>
+        {watch ? (
+          <span className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => watch.onToggle(team.name)}
+              aria-pressed={watch.on}
+              disabled={!watch.on && watch.full}
+              title={
+                !watch.on && watch.full
+                  ? "Five clubs are watched on this page already. Stop watching one first."
+                  : undefined
+              }
+              className="text-xs font-bold text-blue-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline dark:text-blue-400"
+            >
+              {watch.on ? "Watching" : "Watch"}
+            </button>
+            {closeButton}
+          </span>
+        ) : (
+          closeButton
+        )}
       </div>
 
       {!readOnly && (

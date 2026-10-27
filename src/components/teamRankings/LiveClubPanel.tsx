@@ -64,6 +64,7 @@ export default function LiveClubPanel({
   onClose,
   onCannot,
   board,
+  watch,
 }: {
   source: LiveViewSource;
   year: number | undefined;
@@ -87,6 +88,8 @@ export default function LiveClubPanel({
    * rating is over as the panel names it, and whether the club is the page's own.
    */
   board?: { view: BoardView; groups: AgeGroup[]; span: string; own: boolean };
+  /** Whether the club is watched on this page, and the way to change it (`TeamDetailPanel`). */
+  watch?: { on: boolean; full: boolean; onToggle: (name: string) => void };
 }) {
   const { card, failed } = useClubCard(source, year, teamId);
   useEffect(() => {
@@ -215,6 +218,7 @@ export default function LiveClubPanel({
         {...(shown.age ? { age: shown.age } : {})}
         mergeCandidates={others}
         {...(rowOf ? { ratingRowOf: rowOf } : {})}
+        {...(watch ? { watch } : {})}
         onRename={(name) => void rename(name)}
         onSetState={(typed) => {
           const state = typed.trim() === "" ? null : (normalizeState(typed) ?? null);

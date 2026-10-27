@@ -165,6 +165,7 @@ import { card } from "../styles/tokens";
 import { GameChangerImportPanel } from "./GameChangerImportPanel";
 import { ClubSheet } from "./teamRankings/ClubSheet";
 import { leftClubSheet, markClubSheet } from "../lib/clubSheetHistory";
+import { useWatchList } from "../lib/watchList";
 import { GamesSection, EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/GamesSection";
 import type { NamedChecker } from "./ScheduleImportPanel";
 import { checkNamedGames, type NamedGame } from "../lib/teamRankings/namedGames";
@@ -820,6 +821,13 @@ export function TeamRankingsView({
     const byId = new Map(rankings.map((row) => [row.teamId, row]));
     return (teamId: string) => byId.get(teamId);
   }, [rankings]);
+  // The clubs watched on this page, on this device (`watchList.ts`).
+  const watchList = useWatchList(selectedAgeGroupId);
+  const { toggle: toggleWatch } = watchList;
+  const watchCard = useMemo(
+    () => ({ watched: watchList.watched, rowOf: rankingRowOf, onStop: toggleWatch }),
+    [watchList.watched, rankingRowOf, toggleWatch]
+  );
 
   const availableStates = useMemo(() => statesInUse(rankedTeams), [rankedTeams]);
 
@@ -2503,6 +2511,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               myTeam={myTeam}
               {...(rankHistory ? { rankHistory } : {})}
               movementOf={boardMovement}
+              watch={watchCard}
               onRemoveTeam={removeTeamById}
             />
           )}
@@ -2757,6 +2766,11 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 onSetState={(state) => setTeamState(openTeam.id, state)}
                 onClose={closeClub}
                 ratingRowOf={rankingRowOf}
+                watch={{
+                  on: watchList.watched.some((club) => club.id === openTeam.id),
+                  full: watchList.full,
+                  onToggle: (name) => toggleWatch({ id: openTeam.id, name }),
+                }}
               />
             </Suspense>
           </ErrorBoundary>

@@ -6923,7 +6923,15 @@ which React's strict mode runs twice; closed by its own controls the entry is ta
 back with `history.back()`, whose popstate is let pass (`clubSheetHistory.ts`). Tab
 stays in the sheet, the page behind does not scroll, and an Esc a name box used to
 close its list is left to the box. This device's copy fetches the panel as a club is
-first opened too, which took 4.5 KB off opening Team Rankings. A club whose card cannot be read (no card, a bucket
+first opened too, which took 4.5 KB off opening Team Rankings.
+
+**Watching a few clubs.** A club's panel has **Watch**, and the clubs watched on a page, up to
+five (the owner's choice of 26 October 2026), are a card at the top of that page's board: each
+one's place, record and rating on the board on screen, a tap from its panel, and **Stop**. A
+sixth's Watch is off until one is let go. Kept on this device alone (`watchList.ts`, by page,
+each club with its name as it was watched, so one with no row on the board on screen, the other
+half of the season, is still named and says so), on the live board and this device's copy alike.
+Nothing about it reaches the cloud copy. A club whose card cannot be read (no card, a bucket
 damaged or gone, or offline with none kept) says so in the panel's place, with Try
 again and Close (1.6e), kept with the meta it was read by, as a list not read is, so
 the panel is drawn again, reading the card, once the cloud publishes; a refusal

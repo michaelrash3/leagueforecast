@@ -66,6 +66,7 @@ import { CloudPoolGate } from "../CloudPoolGate";
 import { warmTeamSearch, type GcIdOffer } from "../TeamSearchSelect";
 import { leftClubSheet, markClubSheet } from "../../lib/clubSheetHistory";
 import { ClubSheet } from "./ClubSheet";
+import { useWatchList } from "../../lib/watchList";
 import { RankingsHeader } from "./RankingsHeader";
 import { NATIONAL_TOP, RankingsSection, STATE_TOP } from "./RankingsSection";
 import { SECTION_PANEL_ID, sectionTabId } from "./SectionNav";
@@ -394,6 +395,13 @@ function LiveBoard({
     const byId = new Map(rows.map((row) => [row.teamId, row]));
     return (teamId: string) => byId.get(teamId);
   }, [rows]);
+  // The clubs watched on this page, on this device (`watchList.ts`).
+  const watchList = useWatchList(selectedAgeGroupId);
+  const { toggle: toggleWatch } = watchList;
+  const watchCard = useMemo(
+    () => ({ watched: watchList.watched, rowOf, onStop: toggleWatch }),
+    [watchList.watched, rowOf, toggleWatch]
+  );
   const clubs = useMemo(() => clubsOfBoard(rows), [rows]);
   /** Which state the top ten is for (`useStateTop`), shared with the page on this device. */
   const { stateTop, shownState, pickState, keptState, keepState } = useStateTop(clubs, myTeamId);
@@ -1046,6 +1054,7 @@ function LiveBoard({
             myTeamNextUnread={mineCard.failed}
             {...(rankHistory ? { rankHistory } : {})}
             movementOf={boardMovement}
+            watch={watchCard}
           />
         ) : (
           readingBoard
@@ -1105,6 +1114,11 @@ function LiveBoard({
                   segment={segment}
                   onClose={closeClub}
                   onCannot={cannotReadClub}
+                  watch={{
+                    on: watchList.watched.some((club) => club.id === openClub),
+                    full: watchList.full,
+                    onToggle: (name) => toggleWatch({ id: openClub, name }),
+                  }}
                   {...(panelBoard ? { board: panelBoard } : {})}
                 />
               </Suspense>
