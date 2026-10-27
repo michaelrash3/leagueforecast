@@ -40,12 +40,15 @@ import {
   randomBytes,
 } from "node:crypto";
 import { coerceAutoRemovals, type AutoRemovals } from "../src/lib/autoRemoved.ts";
+import { coerceKeptApart, type KeptApart } from "../src/lib/keptApart.ts";
 import {
   deriveAllKnown,
   gamesOnPages,
+  leagueLinkedClubsOf,
   type LeagueSeasonData,
   type SeasonReader,
 } from "../src/lib/live/allKnown.ts";
+import { coerceNotThisTeam, type NotThisTeam } from "../src/lib/notThisTeam.ts";
 import { asWorkerSees } from "../src/lib/live/views/board.ts";
 import { readCloudLeague, seasonReaderOf } from "../src/lib/live/cloudLeague.ts";
 import { fetchValues } from "../src/lib/cloud/cloudEngine.ts";
@@ -128,8 +131,27 @@ type Source = {
   readSeason: SeasonReader;
   leagueRead: boolean;
   autoRemoved: AutoRemovals;
+  /**
+   * What a tidy honours, as the source holds it: the pairs kept apart, the names refused, and the
+   * clubs it spares on a pool. A backup carries its own (Codex on #471); the cloud copy and the
+   * seeded pool are in the store, as the nightly reads them.
+   */
+  tidyAnswers: () => {
+    apart: KeptApart;
+    refused: NotThisTeam;
+    spared: (pool: GcImportState) => ReadonlySet<string>;
+  };
   today: string;
 };
+
+/** The answers a pool in the store gives the tidy, as the nightly gives them (`sparedByTidy`). */
+const storedTidyAnswers =
+  (readSeason: SeasonReader | null): Source["tidyAnswers"] =>
+  () => ({
+    apart: loadKeptApart(),
+    refused: loadNotThisTeam(),
+    spared: (pool) => sparedByTidy(pool, readSeason),
+  });
 
 const NO_SEASON: LeagueSeasonData = { teams: [], matchups: [], logs: {} };
 
@@ -164,6 +186,16 @@ const fromBackup = (path: string, tidied = true): Source => {
     readSeason: seasons ?? (() => NO_SEASON),
     leagueRead: seasons !== null,
     autoRemoved: coerceAutoRemovals(pool.answers?.autoRemoved ?? []),
+    // As `sweepTidy` spares and honours them: the backup's own word, not this machine's store.
+    tidyAnswers: () => ({
+      apart: coerceKeptApart(pool.answers?.keptApart ?? []),
+      refused: coerceNotThisTeam(pool.answers?.notThisTeam ?? []),
+      spared: (read) =>
+        new Set([
+          ...(pool.answers?.realClubs ?? []),
+          ...(seasons ? leagueLinkedClubsOf(read, seasons) : []),
+        ]),
+    }),
     today: flag("today") || todayIsoDay(),
   };
 };
@@ -182,6 +214,7 @@ const fromFixture = (): Source => {
     readSeason: (id) => pool.seasons[id] ?? NO_SEASON,
     leagueRead: true,
     autoRemoved: coerceAutoRemovals([]),
+    tidyAnswers: storedTidyAnswers((id) => pool.seasons[id] ?? NO_SEASON),
     today: flag("today") || pool.today,
   };
 };
@@ -225,6 +258,7 @@ const fromCloud = async (): Promise<Source> => {
     readSeason,
     leagueRead,
     autoRemoved: loadAutoRemoved(),
+    tidyAnswers: storedTidyAnswers(leagueRead ? readSeason : null),
     today: flag("today") || todayIsoDay(),
   };
 };
@@ -494,9 +528,8 @@ const measureStandInRules = (source: Source, year: number) => {
     teams: source.teams,
     games: source.allGames(),
   };
-  const apart = loadKeptApart();
-  const refused = loadNotThisTeam();
-  const spared = sparedByTidy(pool, source.leagueRead ? source.readSeason : null);
+  const { apart, refused, spared: sparedOf } = source.tidyAnswers();
+  const spared = sparedOf(pool);
   const tidy = (state: GcImportState, rules: TidyRules) =>
     tidyPool(state, undefined, apart, refused, spared, rules);
   describeLeaning("before", leaningOf(pool, year));
