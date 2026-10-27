@@ -82,3 +82,42 @@ describe("two clubs side by side", () => {
     expect(both.b.lastFive[0]?.runsFor).toBe(7);
   });
 });
+
+describe("each club's profile, its record by the strength of who it played, and its form", () => {
+  // Ratings for the split: US at 2, the others above, near and below it.
+  const rated = rows.map((row) => ({
+    ...row,
+    rating: { US: 2, THEM: 4, BEARS: 0, CUBS: 2.5, OWLS: -5 }[row.teamId] ?? 0,
+  }));
+  const compared = compareClubs("US", "THEM", games, rated, nameOf, counts);
+
+  it("gives runs scored and allowed a game, and the margin, over the games counted", () => {
+    // 4-6, 8-3, 1-2, 10-0 and 3-7: the game not counted is left out.
+    expect(compared.a.profile).toEqual({ games: 5, runsFor: 5.2, runsAgainst: 3.6, margin: 1.6 });
+  });
+
+  it("splits the record by opponents rated above, near and below the club", () => {
+    // THEM (+2) is stronger, CUBS (+0.5) similar, BEARS (-2) and OWLS (-7) weaker; NOBODY has no
+    // rating on the board and is in none of the three.
+    expect(compared.a.split).toEqual({
+      stronger: { wins: 0, losses: 1, ties: 0 },
+      similar: { wins: 0, losses: 1, ties: 0 },
+      weaker: { wins: 2, losses: 0, ties: 0 },
+    });
+    // A club with no rating has nothing to measure its opponents by.
+    expect(compareClubs("NOBODY", "US", games, rated, nameOf, counts).a.split).toBeNull();
+  });
+
+  it("gives the last five as letters, newest first", () => {
+    expect(compared.a.form).toBe("LWLWL");
+    // The Cubs lost to THEM on the 13th after beating US on the 12th.
+    expect(compareClubs("CUBS", "US", games, rated, nameOf, counts).a.form).toBe("LW");
+  });
+
+  it("says how much better the first did against the clubs both played, on average", () => {
+    // Bears: +5 against +1, four better; Cubs: -1 against +9, ten worse. Three worse on average.
+    expect(compared.commonEdge).toBe(-3);
+    // The Owls played no one but US.
+    expect(compareClubs("US", "OWLS", games, rated, nameOf, counts).commonEdge).toBeNull();
+  });
+});

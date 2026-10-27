@@ -1,4 +1,10 @@
-import type { ClubComparison, ClubResult, ClubSide } from "../../lib/clubCompare";
+import {
+  SIMILAR_BAND,
+  type ClubComparison,
+  type ClubResult,
+  type ClubSide,
+  type Record3,
+} from "../../lib/clubCompare";
 import { formatIsoDayShort } from "../../lib/date";
 
 /** "W 8–3", "L 1–2", "T 4–4": a result as the club it belongs to would say it. */
@@ -6,6 +12,54 @@ const scoreLine = (result: ClubResult): string =>
   `${result.margin > 0 ? "W" : result.margin < 0 ? "L" : "T"} ${result.runsFor}–${result.runsAgainst}`;
 
 const rankTag = (rank: number | undefined) => (rank === undefined ? "unranked" : `#${rank}`);
+
+const oneDecimal = (value: number) => value.toFixed(1);
+const signed = (value: number) =>
+  `${value > 0 ? "+" : value < 0 ? "−" : ""}${oneDecimal(Math.abs(value))}`;
+const recordOf = (record: Record3) =>
+  record.wins + record.losses + record.ties === 0
+    ? "—"
+    : `${record.wins}-${record.losses}${record.ties ? `-${record.ties}` : ""}`;
+
+/** Each side's line for one row of the profile, or a dash where it has nothing to say. */
+const PROFILE_ROWS: Array<{ label: string; title?: string; of: (side: ClubSide) => string }> = [
+  {
+    label: "Runs a game",
+    title: "Scored – allowed, over the games counted",
+    of: (side) =>
+      side.profile
+        ? `${oneDecimal(side.profile.runsFor)} – ${oneDecimal(side.profile.runsAgainst)}`
+        : "—",
+  },
+  {
+    label: "Average margin",
+    of: (side) => (side.profile ? signed(side.profile.margin) : "—"),
+  },
+  {
+    label: "Vs stronger",
+    title: `Opponents rated more than ${SIMILAR_BAND} runs above the club`,
+    of: (side) => (side.split ? recordOf(side.split.stronger) : "—"),
+  },
+  {
+    label: "Vs similar",
+    title: `Opponents rated within ${SIMILAR_BAND} runs of the club`,
+    of: (side) => (side.split ? recordOf(side.split.similar) : "—"),
+  },
+  {
+    label: "Vs weaker",
+    title: `Opponents rated more than ${SIMILAR_BAND} runs below the club`,
+    of: (side) => (side.split ? recordOf(side.split.weaker) : "—"),
+  },
+  { label: "Form", title: "The last five, newest first", of: (side) => side.form || "—" },
+];
+
+/** The common-opponent edge in words: who did better against the clubs both played, by how much. */
+const edgeWords = (edge: number, aName: string, bName: string, clubs: number) => {
+  const against = `against the ${clubs === 1 ? "club" : `${clubs} clubs`} both have played`;
+  if (Math.abs(edge) < 0.05) return `Level ${against}.`;
+  const [better, worse] = edge > 0 ? [aName, bName] : [bName, aName];
+  return `${better} did ${oneDecimal(Math.abs(edge))} runs a game better than ${worse} ${against}.`;
+};
 
 function ResultList({ results, empty }: { results: ClubResult[]; empty: string }) {
   if (results.length === 0) {
@@ -91,8 +145,47 @@ export function ClubCompare({
 
       <div>
         <h4 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          Profile
+        </h4>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm" aria-label="Profiles">
+            <thead>
+              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className="py-1 pr-3">
+                  <span className="sr-only">What</span>
+                </th>
+                <th className="py-1 pr-3">{aName}</th>
+                <th className="py-1">{bName}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {PROFILE_ROWS.map((row) => (
+                <tr key={row.label}>
+                  <th
+                    scope="row"
+                    className="py-1 pr-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400"
+                    {...(row.title ? { title: row.title } : {})}
+                  >
+                    {row.label}
+                  </th>
+                  <td className="py-1 pr-3 tabular-nums">{row.of(comparison.a)}</td>
+                  <td className="py-1 tabular-nums">{row.of(comparison.b)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div>
+        <h4 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Common opponents
         </h4>
+        {comparison.commonEdge !== null && (
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+            {edgeWords(comparison.commonEdge, aName, bName, common.length)}
+          </p>
+        )}
         {common.length === 0 ? (
           <p className="text-sm text-slate-500 dark:text-slate-400">
             No club on this board has played both.

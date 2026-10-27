@@ -607,6 +607,16 @@ results of one day stay in the order the pool lists them, as a club's panel list
 them. The forecast is one number; this is the evidence it is made of. Names and
 scores only.
 
+Above the games, a profile of each side from the same games: runs scored and allowed
+a game and the average margin; the record against opponents rated more than 1.5 runs
+above the club, within 1.5 runs, and more than 1.5 below (`SIMILAR_BAND`, where a
+matchup reads about 60-40 at 12U; an opponent with no rating on the board is in none,
+and a club with none of its own has no split); and its form, the last five as letters,
+newest first. Under the common opponents' heading, the edge in words: each common
+opponent's margin for one club less the other's, averaged over the opponents ("Hill
+Hawks did 3.0 runs a game better than River Otters against the 2 clubs both have
+played"). Nothing more is read for it than Compare already reads.
+
 **Tournament field** plays a weekend out before it is played. Build the field by
 name, or from the report team's own next opponents in one press, choose pools and
 a bracket of two, four or eight, and the event is simulated 2,000 times on the

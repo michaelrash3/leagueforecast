@@ -14,8 +14,20 @@ export type ClubResult = {
   margin: number;
 };
 
+/** A record, as W-L-T counts. */
+export type Record3 = { wins: number; losses: number; ties: number };
+
 export type ClubSide = {
   teamId: string;
+  /** Runs scored and allowed a game, and the margin, over the games counted; null with none. */
+  profile: { games: number; runsFor: number; runsAgainst: number; margin: number } | null;
+  /**
+   * The record against opponents rated more than `SIMILAR_BAND` runs above the club, within it,
+   * and more than it below; null where the club has no rating on the board to measure by.
+   */
+  split: { stronger: Record3; similar: Record3; weaker: Record3 } | null;
+  /** The last five results' letters, newest first: "WWLWT". */
+  form: string;
   /** Wins, against the best-ranked opponents first. */
   bestWins: ClubResult[];
   /** Losses, to the worst-ranked opponents first; an unranked opponent is the worst of all. */
@@ -37,6 +49,12 @@ export type ClubComparison = {
   headToHead: ClubResult[];
   /** Clubs both have played, best-ranked first, each with both clubs' results against it. */
   common: CommonOpponent[];
+  /**
+   * How much better the first club did than the second against the clubs both have played: each
+   * common opponent's margin for the first less the second's (each an average where a club met it
+   * twice), averaged over the opponents. Positive favours the first; null with none in common.
+   */
+  commonEdge: number | null;
   a: ClubSide;
   b: ClubSide;
 };
@@ -44,6 +62,21 @@ export type ClubComparison = {
 /** How many of each list a side shows. */
 export const COMPARE_LIST = 3;
 export const COMPARE_RECENT = 5;
+/**
+ * How near an opponent's rating must be to the club's own to count as similar, in runs: about a
+ * third of the odds curve's spread at 12U (`matchupOddsSpread`), where a matchup reads 60-40 or
+ * closer. An opponent further above is stronger, further below weaker.
+ */
+export const SIMILAR_BAND = 1.5;
+
+const letterOf = (result: ClubResult) => (result.margin > 0 ? "W" : result.margin < 0 ? "L" : "T");
+const tally = (results: readonly ClubResult[]): Record3 => ({
+  wins: results.filter((result) => result.margin > 0).length,
+  losses: results.filter((result) => result.margin < 0).length,
+  ties: results.filter((result) => result.margin === 0).length,
+});
+const mean = (values: readonly number[]) =>
+  values.reduce((sum, value) => sum + value, 0) / values.length;
 
 /**
  * Newest first, two results of one day in the order the games are given: the pool's, as a club's
@@ -74,6 +107,7 @@ export const compareClubs = (
   counts: (game: ScoutGame) => boolean
 ): ClubComparison => {
   const rankOf = new Map(rows.map((row) => [row.teamId, row.overallRank ?? row.rank]));
+  const ratingOf = new Map(rows.map((row) => [row.teamId, row.rating]));
   const resultsOf = (teamId: string): ClubResult[] =>
     games.flatMap((game) => {
       if (game.teamAId !== teamId && game.teamBId !== teamId) return [];
@@ -113,6 +147,28 @@ export const compareClubs = (
       )
       .slice(0, COMPARE_LIST),
     lastFive: [...results].sort(byDateDesc).slice(0, COMPARE_RECENT),
+    profile:
+      results.length === 0
+        ? null
+        : {
+            games: results.length,
+            runsFor: mean(results.map((result) => result.runsFor)),
+            runsAgainst: mean(results.map((result) => result.runsAgainst)),
+            margin: mean(results.map((result) => result.margin)),
+          },
+    split: (() => {
+      const own = ratingOf.get(teamId);
+      if (own === undefined) return null;
+      // An opponent the board has no rating for is in none of the three.
+      const rated = results.filter((result) => ratingOf.has(result.opponentId));
+      const gap = (result: ClubResult) => (ratingOf.get(result.opponentId) ?? own) - own;
+      return {
+        stronger: tally(rated.filter((result) => gap(result) > SIMILAR_BAND)),
+        similar: tally(rated.filter((result) => Math.abs(gap(result)) <= SIMILAR_BAND)),
+        weaker: tally(rated.filter((result) => gap(result) < -SIMILAR_BAND)),
+      };
+    })(),
+    form: [...results].sort(byDateDesc).slice(0, COMPARE_RECENT).map(letterOf).join(""),
   });
 
   const a = resultsOf(aId);
@@ -147,6 +203,16 @@ export const compareClubs = (
   return {
     headToHead: a.filter((result) => result.opponentId === bId).sort(byDateDesc),
     common,
+    commonEdge:
+      common.length === 0
+        ? null
+        : mean(
+            common.map(
+              (opponent) =>
+                mean(opponent.a.map((result) => result.margin)) -
+                mean(opponent.b.map((result) => result.margin))
+            )
+          ),
     a: side(aId, a),
     b: side(bId, b),
   };
