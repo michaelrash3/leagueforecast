@@ -23,7 +23,8 @@ import type { ScoutTeam } from "./teamRankings/types";
  *   opponent;
  * - `named` (N): its name, or its GameChanger team's, has void, test or demo as a word in it;
  * - `hundred` (H): its own schedule reports a game it won or lost by `LOPSIDED_MARGIN` or more (the
- *   name is the line it was set at first, 100; it is 50 now).
+ *   name is the line it was set at first, 100; it is 40 now). Where the sweep runs, the nightly's
+ *   and this device's own pulls, a club marked for it is then deleted outright (`lopsidedDrops`).
  */
 export type AutoSign = "wins" | "rout" | "ahead" | "named" | "hundred";
 
@@ -48,9 +49,12 @@ export const ABSURD_MARGIN = 75;
  * settled on 50, with the games won by `ASK_MARGIN` or more below it put to them instead. Measured
  * on the cloud copy of that day (the 2027 squad year, 386,146 games), swept on top of the marks
  * already standing: 50 takes off 14 more clubs, where 40 would have taken 35, 75 one and 100 none.
- * The sign keeps its stored name, `hundred`, which marks already saved carry.
+ * On 27 October 2026 they set it at 40 and made it a deletion: "40+ run win or loss should equate
+ * to auto deletion", "of the entire team, because they are clearly fake" (`lopsidedDrops`). The
+ * games won by `ASK_MARGIN` to 39 are still put to them. The sign keeps its stored name,
+ * `hundred`, which marks already saved carry.
  */
-export const LOPSIDED_MARGIN = 50;
+export const LOPSIDED_MARGIN = 40;
 
 /** A win counted against a club: the game, by how many runs as the rating reads it, and its day. */
 export type CountedWin = { gameId: string; margin: number; date?: string };

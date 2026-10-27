@@ -67,7 +67,9 @@ import {
  *   leaves it, before the user's own sweep of the 28th, 24 games reached 100 (the widest 9,999)
  *   and H marks the 19 clubs whose schedules scored them, 5 of them showing no other sign; on 11
  *   October the widest game is 54, so it took none. At 50, the owner's line of 26 October 2026, it
- *   takes 14 more clubs off the cloud copy of that day beyond the marks standing (`LOPSIDED_MARGIN`).
+ *   takes 14 more clubs off the cloud copy of that day beyond the marks standing; at 40, their line
+ *   of 27 October, 35 (`LOPSIDED_MARGIN`), and where the sweep runs a club so marked is then
+ *   deleted outright, "the entire team, because they are clearly fake" (`lopsidedDrops`).
  *
  * Measured with this code against what the user did by hand, sweeping each backup from no marks.
  * On the pool of 26 September 2026 at 18:40, before the user's own sweep of 28 September, A, B and
@@ -131,8 +133,8 @@ export type SweepPool = {
 /**
  * What a test can ask of a sweep beyond the nightly's rules.
  *
- * `lopsidedLine` is H's line, `LOPSIDED_MARGIN` when left out, as the nightly sweeps. At 50, the
- * owner's line of 26 October 2026, H marks every club B would (a win by 75 or more its own schedule
+ * `lopsidedLine` is H's line, `LOPSIDED_MARGIN` when left out, as the nightly sweeps. At 40, the
+ * owner's line of 27 October 2026 (50 from 26 October), H marks every club B would (a win by 75 or more its own schedule
  * filed) and most A would, whatever real opponents list, so A and B, their guards and their escapes
  * are read with H set past any score.
  */
@@ -579,7 +581,24 @@ export const sweepMarks = (
     if (shown.length === 0 && verdict.named.size === 0) return;
     const team = teams.get(clubId)!;
     (team.gcTeams ?? []).forEach((link) => {
-      if (next.has(link.teamId)) return;
+      const held = next.get(link.teamId);
+      if (held) {
+        /*
+         * A mark made under another sign takes H where the club's own schedule now reports a game
+         * by the line, with the games it reports: H is what deletes a club (`lopsidedDrops`), and a
+         * club marked for its wins while the line stood at 50 was otherwise spared the deletion
+         * an unmarked club with the same 45-0 gets (Codex on #469).
+         */
+        if (shown.includes("hundred") && !held.signs.includes("hundred")) {
+          next.set(link.teamId, {
+            ...held,
+            signs: AUTO_SIGNS.filter((sign) => sign === "hundred" || held.signs.includes(sign)),
+            ...(verdict.reported.length > 0 ? { reported: verdict.reported } : {}),
+          });
+          changed = true;
+        }
+        return;
+      }
       const named = verdict.named.get(link.teamId);
       const signs = AUTO_SIGNS.filter((sign) =>
         sign === "named" ? named !== undefined : shown.includes(sign)

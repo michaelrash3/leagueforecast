@@ -85,7 +85,7 @@ describe("a run's end", () => {
   beforeEach(() => resetPullSession());
 
   it("sweeps the pool it leaves for clubs plainly made up, and hands up what that changed", async () => {
-    const onSwept = vi.fn<(change: MarksChange) => void>();
+    const onSwept = vi.fn<(change: MarksChange | null) => readonly string[]>(() => []);
     const user = userEvent.setup();
     render(
       <GameChangerImportPanel
@@ -111,7 +111,8 @@ describe("a run's end", () => {
     await waitFor(() => expect(onSwept).toHaveBeenCalledTimes(1));
     const change = onSwept.mock.calls[0]?.[0];
     expect(change?.forget).toEqual([]);
-    // Its own schedule's 80-0 is B's rout, and from 26 October 2026 H's too (50 or more).
+    // Its own schedule's 80-0 is B's rout, and H's too (40 or more from 27 October 2026), for which
+    // the page then deletes the club (`LopsidedDeleted.test.tsx`).
     expect(change?.put.map((mark) => [mark.gcTeamId, mark.signs])).toEqual([
       [ROUT, ["rout", "hundred"]],
     ]);

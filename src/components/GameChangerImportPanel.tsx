@@ -113,9 +113,11 @@ import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
 import { downloadCsv, fileDay } from "../lib/download";
 import {
   flushPoolWrites,
+  loadAgeGroups,
   loadAgeUnknown,
   loadRefreshCadence,
   loadScoutGames,
+  loadScoutTeams,
   loadScoutGamesForPages,
   saveRefreshCadence,
   loadPullLog,
@@ -204,9 +206,13 @@ type GameChangerImportPanelProps = {
   /**
    * What the sweep for clubs plainly made up (`obviousFakes.ts`) changed in the marks, run in the
    * tidy worker on the pool a finished run left, tidied, as the nightly sweeps the cloud copy after
-   * its pull. Up, for the same reason as the clubs thrown out: the marks are the view's state.
+   * its pull. Up, for the same reason as the clubs thrown out: the marks are the view's state. With
+   * the clubs the tidy spares (the real list and every club a League Standings team links), which
+   * the view deletes none of when it deletes the clubs a lopsided score marked (`lopsidedDrops`).
+   * Told after every sweep, `change` null where it changed no mark, since a club marked before
+   * still goes. Answers with the clubs it deleted, which this run's working copy still holds.
    */
-  onSwept?: (change: MarksChange) => void;
+  onSwept?: (change: MarksChange | null, spared: ReadonlySet<string>) => readonly string[];
   /** Which levels have already had their turn today, and how to record that they have. */
   refreshLog: RefreshLog;
   onRefreshLog: (log: RefreshLog) => void;
@@ -1348,7 +1354,27 @@ export function GameChangerImportPanel({
       if (lists.tooYoung) setTooYoung(lists.tooYoung);
       // Thrown out like a club somebody deleted by hand, which is the page's to do.
       if (lists.invented.length > 0) onInvented(lists.invented);
-      if (outcome?.marks) onSwept?.(outcome.marks);
+      // Whenever the sweep ran (`marks` null where it changed nothing): a club it marked before, under
+      // a line that only marked, is deleted now (Codex on #469).
+      if (outcome && outcome.marks !== undefined) {
+        const deleted = onSwept?.(
+          outcome.marks,
+          new Set([...loadRealClubs(), ...leagueLinkedClubsOf(outcome.state, readStoredSeason)])
+        );
+        /*
+         * The clubs it deleted are gone from storage and not from this run's working copy, which
+         * the pairings below are offered from and an approved pairing saves whole: left as it was,
+         * pairing any two clubs put the deleted ones and their games back (Codex, #469). Read back
+         * from the store, as the whole pool is read back for the ending above.
+         */
+        if (deleted && deleted.length > 0) {
+          heldRef.current = holdingNow(heldRef.current, {
+            ageGroups: loadAgeGroups(),
+            teams: loadScoutTeams(),
+            games: loadScoutGames(),
+          });
+        }
+      }
 
       track(() => {
         // `outcome.tidy` and not `tidy`: the latter carries the whole tidied pool, and writing that

@@ -35,6 +35,8 @@ import { leagueLinkedClubsOf, type SeasonReader } from "../live/allKnown";
 import { leagueSeasonsOf, NO_LEAGUE_DOCS, type LeagueDocsList } from "../live/cloudLeague";
 import type { SweepPool } from "../obviousFakes";
 import { sweepStored } from "../sweepStored";
+import { lopsidedDrops } from "../lopsidedDrops";
+import { runPoolCommand } from "../live/runPoolCommand";
 import { segmentOn } from "../teamRankings/seasons";
 import { isTooYoungClub } from "../tooYoungClubs";
 import {
@@ -493,10 +495,24 @@ const withRefreshed = (log: RefreshLog, mark: Marking, now: Date): RefreshLog =>
  * times the 11 October pool is to come in through pasted lists, leg after leg: each list leg is
  * kept as light as it can be, and the night's refresh sweeps what they filed.
  */
-const sweep = (pool: SweepPool, now: Date): void => {
+const sweep = (pool: SweepPool, now: Date, spared: ReadonlySet<string>): void => {
   const [before, after] = sweepStored(pool, todayIsoDay(now));
   if (after !== before && !saveAutoRemoved(after)) {
     throw new Error("The store in memory refused the clubs taken off as plainly made up.");
+  }
+  /*
+   * And deleted outright, as Delete club deletes one (`club.drop`, one command a club, as Pool
+   * health sends them): every club marked for a game its own schedule reports won or lost by
+   * `LOPSIDED_MARGIN` or more, the owner's rule of 27 October 2026 (`lopsidedDrops`). The club, every
+   * game it is in and its mark go, and its GameChanger ids are refused by later pulls. Never one
+   * the tidy spares (`sparedByTidy`), so a night that could not read League deletes none, and a
+   * club a season's pick leans on stays marked, on its boards, as before.
+   */
+  for (const teamId of lopsidedDrops(after, loadScoutTeams(), spared)) {
+    const run = runPoolCommand({ kind: "club.drop", teamId });
+    if (!run.ok && run.why !== "missing") {
+      throw new Error("The store in memory refused a club deleted for a lopsided score.");
+    }
   }
 };
 
@@ -507,8 +523,9 @@ const sweep = (pool: SweepPool, now: Date): void => {
 const sweeps = (job: CloudPullJob): boolean => job.kind === "rota";
 
 /** The sweep alone, for a refresh with nothing to pull: the pool as the copy holds it. */
-const sweepOnly = async (now: Date): Promise<Filed> => {
-  sweep({ ageGroups: loadAgeGroups(), teams: loadScoutTeams(), games: loadScoutGames() }, now);
+const sweepOnly = async (now: Date, league: LeagueRead): Promise<Filed> => {
+  const pool = { ageGroups: loadAgeGroups(), teams: loadScoutTeams(), games: loadScoutGames() };
+  sweep(pool, now, sparedByTidy(pool, await league()));
   if (!(await flushPoolWrites())) throw new Error("The store in memory refused the sweep's marks.");
   return { outcomes: [] };
 };
@@ -697,7 +714,7 @@ const fileScheduleSource = async (
   const lists = settleRunLists(outcomes, now.toISOString(), invalidIds);
   if (lists.invented.length > 0) saveDroppedClubs(forgetClubs(loadDroppedClubs(), lists.invented));
   // On the pool as tidied, so a club the tidy folded or settled is judged as it now stands.
-  if (sweeps(job)) sweep(filed, now);
+  if (sweeps(job)) sweep(filed, now, sparedByTidy(filed, seasons));
   // Marked only when every team due was asked about: a run stopped half way has not refreshed them.
   if (mark && complete) saveRefreshLog(withRefreshed(loadRefreshLog(), mark, now));
   if (!(await flushPoolWrites())) throw new Error("The store in memory refused the pull's pool.");

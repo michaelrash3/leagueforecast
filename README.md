@@ -3062,14 +3062,15 @@ signs and nothing keeps it:
   the rules read 300, those ten fewer and 61 more. It is marked by GameChanger team, so a club with
   one such team among others stands. Since the tidy now deletes a pulled club every one of whose
   names says it is no team, N mostly marks what the tidy leaves: one such team among others.
-- **A lopsided game** (H): its own schedule reports a game it won or lost by 50 runs or more
+- **A lopsided game** (H): its own schedule reports a game it won or lost by 40 runs or more
   (`LOPSIDED_MARGIN`) that nobody has vouched for. The user's rule of 21 October
   2026 set it at 100, "if they win by 100 or more, automatically delete the team that is reporting
   a lopsided game like that"; on 26 October they moved it to 50, with the wins from 30 put to them
-  in Pool health instead (above). On the cloud copy of that day (the 2027 squad year, 386,146
-  games), 50 takes off 14 more clubs than the marks already standing, where 40 would have taken
-  35, 75 one and 100 none. At 50, H marks every club B would and most A would, whatever real
-  opponents list, so A and B now mostly say why a club went rather than decide whether it does. Only a side
+  in Pool health instead (above), and on 27 October to 40: "40+ run win or loss should equate to
+  auto deletion", "of the entire team, because they are clearly fake". On the cloud copy of 26
+  October (the 2027 squad year, 386,146 games), 50 took off 14 more clubs than the marks already
+  standing, where 40 would have taken 35, 75 one and 100 none. At 40, H marks every club A or B
+  would, whatever real opponents list, so A and B now only say why a club went. Only a side
   whose own schedule scored the game is charged, the loser as much as the winner, so a club named
   by another's made-up score stays, and a game no pulled club's schedule scored charges nobody.
   The owner put it that way themselves on 26 October, "won or lost by 50 or more", and chose to
@@ -3077,8 +3078,15 @@ signs and nothing keeps it:
   Each side is read at its own schedule's score, not the rating's average of the two: where the
   schedules disagree, 190-0 against 20-0, the average of 105 would charge the club that said 20,
   and 150-0 against 0-0 would average 75 and let off the club that said 150. It is a mark like
-  the others rather than a deletion, so a club taken by a score keyed wrong can be put back, and
-  **Delete for good** deletes the rest. Swept from no marks at the first line, 100, the pool of 26
+  the others, and then, unlike them, a deletion: where the sweep runs (the nightly, Refresh now,
+  and a pull on this device's own copy) every club it marks for H is deleted as **Delete club**
+  deletes one (`lopsidedDrops`), the club, every game it is in and its mark, its GameChanger ids
+  refused by later pulls. Never a club said to be real or one a League Standings team links (the
+  tidy's own spared set), and none at all on a night League could not be read; such a club stays
+  marked, under **Removed for you**, for **Put back on the boards** or **Delete for good**. A club
+  marked under another sign before takes H as well when its own schedule reports such a game, so
+  the deletion reaches a club marked for its wins while the line stood higher.
+  Swept from no marks at the first line, 100, the pool of 26
   September 2026 as today's tidy leaves it, before the user's own sweep of the 28th, had 24 games won by 100 or more
   (the widest 9,999), and H marks the 20 clubs whose own schedules scored one of them so, 6 of
   them showing no other sign (read at the average it was 19 and 5: one club's own schedule gave
@@ -3122,7 +3130,7 @@ September and 11 October did); C lifts once a real opponent's schedule lists eve
 club's dated after the mark, which is how a squad whose scores ran ahead of its games answers once
 it plays, and such a club no longer shows C, so it stays lifted; N lifts once neither the club's
 name nor its GameChanger team's has the word; H once no game of the club's own schedule reports a
-score by 50 or more, the game deleted, rescored or vouched for. Saying a club is real forgets its
+score by 40 or more, the game deleted, rescored or vouched for. Saying a club is real forgets its
 marks there and then, with the answer and in its Undo, rather than at the next sweep, so a club
 marked after the card was opened is back on the boards as it is said; a restored backup that says a
 club is real does the same.

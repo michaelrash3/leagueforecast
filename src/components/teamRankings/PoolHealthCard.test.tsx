@@ -470,9 +470,10 @@ describe("games won by thirty runs or more", () => {
     expect(rows()[1]).toHaveTextContent("Big Scores 40–0 Others");
     expect(rows()[2]).toHaveTextContent("Others 39–0 Victims");
     expect(section()).toHaveTextContent("9,999 at the most");
-    // The owner's word of 26 October 2026: a club goes for a game its own schedule lists, a loss too.
+    // The owner's word of 27 October 2026: a club is deleted for a game its own schedule lists, won
+    // or lost by 40 or more.
     expect(section()).toHaveTextContent(
-      "A club whose own schedule reports a game it won or lost by 50 or more is taken off without asking"
+      "A club whose own schedule reports a game it won or lost by 40 or more is deleted without asking"
     );
     // The Victims' 9,999-run loss is not a result, and the 39-0 and 29-0 losses are: 1-2.
     expect(await recordOf(user, "Victims")).toBe("1-2");
@@ -559,7 +560,7 @@ describe("the clubs removed for you", () => {
     expect(within(list).getByText("Demo Club")).toBeInTheDocument();
     expect(within(list).getByText("2026-10-11: named 'demo'")).toBeInTheDocument();
     expect(list.parentElement).toHaveTextContent(
-      "or a game it won or lost by 50 or more that its own schedule reports"
+      "A club whose own schedule reports a game it won or lost by 40 or more is not kept here but deleted outright"
     );
     expect(screen.queryByText(/clubs that may not be real/i)).toBeNull();
 
