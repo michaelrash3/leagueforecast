@@ -7,6 +7,7 @@ import {
   HALF_KINDS,
   nearScores,
   shiftDay,
+  strictPairs,
   tallyFunnel,
   testKnownPairs,
   type HalfCandidate,
@@ -450,6 +451,69 @@ describe("results a run or two apart, groups read in one pass", () => {
     expect(every).toMatchObject({ rows: 2, near: 1 });
     expect(owls).toMatchObject({ rows: 1, near: 1 });
     expect(none).toMatchObject({ rows: 0, near: 0 });
+  });
+});
+
+describe("the strictest pairing: the start, the result and the name together", () => {
+  const owls = (one: { namerId: string }) => one.namerId === "N";
+  const strict = (games: ScoutGame[], within: number, names: "shareWord" | "fit", teams = TEAMS) =>
+    strictPairs(teams, games, levelOf, within, names, [owls])[0]!;
+  const against = row("N", "N", "X", "2026-09-12", [5, 3]);
+
+  it("counts a row one club's row answers at its start, by the result and a word of the name", () => {
+    const games = [
+      against,
+      // "Flames" is a word of "Cincy Flames 10U"; the Bats' row at the start shares none.
+      row("C", "C", "N", "2026-09-12", [3, 5]),
+      row("E", "E", "Y", "2026-09-12", [3, 5]),
+      // The same a week on: by chance.
+      row("C", "C", "Y", "2026-09-19", [3, 5]),
+    ];
+    expect(strict(games, 1, "shareWord")).toEqual({
+      rows: 1,
+      one: 1,
+      several: 0,
+      decoyOne: 0.5,
+      decoySeveral: 0,
+      agreeing: 0,
+      split: 0,
+      agreeingRows: 0,
+    });
+  });
+
+  it("reads the result exactly, the start within its window, and a fit stricter than a word", () => {
+    const offByOne = [against, row("C", "C", "N", "2026-09-12", [3, 4])];
+    expect(strict(offByOne, 60, "shareWord")).toMatchObject({ one: 0 });
+    const later = [
+      against,
+      row("C", "C", "N", "2026-09-12", [3, 5], { startTs: "2026-09-12T14:30:00Z" }),
+    ];
+    expect(strict(later, 1, "shareWord")).toMatchObject({ one: 0 });
+    expect(strict(later, 60, "shareWord")).toMatchObject({ one: 1 });
+    // "Flames Blue" shares a word with "Cincy Flames 10U" but does not fit it.
+    const teams = TEAMS.map((team) => (team.id === "X" ? { ...team, name: "Flames Blue" } : team));
+    const both = [against, row("C", "C", "N", "2026-09-12", [3, 5])];
+    expect(strict(both, 1, "shareWord", teams)).toMatchObject({ one: 1 });
+    expect(strict(both, 1, "fit", teams)).toMatchObject({ one: 0 });
+  });
+
+  it("counts two rows passing as several, and a stand-in's rows answered by one club", () => {
+    const flamesToo = TEAMS.map((team) =>
+      team.id === "E" ? { ...team, name: "Flames Elite" } : team
+    );
+    const two = [
+      against,
+      row("C", "C", "N", "2026-09-12", [3, 5]),
+      row("E", "E", "Y", "2026-09-12", [3, 5]),
+    ];
+    expect(strict(two, 1, "shareWord", flamesToo)).toMatchObject({ one: 0, several: 1 });
+    const twice = [
+      against,
+      row("C", "C", "N", "2026-09-12", [3, 5]),
+      row("N", "N", "X", "2026-09-26", [7, 1]),
+      row("C", "C", "N", "2026-09-26", [1, 7]),
+    ];
+    expect(strict(twice, 1, "shareWord")).toMatchObject({ one: 2, agreeing: 1, agreeingRows: 2 });
   });
 });
 

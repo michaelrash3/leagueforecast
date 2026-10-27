@@ -654,3 +654,120 @@ export const nearScores = (
   }
   return tallies;
 };
+
+/**
+ * The strictest pairing the game and the name together allow, tried before anything is built on
+ * it: another club's own row at the row's start (within `withinMinutes`), the result mirrored
+ * exactly, at levels within two, whose club's name shares a word with the stand-in's
+ * (`nameFitWords`) or, stricter, fits it (`nameFitter`). Counted where exactly one row passes,
+ * beside the same a week either side at the same hour, and how many stand-ins have two rows or more
+ * so answered, all by the same club.
+ */
+export type StrictPairTally = {
+  rows: number;
+  /** Rows with exactly one row passing, and with two or more. */
+  one: number;
+  several: number;
+  /** The same a week either side, a week on average. */
+  decoyOne: number;
+  decoySeveral: number;
+  agreeing: number;
+  split: number;
+  agreeingRows: number;
+};
+
+export const strictPairs = (
+  teams: readonly ScoutTeam[],
+  games: readonly ScoutGame[],
+  levelOf: (ageGroupId: string) => number | undefined,
+  withinMinutes: number,
+  names: "shareWord" | "fit",
+  groups: ReadonlyArray<(row: { namerId: string; standInId: string }) => boolean> = [() => true],
+  decoyWeeks: readonly number[] = DECOY_WEEKS
+): StrictPairTally[] => {
+  const index = halfIndex(teams, games, levelOf);
+  const fits = nameFitter();
+  const wordsOf = new Map<string, ReadonlySet<string>>();
+  const words = (name: string) => {
+    const known = wordsOf.get(name);
+    if (known) return known;
+    const read = nameFitWords(name);
+    wordsOf.set(name, read);
+    return read;
+  };
+  const named = (standIn: string, club: string) => {
+    if (names === "fit") return fits(standIn, club);
+    const clubWords = words(club);
+    return [...words(standIn)].some((word) => clubWords.has(word));
+  };
+  const tallies = groups.map((): StrictPairTally => ({
+    rows: 0,
+    one: 0,
+    several: 0,
+    decoyOne: 0,
+    decoySeveral: 0,
+    agreeing: 0,
+    split: 0,
+    agreeingRows: 0,
+  }));
+  const settledOn = groups.map(() => new Map<string, string[]>());
+  const weeks = Math.max(1, decoyWeeks.length);
+  /** The clubs whose own rows at the row's start, moved by `week`, pass. */
+  const passing = (view: RowView, standInName: string, week: number): string[] => {
+    const day = index.byDay.get(shiftDay(view.date, week)!) ?? [];
+    const from = Date.parse(view.startTs!) + week * DAY_MS - withinMinutes * MINUTE_MS;
+    const to = from + 2 * withinMinutes * MINUTE_MS;
+    let low = 0;
+    let high = day.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (day[middle]!.at < from) low = middle + 1;
+      else high = middle;
+    }
+    const clubs: string[] = [];
+    for (let at = low; at < day.length && day[at]!.at <= to; at += 1) {
+      const other = day[at]!;
+      if (other.own !== view.opponent || other.opponent !== view.own) continue;
+      if (other.clubId === view.namerId || !index.kindOf(other, view.namerId)) continue;
+      if (view.level !== undefined && other.level !== undefined) {
+        if (Math.abs(view.level - other.level) > 2) continue;
+      }
+      const club = index.byId.get(other.clubId);
+      if (club && named(standInName, club.name)) clubs.push(other.clubId);
+    }
+    return clubs;
+  };
+  for (const row of index.against) {
+    const kept = groups.map((keep) => keep(row));
+    if (!kept.some(Boolean)) continue;
+    const view = viewOf(row, levelOf);
+    const standInName = index.byId.get(row.standInId)?.name ?? "";
+    const hasStart = Number.isFinite(Date.parse(view.startTs ?? ""));
+    const found = hasStart ? passing(view, standInName, 0) : [];
+    const decoys = hasStart ? decoyWeeks.map((week) => passing(view, standInName, week)) : [];
+    tallies.forEach((tally, at) => {
+      if (!kept[at]) return;
+      tally.rows += 1;
+      if (found.length === 1) {
+        tally.one += 1;
+        const clubs = settledOn[at]!.get(row.standInId) ?? [];
+        clubs.push(found[0]!);
+        settledOn[at]!.set(row.standInId, clubs);
+      } else if (found.length > 1) tally.several += 1;
+      decoys.forEach((decoy) => {
+        if (decoy.length === 1) tally.decoyOne += 1 / weeks;
+        else if (decoy.length > 1) tally.decoySeveral += 1 / weeks;
+      });
+    });
+  }
+  tallies.forEach((tally, at) =>
+    settledOn[at]!.forEach((clubs) => {
+      if (clubs.length < 2) return;
+      if (new Set(clubs).size === 1) {
+        tally.agreeing += 1;
+        tally.agreeingRows += clubs.length;
+      } else tally.split += 1;
+    })
+  );
+  return tallies;
+};

@@ -23,7 +23,9 @@
  * level; never the state), and the same a week either side for the rate each step settles on one by
  * chance; for every stand-in and for those with nothing of their name pulled (`standInReport`'s
  * "unmatched"); and the same funnel where the answer is known (`testKnownPairs`), for how often it
- * settles on the wrong club.
+ * settles on the wrong club; the strictest pairing, the start, the result and a word of the name
+ * together (`strictPairs`); and each page's own club's standing line read two ways, its share of
+ * the whole board and of the clubs whose web reaches the line (`rankLineCheck.ts`).
  *
  * Options: --year=2027 (the squad year), --today=DAY (the board's day; the members' day by
  * default), --top=25 (the stand-ins named, most games first), --public (numbers only),
@@ -88,6 +90,7 @@ import {
   HALF_KINDS,
   tallyFunnel,
   nearScores,
+  strictPairs,
   testKnownPairs,
   type FunnelTally,
   type KnownPairTally,
@@ -122,7 +125,9 @@ import {
   type ScoutGame,
   type ScoutTeam,
 } from "../src/lib/teamRankings.ts";
-import { ageGroupLevel } from "../src/lib/teamRankings/seasons.ts";
+import { ageGroupLevel, segmentOn } from "../src/lib/teamRankings/seasons.ts";
+import { rankLineCheck, topOf } from "../src/lib/rankLineCheck.ts";
+import { shiftDay } from "../src/lib/standInHalves.ts";
 import { openStores } from "./cloudPool.ts";
 import { poolFixture } from "./poolFixture.ts";
 import { readSweepFile, sweepTidy } from "./sweepTidy.ts";
@@ -727,6 +732,34 @@ const measureStandInHalves = (source: Source, year: number) => {
     describeNearScores('"unmatched"', unmatchedOnly!);
   }
 
+  // The strictest pairing: the start, the result exactly, and a word of the name, beside chance.
+  say(
+    `\n  The strictest pairing: another club's own row at the row's start, the result mirrored` +
+      ` exactly, levels within two, its club's name sharing a word with the stand-in's or fitting` +
+      ` it (${since()}):`
+  );
+  for (const [within, names, words] of [
+    [1, "shareWord", "to the minute, a word in common"],
+    [1, "fit", "to the minute, the names fitting"],
+    [60, "shareWord", "within the hour, a word in common"],
+  ] as const) {
+    const [every, unmatchedOnly] = strictPairs(known.teams, games, levelOf, within, names, [
+      () => true,
+      (row) => whyOf.get(row.standInId) === "unmatched",
+    ]);
+    for (const [label, tally] of [
+      ["every stand-in", every!],
+      ['"unmatched"', unmatchedOnly!],
+    ] as const) {
+      say(
+        `    ${words}, ${label}: one ${tally.one} of ${tally.rows} (${share(tally.one, tally.rows)};` +
+          ` by chance ${tally.decoyOne.toFixed(1)}), several ${tally.several} (by chance` +
+          ` ${tally.decoySeveral.toFixed(1)}); stand-ins answered twice or more by one club` +
+          ` ${tally.agreeing} (${tally.agreeingRows} rows), by two or more ${tally.split}`
+      );
+    }
+  }
+
   // The funnel where the answer is known: games both clubs' own schedules list, one side held out.
   say(
     `\n  The funnel where the answer is known: a game both clubs' schedules list, one club's row read` +
@@ -776,6 +809,73 @@ const measureStandInHalves = (source: Source, year: number) => {
       }),
     "Unmatched stand-ins the funnel settled on one club:"
   );
+
+  describeRankLines(source, year);
+};
+
+/**
+ * The owner's report of 27 October 2026, "my team is ass and the graph keeps going up": for each
+ * page's own club (`AgeGroup.myTeamId`), its standing week by week read two ways, its share of the
+ * whole board (the line the card draws) and its share of the clubs whose web reaches the line, and
+ * by rating alone, beside how many of the board are listed last for a short web
+ * (`rankLineCheck.ts`). Percentages and the board's counts in the log, the club's places sealed.
+ */
+const describeRankLines = (source: Source, year: number) => {
+  say(`\n${"=".repeat(78)}\nThe page's own club's standing line, read two ways\n${"=".repeat(78)}`);
+  const { segment } = segmentOn(source.today);
+  const halfStart = segment === "fall" ? `${year - 1}-08-01` : `${year}-01-01`;
+  const days: string[] = [];
+  for (let back = 0; ; back += 7) {
+    const day = shiftDay(source.today, -back)!;
+    if (day < halfStart) break;
+    days.unshift(day);
+  }
+  const known = deriveAllKnown({
+    ageGroups: source.ageGroups,
+    teams: source.teams,
+    yearGames: source.gamesOfYear(year),
+    readSeason: source.readSeason,
+    autoRemoved: source.autoRemoved,
+  });
+  const owned = source.ageGroups.filter(
+    (group) =>
+      ageGroupYear(group) === year && group.myTeamId && scoutFitRanks(group.id, source.ageGroups)
+  );
+  if (owned.length === 0) say("  No page of the year names its own club.");
+  owned.forEach((page, at) => {
+    const pool = asWorkerSees(
+      known.teams,
+      gamesOnPages(known.games, rankingPoolGroupIds(page.id, source.ageGroups))
+    );
+    const lines = rankLineCheck(
+      page.id,
+      page.myTeamId!,
+      pool.teams,
+      pool.games,
+      source.ageGroups,
+      segment,
+      days
+    );
+    say(`\n  Page ${at + 1} of ${owned.length} (${since()}):`);
+    lines.forEach((line) => {
+      const pct = (rank: number | undefined, of: number) =>
+        rank === undefined ? "-" : `top ${topOf(rank, of)}%`;
+      say(
+        `    ${line.asOf}: board ${line.of}, listed last ${line.listedLast}` +
+          ` (${share(line.listedLast, line.of)}); the club ${pct(line.rank, line.of)} of the board,` +
+          ` ${pct(line.provenRank, line.proven)} of the rest, ${pct(line.ratingRank, line.of)} by rating`
+      );
+    });
+    sayNamed(
+      lines.map(
+        (line) =>
+          `    ${line.asOf}: #${line.rank ?? "-"} of ${line.of}; #${line.provenRank ?? "-"} of` +
+          ` ${line.proven} reaching the line; #${line.ratingRank ?? "-"} by rating;` +
+          ` rating ${line.rating === undefined ? "-" : line.rating.toFixed(2)}`
+      ),
+      `Page ${at + 1}'s own club, week by week:`
+    );
+  });
 };
 
 /* -------------------------------------------------------------------------------------- run */
