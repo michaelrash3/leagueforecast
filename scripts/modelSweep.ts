@@ -72,8 +72,8 @@ import { standInReport, type StandInReport, type StandInWhy } from "../src/lib/s
 import {
   filedByName,
   leaningOf,
+  readingWrongShare,
   readRules,
-  wrongShare,
   type Leaning,
   type NearCount,
   type RuleReading,
@@ -133,7 +133,12 @@ type Source = {
 
 const NO_SEASON: LeagueSeasonData = { teams: [], matchups: [], logs: {} };
 
-const fromBackup = (path: string): Source => {
+/**
+ * A backup, put through the app's own tidy first (`sweepTidy`) unless `tidied` is false: the
+ * stand-in rule's readings each tidy the pool themselves, and one already tidied under the rules as
+ * shipped leaves no reading anything to compare (Codex on #471).
+ */
+const fromBackup = (path: string, tidied = true): Source => {
   const file = readSweepFile(readFileSync(path, "utf8"));
   if (!file) {
     throw new Error(
@@ -142,9 +147,13 @@ const fromBackup = (path: string): Source => {
     );
   }
   const { pool, seasons } = file;
-  const tidy = sweepTidy(pool, seasons);
-  describeTidy(tidy).forEach((note) => console.log(`  tidy: ${note}`));
-  const { ageGroups, teams, games } = tidy.state;
+  let read: GcImportState = { ageGroups: pool.ageGroups, teams: pool.teams, games: pool.games };
+  if (tidied) {
+    const tidy = sweepTidy(pool, seasons);
+    describeTidy(tidy).forEach((note) => console.log(`  tidy: ${note}`));
+    read = tidy.state;
+  }
+  const { ageGroups, teams, games } = read;
   const yearOf = new Map(ageGroups.map((group) => [group.id, ageGroupYear(group)]));
   return {
     label: `the backup ${path}`,
@@ -459,9 +468,11 @@ const describeReading = (reading: RuleReading, right: NearCount, why: string) =>
   say(
     `      between neighbours: ${nearShare(reading.moved)}; their decoys: ${nearShare(reading.decoy)}`
   );
-  const wrong = wrongShare(reading.moved, reading.decoy, right);
+  const wrong = readingWrongShare(reading, right);
   say(
-    `      the share wrong, read between: ${wrong === null ? "-" : `${(100 * wrong).toFixed(1)}%`}`
+    reading.selectedOnNeighbours
+      ? "      the share wrong: not read, the rule chose these rows for being neighbours"
+      : `      the share wrong, read between: ${wrong === null ? "-" : `${(100 * wrong).toFixed(1)}%`}`
   );
   sayNamed(
     reading.sample.map(
@@ -527,7 +538,11 @@ const main = async (): Promise<void> => {
     process.exitCode = 1;
     return;
   }
-  const source = path ? fromBackup(path) : has("cloud") ? await fromCloud() : fromFixture();
+  const source = path
+    ? fromBackup(path, !has("stand-in-rules"))
+    : has("cloud")
+      ? await fromCloud()
+      : fromFixture();
   const year = Number(flag("year") || 2027);
   say(`Model sweep on ${source.label}, squad year ${year}, the board's day ${source.today}.`);
   say(

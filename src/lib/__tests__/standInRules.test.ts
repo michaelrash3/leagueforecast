@@ -6,7 +6,7 @@ import {
   type GcImportState,
   type TidyRules,
 } from "../gameChangerImport";
-import { filedByName, leaningOf, readRules, wrongShare } from "../standInRules";
+import { filedByName, leaningOf, readingWrongShare, readRules, wrongShare } from "../standInRules";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 
 /*
@@ -127,6 +127,20 @@ describe("the stand-in rule's measurement", () => {
     expect(shipped.moved).toEqual({ rows: 2, near: 2 });
     expect(shipped.after.withStandIn).toBe(3);
     expect(shipped.after.standIns).toBe(2);
+  });
+
+  it("reads no wrong share for a rule that chose its rows for being neighbours", () => {
+    // Codex on #471: the rule as it ships files a row only where the clubs are neighbours, so its
+    // rows are neighbours every time, and the share read from that rate would say none are wrong.
+    const right = { rows: 10, near: 8 };
+    const shipped = readRules(pool, 2027, "shipped", SHIPPED_TIDY_RULES, tidy);
+    expect(shipped.selectedOnNeighbours).toBe(true);
+    expect(wrongShare(shipped.moved, { rows: 10, near: 1 }, right)).toBe(0);
+    expect(readingWrongShare({ ...shipped, decoy: { rows: 10, near: 1 } }, right)).toBeNull();
+    const nameAlone = readRules(pool, 2027, "inState", inState, tidy);
+    expect(nameAlone.selectedOnNeighbours).toBe(false);
+    const decoys = { ...nameAlone, decoy: { rows: 2, near: 1 } };
+    expect(readingWrongShare(decoys, right)).toBe(wrongShare(decoys.moved, decoys.decoy, right));
   });
 
   it("reads the wrong share between the right rows' rate and the decoys'", () => {

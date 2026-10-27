@@ -102,6 +102,11 @@ export type RuleReading = {
   decoy: NearCount;
   /** A sample of the moved rows, namer, the name, and the club it was filed onto. */
   sample: { namer: string; name: string; club: string; state: string }[];
+  /**
+   * Whether the rule chose its rows for being neighbours (`InStateRule.vouched`): then they are
+   * neighbours by construction, and their rate says nothing of how many are right.
+   */
+  selectedOnNeighbours: boolean;
   seconds: number;
 };
 
@@ -148,6 +153,16 @@ export const wrongShare = (moved: NearCount, decoy: NearCount, right: NearCount)
   if (r - d <= 0) return null;
   return Math.min(1, Math.max(0, (r - o) / (r - d)));
 };
+
+/**
+ * A reading's wrong share (`wrongShare`), or null where the rule chose its rows on the very measure
+ * the share is read from (Codex on #471): rows a rule files only where the clubs are neighbours are
+ * neighbours every time, which read as none wrong whatever they are. The bound for such a rule is
+ * read off the reading without the test instead: the decoys' rate times its wrong share, over its
+ * rate.
+ */
+export const readingWrongShare = (reading: RuleReading, right: NearCount): number | null =>
+  reading.selectedOnNeighbours ? null : wrongShare(reading.moved, reading.decoy, right);
 
 /** A string's hash, to pick a decoy the same way every run. */
 const hashOf = (text: string): number => {
@@ -244,6 +259,7 @@ export const readRules = (
     moved,
     decoy,
     sample,
+    selectedOnNeighbours: rules.inState?.vouched === true,
     seconds: (now() - started) / 1000,
   };
 };
