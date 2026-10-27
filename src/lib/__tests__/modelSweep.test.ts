@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { chanceAt, MODEL_VARIANTS, runModelSweep } from "../modelSweep";
 import {
   fitScoutYear,
+  MATCHUP_MARGIN_CAP,
   predictMatchup,
+  RATING_CAP,
   scoutRatingGames,
   type AgeGroup,
   type ScoutGame,
@@ -123,6 +125,56 @@ describe("the research sweep of the shipped model", () => {
     const plain = fitScoutYear(2027, teams, games, trained, groups);
     const tuned = fitScoutYear(2027, teams, games, trained, groups, {});
     expect([...tuned.adjusted.ratings]).toEqual([...plain.adjusted.ratings]);
+  });
+
+  it("scores the margin a board states, held to the matchup's cap, not the ratings' whole gap", () => {
+    // A ladder: each club beats the next by twelve, four times in August, so the top and bottom
+    // are rated far more than the 14 runs a matchup is stated to apart. Their later games, won by
+    // 20 and so read as 12, are scored on the 14 a board says, either way round: 2 runs out each.
+    const ladder: ScoutTeam[] = Array.from({ length: 6 }, (_, at) => ({
+      id: `L-${at}`,
+      name: `Rung ${at}`,
+    }));
+    const climbs: ScoutGame[] = ladder.slice(1).flatMap((_, at) =>
+      [0, 1, 2, 3].map((round) => ({
+        id: `c${at}-${round}`,
+        ageGroupId: PAGE,
+        teamAId: `L-${at}`,
+        teamBId: `L-${at + 1}`,
+        teamAScore: 14,
+        teamBScore: 2,
+        date: `2026-08-${String(10 + round * 4 + at).padStart(2, "0")}`,
+      }))
+    );
+    const top: ScoutGame = {
+      id: "top",
+      ageGroupId: PAGE,
+      teamAId: "L-0",
+      teamBId: "L-5",
+      teamAScore: 20,
+      teamBScore: 0,
+      date: "2026-09-30",
+    };
+    const bottomFirst: ScoutGame = {
+      id: "bottom",
+      ageGroupId: PAGE,
+      teamAId: "L-5",
+      teamBId: "L-0",
+      teamAScore: 0,
+      teamBScore: 20,
+      date: "2026-10-02",
+    };
+    const wide = runModelSweep({
+      ageGroups: groups,
+      teams: ladder,
+      games: [...climbs, top, bottomFirst],
+      year: 2027,
+      today: "2026-10-31",
+      cuts: ["2026-09-01"],
+      variants: [MODEL_VARIANTS[0]!],
+    });
+    expect(wide.games).toBe(2);
+    expect(wide.variants[0]!.squared).toBe((MATCHUP_MARGIN_CAP - RATING_CAP) ** 2);
   });
 
   it("bands the favourite's chance and how often it won, every decided game in one band", () => {

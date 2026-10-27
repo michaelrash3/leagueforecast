@@ -3923,10 +3923,11 @@ counted level and the recency weights were measured: the squad year is fitted as
 have been on 1, 8 and 15 September, and every later game between two clubs that fit rated, from
 23 September to the board's day, is scored on the ratings the board showed
 (`src/lib/modelSweep.ts`). It reads the shipped model's log loss and Brier score on the decided
-games, the squared error of its margin on all of them, and its calibration: the favourite's
-chance in bands of five points beside how often the favourite won. Beside the shipped model it
-fits each setting moved on its own, either way, and reads each against it game by game, with a
-standard error that reads a club's games together (`pairedImprovement`):
+games, the squared error of its margin on all of them (the margin a board states, held to 14
+runs), and its calibration: the favourite's chance in bands of five points beside how often the
+favourite won. Beside the shipped model it fits each setting moved on its own, either way, and
+reads each against it game by game, with a standard error that reads a club's games together
+(`pairedImprovement`):
 
 - the ridge's pull toward a club's starting level at half, three quarters, half again and twice
   `DEFAULT_SHRINKAGE`;

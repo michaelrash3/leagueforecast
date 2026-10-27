@@ -88,7 +88,11 @@ export const chanceAt = (
   return clamp(1 / (1 + Math.exp(-margin / matchupOddsSpread(ageLevel))), floor, 1 - floor);
 };
 
-/** A game's shown margin and the first club's chance on a fit, as a board's matchup reads them. */
+/**
+ * A game's stated margin and the first club's chance on a fit, as a board's matchup reads them: the
+ * margin held to `MATCHUP_MARGIN_CAP` either way, as `predictMatchup` states it, so a gap between
+ * two ratings wider than any board would say is not scored as if it had been said.
+ */
 const predicted = (fit: ScoutYearFit, game: ScoutGame, ageGap: number, floor?: number) => {
   const shown = (id: string) =>
     fit.confident(fit.adjusted.ratings.get(id) ?? 0, fit.effective.get(id) ?? 0);
@@ -96,7 +100,10 @@ const predicted = (fit: ScoutYearFit, game: ScoutGame, ageGap: number, floor?: n
   const b = shown(game.teamBId);
   const gapRuns = ageGap * fit.adjusted.ageGapRuns;
   const level = fit.homeLevels.get(game.teamAId) ?? fit.homeLevels.get(game.teamBId);
-  return { margin: a - b + gapRuns, win: chanceAt(a + gapRuns, b, level, floor) };
+  return {
+    margin: clamp(a - b + gapRuns, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP),
+    win: chanceAt(a + gapRuns, b, level, floor),
+  };
 };
 
 /** One band of the shipped model's calibration: games whose favourite it gave this much. */
@@ -115,7 +122,10 @@ export type VariantReading = {
   /** Over the decided games: mean log loss and Brier score of the first club's chance. */
   logLoss: number;
   brier: number;
-  /** Over every scored game: the squared error of the margin, the result capped at `RATING_CAP`. */
+  /**
+   * Over every scored game: the squared error of the margin as a board states it (held to
+   * `MATCHUP_MARGIN_CAP`), the result capped at `RATING_CAP`.
+   */
   squared: number;
   /** Lower than the shipped model's, game by game, with a standard error by club; null for it. */
   vsShipped: {
