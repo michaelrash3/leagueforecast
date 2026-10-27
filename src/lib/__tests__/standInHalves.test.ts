@@ -169,8 +169,9 @@ describe("the other half of a game against a stand-in", () => {
     );
     const [back, on] = search.rows[0]!.decoys;
     expect(search.rows[0]!.found.left[0]).toBe(0);
-    expect(back!.left).toEqual([1, 1, 1, 1, 0, 0]);
-    expect(on!.left).toEqual([2, 1, 1, 1, 1, 1]);
+    expect(back!.left).toEqual([1, 1, 1, 0, 0]);
+    // The Hawks in Arizona are as near as the Flames until the clock: no step reads the state.
+    expect(on!.left).toEqual([2, 2, 2, 1, 1]);
     expect(on!.furthest!.clubId).toBe("C");
   });
 });
@@ -191,20 +192,27 @@ describe("the funnel", () => {
   it("settles on the one left at the first step that leaves one", () => {
     const near = candidate({ clubId: "near", levelGap: 1, minutesApart: 30 });
     const dayOff = candidate({ clubId: "dayOff", daysApart: 1, minutesApart: 1440 });
-    const far = candidate({ clubId: "far", inRegion: false });
-    const through = funnel([far, dayOff, near], HALF_FUNNEL);
-    expect(through.left).toEqual([3, 2, 2, 1, 1, 0]);
-    expect(funnelEnd(through)).toEqual({ settled: 3, one: near });
+    const upLevels = candidate({ clubId: "upLevels", levelGap: 3 });
+    const through = funnel([upLevels, dayOff, near], HALF_FUNNEL);
+    expect(through.left).toEqual([3, 2, 1, 1, 0]);
+    expect(funnelEnd(through)).toEqual({ settled: 2, one: near });
+  });
+
+  it("reads no state: a club from far away stays as long as one next door", () => {
+    const away = candidate({ clubId: "away", inRegion: false });
+    expect(funnel([away], HALF_FUNNEL).left).toEqual([1, 1, 1, 1, 1]);
+    const next = candidate({ clubId: "next" });
+    expect(funnelEnd(funnel([away, next], HALF_FUNNEL))).toEqual({ several: true });
   });
 
   it("keeps a row's only candidate whatever a later step would say of it", () => {
-    const only = candidate({ inRegion: false, levelGap: 5, daysApart: 1 });
+    const only = candidate({ levelGap: 5, daysApart: 1 });
     expect(funnelEnd(funnel([only], HALF_FUNNEL))).toEqual({ settled: 0, one: only });
   });
 
   it("is emptied by a step that leaves none of several, and several where every step leaves two", () => {
-    const away = candidate({ inRegion: false });
-    expect(funnelEnd(funnel([away, away], HALF_FUNNEL))).toEqual({ emptied: 1 });
+    const upLevels = candidate({ levelGap: 4 });
+    expect(funnelEnd(funnel([upLevels, upLevels], HALF_FUNNEL))).toEqual({ emptied: 1 });
     const twin = candidate({});
     expect(funnelEnd(funnel([twin, twin], HALF_FUNNEL))).toEqual({ several: true });
     expect(funnelEnd(funnel([], HALF_FUNNEL))).toEqual({ emptied: 0 });
@@ -224,10 +232,10 @@ describe("the funnel", () => {
 describe("the tally", () => {
   it("says where the rows settled beside where the weeks either side did, and on what", () => {
     const games = [
-      // Settled at the namer's region: the Flames next door, the Hawks away.
+      // Settled at the clock: the Flames at the row's start, the Hawks four hours on.
       row("N", "N", "X", "2026-09-12", [5, 3]),
       row("C", "C", "N", "2026-09-12", [3, 5]),
-      row("D", "D", "N", "2026-09-12", [3, 5]),
+      row("D", "D", "N", "2026-09-12", [3, 5], { startTs: "2026-09-12T18:00:00Z" }),
       // Settled on the Flames again, a day off: the only candidate.
       row("N", "N", "X", "2026-09-19", [1, 0]),
       row("C", "C", "N", "2026-09-20", [0, 1]),
@@ -243,8 +251,8 @@ describe("the tally", () => {
     const tally = tallyFunnel(search, TEAMS);
     expect(tally).toEqual({
       rows: 4,
-      settled: [1, 1, 0, 0, 0, 0],
-      decoySettled: [0.5, 0, 0, 0, 0, 0],
+      settled: [1, 0, 0, 1, 0],
+      decoySettled: [0.5, 0, 0, 0, 0],
       emptied: 1,
       several: 1,
       decoyEmptied: 3.5,
@@ -253,6 +261,8 @@ describe("the tally", () => {
       namesFit: 2,
       shareWord: 2,
       samePage: 2,
+      // The Flames in Ohio, next to Kentucky: said, though no step reads it.
+      inRegion: 2,
       agreeing: 1,
       split: 0,
       agreeingRows: 2,
@@ -271,7 +281,13 @@ describe("the tally", () => {
       row("C", "C", "N", "2026-09-19", [1, 4]),
     ];
     const tally = tallyFunnel(findHalves(TEAMS, games, levelOf), TEAMS);
-    expect(tally).toMatchObject({ agreeing: 0, split: 1, agreeingRows: 0, namesFit: 1 });
+    expect(tally).toMatchObject({
+      agreeing: 0,
+      split: 1,
+      agreeingRows: 0,
+      namesFit: 1,
+      inRegion: 1,
+    });
   });
 });
 
@@ -292,16 +308,16 @@ describe("the funnel where the answer is known", () => {
       ],
       ...more,
     });
-  // The Hawks' row against a stand-in, the same result: away. The Bats': in the region.
-  const hawks = row("D", "D", "Y", "2026-09-12", [3, 5]);
+  // The Hawks' row against a stand-in, the same result, four hours on. The Bats', at 2 PM.
+  const hawks = row("D", "D", "Y", "2026-09-12", [3, 5], { startTs: "2026-09-12T18:00:00Z" });
   const bats = row("E", "E", "Y", "2026-09-12", [3, 5]);
 
   it("settles on the club whose own schedule lists the game, its row held out and put back", () => {
     expect(testKnownPairs(TEAMS, [pair("C", {}), hawks], levelOf)).toEqual({
       pairs: 1,
       notMirrored: 0,
-      right: [0, 1, 0, 0, 0, 0],
-      wrong: [0, 0, 0, 0, 0, 0],
+      right: [0, 0, 0, 1, 0],
+      wrong: [0, 0, 0, 0, 0],
       emptied: 0,
       several: 0,
     });
@@ -310,8 +326,8 @@ describe("the funnel where the answer is known", () => {
   it("is wrong where its own row was dated a day off and another club's was not", () => {
     const off = pair("C", { date: "2026-09-13", startTs: "2026-09-13T14:00:00Z" });
     expect(testKnownPairs(TEAMS, [off, bats], levelOf)).toMatchObject({
-      right: [0, 0, 0, 0, 0, 0],
-      wrong: [0, 0, 0, 1, 0, 0],
+      right: [0, 0, 0, 0, 0],
+      wrong: [0, 0, 1, 0, 0],
     });
   });
 
@@ -324,7 +340,7 @@ describe("the funnel where the answer is known", () => {
     );
     const sameStart = pair("C", { startTs: "2026-09-12T14:00:00Z" });
     expect(testKnownPairs(teams, [sameStart, bats], levelOf)).toMatchObject({
-      wrong: [0, 0, 0, 0, 0, 1],
+      wrong: [0, 0, 0, 0, 1],
     });
     expect(testKnownPairs(TEAMS, [sameStart, bats], levelOf)).toMatchObject({ several: 1 });
   });
@@ -339,10 +355,10 @@ describe("the funnel where the answer is known", () => {
       testKnownPairs(TEAMS, [claimed, plain], levelOf, HALF_FUNNEL, (one) =>
         Boolean(one.filedAgainst)
       )
-    ).toMatchObject({ pairs: 1, right: [1, 0, 0, 0, 0, 0] });
+    ).toMatchObject({ pairs: 1, right: [1, 0, 0, 0, 0] });
     expect(testKnownPairs(TEAMS, [claimed, plain], levelOf)).toMatchObject({
       pairs: 2,
-      right: [2, 0, 0, 0, 0, 0],
+      right: [2, 0, 0, 0, 0],
     });
   });
 });
@@ -357,9 +373,9 @@ describe("results a run or two apart at the same start", () => {
         against,
         // The Flames at the same start, 3-4 from their seat: the Owls' 5 read as 4, one run off.
         row("C", "C", "N", "2026-09-12", [3, 4]),
-        // The Bats at 4 PM, and the Hawks away, both mirrored exactly: neither read.
+        // The Bats at 4 PM and the Hawks at 4:30, both mirrored exactly: not at the row's start.
         row("E", "E", "Y", "2026-09-12", [3, 5], { startTs: "2026-09-12T16:00:00Z" }),
-        row("D", "D", "Y", "2026-09-12", [3, 5]),
+        row("D", "D", "Y", "2026-09-12", [3, 5], { startTs: "2026-09-12T16:30:00Z" }),
         // A week on at the same hour, one off: the chance rate.
         row("E", "E", "Y", "2026-09-19", [3, 6]),
       ],
@@ -403,6 +419,8 @@ describe("results a run or two apart at the same start", () => {
       noStart: 1,
       near: 0,
     });
+    // A club from Arizona at the row's start is read like one next door.
+    expect(read([against, row("D", "D", "N", "2026-09-12", [3, 4])])).toMatchObject({ near: 1 });
     // Another squad four levels up is not read.
     expect(
       read([against, row("C", "C", "N", "2026-09-12", [3, 4], { ageGroupId: "ag_14u_2027" })])

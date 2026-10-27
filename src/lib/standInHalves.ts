@@ -50,7 +50,7 @@ export type HalfCandidate = {
   daysApart: number;
   /** Minutes between their starts, the same; undefined where either has none. */
   minutesApart?: number;
-  /** The namer and the club in one state or two that share a border (`inOneRegion`). */
+  /** The namer and the club in one state or two that share a border (`inOneRegion`): said, not a step. */
   inRegion: boolean;
   /** Levels between the two rows' pages; undefined where either page has none. */
   levelGap?: number;
@@ -60,16 +60,16 @@ export type HalfCandidate = {
 export type HalfStep = { key: string; keeps: (candidate: HalfCandidate) => boolean };
 
 /**
- * The funnel, the widest step first and each narrowing the one before. Levels rather than the row's
- * own page, since in the fall a club often plays up and files the game under its own level, not the
- * namer's (the owner, 27 October 2026); within two, as the import reads a squad playing up
- * (`PLAYS_UP_TO`: 99.845% of the pool's games had their two sides within two). The same level comes
- * last, to settle what the clock could not. A page with no level is no disagreement; a row with no
- * start fails the step that compares starts.
+ * The funnel, the widest step first and each narrowing the one before. No step reads the two clubs'
+ * states: a Kentucky club plays Michigan's all the time, and Michigan does not border it (the owner,
+ * 27 October 2026). Levels rather than the row's own page, since in the fall a club often plays up
+ * and files the game under its own level, not the namer's (the owner, the same day); within two, as
+ * the import reads a squad playing up (`PLAYS_UP_TO`: 99.845% of the pool's games had their two
+ * sides within two). The same level comes last, to settle what the clock could not. A page with no
+ * level is no disagreement; a row with no start fails the step that compares starts.
  */
 export const HALF_FUNNEL: readonly HalfStep[] = [
   { key: "the year, a day either side", keeps: () => true },
-  { key: "the namer's region", keeps: (one) => one.inRegion },
   { key: "levels within two", keeps: (one) => one.levelGap === undefined || one.levelGap <= 2 },
   { key: "the same day", keeps: (one) => one.daysApart === 0 },
   {
@@ -161,14 +161,8 @@ export const funnelEnd = ({ left, furthest }: Funnelled): FunnelEnd => {
 
 /** One pulled club's own row of a game, keyed by its day and its result from that club's seat. */
 type OwnRow = { game: ScoutGame; clubId: string; opponentId: string; settled: boolean };
-/** An own row with its result from its own seat, its start as an instant, its club's state, its level. */
-type StartedRow = OwnRow & {
-  own: number;
-  opponent: number;
-  at: number;
-  state: string | undefined;
-  level?: number;
-};
+/** An own row with its result from its own seat, its start as an instant, and its level. */
+type StartedRow = OwnRow & { own: number; opponent: number; at: number; level?: number };
 type RowAgainst = { game: ScoutGame; namerId: string; standInId: string };
 
 /** A row as its own club's schedule gave it: its day, its start, its result from that seat, its level. */
@@ -254,7 +248,6 @@ const halfIndex = (
         own: seen.own,
         opponent: seen.opponent,
         at,
-        state: byId.get(side)?.state,
         ...(level === undefined ? {} : { level }),
       };
       if (day) day.push(started);
@@ -460,6 +453,8 @@ export type FunnelTally = {
   shareWord: number;
   /** Filed on the same page as the row against the stand-in. */
   samePage: number;
+  /** The two clubs in one state or two that share a border, said though no step reads it. */
+  inRegion: number;
   /**
    * Stand-ins with two rows or more settled: all on the same club, or not; and the rows of the
    * agreeing ones, which a rule of two games agreeing would file.
@@ -490,6 +485,7 @@ export const tallyFunnel = (
     namesFit: 0,
     shareWord: 0,
     samePage: 0,
+    inRegion: 0,
     agreeing: 0,
     split: 0,
     agreeingRows: 0,
@@ -516,6 +512,7 @@ export const tallyFunnel = (
     tally.settled[end.settled]! += 1;
     tally.kinds[end.one.kind] += 1;
     if (end.one.game.ageGroupId === row.game.ageGroupId) tally.samePage += 1;
+    if (end.one.inRegion) tally.inRegion += 1;
     const standIn = byId.get(row.standInId);
     const club = byId.get(end.one.clubId);
     if (standIn && club) {
@@ -540,9 +537,9 @@ export const tallyFunnel = (
 /**
  * The owner's question of 27 October 2026: of the rows against a stand-in, how many have another
  * club's own row at the same date and start whose result is off by a run or two rather than
- * mirrored, as two scorekeepers' books of one game can be. Read within the namer's region and levels
- * within two, the start to the minute (`sameStart`) or within the hour, beside the same a week
- * either side at the same hour for the rate it happens by chance.
+ * mirrored, as two scorekeepers' books of one game can be. Read at levels within two, anywhere in the
+ * country (a club travels further than the next state), the start to the minute or within the hour,
+ * beside the same a week either side at the same hour for the rate it happens by chance.
  */
 export type NearScoreTally = {
   rows: number;
@@ -595,7 +592,6 @@ export const nearScores = (
     const day = index.byDay.get(shiftDay(view.date, week)!) ?? [];
     const from = Date.parse(view.startTs!) + week * DAY_MS - withinMinutes * MINUTE_MS;
     const to = from + 2 * withinMinutes * MINUTE_MS;
-    const namerState = index.byId.get(view.namerId)?.state;
     // The first row starting at `from` or later, by halves: a day can hold thousands.
     let low = 0;
     let high = day.length;
@@ -611,7 +607,6 @@ export const nearScores = (
       const off = Math.abs(other.own - view.opponent) + Math.abs(other.opponent - view.own);
       if (off > 2 && out.far) continue;
       if (other.clubId === view.namerId || !index.kindOf(other, view.namerId)) continue;
-      if (!inOneRegion(namerState, other.state)) continue;
       if (view.level !== undefined && other.level !== undefined) {
         if (Math.abs(view.level - other.level) > 2) continue;
       }

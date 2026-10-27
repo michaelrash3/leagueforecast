@@ -19,8 +19,8 @@
  * With --stand-in-halves it measures where the other half of each played game against a stand-in is,
  * if anywhere (`src/lib/standInHalves.ts`): another pulled club's own row a day either side with the
  * result mirrored, filed against the namer, against a stand-in or slot, or against a third club,
- * narrowed a step at a time until one is left (`HALF_FUNNEL`: the region, the levels, the day, the
- * start, the level), and the same a week either side for the rate each step settles on one by
+ * narrowed a step at a time until one is left (`HALF_FUNNEL`: the levels, the day, the start, the
+ * level; never the state), and the same a week either side for the rate each step settles on one by
  * chance; for every stand-in and for those with nothing of their name pulled (`standInReport`'s
  * "unmatched"); and the same funnel where the answer is known (`testKnownPairs`), for how often it
  * settles on the wrong club.
@@ -607,7 +607,8 @@ const describeFunnel = (label: string, tally: FunnelTally) => {
   say(
     `    the ${settled} settled: ` +
       HALF_KINDS.map((kind) => `${KIND_WORDS[kind]} ${tally.kinds[kind]}`).join(", ") +
-      `; the same page ${tally.samePage}; names fit ${tally.namesFit}, share a word ${tally.shareWord}`
+      `; the same page ${tally.samePage}; the same or a bordering state ${tally.inRegion};` +
+      ` names fit ${tally.namesFit}, share a word ${tally.shareWord}`
   );
   say(
     `    stand-ins with two rows or more settled: on one club ${tally.agreeing}` +
@@ -682,6 +683,11 @@ const measureStandInHalves = (source: Source, year: number) => {
   const report = standInReport(known.teams, games, source.ageGroups, year, Number.MAX_SAFE_INTEGER);
   const whyOf = new Map(report.top.map((club) => [club.teamId, club.why]));
   say(
+    `  The year's games: ${report.games}; with a stand-in or slot on a side: ${report.withStandIn}` +
+      ` (${share(report.withStandIn, report.games)}). Played: ${report.played}; with one:` +
+      ` ${report.playedWithStandIn} (${share(report.playedWithStandIn, report.played)}).`
+  );
+  say(
     `  Clubs known only by name: ${report.nameOnly}; with nothing of the name pulled ("unmatched"):` +
       ` ${report.why.unmatched.clubs}, holding ${report.why.unmatched.games} games.`
   );
@@ -705,7 +711,7 @@ const measureStandInHalves = (source: Source, year: number) => {
 
   // The owner's question: the same date and start, the result a run or two off.
   say(
-    `\n  Another club's own row at the same date and start (the namer's region, levels within two),` +
+    `\n  Another club's own row at the same date and start (levels within two, any state),` +
       ` its result mirrored or off by a run or two (${since()}):`
   );
   for (const [within, words] of [
