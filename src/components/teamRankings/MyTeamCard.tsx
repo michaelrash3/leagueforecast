@@ -4,6 +4,7 @@ import { formatRating, MovementMark } from "./RankingList";
 import { card } from "../../styles/tokens";
 import type { RankHistoryPoint } from "../../hooks/useRankingsWorker";
 import type { ExpectedRecord } from "../../lib/clubForm";
+import { topShare } from "../../lib/standing";
 
 type MyTeamCardProps = {
   glance: MyTeamGlance;
@@ -68,14 +69,6 @@ const shortDay = (day: string): string => formatIsoDayShort(day);
 
 const LINE_WIDTH = 168;
 const LINE_HEIGHT = 36;
-
-/**
- * Where a place stands among the clubs on its board, as the share at or above it: #1 of 200 is the
- * top 1%, #2,737 of 7,126 the top 39%. Rounded up and never below 1%, so it never reads better
- * than the place is.
- */
-export const topShare = (rank: number, of: number): number =>
-  Math.min(100, Math.max(1, Math.ceil((100 * rank) / of)));
 
 /**
  * The least a line spans, as a share of the board: a club that moved a point or two in a month

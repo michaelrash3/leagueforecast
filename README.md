@@ -4291,8 +4291,8 @@ the standings to. It is not in a backup either, for the same reason. It goes wit
 so a season made under a deleted one's id follows no team until one is picked there.
 
 When the team is linked to a Team Rankings club, the card also gives the club's place
-on its board — "37th of 1,812 nationally (▲3) · 4th of 160 in OH · 9U 2027 · Fall
-2026, as of 9/27". League Standings cannot rank a club itself, since a board is a fit
+on its board — "37th of 1,812 nationally (▲3) · top 3% · 4th of 160 in OH · 9U 2027 ·
+Fall 2026, as of 9/27". League Standings cannot rank a club itself, since a board is a fit
 of the whole year's pool, so each time a board is up on the Team Rankings side the
 places of the clubs its page's league seasons are linked to are written to a small
 per-browser cache (`leagueClubRanks.ts`), a season's places replaced whole and gone with
@@ -4313,6 +4313,17 @@ club itself is not put in the URL: Team Rankings carries every parameter it does
 page to page, so a club named there would reopen its report on every later visit and reload.
 It is held in memory instead (`scoutRequest.ts`) and let go once a page, the cloud's board or
 this device's own, has it on screen.
+
+Each place also says its share of its board ("#12 of 3,947 nationally · top 1%",
+`topShare`), since a board fills all season and a place alone sinks for a club holding its
+own. Above the table, the league's strength, from the same places (`leagueStrength`): how many
+of its teams Team Rankings places, the median team's share of its national board, and, where at
+least half of them share a state, how high in that state's clubs they stand on average: "2 of 9
+teams on Team Rankings · the median team in the top 16% nationally · on average in the top 17%
+of KY's clubs". Not a place among the state's leagues, the owner's ask of 27 October 2026, since
+nothing in the pool says which other leagues there are: a league is what its season names, and
+the groups the fit finds by who played whom are not leagues (the Longhorns' league of 8 was a
+group of 60 to the fit). Nothing more is read or published for it.
 
 ## A league's schedule, pasted
 

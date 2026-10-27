@@ -3,6 +3,7 @@ import { CLUB_RANKS_KEY } from "./preferences";
 import type { Movement } from "./rankMovement";
 import { isRouteAgeLevel, isRouteYear, type RankingsRoute } from "./rankingsRoute";
 import type { ScoutRankingRow, SeasonSegment } from "./teamRankings";
+import { topShare } from "./standing";
 
 /**
  * The Team Rankings page a board was read off: its age level and squad year, and the half when the
@@ -121,7 +122,66 @@ export const readLeagueClubRanks = (): LeagueClubRanks => {
 
 /** A club's place nationally as the standings say it under a team's name: "#12 of 3,947 nationally". */
 export const nationalRankText = (rank: LeagueClubRank): string =>
-  `#${rank.rank.toLocaleString("en-US")} of ${rank.of.toLocaleString("en-US")} nationally`;
+  `#${rank.rank.toLocaleString("en-US")} of ${rank.of.toLocaleString("en-US")} nationally · top ${topShare(rank.rank, rank.of)}%`;
+
+/**
+ * How strong a league is, by where its teams' clubs stand on Team Rankings: how many have a place,
+ * the median team's share of its national board (`topShare`), and, where most of them share a
+ * state, how high in that state's clubs they stand on average. Null with fewer than two placed.
+ *
+ * Not a place among the state's leagues: nothing in the pool says which other leagues there are, a
+ * league being what its season names, and the groups the fit finds by who played whom are not
+ * leagues (the Longhorns' league of 8 was a group of 60 to the fit). Where its teams stand among
+ * the state's clubs is what the boards can say.
+ */
+export type LeagueStrength = {
+  ranked: number;
+  of: number;
+  medianTop: number;
+  state?: { name: string; teams: number; averageTop: number };
+};
+
+// Rounded up as `topShare` rounds, past the last bits of a sum: (0.2 + 0.4) / 2 is 0.30000000000000004,
+// which rounded up read the top 31%.
+const percent = (share: number): number =>
+  Math.min(100, Math.max(1, Math.ceil(100 * share - 1e-9)));
+
+export const leagueStrength = (
+  ranks: readonly (LeagueClubRank | undefined)[]
+): LeagueStrength | null => {
+  const placed = ranks.filter((rank): rank is LeagueClubRank => rank !== undefined);
+  if (placed.length < 2) return null;
+  const shares = placed.map((rank) => rank.rank / rank.of).sort((a, b) => a - b);
+  const middle = Math.floor(shares.length / 2);
+  const median =
+    shares.length % 2 === 1 ? shares[middle]! : (shares[middle - 1]! + shares[middle]!) / 2;
+  const inState = new Map<string, number[]>();
+  for (const rank of placed) {
+    if (!rank.state || rank.stateRank === undefined || rank.stateOf === undefined) continue;
+    const list = inState.get(rank.state);
+    const share = rank.stateRank / rank.stateOf;
+    if (list) list.push(share);
+    else inState.set(rank.state, [share]);
+  }
+  const [name, stateShares] = [...inState].sort((a, b) => b[1].length - a[1].length)[0] ?? [];
+  const most = name !== undefined && stateShares && stateShares.length * 2 >= placed.length;
+  return {
+    ranked: placed.length,
+    of: ranks.length,
+    medianTop: percent(median),
+    ...(most
+      ? {
+          state: {
+            name,
+            teams: stateShares.length,
+            averageTop: percent(
+              stateShares.reduce((sum, one) => sum + one, 0) / stateShares.length
+            ),
+          },
+        }
+      : {}),
+  };
+};
 
 /**
  * Where League Standings' Scout button takes a team's club: Team Rankings' Scouting, on the page

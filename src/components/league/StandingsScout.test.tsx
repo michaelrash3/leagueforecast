@@ -35,10 +35,13 @@ const hive: LeagueClubRank = {
   year: 2027,
 };
 
-const view = (onScout?: (rank: LeagueClubRank) => void) =>
+const view = (
+  onScout?: (rank: LeagueClubRank) => void,
+  ranks: Record<string, LeagueClubRank> = { "L-HIVE": hive }
+) =>
   render(
     <StandingsView
-      nationalRank={(teamId) => (teamId === "L-HIVE" ? hive : undefined)}
+      nationalRank={(teamId) => ranks[teamId]}
       {...(onScout ? { onScout } : {})}
       goldCutoff={1}
       latestCompletedDate=""
@@ -74,7 +77,7 @@ describe("the Scout button beside a team's national place", () => {
     const buttons = screen.getAllByRole("button", { name: "Scout Hive Baseball in Team Rankings" });
     expect(buttons).toHaveLength(2);
     expect(screen.queryByRole("button", { name: /Scout Owls/ })).toBeNull();
-    expect(screen.getAllByText("#12 of 3,947 nationally")).toHaveLength(2);
+    expect(screen.getAllByText("#12 of 3,947 nationally · top 1%")).toHaveLength(2);
 
     for (const button of buttons) await userEvent.click(button);
     expect(onScout).toHaveBeenCalledTimes(2);
@@ -84,7 +87,7 @@ describe("the Scout button beside a team's national place", () => {
   it("is not offered where nothing can open Team Rankings, and the place is still said", () => {
     view();
     expect(screen.queryByRole("button", { name: /^Scout / })).toBeNull();
-    expect(screen.getAllByText("#12 of 3,947 nationally")).toHaveLength(2);
+    expect(screen.getAllByText("#12 of 3,947 nationally · top 1%")).toHaveLength(2);
   });
 
   it("is never inside the team's own link", () => {
@@ -92,5 +95,25 @@ describe("the Scout button beside a team's national place", () => {
     for (const button of screen.getAllByRole("button", { name: /^Scout / })) {
       expect(button.closest("a")).toBeNull();
     }
+  });
+});
+
+describe("the league's strength above its standings", () => {
+  const owls: LeagueClubRank = { ...hive, clubId: "S-OWLS", rank: 1204 };
+
+  it("says how many of its teams Team Rankings places and how high", () => {
+    view(undefined, {
+      "L-HIVE": { ...hive, state: "KY", stateRank: 2, stateOf: 98 },
+      "L-OWLS": { ...owls, state: "KY", stateRank: 30, stateOf: 98 },
+    });
+    // The median of #12 and #1,204 of 3,947; Kentucky's 2nd and 30th of 98 on average.
+    expect(screen.getByText(/^League strength:/).parentElement!.textContent).toBe(
+      "League strength: 2 of 2 teams on Team Rankings · the median team in the top 16% nationally · on average in the top 17% of KY's clubs"
+    );
+  });
+
+  it("is not said for a league with fewer than two teams placed", () => {
+    view();
+    expect(screen.queryByText(/^League strength:/)).toBeNull();
   });
 });

@@ -4,6 +4,7 @@ import {
   nationalRankText,
   leagueClubRankFor,
   leagueClubRanksFrom,
+  leagueStrength,
   readLeagueClubRanks,
   scoutRoute,
   writeLeagueClubRanks,
@@ -161,9 +162,51 @@ describe("nationalRankText", () => {
   it("says a club's place nationally with its board's size, as the standings show it", () => {
     expect(
       nationalRankText({ clubId: "c", board: "9U 2027", rank: 12, of: 3947, at: "2026-10-11" })
-    ).toBe("#12 of 3,947 nationally");
+    ).toBe("#12 of 3,947 nationally · top 1%");
     expect(
       nationalRankText({ clubId: "c", board: "9U 2027", rank: 1204, of: 3947, at: "2026-10-11" })
-    ).toBe("#1,204 of 3,947 nationally");
+    ).toBe("#1,204 of 3,947 nationally · top 31%");
+  });
+});
+
+describe("a league's strength", () => {
+  const rank = (place: number, more: Partial<LeagueClubRank> = {}): LeagueClubRank => ({
+    clubId: `S-${place}`,
+    board: "9U 2027",
+    rank: place,
+    of: 1000,
+    at: "2026-10-11T00:00:00.000Z",
+    ...more,
+  });
+
+  it("is the median team's share of its board, rounded up, of the teams placed", () => {
+    expect(leagueStrength([rank(100), rank(300), rank(700), undefined])).toEqual({
+      ranked: 3,
+      of: 4,
+      medianTop: 30,
+    });
+    // An even count reads the middle two.
+    expect(leagueStrength([rank(100), rank(200), rank(400), rank(900)])?.medianTop).toBe(30);
+  });
+
+  it("says the state most of its teams are in, and how high in its clubs they stand", () => {
+    const strength = leagueStrength([
+      rank(10, { state: "KY", stateRank: 1, stateOf: 50 }),
+      rank(20, { state: "KY", stateRank: 4, stateOf: 50 }),
+      rank(30, { state: "OH", stateRank: 2, stateOf: 80 }),
+    ]);
+    expect(strength?.state).toEqual({ name: "KY", teams: 2, averageTop: 5 });
+    // No state that half its placed teams share, no state.
+    const split = leagueStrength([
+      rank(10, { state: "KY", stateRank: 1, stateOf: 50 }),
+      rank(20, { state: "OH", stateRank: 4, stateOf: 80 }),
+      rank(30, { state: "IN", stateRank: 2, stateOf: 60 }),
+    ]);
+    expect(split).not.toHaveProperty("state");
+  });
+
+  it("is nothing with fewer than two teams placed", () => {
+    expect(leagueStrength([rank(10), undefined])).toBeNull();
+    expect(leagueStrength([])).toBeNull();
   });
 });

@@ -13,7 +13,7 @@ import { buildTeamDataHref } from "../../lib/teamLink";
 import { TIEBREAKER_LABELS, type LastImpact, type TeamWithProjection } from "../../lib/types";
 import type { RankOptions } from "../../lib/sim";
 import { tieBreaks, type TieBreak } from "../../lib/tieBreaks";
-import { nationalRankText, type LeagueClubRank } from "../../lib/leagueClubRanks";
+import { leagueStrength, nationalRankText, type LeagueClubRank } from "../../lib/leagueClubRanks";
 import { AiStoryPanel } from "../AiStoryPanel";
 import { HelpTip } from "../HelpTip";
 import { PageHeader } from "../PageHeader";
@@ -144,6 +144,10 @@ export function StandingsView({
     [dashboardRows, rankOptions]
   );
   const nameOf = (id: string) => dashboardRows.find((team) => team.id === id)?.name ?? id;
+  // The league's strength, by where its teams' clubs stand on Team Rankings (`leagueStrength`).
+  const strength = nationalRank
+    ? leagueStrength(dashboardRows.map((team) => nationalRank(team.id)))
+    : null;
   return (
     <div className="grid grid-cols-1 gap-6">
       <section>
@@ -302,6 +306,24 @@ export function StandingsView({
               </span>
             </div>
           </div>
+        )}
+
+        {strength && (
+          <p className="border-b border-slate-200 px-5 py-3 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
+            <span className="font-bold">League strength: </span>
+            {strength.ranked} of {strength.of} teams on Team Rankings · the median team in the{" "}
+            <strong>top {strength.medianTop}%</strong> nationally
+            {strength.state && (
+              <>
+                {" · "}
+                {strength.state.teams === strength.ranked
+                  ? "on average"
+                  : `${strength.state.teams} of them on average`}{" "}
+                in the <strong>top {strength.state.averageTop}%</strong> of {strength.state.name}
+                &apos;s clubs
+              </>
+            )}
+          </p>
         )}
 
         {dashboardRows.length === 0 ? (

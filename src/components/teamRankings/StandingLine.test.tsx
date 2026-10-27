@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { StandingLine, topShare } from "./MyTeamCard";
+import { StandingLine } from "./MyTeamCard";
+import { topShare } from "../../lib/standing";
 
 /*
  * The "My team" card's line under the club's place: the share of each week's board at or above
