@@ -173,32 +173,25 @@ describe("a club's sheet", () => {
     function WithConfirm() {
       const [open, setOpen] = useState(true);
       const [answer, setAnswer] = useState<boolean | null>(null);
-      const confirm = useConfirmation();
+      const { state, dialogRef, request, resolve } = useConfirmation();
       return (
         <>
           {open && (
             <ClubSheet label="Aces" onShut={() => setOpen(false)} onClose={() => setOpen(false)}>
               <button
                 type="button"
-                onClick={() =>
-                  void confirm.request({ title: "Fold Aces?", message: "" }).then(setAnswer)
-                }
+                onClick={() => void request({ title: "Fold Aces?", message: "" }).then(setAnswer)}
               >
                 Fold into it
               </button>
             </ClubSheet>
           )}
-          {confirm.state && (
-            <section
-              ref={confirm.dialogRef}
-              role="dialog"
-              aria-modal="true"
-              aria-label={confirm.state.title}
-            >
-              <button type="button" onClick={() => confirm.resolve(false)}>
+          {state && (
+            <section ref={dialogRef} role="dialog" aria-modal="true" aria-label={state.title}>
+              <button type="button" onClick={() => resolve(false)}>
                 Cancel
               </button>
-              <button type="button" onClick={() => confirm.resolve(true)}>
+              <button type="button" onClick={() => resolve(true)}>
                 Confirm
               </button>
             </section>
