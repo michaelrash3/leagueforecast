@@ -19,8 +19,9 @@
  * With --stand-in-halves it measures where the other half of each played game against a stand-in is,
  * if anywhere (`src/lib/standInHalves.ts`): another pulled club's own row a day either side with the
  * result mirrored, filed against the namer, against a stand-in or slot, or against a third club,
- * and the same search a week either side for the rate it finds one by chance; for every stand-in
- * and for those with nothing of their name pulled (`standInReport`'s "unmatched").
+ * within each of several reaches (`HALF_REACHES`: the page, the region, the day, the start), and
+ * the same search a week either side for the rate each finds one by chance; for every stand-in and
+ * for those with nothing of their name pulled (`standInReport`'s "unmatched").
  *
  * Options: --year=2027 (the squad year), --today=DAY (the board's day; the members' day by
  * default), --top=25 (the stand-ins named, most games first), --public (numbers only),
@@ -79,8 +80,9 @@ import {
 import type { PairedReading } from "../src/lib/scoutBacktest.ts";
 import { standInReport, type StandInReport, type StandInWhy } from "../src/lib/standInReport.ts";
 import {
-  findHalves,
   HALF_KINDS,
+  HALF_REACHES,
+  halfSearcher,
   tallyHalves,
   type HalfKind,
   type HalfTally,
@@ -568,38 +570,39 @@ const measureStandInRules = (source: Source, year: number) => {
 /* ------------------------------------------------------- the other halves of stand-in games */
 
 const KIND_WORDS: Record<HalfKind, string> = {
-  namer: "filed against the namer itself (the claim step's case)",
-  standIn: "filed against a stand-in or slot of its own (the crossed halves' case)",
-  other: "filed against a third pulled club, by name",
+  namer: "against the namer",
+  standIn: "against a stand-in or slot",
+  other: "against a third club",
 };
 
 const describeHalves = (label: string, tally: HalfTally) => {
-  say(`\n  ${label}: ${tally.rows} played rows against a stand-in`);
+  const of = (part: number) => share(part, tally.rows);
+  say(`    ${label}: ${tally.rows} played rows against a stand-in`);
   say(
-    `    no other half anywhere (by date and result): ${tally.none} (${share(tally.none, tally.rows)});` +
-      ` two candidates or more: ${tally.several} (${share(tally.several, tally.rows)})`
+    `      none ${tally.none} (${of(tally.none)}); one ${tally.unique} (${of(tally.unique)}),` +
+      ` a week either side by chance ${tally.decoyUnique.toFixed(1)} (${of(tally.decoyUnique)});` +
+      ` two or more ${tally.several} (${of(tally.several)}); any by chance ${of(tally.decoyAny)}`
   );
   for (const kind of HALF_KINDS) {
     const k = tally.kinds[kind];
-    say(`    ${KIND_WORDS[kind]}:`);
     say(
-      `      rows with one: ${k.rows} (${share(k.rows, tally.rows)}); a week either side, by chance:` +
-        ` ${k.decoyRows.toFixed(1)} (${share(k.decoyRows, tally.rows)})`
-    );
-    say(
-      `      the only candidate: ${k.only}; same day ${k.sameDay}; start the same minute ${k.sameStart},` +
-        ` within the hour ${k.withinHour}, none to compare ${k.noStart}`
-    );
-    say(
-      `        one region ${k.inRegion}; same page ${k.samePage}; names fit ${k.namesFit},` +
-        ` share a word ${k.shareWord}; its opponent lists it too ${k.bothListed}`
+      `      ${KIND_WORDS[kind]}: any ${k.rows} (chance ${k.decoyRows.toFixed(1)}); the one ${k.only}:` +
+        ` same day ${k.sameDay}, same start ${k.sameStart}, within the hour ${k.withinHour},` +
+        ` no start ${k.noStart}; region ${k.inRegion}, page ${k.samePage};` +
+        ` names fit ${k.namesFit}, share a word ${k.shareWord}`
     );
   }
   say(
-    `    stand-ins with two rows or more each answered by one candidate: all the same club` +
-      ` ${tally.agreeing}, two clubs or more ${tally.split}`
+    `      stand-ins whose two rows or more each have one candidate: the same club ${tally.agreeing}` +
+      ` (${tally.agreeingRows} rows), two clubs or more ${tally.split}`
   );
 };
+
+/** The narrower reaches whose single answers are sampled, by name, sealed. */
+const SAMPLED_REACHES = new Set([
+  "page and region, starts within the hour",
+  "page and region, the same day",
+]);
 
 const measureStandInHalves = (source: Source, year: number) => {
   say(`\n${"=".repeat(78)}\nThe other half of each game against a stand-in\n${"=".repeat(78)}`);
@@ -628,34 +631,30 @@ const measureStandInHalves = (source: Source, year: number) => {
     `  Clubs known only by name: ${report.nameOnly}; with nothing of the name pulled ("unmatched"):` +
       ` ${report.why.unmatched.clubs}, holding ${report.why.unmatched.games} games.`
   );
-  const search = findHalves(known.teams, games);
-  say(
-    `  Played rows against a stand-in: ${search.rows.length}; not read (no result, set not to` +
-      ` count): ${search.unplayed}. Searched in ${since()}.`
-  );
   const unmatched = (row: StandInRow) => whyOf.get(row.standInId) === "unmatched";
-  describeHalves("Every stand-in", tallyHalves(search, known.teams));
-  describeHalves(
-    'Stand-ins with nothing of their name pulled ("unmatched")',
-    tallyHalves(search, known.teams, unmatched)
-  );
-  describeHalves(
-    "Stand-ins with a pulled club of the name somewhere",
-    tallyHalves(search, known.teams, (row) => !unmatched(row))
-  );
-
-  // A sample of the unmatched rows each answered by one candidate, to read by eye: names, sealed.
+  const search = halfSearcher(known.teams, games);
   const byId = new Map(known.teams.map((team) => [team.id, team]));
   const nameOf = (id: string) => {
     const team = byId.get(id);
     return team ? `${team.name}${team.state ? ` (${team.state})` : ""}` : id;
   };
-  const sample = Number(flag("top") || 25);
-  for (const kind of HALF_KINDS) {
-    const picked = search.rows
-      .filter((row) => unmatched(row) && row.candidates.length === 1)
-      .filter((row) => row.candidates[0]!.kind === kind);
+  const sample = Number(flag("top") || 12);
+  for (const reach of HALF_REACHES) {
+    const found = search(reach);
+    say(`\n  Reach: ${reach.key} (${found.unplayed} rows with no result not read; ${since()})`);
+    describeHalves("every stand-in", tallyHalves(found, known.teams));
+    describeHalves(
+      'nothing of the name pulled ("unmatched")',
+      tallyHalves(found, known.teams, unmatched)
+    );
+    describeHalves(
+      "a pulled club of the name somewhere",
+      tallyHalves(found, known.teams, (row) => !unmatched(row))
+    );
+    if (!SAMPLED_REACHES.has(reach.key)) continue;
+    // A sample of the unmatched rows each answered by one candidate, to read by eye: names, sealed.
     // Evenly through the list, not its first few, which one namer's schedule would fill.
+    const picked = found.rows.filter((row) => unmatched(row) && row.candidates.length === 1);
     const step = Math.max(1, Math.floor(picked.length / sample));
     sayNamed(
       picked
@@ -668,10 +667,11 @@ const measureStandInHalves = (source: Source, year: number) => {
             only.minutesApart === undefined ? "no start" : `${Math.round(only.minutesApart)} min`;
           return (
             `    ${row.game.date} ${nameOf(row.namerId)} v "${nameOf(row.standInId)}" ${runs}` +
-            ` -> ${nameOf(only.clubId)} v ${nameOf(only.opponentId)}; ${only.daysApart} day(s), ${gap}`
+            ` -> ${nameOf(only.clubId)} v ${nameOf(only.opponentId)}; ${KIND_WORDS[only.kind]};` +
+            ` ${only.daysApart} day(s), ${gap}`
           );
         }),
-      `Unmatched stand-ins answered by one row ${KIND_WORDS[kind]}:`
+      `Unmatched stand-ins answered by one row, ${reach.key}:`
     );
   }
 };

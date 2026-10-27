@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findHalves, shiftDay, tallyHalves } from "../standInHalves";
+import { findHalves, HALF_REACHES, halfSearcher, shiftDay, tallyHalves } from "../standInHalves";
 import type { ScoutGame, ScoutTeam } from "../teamRankings";
 
 /*
@@ -112,11 +112,17 @@ describe("the other half of a game against a stand-in", () => {
   it("counts what the weeks either side find, where the game is not", () => {
     const search = findHalves(TEAMS, [
       row("N", "N", "X", "2026-09-12", [5, 3]),
+      // A week on, two: found, but not one alone.
       row("C", "C", "N", "2026-09-19", [3, 5]),
+      row("D", "D", "N", "2026-09-19", [3, 5]),
       row("E", "Y", "E", "2026-09-04", [5, 3]),
     ]);
     expect(search.rows[0]!.candidates).toEqual([]);
-    expect(search.rows[0]!.decoys).toEqual({ namer: 1, standIn: 1, other: 0 });
+    expect(search.rows[0]!.decoys).toEqual({
+      any: 2,
+      unique: 1,
+      kinds: { namer: 1, standIn: 1, other: 0 },
+    });
   });
 });
 
@@ -139,7 +145,17 @@ describe("the tally", () => {
     ];
     const search = findHalves(TEAMS, games);
     const tally = tallyHalves(search, TEAMS);
-    expect(tally).toMatchObject({ rows: 4, none: 1, several: 1, agreeing: 1, split: 0 });
+    expect(tally).toMatchObject({
+      rows: 4,
+      none: 1,
+      unique: 2,
+      several: 1,
+      decoyAny: 0.5,
+      decoyUnique: 0.5,
+      agreeing: 1,
+      split: 0,
+      agreeingRows: 2,
+    });
     expect(tally.kinds.namer).toEqual({
       rows: 3,
       // The 3 October row's a week on, the one decoy of two weeks searched.
@@ -153,7 +169,6 @@ describe("the tally", () => {
       samePage: 2,
       namesFit: 2,
       shareWord: 2,
-      bothListed: 0,
     });
     // Kept to some rows only, as the stand-ins of one bucket are read.
     expect(tallyHalves(search, TEAMS, (one) => one.game.date === "2026-10-03").none).toBe(1);
@@ -169,6 +184,51 @@ describe("the tally", () => {
     const tally = tallyHalves(findHalves(TEAMS, games), TEAMS);
     expect(tally).toMatchObject({ agreeing: 0, split: 1 });
     expect(tally.kinds.namer).toMatchObject({ only: 2, inRegion: 1, namesFit: 1, shareWord: 1 });
+  });
+});
+
+describe("a reach", () => {
+  const reach = (key: string) => HALF_REACHES.find((one) => one.key === key)!;
+  const games = [
+    row("N", "N", "X", "2026-09-12", [5, 3]),
+    // The Flames on the row's page, the same start: within every reach.
+    row("C", "C", "N", "2026-09-12", [3, 5]),
+    // The Bats on another page, an hour and a half on.
+    row("E", "E", "Y", "2026-09-12", [3, 5], {
+      ageGroupId: "ag_11u_2027",
+      startTs: "2026-09-12T15:30:00Z",
+    }),
+    // The Hawks, in a state that borders neither, on the row's page, a day on.
+    row("D", "D", "Y", "2026-09-13", [3, 5]),
+  ];
+  const search = halfSearcher(TEAMS, games);
+  const clubs = (key: string) =>
+    search(reach(key)).rows[0]!.candidates.map((candidate) => candidate.clubId);
+
+  it("reads the whole year a day either side, or narrows to the page, the region, the day and the start", () => {
+    expect(clubs("the year, a day either side")).toEqual(["C", "E", "D"]);
+    expect(clubs("page and region, a day either side")).toEqual(["C"]);
+    expect(clubs("page and region, the same day")).toEqual(["C"]);
+    expect(clubs("region, any page, starts within the hour")).toEqual(["C"]);
+    expect(
+      halfSearcher(
+        TEAMS,
+        games.slice(0, 1).concat(games.slice(2))
+      )(reach("page and region, a day either side")).rows[0]!.candidates
+    ).toEqual([]);
+  });
+
+  it("compares a decoy week's start at its own hour, and a row with no start not at all", () => {
+    const decoy = halfSearcher(TEAMS, [
+      row("N", "N", "X", "2026-09-12", [5, 3]),
+      row("C", "C", "N", "2026-09-19", [3, 5], { startTs: "2026-09-19T14:30:00Z" }),
+      noStart(row("C", "C", "N", "2026-09-05", [3, 5])),
+    ])(reach("page and region, starts within the hour"));
+    expect(decoy.rows[0]!.decoys).toEqual({
+      any: 1,
+      unique: 1,
+      kinds: { namer: 1, standIn: 0, other: 0 },
+    });
   });
 });
 
