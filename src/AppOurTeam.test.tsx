@@ -68,6 +68,7 @@ describe("our team on the Dashboard", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("leads with the team picked here, and keeps the pick for this season", async () => {
@@ -131,6 +132,9 @@ describe("our team on the Dashboard", () => {
   });
 
   it("follows nothing in a season made under the id of a deleted one that followed a team", async () => {
+    // Season ids are drawn at random, so a deleted season's id is drawn again only by chance. The
+    // draw is pinned so that it is, which is the case this guards.
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
     const teams = loadTeams();
     const games = loadMatchups();
     const spring = createSeason("Spring");

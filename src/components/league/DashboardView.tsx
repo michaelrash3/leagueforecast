@@ -6,6 +6,7 @@ import { Suspense, useId, useState, type ComponentProps, type ReactNode } from "
 import { formatGameDate } from "../../lib/date";
 import { displayName } from "../../lib/format";
 import type { SeasonFinal } from "../../lib/seasonFinal";
+import { confidenceTier, SMALL_SAMPLE_RISK } from "../../lib/confidenceTier";
 import type { buildPredictionEngine, LeaguePrediction } from "../../lib/predictionEngine";
 import type { backtestPredictions } from "../../lib/backtest";
 import type { ActiveShareView, Matchup, Team } from "../../lib/types";
@@ -32,6 +33,8 @@ type WhyContext = {
   gameOdds?: (game: Matchup) => number;
   findings: readonly Finding[];
   record: { winnerAccuracy: number | null; sampleSize: number };
+  /** Whether the league has a cut line, and so a Gold % to explain. */
+  hasCutLine: boolean;
 };
 
 function teamNameFor(map: Map<string, Team>, id: string) {
@@ -167,6 +170,7 @@ function PredictionCard({
                   nameOf={whyContext.nameOf}
                   findings={whyContext.findings}
                   record={whyContext.record}
+                  hasCutLine={whyContext.hasCutLine}
                   {...(gameModelChance !== undefined ? { gameModelChance } : {})}
                 />
               </Suspense>
@@ -174,9 +178,11 @@ function PredictionCard({
           </div>
         )}
       </div>
-      {prediction.riskFactors.length > 0 && (
+      {/* The game's own risk alone: every close card said the same close-game line, and every
+          card led with the league's data warnings, which the Data Quality tab says once. */}
+      {prediction.riskFactors.includes(SMALL_SAMPLE_RISK) && (
         <p className="mt-3 text-sm font-bold text-amber-700 dark:text-amber-300">
-          Risk: {prediction.riskFactors[0]}
+          Risk: {SMALL_SAMPLE_RISK}
         </p>
       )}
     </article>
@@ -194,6 +200,7 @@ export function DashboardView({
   digest,
   gameOdds,
   seasonFinal,
+  hasCutLine = true,
 }: {
   engine: ReturnType<typeof buildPredictionEngine>;
   backtestResult: ReturnType<typeof backtestPredictions>;
@@ -213,12 +220,15 @@ export function DashboardView({
    * since a finished season has none to predict.
    */
   seasonFinal?: SeasonFinal | null;
+  /** Whether the league has a cut line: without one, a card's explanation has no Gold % to tell apart. */
+  hasCutLine?: boolean;
 }) {
   const why: WhyContext = {
     nameOf: (id) => displayName(teamNameFor(teamsById, id)),
     ...(gameOdds ? { gameOdds } : {}),
     findings,
     record: backtestResult,
+    hasCutLine,
   };
   const avgConfidence = engine.predictions.length
     ? Math.round(
@@ -233,7 +243,12 @@ export function DashboardView({
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           ["Games forecasted", String(engine.predictions.length)],
-          ["Avg confidence", avgConfidence ? `${avgConfidence}%` : "—"],
+          // A score of 100 and its tier, as the "Why" panel gives each game: as a percent beside
+          // "Prediction accuracy" it read as a chance.
+          [
+            "Confidence",
+            avgConfidence ? `${confidenceTier(avgConfidence)} (${avgConfidence} of 100)` : "—",
+          ],
           ["Top-rated team", engine.powerRatings[0]?.teamName ?? "—"],
           [
             "Prediction accuracy",

@@ -91,6 +91,27 @@ describe("NotificationSettings", () => {
     expect(prefs()).toMatchObject({ on: true, clinches: false, oddsMove: null, finals: true });
   });
 
+  /*
+   * A league with no cut line (a bracket for every team, or no postseason) has no clinch, no
+   * elimination and no Gold chance, and the digest never reads a race for one: the choices are
+   * left out rather than offered and never kept.
+   */
+  it("offers no clinches, eliminations or Gold chance where the league has no cut line", () => {
+    render(
+      <NotificationSettings
+        prefs={DEFAULT_NOTIFY}
+        onPrefs={vi.fn()}
+        followedName="Aces"
+        hasCutLine={false}
+      />
+    );
+    expect(screen.getByLabelText("Aces's finals and corrected scores")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Clinches")).toBeNull();
+    expect(screen.queryByLabelText("Eliminations")).toBeNull();
+    expect(screen.queryByText(/Gold chance/)).toBeNull();
+    expect(screen.queryByText(/clinches and eliminations/)).toBeNull();
+  });
+
   it("says how to follow a team when none is followed", () => {
     render(<Harness followedName={null} />);
     expect(screen.getByText(/Follow a team with the Our team card/)).toBeInTheDocument();

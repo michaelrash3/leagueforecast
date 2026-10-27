@@ -59,7 +59,8 @@ export const normalizeDateInput = (value: string) => {
   // Old CSV format: "May 1", "May 01", etc. Require a 3+ char alpha month token
   // so bare numbers like "5" don't silently parse to Jan 1.
   const monthToken = MONTH_TOKEN_RE.exec(trimmed);
-  if (monthToken) {
+  // A month word with no day ("may") is no date: the parser read it as the month's first.
+  if (monthToken && /\d/.test(trimmed)) {
     const withSeasonYear = Date.parse(`${trimmed} ${DEFAULT_SEASON_YEAR}`);
     const parsed = Number.isFinite(withSeasonYear) ? withSeasonYear : Date.parse(trimmed);
     if (Number.isFinite(parsed)) {
@@ -125,10 +126,17 @@ export const formatGameDate = (date: string) => normalizeDateInput(date) || "No 
 
 export const formatGameDateLong = (date: string) => normalizeDateInput(date) || "Needs Date";
 
-export const sundayEndingWeekKey = (date: string) => {
+/**
+ * The Sunday ending a game's week, "M/D". `startMonth` is the month the season's year turns in
+ * (`seasonStartMonth`): a month before it is the next calendar year's, as `parseDateValue` reads
+ * it. Worked out in one year whatever the season, a week from December into January was two.
+ */
+export const sundayEndingWeekKey = (date: string, startMonth = 1) => {
   const normalized = normalizeDateInput(date);
   if (!normalized) return "";
-  const parsed = new Date(`${normalized}/${DEFAULT_SEASON_YEAR}`);
+  const month = Number(normalized.split("/")[0]);
+  const year = month < startMonth ? DEFAULT_SEASON_YEAR + 1 : DEFAULT_SEASON_YEAR;
+  const parsed = new Date(`${normalized}/${year}`);
   if (!Number.isFinite(parsed.getTime())) return "";
   const day = parsed.getDay();
   const daysUntilSunday = (7 - day) % 7;

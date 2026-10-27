@@ -34,7 +34,7 @@ parentPort?.on("message", (request: EditRequest) => {
         // The one function that writes the copy on a member's behalf.
         store: firestoreRestStore({ ...restAccess(), writable: true }),
         // League Standings, read only, for a year's archive; no edit writes a season.
-        leagueDocs: restLeagueDocs(firestoreRestDocuments({ ...restAccess(), writable: false })),
+        leagueDocs: restLeagueDocs(firestoreRestDocuments(restAccess())),
         // What the copy's owner staged to restore, deleted once restored.
         uploads: firestoreRestUploads({ ...restAccess(), writable: true }),
         command: ask.command,
@@ -46,7 +46,7 @@ parentPort?.on("message", (request: EditRequest) => {
       runQuery({
         pool,
         store: firestoreRestStore({ ...restAccess(), writable: false }),
-        leagueDocs: restLeagueDocs(firestoreRestDocuments({ ...restAccess(), writable: false })),
+        leagueDocs: restLeagueDocs(firestoreRestDocuments(restAccess())),
         query: ask.query,
         ...(ask.copy === undefined ? {} : { copy: ask.copy }),
       }),

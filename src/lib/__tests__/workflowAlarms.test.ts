@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import firebaseWorkflow from "../../../.github/workflows/firebase.yml?raw";
 import nightlyWorkflow from "../../../.github/workflows/nightly.yml?raw";
+import verifyGcWorkflow from "../../../.github/workflows/verify-gc.yml?raw";
 import alarmScript from "../../../scripts/alarm.ts?raw";
 import nightlyScript from "../../../scripts/nightly.ts?raw";
+import upkeepScript from "../../../scripts/upkeep.ts?raw";
+import verifyGcScript from "../../../scripts/verify-gc-pull.ts?raw";
 
 /*
  * The alarm steps as the workflows run them (`scripts/alarm.ts`, README "When a run fails"). What an
@@ -38,6 +41,7 @@ const keyOf = (step: string, key: string): string | undefined =>
 const WORKFLOWS = [
   { file: "nightly.yml", text: nightlyWorkflow, job: "refresh", work: "refresh" },
   { file: "firebase.yml", text: firebaseWorkflow, job: "republish", work: "republish" },
+  { file: "verify-gc.yml", text: verifyGcWorkflow, job: "verify", work: "verify" },
 ];
 
 describe("the alarm step in each workflow", () => {
@@ -108,5 +112,52 @@ describe("the words the nightly hands its alarm step", () => {
     expect(handed).toContainEqual({ key, name });
     expect(nightlyScript).toContain(`output("${name}", `);
     expect(alarmScript).toContain(`env.${key} `);
+  });
+});
+
+/*
+ * The words read beside the refresh for the billing and the dispatch token's alarms
+ * (`scripts/upkeep.ts`), and the GameChanger check's word for its own (`resultWord`): each written
+ * as a step output, passed on by the alarm step's env and read by `scripts/alarm.ts`. A name
+ * changed on any one side reads as empty on GitHub, which leaves the alarm as it is for good.
+ */
+describe("the words the upkeep and the GameChanger check hand their alarms", () => {
+  const handedBy = (workflow: string, job: string, step: string) => {
+    const steps = jobsOf(workflow).get(job) ?? [];
+    const alarm = steps.find((one) => /npm run alarm\b/.test(one)) ?? "";
+    return [
+      ...alarm.matchAll(
+        new RegExp(
+          `^ {10}([A-Z_]+): \\$\\{\\{ steps\\.${step}\\.outputs\\.(\\w+) \\}\\}\\s*$`,
+          "gm"
+        )
+      ),
+    ].map(([, key, name]) => ({ key: key ?? "", name: name ?? "" }));
+  };
+
+  it("hands over the billing's word and the dispatch token's from the upkeep step", () => {
+    const handed = handedBy(nightlyWorkflow, "refresh", "upkeep");
+    expect(handed).toEqual([
+      { key: "BILLING", name: "billing" },
+      { key: "DISPATCH", name: "dispatch" },
+    ]);
+    for (const { key, name } of handed) {
+      expect(upkeepScript).toContain(`output("${name}", `);
+      expect(alarmScript).toContain(`env.${key} `);
+    }
+    // Read whatever became of the refresh, and never turning the night red itself.
+    const upkeep =
+      (jobsOf(nightlyWorkflow).get("refresh") ?? []).find((one) => keyOf(one, "id") === "upkeep") ??
+      "";
+    expect(keyOf(upkeep, "if")).toBe("always()");
+    expect(keyOf(upkeep, "continue-on-error")).toBe("true");
+  });
+
+  it("hands over the GameChanger check's word from its verify step", () => {
+    expect(handedBy(verifyGcWorkflow, "verify", "verify")).toEqual([
+      { key: "RESULT", name: "result" },
+    ]);
+    expect(verifyGcScript).toContain("result=${resultWord(all)}");
+    expect(alarmScript).toContain("env.RESULT ");
   });
 });

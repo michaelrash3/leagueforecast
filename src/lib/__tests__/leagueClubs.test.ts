@@ -809,3 +809,34 @@ describe("a copy of the league's game against a team said not to be in Team Rank
     expect(bridge([TP, SHORT], [copy], two, games)).toHaveLength(1);
   });
 });
+
+describe("a league team carried onto a club known by name alone", () => {
+  /*
+   * A stand-in (`nameOnly`), a club known only from a row on someone else's schedule, can be the
+   * club a league team is carried onto: guessed by its name on the season's page, or found by it.
+   * Every league game then landed on it, it was fitted, and it was on no board, since boards list
+   * clubs and not stand-ins; nor did League's Our team card find its place. Carried onto by a
+   * league team, it is that team's club, and is listed.
+   */
+  const hornets: ScoutTeam = { id: "S-HORN", name: "Cincinnati Hornets", nameOnly: true };
+  const snapshot = league([
+    { id: "L-TP", name: "Trash Pandas Baseball Club" },
+    { id: "L-HORN", name: "Cincinnati Hornets" },
+  ]);
+
+  it("is no longer a stand-in once a league team is carried onto it", () => {
+    const derived = deriveLeagueScoutGames("ag_9", [snapshot], [...roster, hornets], 2027, {
+      games: [...stored, played("gc_tp_2", "ag_9", "S-TP", "S-HORN", 9, 4, "2026-09-12")],
+      ageGroups,
+    });
+    expect(derived.games[0]).toMatchObject({ teamAId: "S-TP", teamBId: "S-HORN" });
+    const carried = derived.teams.find((team) => team.id === "S-HORN");
+    expect(carried).toEqual({ id: "S-HORN", name: "Cincinnati Hornets" });
+    // A stand-in nothing carried onto stays one.
+    const untouched = deriveLeagueScoutGames("ag_9", [league()], [...roster, hornets], 2027, {
+      games: stored,
+      ageGroups,
+    });
+    expect(untouched.teams.find((team) => team.id === "S-HORN")?.nameOnly).toBe(true);
+  });
+});

@@ -121,6 +121,7 @@ describe("saved playoff scenarios", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     live.store = null;
   });
 
@@ -699,6 +700,9 @@ describe("saved playoff scenarios", () => {
   });
 
   it("gives a season made under a deleted one's id none of the picks left on another tab (2.7 review)", async () => {
+    // Season ids are drawn at random, so a deleted season's id is drawn again only by chance. The
+    // draw is pinned so that it is, which is the case this guards.
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
     const fall = anotherSeason("Fall");
     setActiveSeason(fall.id);
     const user = userEvent.setup();

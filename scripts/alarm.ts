@@ -2,9 +2,10 @@
  * Raises or settles the alarms a run on GitHub keeps as issues on this repository (`runAlarms.ts`,
  * README "When a run fails"), run by the workflows as the run's last step, whatever came before:
  *
- *   npm run alarm -- nightly      after the nightly refresh (OUTCOME, MODE, REBUILDS and
- *                                 CLOSED_LEVEL set)
+ *   npm run alarm -- nightly      after the nightly refresh (OUTCOME, MODE, REBUILDS,
+ *                                 CLOSED_LEVEL, BILLING and DISPATCH set)
  *   npm run alarm -- republish    after the republish that follows a deploy (OUTCOME set)
+ *   npm run alarm -- verify-gc    after the GameChanger pull check (OUTCOME and RESULT set)
  *
  * What to raise or settle, and every word an issue says, is worked out in `runAlarms.ts`, from the
  * outcome of the run's own step, the rebuilds' trouble and the Monday re-measure's word the
@@ -21,6 +22,7 @@ import {
   nightlyVerdicts,
   republishVerdicts,
   runLinkOf,
+  verifyGcVerdicts,
   type Verdict,
 } from "../src/lib/runAlarms.ts";
 
@@ -40,12 +42,20 @@ const verdicts: Verdict[] | null =
         mode: env.MODE ?? "",
         rebuilds: env.REBUILDS ?? "",
         closedLevel: env.CLOSED_LEVEL ?? "",
+        billing: env.BILLING ?? "",
+        dispatch: env.DISPATCH ?? "",
       })
     : which === "republish"
       ? republishVerdicts({ outcome: env.OUTCOME ?? "" })
-      : null;
+      : which === "verify-gc"
+        ? verifyGcVerdicts({
+            outcome: env.OUTCOME ?? "",
+            event: env.GITHUB_EVENT_NAME ?? "",
+            result: env.RESULT ?? "",
+          })
+        : null;
 if (verdicts === null) {
-  console.log("Say which run's alarms: nightly or republish.");
+  console.log("Say which run's alarms: nightly, republish or verify-gc.");
   process.exit(2);
 }
 const repo = env.GITHUB_REPOSITORY ?? "";

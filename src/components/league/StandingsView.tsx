@@ -10,7 +10,9 @@ import React from "react";
 import { displayName, recordText, teamAbbr, winPct } from "../../lib/format";
 import type { AiProvider, LeagueSummaryErrorReason } from "../../lib/leagueSummary";
 import { buildTeamDataHref } from "../../lib/teamLink";
-import type { LastImpact, TeamWithProjection } from "../../lib/types";
+import { TIEBREAKER_LABELS, type LastImpact, type TeamWithProjection } from "../../lib/types";
+import type { RankOptions } from "../../lib/sim";
+import { tieBreaks, type TieBreak } from "../../lib/tieBreaks";
 import { nationalRankText, type LeagueClubRank } from "../../lib/leagueClubRanks";
 import { AiStoryPanel } from "../AiStoryPanel";
 import { HelpTip } from "../HelpTip";
@@ -31,6 +33,22 @@ import { focusRing, pill } from "../../styles/tokens";
  * Team Rankings. Kept out of the team's link (its own element, beside it), since a button cannot
  * sit inside a link.
  */
+const DEFAULT_RANK_OPTIONS: RankOptions = { winPoints: 1, tiePoints: 0.5 };
+
+/** The points a team has, as the table ranks on them: a half where ties count half. */
+const pointsOf = (team: TeamWithProjection, options: RankOptions): number =>
+  team.w * (options.winPoints ?? 1) + team.t * (options.tiePoints ?? 0.5);
+const pointsText = (points: number): string =>
+  Number.isInteger(points) ? String(points) : points.toFixed(1);
+
+/** What broke a tie on points, in words: the rule, the model's rating, or nothing. */
+const brokenBy = (by: TieBreak["by"]): string =>
+  by === "rating"
+    ? "on the model's rating"
+    : by === "id"
+      ? "in a fixed order, as nothing told them apart"
+      : `on ${TIEBREAKER_LABELS[by].toLowerCase()}`;
+
 const nationalLine = (
   rank: LeagueClubRank | undefined,
   teamName: string,
@@ -78,7 +96,10 @@ export function StandingsView({
   onSelectTeam,
   nationalRank,
   onScout,
+  rankOptions = DEFAULT_RANK_OPTIONS,
 }: {
+  /** How the table is ranked: the points a win and a tie earn, and the tiebreakers in order. */
+  rankOptions?: RankOptions;
   /**
    * Where a team's club stood on Team Rankings when that board was last up (`leagueClubRankFor`),
    * said beside every team as the "Our team" card says it of its own; absent where none is known.
@@ -112,6 +133,17 @@ export function StandingsView({
   formatGoldMargin: (t: TeamWithProjection) => string;
   onSelectTeam: (id: string) => void;
 }) {
+  // Each team level on points with the one above it, and what put it behind: the table ranks on
+  // points and then the league's tiebreakers, and said neither.
+  const ties = React.useMemo(
+    () =>
+      tieBreaks(
+        [...dashboardRows].sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0)),
+        rankOptions
+      ),
+    [dashboardRows, rankOptions]
+  );
+  const nameOf = (id: string) => dashboardRows.find((team) => team.id === id)?.name ?? id;
   return (
     <div className="grid grid-cols-1 gap-6">
       <section>
@@ -286,6 +318,7 @@ export function StandingsView({
                     <th className="px-5 py-3">Seed</th>
                     <th className="px-5 py-3">Team</th>
                     <th className="px-4 py-3 text-center">Record</th>
+                    <th className="px-4 py-3 text-center">Pts</th>
                     <th className="px-4 py-3 text-center">Diff</th>
                     <th className="px-4 py-3 text-center">SOS</th>
                     {hasCutLine && (
@@ -312,7 +345,7 @@ export function StandingsView({
                             aria-label={`Gold cut line: top ${goldCutoff} teams qualify`}
                           >
                             <td
-                              colSpan={8}
+                              colSpan={9}
                               className="bg-slate-950 px-5 py-2 text-center text-xs font-semibold uppercase tracking-[0.22em] text-red-400 dark:bg-black"
                             >
                               Gold Cut Line
@@ -357,6 +390,9 @@ export function StandingsView({
                           </td>
                           <td className="px-4 py-4 text-center font-black text-slate-800 dark:text-slate-100">
                             {recordText(team)}
+                          </td>
+                          <td className="px-4 py-4 text-center font-black text-slate-800 dark:text-slate-100">
+                            {pointsText(pointsOf(team, rankOptions))}
                           </td>
                           <td
                             className={`px-4 py-4 text-center font-black ${
@@ -423,7 +459,18 @@ export function StandingsView({
                 </tbody>
               </table>
             </div>
-            <div className="hidden px-5 pb-4 text-xs font-bold text-slate-500 md:block dark:text-slate-400"></div>
+            {ties.length > 0 && (
+              <p className="px-5 pb-4 pt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+                Level on points:{" "}
+                {ties
+                  .map(
+                    (tie) =>
+                      `${displayName(nameOf(tie.teamId))} placed behind ${displayName(nameOf(tie.aboveId))} ${brokenBy(tie.by)}`
+                  )
+                  .join("; ")}
+                .
+              </p>
+            )}
 
             {/* Mobile cards */}
             <ul className="divide-y divide-slate-100 md:hidden dark:divide-slate-800">
@@ -460,7 +507,8 @@ export function StandingsView({
                             {displayName(team.name)}
                           </span>
                           <span className="mt-0.5 block text-xs font-bold text-slate-500 dark:text-slate-400">
-                            {recordText(team)} ·{" "}
+                            {recordText(team)} · {pointsText(pointsOf(team, rankOptions))}{" "}
+                            {pointsOf(team, rankOptions) === 1 ? "pt" : "pts"} ·{" "}
                             <span
                               className={
                                 team.runDiff > 0

@@ -97,6 +97,10 @@ jobs:
       # a second account and a signed-out browser, each doing what the app does and what it must
       # not. The emulator wants Java 21, which the runner carries beside its default.
       - run: npm ci
+      # The functions' own sources, type-checked against the SDK's types, which only this job
+      # installs (`functions/tsconfig.json`); the app's check runs without them, and so never
+      # read these files.
+      - run: npx tsc -p functions/tsconfig.json
       - uses: google-github-actions/setup-gcloud@v3
         if: github.event_name != 'pull_request'
       - name: Firestore rules

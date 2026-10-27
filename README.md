@@ -70,7 +70,7 @@ starts in its June. A season inside one calendar year is ordered exactly as befo
 | **Data Quality**          | Findings on the season's games, teams and settings, grouped by severity, with links to each, previewed repairs and undo.                                |
 | **Since you last looked** | What another device changed since this one last looked, on the Dashboard until seen; opt-in notifications while the app is open.                        |
 | **Season Predictor**      | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                                             |
-| **Team drawer**           | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                                                         |
+| **Team drawer**           | Team stats, seed range, magic/elimination numbers, swing games, compare view.                                                                           |
 | **Our team**              | The team this browser follows leads the Dashboard: place, record, Gold % and its last move, next game and seeds, magic number, a jump to enter a score. |
 | **Settings**              | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                                                   |
 | **Power UX**              | Shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                                                                   |
@@ -107,7 +107,7 @@ src/
     backtest.ts            # league-side calibration + Brier score
     scoutBacktest.ts       # pool-side hold-out, and the recency comparison
     insights.ts            # deterministic recap + league-story generation
-    geminiModels.ts  leagueSummary.ts  leagueSummaryClient.ts
+    geminiModels.ts  leagueSummary.ts  leagueSummaryClient.ts  leagueSummaryHealth.ts
     scheduleText.ts        # reads pasted text / CSV into games, entirely on the device
     leagueScheduleText.ts  # the same for a league's own schedule, home and away kept
     teamRankings.ts        # age groups, ratings, name matching, rename/merge
@@ -4415,8 +4415,9 @@ subscription and sending to it, which the app does not have.
   place on Team Rankings (`lf_league_club_ranks_v1`), the server's last bridge to Team Rankings
   (`lf_league_bridge_v2`), the saved scenarios (`lf_league_scenarios_v1`) and the news already
   announced (`lf_league_notified_v1`, one list whose entries each begin with their season's id).
-  Season ids are given out again: counted from the seasons held, so deleting the last season and
-  making one gives back its id, and every browser's first season is `default`. So all of it goes
+  Every browser's first season is `default`, and every other is made under eight random letters
+  and digits (`season-k3f9x2ab`); they were counted from the seasons held, and a laptop and a phone
+  each made a `season-2` that met in the cloud as one season. All of it goes
   when its season leaves the browser: deleted, or left out of a restore or the cloud copy's seasons, or replaced in either by another
   season under its id (made at another moment). An id given to a season new here, made, copied or
   brought down from the cloud, starts with nothing under it (`forgetSeasons`). A season of this
@@ -4430,6 +4431,39 @@ subscription and sending to it, which the app does not have.
   switch back to an id nor a restore that puts another season under the open one shows what
   was kept of the season before.
 - League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose, and with `GROQ_API_KEY` Groq does when Gemini cannot; see [AI league story](#ai-league-story). No key is required for the app to work.
+- **One tab writes League Standings** (`tabTurn.ts`, the owner's choice of 26 October 2026).
+  Every tab saves whole seasons from what it read when it opened, into the season storage names
+  active, so two tabs of one browser, or a tab and the installed app, undid each other's scores,
+  and a season switched in one moved where the other saved. The tabs now ask each other on a
+  `BroadcastChannel` as each opens: the tab opened later is read-only, says "Open in another tab"
+  over League Standings with **Use here**, and storage refuses every League write it makes, a
+  switch of season included (the cloud copy's own arriving is still laid in). Making, copying and
+  deleting a season are refused before they start, with the same words: a delete goes to the
+  cloud's copy first, which storage refusing afterwards could not undo. A tab answers a hello to
+  the tab that said it alone, so an answer heard by a third tab never makes that one give way.
+  Use here first asks the writing tab for the turn: it writes what it still owes storage (a score
+  App holds half a second before saving), goes read-only and says so to the tab that asked, which
+  then reloads, so it reads what the other saved, and takes the turn on its way back in; every
+  other tab is then read-only. With no answer within a second, a writer closed meanwhile, it goes
+  ahead all the same. A tab whose writer was closed is not told: the next tab to open writes, or Use
+  here takes the turn. Without a `BroadcastChannel` every tab writes, as before. The talk on the
+  channel (`tabTurnChannel.ts`) and the banner are fetched after the page starts, which delays a
+  tab's hello by that moment, in which the tab may take a score before it learns it is read-only:
+  from the writer's answer, or from the hello of a tab opened before it that came late. However it
+  gives way, a tab writes a score it still holds first, and only a score still held (by identity
+  against the scores last written), and only the games it changed, over what storage holds then
+  (`mergeHeldScores`): written whole, the scores as it read them could undo one the other tab
+  saved since. Only when it wrote does it tell the tab it gave way to, which writes what it holds
+  the same way, then reloads to read it and asks again on its way back in rather than taking the
+  turn (with several opened together, the turn taken would be the one given way to first). Two
+  tabs holding a score for the same game keep the one written last. Storage asks the small registry
+  in `tabTurn.ts`. Held by
+  `tabTurn.test.ts`, the storage test and `e2e/tabs.spec.ts`, which opens two real tabs.
+- What the last full restore replaced is kept on this device until the next restore
+  (`league_forecast_replaced_backup_v1`, in the pool's IndexedDB store beside the saved board, and
+  never read as the pool or sent to the cloud), and Settings' Data card offers it as "Download
+  replaced data" for as long as it is kept. The restore's toast offers the same download, and was
+  once the only copy: for twelve seconds, until any other toast took its place.
 - One-time migration from older `league_*` keys
 - CSV import/export with BOM/formula guard handling
 
@@ -5947,6 +5981,34 @@ the first run that is fine closes it with a comment.
   the first weeks of a squad year, before any fit has rated its clubs. It measured
   nothing that could say a change ready is no longer ready.
 
+Three more, the owner's of 26 October 2026:
+
+- **The GameChanger pull check failed** (`verify-gc.yml`): the check after a merge
+  or on the week's Monday failed, or passed but found no score on games already
+  played, the sign of GameChanger's score fields having moved (`resultWord`,
+  `result=drift`). The next such check that passes clean closes it. A run started
+  by hand may ask other teams or another proxy, and a run a newer push cancelled
+  says nothing of GameChanger, so neither raises or settles it.
+- **The project's billing is off**: the nightly, dry or live, read the project's
+  billing from Cloud Billing (`projects.getBillingInfo`, free to ask, and nothing
+  of the copy) with the deploy key, and found it off, which is what the cost cap
+  does once the month's budget is spent (`billingCap.ts`). The first nightly to
+  find it on closes it. A reading refused or not made leaves it as it is, and the
+  log says why: the deploy key needs `resourcemanager.projects.get` on the project
+  (Viewer, or any Firebase admin role) to read it.
+- **The pull dispatch token is running out**: the nightly asked GitHub's
+  `rate_limit`, which spends none of the token's allowance, with the
+  `PULL_DISPATCH_TOKEN` secret, and GitHub's `github-authentication-token-expiration`
+  header put its end within two weeks, or GitHub refused the token outright. It
+  names the day; make another with the same access and replace the secret. The
+  first nightly to find it good for longer, or with no end, closes it. With no
+  such secret set the pulls start on Google's machines, and nothing is read.
+
+The last two are read by their own step before the alarm (`scripts/upkeep.ts`),
+whatever became of the refresh, which hands each as a word (`billing=on` or `off`,
+`dispatch=fine`, `refused` or `expires` and a day); it never fails the run, and it
+prints neither the key nor the token.
+
 An issue is public, as the repository is, so it says when (UTC, to the minute),
 what failed in a word or two, and the run's link, and nothing from the log. The
 words are fixed in `runAlarms.ts`, which works out what to raise or settle from
@@ -5954,9 +6016,9 @@ the run step's outcome and the words the nightly hands over: the rebuilds'
 (`rebuilds=paused`, `failing`, `none` or `off`), and on a Monday the starting
 level's (`closedLevel=held`, `unjudged`, or `better` and five numbers, which it reads
 back as numbers and writes again in its own words). It is tested; the workflows
-only run `npm run alarm -- nightly` or `-- republish` as their last step,
-whatever came before. It runs `gh` with the run's own token, which the workflow
-lets write issues and nothing more (`permissions: issues: write`). An alarm
+only run `npm run alarm -- nightly`, `-- republish` or `-- verify-gc` as their
+last step, whatever came before. It runs `gh` with the run's own token, which the
+workflow lets write issues and nothing more (`permissions: issues: write`). An alarm
 finds its issue again by its title among the open issues a workflow opened; one
 anybody else opened under the same title is theirs, and is neither commented on
 nor closed. An alarm that could not be raised (issues turned off on the
@@ -8346,6 +8408,17 @@ bundle and would publish the key to every visitor. The browser posts recap facts
 to the Firebase `leagueSummary` function and the function calls Gemini with the key, and Groq with
 its key when Gemini cannot write the story.
 
+**Only the accounts on the cloud copy's list may ask** (26 October 2026, the owner's choice).
+The function was open to anybody who found its URL, and each call spends the owner's Gemini
+and Groq quota. It now stands behind the same door as the GameChanger proxy (`membersOnly`,
+`memberCheck.ts`): the browser sends its sign-in with every ask, the function asks Firestore
+for the caller's own entry on the list, and anyone else is answered `members-only` before a
+provider is asked. The health check and its probe are behind it too, since the probe asks both
+providers for their models. A browser not signed in sends nothing and writes its own story, and
+its header says `AI off — sign in to the cloud copy`. With the door in front, the per-IP
+throttle below no longer has to tell strangers apart: a forged `X-Forwarded-For` gets a member
+past only their own limit.
+
 ### Model selection
 
 The app is not pinned to a Gemini version. On each cold start it calls
@@ -8390,7 +8463,7 @@ answer is `rate-limited`, with both providers' messages.
 
 Every failure path returns a non-200 with a machine-readable `reason`
 (`unconfigured`, `throttled`, `rate-limited`, `upstream-error`, `no-model`,
-`invalid-request`), and the UI keeps showing the deterministic story rather than
+`invalid-request`, `members-only`), and the UI keeps showing the deterministic story rather than
 an error.
 
 `throttled` and `rate-limited` are deliberately separate. `throttled` is this
@@ -8401,15 +8474,16 @@ was asked of Gemini and walking the model list would not have helped.
 The League Story header says which state it is in, so a misconfiguration is
 diagnosable at a glance instead of looking like "the AI just isn't running":
 
-| Header shows                     | Meaning                                                                             |
-| -------------------------------- | ----------------------------------------------------------------------------------- |
-| `AI` badge                       | Gemini or Groq wrote this. The tooltip names which, and the model.                  |
-| `AI off — no API key`            | The function ran but neither `GEMINI_API_KEY` nor `GROQ_API_KEY` is readable by it. |
-| `AI off — endpoint not deployed` | The Firebase `leagueSummary` function is unavailable.                               |
-| `Paused — too many retries`      | This app's own per-browser limit. No model was attempted.                           |
-| `AI limit reached`               | Gemini's quota refused every model tried, and Groq's too when its key is set.       |
-| `No AI model available`          | The key listed no usable model.                                                     |
-| `AI unavailable`                 | Something else upstream. The tooltip carries the message.                           |
+| Header shows                         | Meaning                                                                             |
+| ------------------------------------ | ----------------------------------------------------------------------------------- |
+| `AI` badge                           | Gemini or Groq wrote this. The tooltip names which, and the model.                  |
+| `AI off — no API key`                | The function ran but neither `GEMINI_API_KEY` nor `GROQ_API_KEY` is readable by it. |
+| `AI off — endpoint not deployed`     | The Firebase `leagueSummary` function is unavailable.                               |
+| `AI off — sign in to the cloud copy` | Not signed in with an account on the cloud copy's list, which alone may ask.        |
+| `Paused — too many retries`          | This app's own per-browser limit. No model was attempted.                           |
+| `AI limit reached`                   | Gemini's quota refused every model tried, and Groq's too when its key is set.       |
+| `No AI model available`              | The key listed no usable model.                                                     |
+| `AI unavailable`                     | Something else upstream. The tooltip carries the message.                           |
 
 A **Retry** button re-requests it, and **Rewrite** asks for a fresh take on an
 analysis that already succeeded. The endpoint is throttled per IP (best effort,
@@ -8423,8 +8497,9 @@ model the key can reach, or that the key is not reaching the function, or that
 nothing is serving the endpoint at all. It runs as a `fetch`, so a stale service
 worker cannot answer it with the cached app shell.
 
-The same check is available directly at `GET /leagueSummary` on Firebase — no console
-needed:
+The same check is available directly at `GET /leagueSummary` on Firebase, for a request
+that carries a member's sign-in (opened in a browser's address bar it answers
+`members-only`; the panel's **Why?** sends the sign-in):
 
 ```
 https://us-central1-league-forecast-youth.cloudfunctions.net/leagueSummary
@@ -8437,8 +8512,8 @@ https://us-central1-league-forecast-youth.cloudfunctions.net/leagueSummary?probe
 | `keyConfigured: false`              | The function is deployed but `GEMINI_API_KEY` is not reaching it.                                |
 | `keyHadSurroundingWhitespace: true` | The stored value has leading/trailing whitespace (a paste artifact).                             |
 | `keyLength`                         | Length only, never the value — catches a truncated paste.                                        |
-| `commit`                            | The deployed commit. If it predates your change, the deploy has not happened yet.                |
-| `vercelEnv`                         | Legacy diagnostic field; empty on Firebase.                                                      |
+| `revision`                          | The Cloud Run revision serving it. A new deploy makes a new one.                                 |
+| **401** / **403** `members-only`    | No sign-in, or an account not on the cloud copy's list.                                          |
 | `?probe=1` → `ok: true`             | The key can list models; `candidates` shows the attempt order, newest first.                     |
 | `?probe=1` → `ok: false`            | Gemini rejected the key. The response quotes Google's own error and names the fix.               |
 | `?probe=1` → `listError`            | Google's verbatim status and message for the model listing.                                      |

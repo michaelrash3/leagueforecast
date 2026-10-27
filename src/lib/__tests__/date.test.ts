@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { normalizeDateInput, parseDateValue, formatGameDate, shiftIsoDay } from "../date";
+import {
+  normalizeDateInput,
+  parseDateValue,
+  formatGameDate,
+  shiftIsoDay,
+  sundayEndingWeekKey,
+} from "../date";
 import { inTimeZone } from "../../test/timeZone";
 
 describe("normalizeDateInput", () => {
@@ -119,5 +125,24 @@ describe("shiftIsoDay in any time zone", () => {
       expect(shiftIsoDay("2026-10-29", 7)).toBe("2026-11-05");
       expect(shiftIsoDay("2026-11-05", -7)).toBe("2026-10-29");
     });
+  });
+});
+
+describe("a season's weeks and its month words", () => {
+  /*
+   * "Per Week" grouping worked the weekday out in 2026 whatever the season, so a week running from
+   * December into January was two weeks; and a month word alone, "may", was read as May 1.
+   */
+  it("puts a week across New Year in one, on the season's own calendar", () => {
+    expect(sundayEndingWeekKey("12/30", 11)).toBe("1/3");
+    expect(sundayEndingWeekKey("1/2", 11)).toBe("1/3");
+    // A season inside one calendar year is as it was.
+    expect(sundayEndingWeekKey("5/1")).toBe(sundayEndingWeekKey("5/1", 1));
+  });
+
+  it("reads a month word with no day as no date", () => {
+    expect(normalizeDateInput("may")).toBe("");
+    expect(normalizeDateInput("May")).toBe("");
+    expect(normalizeDateInput("May 1")).toBe("5/1");
   });
 });

@@ -1,6 +1,7 @@
 import { STORAGE_VERSION, type GameLog, type Matchup, type Settings, type TeamBase } from "./types";
 import { coerceLogs, coerceMatchups, coerceSettings, coerceTeams, isRecord } from "./validate";
 import { mayWrite } from "./cloud/cloudGuard";
+import { tabReadOnly } from "./tabTurn";
 import { forgetSeasons } from "./preferences";
 import type { SeasonReader } from "./live/allKnown";
 
@@ -90,9 +91,16 @@ const safeGet = (key: string): string | null => {
  * A tab that read its seasons before another tab took a newer copy in may not write them
  * (`cloudGuard.ts`): its values are older than what is stored, and would go back over it.
  */
+/**
+ * Whether this tab may not write League at all: another tab has the turn (`tabTurn.ts`). The cloud
+ * copy's own arriving is laid in all the same, since the tab writing does the same.
+ */
+const turnRefuses = (): boolean => arriving === 0 && tabReadOnly();
+
 const safeSet = (key: string, value: string): boolean => {
   try {
     const changed = localStorage.getItem(key) !== value;
+    if (changed && turnRefuses()) return false;
     if (changed && isShared(key) && !mayWrite("league")) return false;
     localStorage.setItem(key, value);
     if (changed) noteLeagueWrite(key);
@@ -104,6 +112,7 @@ const safeSet = (key: string, value: string): boolean => {
 const safeRemove = (key: string) => {
   try {
     const held = localStorage.getItem(key) !== null;
+    if (held && turnRefuses()) return;
     if (held && isShared(key) && !mayWrite("league")) return;
     localStorage.removeItem(key);
     if (held) noteLeagueWrite(key);
@@ -329,24 +338,31 @@ export const readUndoSnapshot = () => parseJson(safeGet(seasonKey(activeId(), "u
 // ---------- Season management ----------
 
 /*
- * Ids are handed out again: counted from the seasons held, so deleting the last season and making
- * one gives its id back, and every browser's first season is `default`. What this device keeps of
- * a season outside the season itself (`forgetSeasons`: its last look, the findings put aside, the
+ * Every browser's first season is `default`; every other is made under eight random letters and
+ * digits. They were counted from the seasons this browser holds, so a laptop and a phone tab left
+ * open since before it each made `season-2`, and with League kept live the two seasons met in the
+ * cloud as one (`leagueSync.ts` brings down no season of an id already held). Where the letters
+ * drawn are taken, they are drawn again, and past a few draws told apart by a count. What this
+ * device keeps of a season outside the season itself (`forgetSeasons`: its last look, the findings put aside, the
  * team followed and its club's place, the server's last bridge, the saved scenarios, the news
  * announced) goes with the season when it leaves this browser, and an id given to a season new here
  * starts with nothing under it, whatever a season before it left there. Otherwise the new season
  * took the old one's: its games and teams reported as removed since the last look, its findings
  * already put aside, the old season's outside results read by its forecast.
  */
+const SEASON_ID_LETTERS = "abcdefghijklmnopqrstuvwxyz0123456789";
+const SEASON_ID_DRAWS = 8;
+
 const genSeasonId = (existing: SeasonMeta[]): string => {
   const ids = new Set(existing.map((season) => season.id));
-  let n = existing.length + 1;
-  let id = `season-${n}`;
-  while (ids.has(id)) {
-    n += 1;
-    id = `season-${n}`;
+  for (let draw = 0; ; draw += 1) {
+    const letters = Array.from(
+      { length: 8 },
+      () => SEASON_ID_LETTERS[Math.floor(Math.random() * SEASON_ID_LETTERS.length)] ?? "a"
+    ).join("");
+    const id = `season-${letters}${draw >= SEASON_ID_DRAWS ? `-${draw}` : ""}`;
+    if (!ids.has(id)) return id;
   }
-  return id;
 };
 
 export const listSeasons = (): SeasonMeta[] => {

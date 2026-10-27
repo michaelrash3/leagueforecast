@@ -32,7 +32,7 @@
 import { appendFileSync } from "node:fs";
 import type { CloudStore } from "../src/lib/cloud/cloudEngine.ts";
 import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
-import { runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.ts";
+import { heardNothing, runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.ts";
 import { failureWords } from "../src/lib/cloud/firestoreRest.ts";
 import {
   nightlyEndsTurn,
@@ -258,6 +258,13 @@ const main = async (): Promise<void> => {
     );
   } else if (["finished", "stopped", "gave-up"].includes(result.end)) {
     console.log("  Nothing in the copy changed, so nothing was saved.");
+  }
+  // Not a quiet night: every team asked went unanswered, so the run ends red and raises its alarm.
+  if (heardNothing(result)) {
+    console.log(
+      `  GameChanger answered none of the ${result.asked} teams asked: the proxy, GameChanger or the network was down.`
+    );
+    process.exitCode = 1;
   }
   // Built from the copy the store now holds, and only when it holds one (`CloudPullResult.manifest`).
   let published: CopyPublish | null = null;

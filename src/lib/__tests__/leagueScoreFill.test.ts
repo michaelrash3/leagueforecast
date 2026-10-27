@@ -172,6 +172,31 @@ describe("planLeagueScoreFill", () => {
     ]);
   });
 
+  /*
+   * GameChanger's ids for one day's two games say nothing of which was played first, and the
+   * schedule's two games are in its own order, the first one first: the results go in by when each
+   * started, where the pull knows it.
+   */
+  it("pairs a doubleheader by start time, not by GameChanger's ids", () => {
+    const plan = planLeagueScoreFill(
+      input({
+        matchups: [matchup("g1", "5/1", "ACES", "BEAR"), matchup("g2", "5/1", "ACES", "BEAR")],
+        scoutGames: [
+          scoutGame("s1", "S-ACES", "S-BEAR", 7, 3, "2026-05-01", {
+            startTs: "2026-05-01T22:00:00.000Z",
+          }),
+          scoutGame("s2", "S-ACES", "S-BEAR", 2, 6, "2026-05-01", {
+            startTs: "2026-05-01T19:00:00.000Z",
+          }),
+        ],
+      })
+    );
+    expect(plan.rows.map((row) => [row.matchupId, row.awayRuns, row.homeRuns])).toEqual([
+      ["g1", 2, 6],
+      ["g2", 7, 3],
+    ]);
+  });
+
   it("refuses to guess when a pairing's counts do not line up", () => {
     const plan = planLeagueScoreFill(
       input({
@@ -574,6 +599,30 @@ describe("games between the league's clubs that the schedule does not have", () 
         homeRuns: 2,
         tournament: "One of the two played somebody else that day, so it was likely a tournament.",
       },
+    ]);
+  });
+
+  /*
+   * A playoff round played one game a day passes the tournament checks, and arrived ticked as a
+   * game the schedule was missing; added, it changed the standings that seeded the bracket. A game
+   * after the schedule's last day is offered unticked, said to be a likely playoff game.
+   */
+  it("are offered unticked after the schedule's last day, as likely playoff games", () => {
+    const plan = planLeagueScoreFill(
+      input({
+        teams: linked,
+        matchups: [matchup("g1", "5/1", "ACES", "BEAR"), matchup("g2", "5/15", "BEAR", "CUBS")],
+        scoutGames: [
+          // Before the last day, and no tournament: the league's own, missing from the schedule.
+          scoutGame("s1", "S-ACES", "S-CUBS", 5, 4, "2026-05-08"),
+          // After it: a playoff round.
+          scoutGame("s2", "S-ACES", "S-BEAR", 6, 1, "2026-05-22"),
+        ],
+      })
+    );
+    expect(plan.missing?.map((game) => [game.scoutGameId, game.tournament])).toEqual([
+      ["s1", undefined],
+      ["s2", "Played after the last game on the schedule, so it was likely a playoff game."],
     ]);
   });
 

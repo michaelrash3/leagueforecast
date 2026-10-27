@@ -462,6 +462,22 @@ export const deriveLeagueScoutGames = (
     }
   );
 
+  /*
+   * A stand-in a league team was carried onto is that team's club: its games are the league's, and
+   * the boards list clubs, not stand-ins, so left one it was fitted and on no board, and League's
+   * Our team card found no place for it. Only the ones carried onto lose the mark.
+   */
+  const carriedOnto = new Set(
+    [...clubByLeagueTeam.values()].flatMap((byLeague) => [...byLeague.values()])
+  );
+  if (teams.some((team) => team.nameOnly && carriedOnto.has(team.id))) {
+    teams = teams.map((team) => {
+      if (!team.nameOnly || !carriedOnto.has(team.id)) return team;
+      const { nameOnly: _standIn, ...club } = team;
+      return club;
+    });
+  }
+
   return { teams, games, pickedClubIds, namedClubIds, clubByLeagueTeam };
 };
 

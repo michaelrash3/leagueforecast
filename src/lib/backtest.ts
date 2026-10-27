@@ -1,7 +1,7 @@
 import type { GameLog, Matchup, Settings, TeamBase } from "./types";
-import { parseDateValue, seasonStartMonth } from "./date";
+import { seasonStartMonth } from "./date";
 import { attachAdjustedRatings, calculateTeams, predictGame } from "./sim";
-import { buildPredictionEngine } from "./predictionEngine";
+import { buildPredictionEngine, playedOn, type ExternalResult } from "./predictionEngine";
 import { isFinal } from "./util";
 
 export type CalibrationBucket = {
@@ -40,19 +40,34 @@ export type BacktestResult = {
 /** A pick is "high confidence" once the win probability is at least this far from a coin flip. */
 const HIGH_CONFIDENCE_MARGIN = 0.15;
 
+/**
+ * The Team Rankings results the forecast reads beside the league's games (`buildPredictionEngine`),
+ * and the squad year that places their days among the league's (`playedOn`).
+ */
+export type BacktestOutside = { outside?: readonly ExternalResult[]; squadYear?: number };
+
 export const backtestPredictions = (
   teamBases: TeamBase[],
   matchups: Matchup[],
   logs: Record<string, GameLog>,
   settings: Settings,
-  bucketSize = 0.1
+  bucketSize = 0.1,
+  { outside = [], squadYear }: BacktestOutside = {}
 ): BacktestResult => {
-  // The season's own order, which turns over New Year when its schedule does.
-  const start = seasonStartMonth(matchups.map((game) => game.date));
-  const ordered = [...matchups].sort(
-    (a, b) =>
-      parseDateValue(a.date, start) - parseDateValue(b.date, start) || a.id.localeCompare(b.id)
-  );
+  // The season's own order, which turns over New Year when its schedule does, over the outside
+  // results' days too, as the trend reads them.
+  const start = seasonStartMonth([
+    ...matchups.map((game) => game.date),
+    ...outside.map((result) => result.date ?? ""),
+  ]);
+  // On the one timeline the outside results are filtered on (`playedOn`): with a squad year, each
+  // "M/D" in its own year, so results long after the season, which can move where the year seems
+  // to start, cannot put January's game before October's. With none, as it always was.
+  const dayOf = (game: Matchup) => {
+    const day = playedOn(game.date, squadYear, start);
+    return Number.isFinite(day) ? day : Number.POSITIVE_INFINITY;
+  };
+  const ordered = [...matchups].sort((a, b) => dayOf(a) - dayOf(b) || a.id.localeCompare(b.id));
   const progressiveLogs: Record<string, GameLog> = {};
   const rows: Array<{
     p: number;
@@ -64,15 +79,32 @@ export const backtestPredictions = (
     highConfidence: boolean;
   }> = [];
 
+  /*
+   * The latest day the season has reached: a game logged with no date is called as of the last day
+   * before it that has one, not as of the end of time, which would hand it every outside result.
+   */
+  let through = Number.NEGATIVE_INFINITY;
   ordered.forEach((game) => {
     const finalLog = logs[game.id];
     if (!finalLog || !isFinal(finalLog)) return;
+    const own = playedOn(game.date, squadYear, start);
+    const day = Number.isFinite(own) ? own : through;
+    if (Number.isFinite(own)) through = Math.max(through, own);
 
     // Fitted on the games played so far, like everything else here: a rating that had seen the
-    // game being predicted would flatter every number this returns. League games only — an outside
-    // result carries no date, so it cannot be placed on this timeline without leaking the future.
+    // game being predicted would flatter every number this returns. With the Team Rankings results
+    // the forecast reads, the ones played before the game's day (`trend.ts` reads them the same
+    // way); one undated, or on the day or after, could carry the result being predicted.
+    const played = outside.filter((result) => playedOn(result.date, squadYear, start) < day);
     const base = calculateTeams(teamBases, ordered, progressiveLogs, settings);
-    const engine = buildPredictionEngine(base, ordered, progressiveLogs, settings);
+    const engine = buildPredictionEngine(
+      base,
+      ordered,
+      progressiveLogs,
+      settings,
+      played,
+      squadYear
+    );
     const state = attachAdjustedRatings(base, engine.ratings);
     const prediction = predictGame(game, state, settings);
     const awayRuns = Number(finalLog.awayRuns);

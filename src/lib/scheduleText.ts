@@ -106,7 +106,29 @@ const iso = (year: number, month: number, day: number): string | undefined => {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 };
 
-type DateContext = { year?: number; month?: number };
+type DateContext = {
+  year?: number;
+  month?: number;
+  /**
+   * The month of the last date read on the year in `year`, set only by `parseScheduleText` as it
+   * reads a paste top to bottom: a date with no year of its own whose month falls well before it
+   * is the next year's, as January after December is.
+   */
+  lastMonth?: number;
+  /** Today, as "2026-10-26", for telling a game still to come (`parseScheduleText`). */
+  today?: string;
+};
+
+/** A month this far before the last one read is taken as the next year's. */
+const YEAR_TURNS_BY = 6;
+
+/** The year a date with no year of its own is on: the context's, or the next where it turned. */
+const contextYear = (month: number, context: DateContext): number | undefined =>
+  context.year !== undefined &&
+  context.lastMonth !== undefined &&
+  month < context.lastMonth - YEAR_TURNS_BY
+    ? context.year + 1
+    : context.year;
 
 /**
  * Reads a date in whatever shape it arrived. A year is never invented: `8/22` with no year context
@@ -132,7 +154,7 @@ export const parseScheduleDate = (raw: string, context: DateContext = {}): strin
       ? rawYear.length === 2
         ? 2000 + Number(rawYear)
         : Number(rawYear)
-      : context.year;
+      : contextYear(month, context);
     return year === undefined ? undefined : iso(year, month, day);
   }
 
@@ -158,7 +180,7 @@ export const parseScheduleDate = (raw: string, context: DateContext = {}): strin
   });
 
   month = month ?? context.month;
-  year = year ?? context.year;
+  if (month !== undefined) year = year ?? contextYear(month, context);
   if (day === undefined || month === undefined || year === undefined) return undefined;
   return iso(year, month, day);
 };
@@ -173,6 +195,8 @@ export const parseScheduleDate = (raw: string, context: DateContext = {}): strin
 export const parseScorePair = (
   raw: string
 ): { teamScore: number; opponentScore: number } | undefined => {
+  // A start time, "6:00" or "12:30", is not a 6-0: two digits after a colon are minutes.
+  if (/^\d{1,2}:\d{2}$/.test(raw.trim())) return undefined;
   const match = /^(?:([wlt])\s*)?(\d{1,3})\s*[-–—:]\s*(\d{1,3})$/i.exec(raw.trim());
   if (!match) return undefined;
   const first = Number(match[2]);
@@ -317,7 +341,10 @@ const positionalMap = (cells: string[]): ColumnMap => {
     return { kind: "schedule", date: 0, opponent: 1, teamScore: 2, opponentScore: 3 };
   }
   if (cells.length === 3) {
-    return parseScorePair(cells[2] ?? "")
+    // A date first is a date, opponent and result, whatever the third holds: a start time there,
+    // "6:00", is no score, and read as two score columns it made the date the opponent.
+    const datedFirst = parseScheduleDate(cells[0] ?? "", { year: 2000 }) !== undefined;
+    return datedFirst || parseScorePair(cells[2] ?? "")
       ? { kind: "schedule", date: 0, opponent: 1, result: 2 }
       : { kind: "schedule", opponent: 0, teamScore: 1, opponentScore: 2 };
   }
@@ -415,7 +442,24 @@ export const STATUS_SUFFIX = /\s+(?:final|f\/\d+|complete|completed|forfeit(?:ed
  * `August 22, 2026 vs. X W 6-5` splits into two "cells" that are not cells at all.
  */
 const looksUnparsed = (row: ParsedGameRow): boolean =>
-  /(?:^|\s)(?:vs\.?|@|at)\s/i.test(row.teamB) || /\d{1,3}\s*[-–—]\s*\d{1,3}/.test(row.teamB);
+  /(?:^|\s)(?:vs\.?|@|at)\s/i.test(row.teamB) ||
+  /\d{1,3}\s*[-–—]\s*\d{1,3}/.test(withoutAgeSpans(row.teamB));
+
+/**
+ * Two ages a year apart, "11-12" or "9-10U": the age range a team's name carries ("Majors 11-12",
+ * "Bombers 9-10U"), which read as a score skipped the row or took the numbers for a result.
+ */
+const AGE_SPAN = /^(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*u?$/i;
+const AGE_SPAN_IN = /\b(\d{1,2})\s*[-–—]\s*(\d{1,2})u?\b/gi;
+/** `text` with every age range in it taken out, for telling a score from a name. */
+const withoutAgeSpans = (text: string): string =>
+  text.replace(AGE_SPAN_IN, (span) => (isAgeSpan(span) ? " " : span));
+const isAgeSpan = (text: string): boolean => {
+  const read = AGE_SPAN.exec(text.trim());
+  if (!read) return false;
+  const low = Number(read[1]);
+  return low >= 5 && Number(read[2]) === low + 1 && low <= 18;
+};
 
 /** `SAT 22 vs. Velocirabbits 9U W 6-5` and friends — one game per line, no delimiters. */
 const rowFromLine = (line: string, context: DateContext): ParsedGameRow | null => {
@@ -423,8 +467,10 @@ const rowFromLine = (line: string, context: DateContext): ParsedGameRow | null =
 
   // Status markers come off first: with "W 6-5 Final" still intact the score regex cannot reach
   // the numbers, and the whole result would end up inside the opponent's name. Looped because
-  // "F/6 Final" stacks two of them.
+  // "F/6 Final" stacks two of them. Every marker but "postponed" says the game was played.
+  let played = false;
   for (let i = 0; i < 3 && STATUS_SUFFIX.test(rest); i += 1) {
+    if (!/postponed\s*$/i.test(rest)) played = true;
     rest = rest.replace(STATUS_SUFFIX, "").trim();
   }
 
@@ -432,9 +478,16 @@ const rowFromLine = (line: string, context: DateContext): ParsedGameRow | null =
   let scores: { teamScore: number; opponentScore: number } | undefined;
   // The result letter is read with the numbers: it decides who won (`parseScorePair`).
   const trailing = /\s((?:[wlt]\s*)?\d{1,3}\s*[-–—]\s*\d{1,3})\s*$/i.exec(rest);
+  // Two ages a year apart with no result letter may be the name's age range ("Majors 11-12"):
+  // put back on the name below if the game is still to come, when it cannot be a result. A game
+  // of today may be over, and one marked final was, so theirs stay a result.
+  let ageSpan: string | undefined;
   if (trailing) {
     scores = parseScorePair(trailing[1] ?? "");
-    if (scores) rest = rest.slice(0, trailing.index).trim();
+    if (scores) {
+      if (isAgeSpan(trailing[1] ?? "")) ageSpan = trailing[1];
+      rest = rest.slice(0, trailing.index).trim();
+    }
   }
 
   // Then the date off the front, however it is written.
@@ -450,6 +503,15 @@ const rowFromLine = (line: string, context: DateContext): ParsedGameRow | null =
       date = candidate;
       rest = (leading[2] ?? "").trim();
     }
+  }
+
+  if (
+    ageSpan &&
+    !played &&
+    (date === undefined || context.today === undefined || date > context.today)
+  ) {
+    rest = `${rest} ${ageSpan}`;
+    scores = undefined;
   }
 
   rest = rest.replace(/^\d{1,2}:\d{2}\s*(?:am|pm)?\s*/i, "").trim();
@@ -529,11 +591,21 @@ export const parseScheduleText = (
     .split(/\r?\n/)
     .map((line) => (delimiter === "\t" ? line.replace(/^ +| +$/g, "") : line.trim()));
 
-  const context: DateContext = {};
+  const context: DateContext = { today };
   const games: ParsedGameRow[] = [];
   const skipped: string[] = [];
   const subjects = new Set<string>();
   let map: ColumnMap | null = null;
+
+  /** Keeps a row, and its date's month and year for the dates after it (`contextYear`). */
+  const keep = (row: ParsedGameRow) => {
+    games.push(row);
+    if (!row.date || context.year === undefined) return;
+    const year = Number(row.date.slice(0, 4));
+    if (year < context.year) return;
+    context.year = year;
+    context.lastMonth = Number(row.date.slice(5, 7));
+  };
 
   lines.forEach((cellsLine) => {
     // The line as words, for everything but its cells.
@@ -545,6 +617,15 @@ export const parseScheduleText = (
     if (monthYear && month !== undefined) {
       context.month = month;
       context.year = Number(monthYear[2]);
+      context.lastMonth = month;
+      return;
+    }
+    // A month's heading with no year ("January" after "December 2026") turns the year with it.
+    const monthAlone = /^[a-z]{3,9}$/i.test(line) ? monthOf(line) : undefined;
+    if (monthAlone !== undefined && context.year !== undefined) {
+      context.year = contextYear(monthAlone, context);
+      context.month = monthAlone;
+      context.lastMonth = monthAlone;
       return;
     }
     if (/^\d{4}$/.test(line)) {
@@ -585,20 +666,20 @@ export const parseScheduleText = (
       if (row && looksUnparsed(row)) {
         const asLine = rowFromLine(line, context);
         if (asLine) {
-          games.push(asLine);
+          keep(asLine);
           return;
         }
         skipped.push(line);
         return;
       }
 
-      if (row) games.push(row);
+      if (row) keep(row);
       else skipped.push(line);
       return;
     }
 
     const row = rowFromLine(line, context);
-    if (row) games.push(row);
+    if (row) keep(row);
     else skipped.push(line);
   });
 

@@ -83,6 +83,18 @@ jobs:
           # 1 GB above the loaded pool (the owner's backup of 11 October, not measured here).
           NODE_OPTIONS: --max-old-space-size=12288
           LIMIT: ${{ inputs.limit }}
+      # Beside the refresh, whatever became of it: the project's billing, read from Cloud Billing
+      # (free to ask, and nothing of the copy), and the end of the token the pulls on GitHub are
+      # started with, read from GitHub (`scripts/upkeep.ts`). Each is handed to the alarm as a word;
+      # one not read is handed as nothing, which leaves its alarm as it is. It never fails the run.
+      - name: Read the billing and the pull dispatch token
+        id: upkeep
+        if: always()
+        continue-on-error: true
+        run: npm run upkeep
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          PULL_DISPATCH_TOKEN: ${{ secrets.PULL_DISPATCH_TOKEN }}
       # However the refresh ended: what is raised or settled, and every word of it, is the script's
       # (`runAlarms.ts`), from the step's outcome and the words the refresh handed over: the
       # rebuilds', and once a week the starting level's re-measure.
@@ -98,3 +110,5 @@ jobs:
           OUTCOME: ${{ steps.refresh.outcome }}
           REBUILDS: ${{ steps.refresh.outputs.rebuilds }}
           CLOSED_LEVEL: ${{ steps.refresh.outputs.closedLevel }}
+          BILLING: ${{ steps.upkeep.outputs.billing }}
+          DISPATCH: ${{ steps.upkeep.outputs.dispatch }}

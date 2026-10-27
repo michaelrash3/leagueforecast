@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   ALARM_TITLES,
   alarmStep,
+  billingWord,
   coerceOpenIssues,
+  dispatchWord,
   ghArgsOf,
   GH_LIST_ARGS,
   nightlyVerdicts,
   republishVerdicts,
   runLinkOf,
   stampOf,
+  verifyGcVerdicts,
   type OpenIssue,
 } from "../runAlarms";
 
@@ -299,7 +302,8 @@ describe("the one issue an alarm keeps", () => {
   });
 
   it("has a distinct title for each alarm", () => {
-    expect(new Set(Object.values(ALARM_TITLES)).size).toBe(4);
+    expect(new Set(Object.values(ALARM_TITLES)).size).toBe(Object.keys(ALARM_TITLES).length);
+    expect(Object.keys(ALARM_TITLES)).toHaveLength(7);
   });
 });
 
@@ -389,5 +393,142 @@ describe("what the run tells the alarm", () => {
       "--comment",
       "B",
     ]);
+  });
+});
+
+/*
+ * Three more of the owner's alarms (26 October 2026): the weekly check of the GameChanger pull,
+ * the project's billing turned off by its cap, and the token the pulls on GitHub are started with
+ * running out. Each keeps one issue, as the others do.
+ */
+describe("which alarm the GameChanger pull check raises or settles", () => {
+  it("raises it for a check that failed, after a merge or on the week's clock", () => {
+    expect(verifyGcVerdicts({ outcome: "failure", event: "schedule", result: "" })).toEqual([
+      { kind: "verifyGc", failing: true, said: "failed", how: "weekly" },
+    ]);
+    expect(verifyGcVerdicts({ outcome: "failure", event: "push", result: "" })).toEqual([
+      { kind: "verifyGc", failing: true, said: "failed", how: "after a merge" },
+    ]);
+  });
+
+  it("raises it for a check that passed but found no score on a game played, which is drift", () => {
+    expect(verifyGcVerdicts({ outcome: "success", event: "schedule", result: "drift" })).toEqual([
+      {
+        kind: "verifyGc",
+        failing: true,
+        said: "found no score on games already played, so GameChanger's score fields may have moved",
+        how: "weekly",
+      },
+    ]);
+  });
+
+  it("settles it after a clean check, and leaves it for a run stopped or started by hand", () => {
+    expect(verifyGcVerdicts({ outcome: "success", event: "push", result: "pass" })).toEqual([
+      { kind: "verifyGc", failing: false, how: "after a merge" },
+    ]);
+    // A push cancels the run before it, which says nothing of GameChanger.
+    expect(verifyGcVerdicts({ outcome: "cancelled", event: "push", result: "" })).toEqual([]);
+    // A run by hand may ask other teams or another proxy than the deployed one.
+    expect(
+      verifyGcVerdicts({ outcome: "failure", event: "workflow_dispatch", result: "" })
+    ).toEqual([]);
+  });
+});
+
+describe("what the nightly reads of the project's billing", () => {
+  it("is on or off as Cloud Billing says, and nothing for an answer it cannot read", () => {
+    expect(billingWord({ name: "projects/p/billingInfo", billingEnabled: true })).toBe("on");
+    expect(billingWord({ name: "projects/p/billingInfo", billingEnabled: false })).toBe("off");
+    // Cloud Billing leaves the field out when billing is off.
+    expect(billingWord({ name: "projects/p/billingInfo", billingAccountName: "" })).toBe("off");
+    expect(billingWord(null)).toBe("");
+    expect(billingWord({ error: { code: 403 } })).toBe("");
+  });
+
+  it("raises the billing alarm when it is off, settles it when it is on, and leaves it otherwise", () => {
+    const night = { outcome: "success", event: "schedule", mode: "live" };
+    expect(nightlyVerdicts({ ...night, billing: "off" })).toContainEqual({
+      kind: "billing",
+      failing: true,
+      said: "off",
+    });
+    expect(nightlyVerdicts({ ...night, billing: "on" })).toContainEqual({
+      kind: "billing",
+      failing: false,
+    });
+    expect(nightlyVerdicts({ ...night, billing: "" }).map((one) => one.kind)).not.toContain(
+      "billing"
+    );
+  });
+});
+
+describe("what the nightly reads of the pull dispatch token", () => {
+  const now = Date.parse("2026-10-26T04:30:00Z");
+
+  it("is fine with more than two weeks left, or no end at all", () => {
+    expect(dispatchWord({ status: 200, expires: "2026-12-01 05:00:00 UTC" }, now)).toBe("fine");
+    expect(dispatchWord({ status: 200, expires: null }, now)).toBe("fine");
+  });
+
+  it("says the day it ends, and the days left, within two weeks of it", () => {
+    expect(dispatchWord({ status: 200, expires: "2026-11-02 05:00:00 UTC" }, now)).toBe(
+      "expires 2026-11-02 7"
+    );
+    expect(dispatchWord({ status: 200, expires: "2026-11-01 21:00:00 -0800" }, now)).toBe(
+      "expires 2026-11-02 7"
+    );
+  });
+
+  it("says refused when GitHub would not take it, and nothing for any other answer", () => {
+    expect(dispatchWord({ status: 401, expires: null }, now)).toBe("refused");
+    expect(dispatchWord({ status: 503, expires: null }, now)).toBe("");
+    expect(dispatchWord({ status: 200, expires: "next Tuesday" }, now)).toBe("");
+  });
+
+  it("raises the token's alarm for an end near or past, and settles it for a token good for longer", () => {
+    const night = { outcome: "success", event: "schedule", mode: "live" };
+    expect(nightlyVerdicts({ ...night, dispatch: "expires 2026-11-02 7" })).toContainEqual({
+      kind: "dispatchToken",
+      failing: true,
+      said: "ends on 2026-11-02, in 7 days",
+    });
+    expect(nightlyVerdicts({ ...night, dispatch: "refused" })).toContainEqual({
+      kind: "dispatchToken",
+      failing: true,
+      said: "was refused by GitHub: it has ended or been revoked",
+    });
+    expect(nightlyVerdicts({ ...night, dispatch: "fine" })).toContainEqual({
+      kind: "dispatchToken",
+      failing: false,
+    });
+    expect(nightlyVerdicts({ ...night, dispatch: "" }).map((one) => one.kind)).not.toContain(
+      "dispatchToken"
+    );
+  });
+});
+
+describe("the new alarms' issues", () => {
+  it("say what failed and what to do, in their own words", () => {
+    const pull = alarmStep(
+      { kind: "verifyGc", failing: true, said: "failed", how: "weekly" },
+      [],
+      RUN
+    );
+    expect(pull).toMatchObject({ do: "open", title: "The GameChanger pull check failed" });
+    expect(pull?.do === "open" && pull.body).toMatch(
+      /^The GameChanger pull check failed \(weekly\)\./
+    );
+
+    const billing = alarmStep({ kind: "billing", failing: true, said: "off" }, [], RUN);
+    expect(billing).toMatchObject({ do: "open", title: "The project's billing is off" });
+    expect(billing?.do === "open" && billing.body).toMatch(/cost cap/);
+
+    const token = alarmStep(
+      { kind: "dispatchToken", failing: true, said: "ends on 2026-11-02, in 7 days" },
+      [],
+      RUN
+    );
+    expect(token).toMatchObject({ do: "open", title: "The pull dispatch token is running out" });
+    expect(token?.do === "open" && token.body).toMatch(/PULL_DISPATCH_TOKEN/);
   });
 });

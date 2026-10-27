@@ -105,6 +105,27 @@ describe("ForecastWhy", () => {
     );
   });
 
+  /*
+   * A league with no cut line (a bracket for every team, or no postseason) shows no Gold % on any
+   * page, and the panel defined it all the same, as the chance of finishing above the cut line.
+   */
+  it("leaves Gold % out where the league has no cut line", () => {
+    render(
+      <ForecastWhy
+        prediction={predictionFor()}
+        nameOf={nameOf}
+        record={{ winnerAccuracy: 2 / 3, sampleSize: 3 }}
+        hasCutLine={false}
+      />
+    );
+    const terms = screen.getAllByRole("term").map((term) => term.textContent?.trim());
+    expect(terms).toEqual(["Win chance:", "Range:", "Confidence:", "Accuracy so far:"]);
+    expect(
+      screen.getByRole("heading", { name: "Four numbers that are not the same" })
+    ).toBeVisible();
+    expect(screen.queryByText(/cut line/)).toBeNull();
+  });
+
   it("keeps the cap out of the trailing side's reasons, and takes it off the leader's margin", async () => {
     // The Aces rout three teams the Bears lose to by as much, so their margin runs past the cap.
     const five: TeamBase[] = [...teams, { id: "D", name: "Ducks" }, { id: "E", name: "Eagles" }];
