@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ageGroup, game, renderTeamRankings, team } from "../../test/teamRankingsHarness";
 
@@ -97,7 +97,12 @@ describe("The Weekly on this device", () => {
     renderTeamRankings(pool("S-DOE"));
     const week = await screen.findByRole("region", { name: /^The Weekly/ });
     // Does beat Aces on the 19th and Bees on the 20th, the week before the 21st.
-    expect(week.textContent).toMatch(/Your week: Does went 2–0; best win over (Aces|Bees) \(#\d\)/);
-    expect(week.textContent).toContain("Biggest climbs: Does #4 → #1 (up 3)");
+    await waitFor(() =>
+      expect(week.textContent).toMatch(
+        /Your week: Does went 2–0; best win over (Aces|Bees) \(#\d\)/
+      )
+    );
+    // The climbs wait on last week's fit, a second fit that comes after the board.
+    await waitFor(() => expect(week.textContent).toContain("Biggest climbs: Does #4 → #1 (up 3)"));
   });
 });
