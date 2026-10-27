@@ -27,6 +27,11 @@
  * together (`strictPairs`); and each page's own club's standing line read two ways, its share of
  * the whole board and of the clubs whose web reaches the line (`rankLineCheck.ts`).
  *
+ * With --stand-in-levers it says what the year's share of games on a stand-in is made of (a slot,
+ * how many games the name holds, why the name is not a pulled club's), how far each lever would
+ * take it, and what leaving out the games of names holding one or two games would do to the boards
+ * (`src/lib/standInLevers.ts`).
+ *
  * Options: --year=2027 (the squad year), --today=DAY (the board's day; the members' day by
  * default), --top=25 (the stand-ins named, most games first), --public (numbers only),
  * --seal=FILE with --seal-to-key=PEM (the named lines, sealed to that public key), and
@@ -119,7 +124,9 @@ import {
 } from "../src/lib/teamRankingsStorage.ts";
 import {
   ageGroupYear,
+  fitScoutYearFor,
   rankingPoolGroupIds,
+  rowsOfYearFit,
   scoutFitRanks,
   type AgeGroup,
   type ScoutGame,
@@ -127,6 +134,13 @@ import {
 } from "../src/lib/teamRankings.ts";
 import { ageGroupLevel, segmentOn } from "../src/lib/teamRankings/seasons.ts";
 import { rankLineCheck, topOf } from "../src/lib/rankLineCheck.ts";
+import {
+  boardShift,
+  GAME_COUNTS,
+  oneOffGames,
+  standInBreakdown,
+  type GameCount,
+} from "../src/lib/standInLevers.ts";
 import { shiftDay } from "../src/lib/standInHalves.ts";
 import { openStores } from "./cloudPool.ts";
 import { poolFixture } from "./poolFixture.ts";
@@ -878,6 +892,144 @@ const describeRankLines = (source: Source, year: number) => {
   });
 };
 
+/* ------------------------------------------------------------------------ the stand-in levers */
+
+const WHY_WORDS: Record<StandInWhy, string> = {
+  oneSameState: "one pulled club of the name on its page, in the namers' state",
+  oneOtherState: "one on its page, in another state",
+  several: "several of the name on its page",
+  nearOne: "none of the name on its page, one spelled near it",
+  nearSeveral: "none of the name on its page, several spelled near it",
+  elsewhere: "a namesake only on another page",
+  unmatched: "nothing of the name or near it",
+};
+
+/**
+ * The owner's target of 27 October 2026, stand-in games at or below 15%: what the year's share is
+ * made of (`standInBreakdown`), how far each lever would take it, and what leaving out the games of
+ * names holding one or two games would do to the boards (`boardShift`, the year fitted with and
+ * without them).
+ */
+const measureStandInLevers = (source: Source, year: number) => {
+  say(`\n${"=".repeat(78)}\nThe year's games on a stand-in, and the levers\n${"=".repeat(78)}`);
+  const page = source.ageGroups.find(
+    (group) => ageGroupYear(group) === year && scoutFitRanks(group.id, source.ageGroups)
+  );
+  if (!page) {
+    say(`No ranked page of squad year ${year} in this pool.`);
+    process.exitCode = 1;
+    return;
+  }
+  const known = deriveAllKnown({
+    ageGroups: source.ageGroups,
+    teams: source.teams,
+    yearGames: source.gamesOfYear(year),
+    readSeason: source.readSeason,
+    autoRemoved: source.autoRemoved,
+  });
+  const games = gamesOnPages(known.games, rankingPoolGroupIds(page.id, source.ageGroups));
+  const report = standInReport(known.teams, games, source.ageGroups, year, Number.MAX_SAFE_INTEGER);
+  const whyOf = new Map(report.top.map((club) => [club.teamId, club.why]));
+  const b = standInBreakdown(known.teams, games, source.ageGroups, year, (id) => whyOf.get(id));
+  const of = (part: number, whole = b.games) => share(part, whole);
+  say(
+    `  The year's games: ${b.games}; on a stand-in: ${b.onStandIn} (${of(b.onStandIn)}) (${since()}).`
+  );
+  say(`    on a bracket slot: ${b.slots} (${of(b.slots)})`);
+  say("    on a name, by how many games of the year the name holds:");
+  for (const count of GAME_COUNTS) {
+    say(`      ${count}: ${b.byCount[count]} (${of(b.byCount[count])})`);
+  }
+  say("    on a name, by why it is not a pulled club's (and of those, its name's only game):");
+  for (const why of Object.keys(WHY_WORDS) as StandInWhy[]) {
+    say(
+      `      ${WHY_WORDS[why]}: ${b.byWhy[why] ?? 0} (${of(b.byWhy[why] ?? 0)}); one-off` +
+        ` ${b.oneOffByWhy[why] ?? 0}`
+    );
+  }
+
+  // The levers, each on what the ones before left.
+  const sumWhy = (counts: readonly GameCount[], whys: readonly StandInWhy[]) =>
+    counts.reduce(
+      (sum, count) => sum + whys.reduce((part, why) => part + (b.byCountWhy[count][why] ?? 0), 0),
+      0
+    );
+  const kept: GameCount[] = ["3-4", "5-9", "10+"];
+  const oneOff = b.byCount["1"];
+  const twoGame = b.byCount["2"];
+  const namesakes = sumWhy(kept, ["oneSameState", "oneOtherState", "nearOne"]);
+  const elsewhere = sumWhy(kept, ["elsewhere"]);
+  say(
+    "\n  The levers, each on what the ones before left (games left out shrink the year as well):"
+  );
+  let on = b.onStandIn;
+  let total = b.games;
+  const step = (words: string, off: number, leftOut: boolean) => {
+    on -= off;
+    if (leftOut) total -= off;
+    say(`    ${words}: ${off} games; the share ${share(on, total)}`);
+  };
+  say(`    as it is: the share ${share(on, total)}`);
+  step("leave out games of names holding one game", oneOff, true);
+  step("and of names holding two", twoGame, true);
+  step(
+    "file the names with one pulled club of the name or near it on their page",
+    namesakes,
+    false
+  );
+  step("and those whose namesake is only on another page", elsewhere, false);
+  say(
+    `    (the strictest pairing by start, result and a word of the name answered about 3,944 rows,` +
+      ` which overlap these)`
+  );
+
+  // What leaving the few-game names out would do to the boards.
+  const pool = asWorkerSees(known.teams, games);
+  const { segment } = segmentOn(source.today);
+  const pages = source.ageGroups.filter(
+    (group) => ageGroupYear(group) === year && scoutFitRanks(group.id, source.ageGroups)
+  );
+  const fitAll = fitScoutYearFor(
+    page.id,
+    pool.teams,
+    pool.games,
+    source.ageGroups,
+    segment,
+    source.today
+  );
+  if (!fitAll) {
+    say("  No fit of the year to compare against.");
+    return;
+  }
+  for (const most of [1, 2]) {
+    const drop = oneOffGames(pool.teams, pool.games, most);
+    const fit = fitScoutYearFor(
+      page.id,
+      pool.teams,
+      pool.games.filter((game) => !drop.has(game.id)),
+      source.ageGroups,
+      segment,
+      source.today
+    );
+    say(
+      `\n  The boards without the games of names holding ${most === 1 ? "one game" : "two or fewer"}` +
+        ` (${drop.size} games; ${since()}):`
+    );
+    if (!fit) continue;
+    pages.forEach((one, at) => {
+      const shift = boardShift(
+        rowsOfYearFit(fitAll, one.id, undefined, source.ageGroups),
+        rowsOfYearFit(fit, one.id, undefined, source.ageGroups)
+      );
+      say(
+        `    page ${at + 1}: ${shift.compared} clubs; top 25 kept ${shift.topKept} of ${shift.top};` +
+          ` the middle club moved ${shift.medianMove} places; ${shift.movedTenth} moved more than` +
+          ` a tenth of the board`
+      );
+    });
+  }
+};
+
 /* -------------------------------------------------------------------------------------- run */
 
 const main = async (): Promise<void> => {
@@ -911,6 +1063,16 @@ const main = async (): Promise<void> => {
   );
   if (has("stand-in-rules")) {
     measureStandInRules(source, year);
+    finish();
+    return;
+  }
+  if (has("stand-in-levers")) {
+    try {
+      measureStandInLevers(source, year);
+    } catch (error) {
+      say(`The stand-in levers stopped: ${failureWords(error)}`);
+      process.exitCode = 1;
+    }
     finish();
     return;
   }
