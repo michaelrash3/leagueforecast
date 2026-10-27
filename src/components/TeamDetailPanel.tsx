@@ -286,16 +286,20 @@ export function TeamDetailPanel({
     [team.id, ageGroupId, allGames, ageGroups, segment]
   );
   const { wins, losses, ties } = record;
-  // Its last games against the margins its ratings expected, over the record's half (`formOf`).
+  // Its last games against the margins its ratings expected, over the record's pool and half
+  // (`formOf`): a card names the club's games of every year, and another year's could otherwise
+  // take a place in the last five.
   const form = useMemo(() => {
     if (!ratingRowOf) return undefined;
     const year = ageGroupYear(ageGroups.find((group) => group.id === ageGroupId));
     return formOf(
       team.id,
-      allGames.filter((game) => inSegment(game.date, year, segment)),
+      allGames.filter(
+        (game) => poolIds.has(game.ageGroupId) && inSegment(game.date, year, segment)
+      ),
       ratingRowOf
     );
-  }, [ratingRowOf, ageGroups, ageGroupId, team.id, allGames, segment]);
+  }, [ratingRowOf, ageGroups, ageGroupId, team.id, allGames, poolIds, segment]);
   const inWindow = useMemo(
     () =>
       new Set(here.filter((game) => countedInWindow(game, ageGroups, segment)).map((g) => g.id)),

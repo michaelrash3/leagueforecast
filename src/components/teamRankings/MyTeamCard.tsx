@@ -3,7 +3,7 @@ import { formatIsoDayShort } from "../../lib/date";
 import { formatRating, MovementMark } from "./RankingList";
 import { card } from "../../styles/tokens";
 import type { RankHistoryPoint } from "../../hooks/useRankingsWorker";
-import type { ExpectedRecord } from "../../lib/clubForm";
+import type { ExpectedRecord, WeekendAhead } from "../../lib/clubForm";
 import { topShare } from "../../lib/standing";
 
 type MyTeamCardProps = {
@@ -55,6 +55,17 @@ export const expectedWords = (expected: ExpectedRecord): string => {
   const close =
     oneRun.wins + oneRun.losses > 0 ? ` · one-run games ${oneRun.wins}–${oneRun.losses}` : "";
   return `${record} against rated clubs, ${said} (${expectedWins.toFixed(1)})${close}`;
+};
+
+/**
+ * The wins a weekend's games add up to, said only of the games the ratings can call: ", about 1.4
+ * wins expected", "… from the 2 the ratings can call" where some cannot be, and nothing where none
+ * can, which would read as a weekend expected to be lost.
+ */
+const weekendExpected = ({ games, called, expectedWins }: WeekendAhead): string => {
+  if (called === 0) return "";
+  const of = called < games.length ? ` from the ${called} the ratings can call` : "";
+  return `, about ${expectedWins.toFixed(1)} wins expected${of}`;
 };
 
 /**
@@ -250,8 +261,8 @@ export function MyTeamCard({
       )}
       {weekend && (
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-          Weekend to {shortDay(weekend.sunday)}: {weekend.games.length} games, about{" "}
-          {weekend.expectedWins.toFixed(1)} wins expected
+          Weekend to {shortDay(weekend.sunday)}: {weekend.games.length} games
+          {weekendExpected(weekend)}
           {weekend.toughest && weekend.likeliest && (
             <>
               {" · toughest vs "}

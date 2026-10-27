@@ -170,6 +170,8 @@ export type WeekendAhead = {
   /** The Sunday ending it. */
   sunday: string;
   games: UpcomingMatchup[];
+  /** How many of them the ratings can call: an unrated or unconnected opponent's cannot be. */
+  called: number;
   /** The chances summed over the games the ratings can call. */
   expectedWins: number;
   /** The game it is least likely and most likely to win, where two or more can be called. */
@@ -177,13 +179,20 @@ export type WeekendAhead = {
   likeliest?: UpcomingMatchup;
 };
 
+/** Friday, Saturday or Sunday, read at noon UTC as `weekEndingSunday` reads a day. */
+const onWeekend = (date: string): boolean => {
+  const day = new Date(`${date}T12:00:00Z`).getUTCDay();
+  return day === 5 || day === 6 || day === 0;
+};
+
 /**
- * The first weekend still to come with a dated game on it (`weekEndingSunday`, Friday to Sunday),
- * from the schedule the card already reads (`buildUpcomingSchedule`); undefined with none dated.
+ * The first weekend still to come with a game on it, Friday to Sunday (`weekEndingSunday`), from
+ * the schedule the card already reads (`buildUpcomingSchedule`); undefined with none dated. A
+ * midweek game is no weekend's, so it neither starts one nor is counted in one.
  */
 export const weekendAhead = (upcoming: readonly UpcomingMatchup[]): WeekendAhead | undefined => {
   const dated = upcoming
-    .filter((row) => weekEndingSunday(row.date) !== undefined)
+    .filter((row) => weekEndingSunday(row.date) !== undefined && onWeekend(row.date))
     .sort((a, b) => a.date.localeCompare(b.date));
   const first = dated[0];
   if (!first) return undefined;
@@ -194,6 +203,7 @@ export const weekendAhead = (upcoming: readonly UpcomingMatchup[]): WeekendAhead
   return {
     sunday,
     games,
+    called: called.length,
     expectedWins: called.reduce((sum, row) => sum + row.winProb!, 0),
     ...(byChance.length >= 2
       ? { toughest: byChance[0]!, likeliest: byChance[byChance.length - 1]! }

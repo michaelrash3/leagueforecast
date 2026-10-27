@@ -172,16 +172,32 @@ describe("the weekend ahead", () => {
     expect(ahead).toEqual({
       sunday: "2026-11-01",
       games: [friday, saturday, sunday],
+      called: 2,
       expectedWins: 0.45 + 0.7,
       toughest: friday,
       likeliest: saturday,
     });
   });
 
+  it("leaves out the weekdays, before the weekend and in its week", () => {
+    const tuesday = match("2026-10-27", "B", 0.5);
+    const thursday = match("2026-10-29", "C", 0.6);
+    const saturday = match("2026-10-31", "D", 0.7);
+    expect(weekendAhead([tuesday, thursday, saturday])).toEqual({
+      sunday: "2026-11-01",
+      games: [saturday],
+      called: 1,
+      expectedWins: 0.7,
+    });
+    // Two midweek games are no weekend.
+    expect(weekendAhead([tuesday, thursday])).toBeUndefined();
+  });
+
   it("names no toughest and likeliest of fewer than two games it can call", () => {
     const ahead = weekendAhead([match("2026-10-31", "C", 0.7), match("2026-11-01", "Z")]);
     expect(ahead).not.toHaveProperty("toughest");
     expect(ahead?.expectedWins).toBe(0.7);
+    expect(ahead?.called).toBe(1);
   });
 
   it("is nothing with no dated game", () => {
@@ -211,6 +227,7 @@ describe("the season added to the page's own club's glance", () => {
       weekend: {
         sunday: "2026-11-01",
         games: [saturday, sunday],
+        called: 2,
         expectedWins: 0.42 + 0.8,
         toughest: saturday,
         likeliest: sunday,
