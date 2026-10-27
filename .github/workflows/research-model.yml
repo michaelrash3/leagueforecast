@@ -1,0 +1,70 @@
+# A research run, read only: the model sweep on the cloud copy (`scripts/modelSweep.ts`). It reads
+# the copy once, as the nightly reads it, on stores opened to read, and writes nothing to it: how
+# well the boards' chances and margins forecast the games played after them, each of the fit's
+# settings and the floor under a chance moved on its own, and how much of the squad year leans on
+# clubs known only by name.
+#
+# It runs only on a push to rash/raines whose head commit's message holds the marker [run-sweep],
+# and never on any other branch or push. It prints numbers only: this repository is public, and so
+# are its Actions logs. The lines that name clubs are sealed to the public key in
+# scripts/researchSeal.pub.pem, whose private half is held by the one reading the results and never
+# committed, and printed into the log between markers (sealed, so safe there) as well as kept as the
+# run's artifact; opened with:
+#   npm run model:sweep -- --open=model-sweep.sealed.json --with-key=<private.pem>
+name: Research model sweep
+
+on:
+  push:
+    branches: [rash/raines]
+
+permissions:
+  contents: read
+
+# Its own group, apart from CI's and the nightly's: one sweep at a time, never cancelling one under
+# way, since each run is a read of the copy.
+concurrency:
+  group: research-model
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    if: github.ref == 'refs/heads/rash/raines' && contains(github.event.head_commit.message, '[run-sweep]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      # No install: everything it runs is the app's own files, run by Node as they are
+      # (`scripts/tsRegister.mjs`), as the nightly runs.
+      - name: Sweep the cloud copy, read only
+        timeout-minutes: 55
+        run: npm run model:sweep -- --cloud --seal="$RUNNER_TEMP/model-sweep.sealed.json" --seal-to-key=scripts/researchSeal.pub.pem
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          # The members' day, which the board of the day is read on, as the nightly reads it.
+          TZ: America/New_York
+          LANG: en_US.UTF-8
+          # The whole pool is held at once, as the nightly holds it (about 4.3 GB on 29 September
+          # 2026), and the sweep's fits come on top of it, one cut's at a time.
+          NODE_OPTIONS: --max-old-space-size=12288
+      - name: Keep the sealed names
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-sweep-sealed
+          path: ${{ runner.temp }}/model-sweep.sealed.json
+          if-no-files-found: ignore
+          retention-days: 14
+      # Sealed, so safe in a public log: only the private key's holder opens it.
+      - name: The sealed names
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/model-sweep.sealed.json" ]; then
+            echo "----- sealed: save between the markers as model-sweep.sealed.json -----"
+            cat "$RUNNER_TEMP/model-sweep.sealed.json"
+            echo
+            echo "----- end sealed -----"
+          fi
