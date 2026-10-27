@@ -3371,12 +3371,20 @@ export const yearFitGames = (rated: readonly RatedScoutGame[]): RatingGame[] => 
   }));
 };
 
+/**
+ * The fit's two settings a research sweep varies (`modelSweep.ts`): the cap on a game's margin and
+ * the ridge's pull toward a club's starting level. Left out, the boards' own, `RATING_CAP` and the
+ * fit's default shrinkage; nothing in the app passes either.
+ */
+export type ScoutFitTuning = { cap?: number; shrinkage?: number };
+
 export const fitScoutYear = (
   year: number | undefined,
   teams: ScoutTeam[],
   games: ScoutGame[],
   rated: readonly RatedScoutGame[],
-  ageGroups: AgeGroup[]
+  ageGroups: AgeGroup[],
+  tuning: ScoutFitTuning = {}
 ): ScoutYearFit => {
   const ratedGames = rated.map(({ game }) => game);
 
@@ -3408,7 +3416,8 @@ export const fitScoutYear = (
   const communities = scheduleCommunities(nodeIds, pairs, pieces);
 
   const adjusted = buildOpponentAdjustedRatings(nodeIds, yearFitGames(rated), {
-    cap: RATING_CAP,
+    cap: tuning.cap ?? RATING_CAP,
+    ...(tuning.shrinkage === undefined ? {} : { shrinkage: tuning.shrinkage }),
     priorCentre: startingLevels(communities),
   });
 

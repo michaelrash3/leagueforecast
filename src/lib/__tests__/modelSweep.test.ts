@@ -1,0 +1,136 @@
+import { describe, expect, it } from "vitest";
+import { chanceAt, MODEL_VARIANTS, runModelSweep } from "../modelSweep";
+import {
+  fitScoutYear,
+  predictMatchup,
+  scoutRatingGames,
+  type AgeGroup,
+  type ScoutGame,
+  type ScoutTeam,
+} from "../teamRankings";
+
+/*
+ * The research sweep of the shipped model (`modelSweep.ts`) on a made-up autumn: sixteen clubs of
+ * known strength playing one another from August to October 2026, scored on the games after 23
+ * September as the boards of 1, 8 and 15 September would have forecast them.
+ */
+
+const PAGE = "ag_10u_2027";
+const groups: AgeGroup[] = [{ id: PAGE, name: "10U 2027", year: 2027 } as AgeGroup];
+const CLUBS = 16;
+const teams: ScoutTeam[] = Array.from({ length: CLUBS }, (_, at) => ({
+  id: `S-${at}`,
+  name: `Club ${at}`,
+}));
+
+/** mulberry32: the same draw on every machine. */
+const draw = (seed: number) => () => {
+  seed = (seed + 0x6d2b79f5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+
+/** Each club plays every other twice, once in the first half of the autumn and once after. */
+const autumn = (): ScoutGame[] => {
+  const random = draw(7);
+  const strength = (at: number) => (at - CLUBS / 2) * 0.9;
+  const games: ScoutGame[] = [];
+  const dayOf = (index: number) => {
+    // 10 August to 10 October 2026, a day for each step.
+    const day = new Date(Date.UTC(2026, 7, 10 + (index % 62)));
+    return day.toISOString().slice(0, 10);
+  };
+  let index = 0;
+  for (let round = 0; round < 2; round += 1) {
+    for (let a = 0; a < CLUBS; a += 1) {
+      for (let b = a + 1; b < CLUBS; b += 1) {
+        const noise = (random() - 0.5) * 12;
+        const margin = Math.round(strength(a) - strength(b) + noise);
+        const base = 3 + Math.floor(random() * 4);
+        const date = dayOf(round * 31 + (index % 31));
+        index += 1;
+        games.push({
+          id: `g${round}-${a}-${b}`,
+          ageGroupId: PAGE,
+          teamAId: `S-${a}`,
+          teamBId: `S-${b}`,
+          teamAScore: base + Math.max(0, margin),
+          teamBScore: base + Math.max(0, -margin),
+          date,
+        });
+      }
+    }
+  }
+  return games;
+};
+
+const games = autumn();
+const sweep = runModelSweep({ ageGroups: groups, teams, games, year: 2027, today: "2026-10-31" });
+
+describe("the research sweep of the shipped model", () => {
+  it("reads a matchup's chance as the boards do at the shipped floor, to the digit", () => {
+    for (const [a, b, level] of [
+      [3.2, -1.1, 10],
+      [-20, 4, 12],
+      [0, 0, undefined],
+      [15, -15, 9],
+    ] as const) {
+      expect(chanceAt(a, b, level)).toBe(predictMatchup(a, b, level).winProbA);
+    }
+    // A lower floor lets a wide margin's chance further toward certain; a near one is untouched.
+    expect(chanceAt(12, 0, 10, 0.02)).toBeGreaterThan(chanceAt(12, 0, 10));
+    expect(chanceAt(2, 0, 10, 0.02)).toBe(chanceAt(2, 0, 10));
+  });
+
+  it("fits each cut on the games before it and scores the games after the scoring day", () => {
+    expect(sweep.cuts.map((cut) => cut.cut)).toEqual(["2026-09-01", "2026-09-08", "2026-09-15"]);
+    const trained = sweep.cuts.map((cut) => cut.trained);
+    expect(trained[0]).toBeLessThan(trained[1]!);
+    expect(trained[1]).toBeLessThan(trained[2]!);
+    // The same later games at every cut: every club was rated by the first.
+    const later = scoutRatingGames(PAGE, teams, games, groups, undefined, "2026-10-31").filter(
+      ({ game }) => (game.date ?? "") >= "2026-09-23"
+    ).length;
+    expect(sweep.cuts.every((cut) => cut.scored === later)).toBe(true);
+    expect(sweep.games).toBe(later * 3);
+  });
+
+  it("forecasts better than a coin, and pairs every setting against the shipped one", () => {
+    const shipped = sweep.variants[0]!;
+    expect(shipped.key).toBe("shipped");
+    expect(shipped.vsShipped).toBeNull();
+    // A coin's log loss is ln 2 and its Brier score a quarter; strengths this far apart beat it.
+    expect(shipped.logLoss).toBeLessThan(Math.log(2));
+    expect(shipped.brier).toBeLessThan(0.25);
+    expect(sweep.variants.map((variant) => variant.key)).toEqual(
+      MODEL_VARIANTS.map((variant) => variant.key)
+    );
+    for (const variant of sweep.variants.slice(1)) {
+      expect(variant.vsShipped?.logLoss?.samples).toBe(sweep.decided);
+      expect(variant.vsShipped?.squared?.samples).toBe(sweep.games);
+    }
+  });
+
+  it("moves the fit with the ridge and the cap, and only the chance with the floor", () => {
+    const of = (key: string) => sweep.variants.find((variant) => variant.key === key)!;
+    expect(of("ridge-3").vsShipped?.squared?.by).not.toBe(0);
+    expect(of("cap-8").vsShipped?.squared?.by).not.toBe(0);
+    // A floor leaves the fit alone, so the margin's error is the shipped one's to the digit.
+    expect(of("floor-0.02").vsShipped?.squared?.by).toBe(0);
+    // And a fit given no tuning is the boards' fit.
+    const trained = scoutRatingGames(PAGE, teams, games, groups, undefined, "2026-09-15");
+    const plain = fitScoutYear(2027, teams, games, trained, groups);
+    const tuned = fitScoutYear(2027, teams, games, trained, groups, {});
+    expect([...tuned.adjusted.ratings]).toEqual([...plain.adjusted.ratings]);
+  });
+
+  it("bands the favourite's chance and how often it won, every decided game in one band", () => {
+    expect(sweep.calibration).toHaveLength(10);
+    expect(sweep.calibration.reduce((sum, band) => sum + band.games, 0)).toBe(sweep.decided / 1);
+    for (const band of sweep.calibration.filter((one) => one.games > 0)) {
+      expect(band.said).toBeGreaterThanOrEqual(band.from - 1e-9);
+      expect(band.said).toBeLessThanOrEqual(band.to + 1e-9);
+    }
+  });
+});
