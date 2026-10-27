@@ -20,6 +20,7 @@ const swing = (over: Partial<GoldSwing> = {}): GoldSwing => ({
   seasons: 1000,
   gameIds: ["g1", "g2", "g3"],
   awayWins: [500, 500, 500],
+  homeWins: [500, 500, 500],
   inIfAway: [400, 100, 250],
   inIfHome: [100, 400, 260],
   ...over,
@@ -36,7 +37,9 @@ describe("ownGameSwing", () => {
 
   it("says nothing of a game the team is not in, or one a side almost never wins", () => {
     expect(ownGameSwing(swing(), games[1]!)).toBeNull();
-    expect(ownGameSwing(swing({ awayWins: [990, 500, 500] }), games[0]!)).toBeNull();
+    expect(
+      ownGameSwing(swing({ awayWins: [990, 500, 500], homeWins: [10, 500, 500] }), games[0]!)
+    ).toBeNull();
   });
 });
 

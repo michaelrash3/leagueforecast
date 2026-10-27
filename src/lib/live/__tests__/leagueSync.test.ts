@@ -82,6 +82,8 @@ const setup = ({
   const states: LiveLeagueState["kind"][] = [];
   const typing = { now: false };
   const stored = new Map<string, SeasonParts>();
+  // How many times storage's League was replaced whole, as a restore does (`leagueReplacements`).
+  const replacements = { count: 0 };
   const sync = startLeagueSync({
     store: cloud.store,
     seasons,
@@ -95,6 +97,7 @@ const setup = ({
     editing: () => typing.now,
     onState: (state) => states.push(state.kind),
     now: () => new Date(clock),
+    replaced: () => replacements.count,
   });
   const cloudSeason = (docId = DOC_ID) => {
     const read = docToSeason(cloud.read(docId), docId);
@@ -103,7 +106,19 @@ const setup = ({
   };
   const setLogs = (logs: Record<string, GameLog>) =>
     seasons.setSeason((prev) => ({ ...prev, logs: { ...prev.logs, ...logs } }));
-  return { cloud, seasons, states, typing, sync, bases, stored, events, cloudSeason, setLogs };
+  return {
+    cloud,
+    seasons,
+    states,
+    typing,
+    sync,
+    bases,
+    stored,
+    events,
+    cloudSeason,
+    setLogs,
+    replacements,
+  };
 };
 
 beforeEach(() => {
@@ -877,5 +892,79 @@ describe("what the review of 1.2 found", () => {
     await settled();
     expect(last(states)).toBe("unstorable");
     expect(cloud.read(DOC_ID)).toBeUndefined();
+  });
+});
+
+/*
+ * A whole-browser restore while League is kept live (`applyFullBackup`, then the page opening the
+ * restored active season). Storage holds the backup's seasons; what the live store held of the
+ * season it watched is what the restore replaced.
+ */
+describe("a restore while live", () => {
+  const fall: SeasonState = {
+    ...PARTS,
+    teams: [
+      { id: "X", name: "Club X" },
+      { id: "Y", name: "Club Y" },
+    ],
+    matchups: [game("f1", "X", "Y")],
+    settings: { ...DEFAULT_SETTINGS, seasonLabel: "Fall" },
+  };
+
+  it("never writes the season it watched back over the restored one, nor sends it", async () => {
+    const { cloud, seasons, events, setLogs, cloudSeason, replacements } = setup();
+    await settled();
+    // A score typed here, not yet sent, then a backup restored that opens Fall.
+    setLogs({ g1: score("9", "0") });
+    const writes = cloud.counts.writes;
+    events.length = 0;
+    replacements.count += 1;
+    seasons.open("fall", fall);
+    await settled();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await settled();
+    // Spring as it was before the restore is neither stored again nor sent: it was replaced.
+    expect(events.filter((event) => event.startsWith("persist spring"))).toEqual([]);
+    expect(cloudSeason().logs).toEqual({});
+    // Fall is met as a season of its own.
+    expect(cloud.counts.writes).toBe(writes + 1);
+    const fallDoc = docToSeason(cloud.read(seasonDocId("fall")), seasonDocId("fall"));
+    expect(fallDoc.ok && fallDoc.season.matchups.map((one) => one.id)).toEqual(["f1"]);
+  });
+
+  it("sends the open season as restored, against the version last heard", async () => {
+    const { cloud, seasons, cloudSeason, setLogs, replacements, bases } = setup();
+    await settled();
+    setLogs({ g1: score("4", "2"), g2: score("1", "0") });
+    await vi.advanceTimersByTimeAsync(700);
+    await settled();
+    expect(cloudSeason().logs).toEqual({ g1: score("4", "2"), g2: score("1", "0") });
+    expect(bases.held.get(DOC_ID)).toBeDefined();
+    // The backup was taken before g2 was scored, and holds g1 as 5-2.
+    replacements.count += 1;
+    seasons.open("spring", { ...PARTS, logs: { g1: score("5", "2") } });
+    await settled();
+    await vi.advanceTimersByTimeAsync(700);
+    await settled();
+    expect(cloudSeason().logs).toEqual({ g1: score("5", "2") });
+    expect(cloud.counts.writes).toBeGreaterThan(0);
+  });
+
+  it("keeps apart a season the restore put under the open id that is not the cloud's", async () => {
+    const entry = { ...ENTRY };
+    const { cloud, seasons, cloudSeason, states, replacements } = setup({ entry });
+    await settled();
+    const before = cloudSeason();
+    // Another season, made at another moment, restored under the same id: the season list's
+    // entry says when it was made, as storage's does after a restore.
+    replacements.count += 1;
+    entry.createdAt = "2026-09-01T00:00:00.000Z";
+    seasons.open("spring", { ...fall, settings: { ...fall.settings, seasonLabel: "Spring" } });
+    await settled();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await settled();
+    expect(cloudSeason().matchups).toEqual(before.matchups);
+    expect(cloud.counts.writes).toBe(1);
+    expect(last(states)).toBe("apart");
   });
 });

@@ -303,7 +303,7 @@ describe("the one issue an alarm keeps", () => {
 
   it("has a distinct title for each alarm", () => {
     expect(new Set(Object.values(ALARM_TITLES)).size).toBe(Object.keys(ALARM_TITLES).length);
-    expect(Object.keys(ALARM_TITLES)).toHaveLength(7);
+    expect(Object.keys(ALARM_TITLES)).toHaveLength(9);
   });
 });
 
@@ -530,5 +530,80 @@ describe("the new alarms' issues", () => {
     );
     expect(token).toMatchObject({ do: "open", title: "The pull dispatch token is running out" });
     expect(token?.do === "open" && token.body).toMatch(/PULL_DISPATCH_TOKEN/);
+  });
+});
+
+/*
+ * The nightly's cap on what one save takes away (`blastRadius.ts`, the owner's rule: more than 5% of
+ * a year's games or 2% of its clubs is held) and its canary on what it could read of GameChanger's
+ * answers (`ingestCanary.ts`), each an alarm of its own, raised and settled by a live run only.
+ */
+describe("the nightly's held save and its reading of the answers", () => {
+  const live = { outcome: "success", event: "schedule", mode: "live" };
+  const kinds = (verdicts: ReturnType<typeof nightlyVerdicts>) => verdicts.map((one) => one.kind);
+
+  it("raises the held save's alarm with the years' numbers, and settles it once a night saves", () => {
+    expect(nightlyVerdicts({ ...live, held: "held 2027:19400/386146:12/51000" })).toContainEqual({
+      kind: "heldSave",
+      failing: true,
+      said: "19,400 of 2027's 386,146 games (5.0%) and 12 of its 51,000 clubs (0.0%)",
+    });
+    expect(nightlyVerdicts({ ...live, held: "none" })).toContainEqual({
+      kind: "heldSave",
+      failing: false,
+    });
+  });
+
+  it("raises the reading's alarm on drift, and settles it on a night that reads as usual", () => {
+    expect(nightlyVerdicts({ ...live, ingest: "drift 300/3000" })).toContainEqual({
+      kind: "ingest",
+      failing: true,
+      said: "300 of the 3,000 games GameChanger listed could be filed",
+    });
+    expect(nightlyVerdicts({ ...live, ingest: "fine 2800/3000" })).toContainEqual({
+      kind: "ingest",
+      failing: false,
+    });
+  });
+
+  it("leaves both as they are for a dry run, a night that never reached its save, or a word it cannot read", () => {
+    const dry = { ...live, mode: "dry-run" };
+    expect(
+      kinds(nightlyVerdicts({ ...dry, held: "held 2027:60/1000:3/100", ingest: "drift 1/900" }))
+    ).not.toContain("heldSave");
+    expect(kinds(nightlyVerdicts({ ...dry, ingest: "drift 1/900" }))).not.toContain("ingest");
+    for (const held of [
+      "",
+      "held",
+      "held 2027:60/1000",
+      "held 27:1/2:3/4",
+      "held 2027:6x/1000:3/100",
+    ])
+      expect(kinds(nightlyVerdicts({ ...live, held }))).not.toContain("heldSave");
+    for (const ingest of ["", "drift", "drift 3/x", "worse 1/2"])
+      expect(kinds(nightlyVerdicts({ ...live, ingest }))).not.toContain("ingest");
+  });
+
+  it("says each in its own words, from the numbers alone", () => {
+    const [held] = nightlyVerdicts({ ...live, held: "held 2027:600/10000:3/100" }).filter(
+      (one) => one.kind === "heldSave"
+    );
+    expect(alarmStep(held!, [], RUN)).toMatchObject({
+      do: "open",
+      title: ALARM_TITLES.heldSave,
+      body: expect.stringMatching(
+        /^The nightly held its save, the copy left as it was, because it would have removed 600 of 2027's 10,000 games \(6\.0%\) and 3 of its 100 clubs \(3\.0%\), past the line of 5% of a year's games or 2% of its clubs/
+      ),
+    });
+    const [ingest] = nightlyVerdicts({ ...live, ingest: "drift 30/3000" }).filter(
+      (one) => one.kind === "ingest"
+    );
+    expect(alarmStep(ingest!, [], RUN)).toMatchObject({
+      do: "open",
+      title: ALARM_TITLES.ingest,
+      body: expect.stringMatching(
+        /^The nightly found that only 30 of the 3,000 games GameChanger listed could be filed, under half: GameChanger may have changed how it writes a game/
+      ),
+    });
   });
 });

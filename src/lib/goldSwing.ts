@@ -23,7 +23,7 @@ const MIN_SEASONS_A_SIDE = 30;
 const gameSwings = (swing: GoldSwing): GameSwing[] =>
   swing.gameIds.map((gameId, at) => {
     const awayWins = swing.awayWins[at] ?? 0;
-    const homeWins = swing.seasons - awayWins;
+    const homeWins = swing.homeWins[at] ?? 0;
     const away = share(swing.inIfAway[at] ?? 0, awayWins);
     const home = share(swing.inIfHome[at] ?? 0, homeWins);
     const enough = awayWins >= MIN_SEASONS_A_SIDE && homeWins >= MIN_SEASONS_A_SIDE;
@@ -49,7 +49,8 @@ export const ownGameSwing = (
   if (!read) return null;
   const at = swing.gameIds.indexOf(game.id);
   const awayWins = swing.awayWins[at] ?? 0;
-  if (awayWins < MIN_SEASONS_A_SIDE || swing.seasons - awayWins < MIN_SEASONS_A_SIDE) return null;
+  const homeWins = swing.homeWins[at] ?? 0;
+  if (awayWins < MIN_SEASONS_A_SIDE || homeWins < MIN_SEASONS_A_SIDE) return null;
   if (game.away === swing.teamId) return { ifWin: read.ifAway, ifLoss: read.ifHome };
   if (game.home === swing.teamId) return { ifWin: read.ifHome, ifLoss: read.ifAway };
   return null;

@@ -65,7 +65,9 @@ import {
   saveTidyStamp,
   IMPORT_INDEX_KEYS,
 } from "../teamRankingsStorage";
+import { blastRadius, pastTheLine, poolYears, type YearRadius } from "./blastRadius";
 import { commitChanges, fetchValues, type Change, type CloudStore } from "./cloudEngine";
+import { ingestReading, type IngestReading } from "./ingestCanary";
 import {
   DATA_SCHEMA,
   epochOf,
@@ -164,6 +166,12 @@ export type CloudPullDeps = {
    * documents.
    */
   leagueDocs?: LeagueDocsList;
+  /**
+   * Hold a save that would take too much of a year away (`blastRadius.ts`): the run ends `held`,
+   * with what it would have taken, and the copy stays as it was. The nightly's, which runs
+   * unattended; a pull a person starts saves what it filed.
+   */
+  cap?: boolean;
 };
 
 /** How a filing run reads League Standings, once as it starts to file: null where it could not. */
@@ -203,7 +211,12 @@ export type CloudPullEnd =
    * since this run or the job it is part of read it. Its answers were for the pool as it was, and
    * the copy now is somebody's fresh start, so nothing was written to it.
    */
-  | "copy-replaced";
+  | "copy-replaced"
+  /**
+   * The save would have taken more of a year's games or clubs than the line allows
+   * (`pastTheLine`), so nothing was written; `held` says what it would have taken.
+   */
+  | "held";
 
 export type CloudPullResult = {
   end: CloudPullEnd;
@@ -227,6 +240,10 @@ export type CloudPullResult = {
    * has, or no copy at all, so nothing may be built from it as if it were one.
    */
   manifest?: CloudManifest;
+  /** Where the run ended `held`: each year the save would have taken too much of. */
+  held?: YearRadius[];
+  /** How much of what GameChanger listed the filing could read (`ingestCanary.ts`). */
+  ingest?: IngestReading;
 };
 
 /**
@@ -432,7 +449,11 @@ export const workOutRefresh = async (store: CloudStore, now: Date): Promise<Work
   return { ok: true, on: epochOf(copy.manifest), ...refreshNow(now) };
 };
 
-type Filed = { outcomes: GcImportOutcome[] };
+/**
+ * What a filing did with each schedule, and how many entries each schedule listed, read or not
+ * (`rowIds`), at the same places, for the ingest canary (`ingestReading`).
+ */
+type Filed = { outcomes: GcImportOutcome[]; rows?: readonly number[] };
 
 /** The levels a run logs as refreshed once it has asked about every team, and on which day. */
 type Marking = {
@@ -614,6 +635,7 @@ const fileScheduleSource = async (
   );
   // In the order asked, so a replay files the same answers the same way.
   const outcomes: GcImportOutcome[] = [];
+  const rows: number[] = [];
   const unaged = new Map<string, number>();
   // Retain a bounded prefix so retry order stays identical to the original selection.
   const retained = new Map<string, GcTeamSchedule>();
@@ -633,6 +655,7 @@ const fileScheduleSource = async (
       }
     }
     outcomes.push(outcome);
+    rows.push(schedule.rowIds?.length ?? schedule.games.length);
   }
   // Reconsider clubs skipped before their opponents arrived. The source stays on disk;
   // only these clubs are filed again, without refetching or running a tidy between them.
@@ -679,7 +702,7 @@ const fileScheduleSource = async (
   if (mark && complete) saveRefreshLog(withRefreshed(loadRefreshLog(), mark, now));
   if (!(await flushPoolWrites())) throw new Error("The store in memory refused the pull's pool.");
   await onOutcomes?.(outcomes);
-  return { outcomes };
+  return { outcomes, rows };
 };
 
 /**
@@ -905,6 +928,10 @@ const fileAndSave = async (
       result.replays = attempt;
     }
     deps.onStage?.({ stage: "filing" });
+    // The pool as this try files onto it, by year: what a capped save is weighed against.
+    const before = deps.cap
+      ? poolYears({ ageGroups: loadAgeGroups(), teams: loadScoutTeams(), games: loadScoutGames() })
+      : null;
     const touched = new Set<string>();
     onCloudPoolWrite((key) => touched.add(key));
     let filed: Filed;
@@ -920,11 +947,27 @@ const fileAndSave = async (
     result.filed = filed.outcomes.filter((outcome) => !outcome.skip).length;
     result.gamesAdded = filed.outcomes.reduce((sum, outcome) => sum + outcome.gamesAdded, 0);
     result.gamesUpdated = filed.outcomes.reduce((sum, outcome) => sum + outcome.gamesUpdated, 0);
+    const read = filed.outcomes.flatMap((outcome, at) =>
+      outcome.skip ? [] : [{ outcome, rows: filed.rows?.[at] ?? 0 }]
+    );
+    result.ingest = ingestReading(
+      read.map((one) => one.outcome),
+      read.map((one) => one.rows)
+    );
 
     const now = deps.now();
     const changes = await changesSince(copy, touched, now.getTime());
     if (changes.length === 0) {
       return { ...result, changed: [], version: copy.manifest.version, manifest: copy.manifest };
+    }
+    if (before) {
+      const held = pastTheLine(
+        blastRadius(before, {
+          games: new Set(loadScoutGames().map((game) => game.id)),
+          clubs: new Set(loadScoutTeams().map((team) => team.id)),
+        })
+      );
+      if (held.length > 0) return { ...result, end: "held", changed: [], held };
     }
     deps.onStage?.({ stage: "saving", attempt: attempt + 1 });
     const commit = await commitChanges({
