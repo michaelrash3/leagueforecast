@@ -3939,11 +3939,18 @@ reads each against it game by game, with a standard error that reads a club's ga
   The floor is swept rather than the margin a chance is read to (`MATCHUP_MARGIN_CAP`, 14 runs):
   the floor binds first, at about 9.6 runs at 10U and 11.6 at 18U, so no cap past it moves a
   chance. A floor leaves the fit alone, so its margin error is the shipped one's to the digit.
+- the odds curve a twentieth narrower, and a twentieth, a tenth, three twentieths, a fifth and three
+  tenths wider than `matchupOddsSpread`: the first run found the boards 1.5 to 2.6 points too sure
+  of the favourite from 60% to 85%, which a curve about a tenth wider would close. Like the floor,
+  it leaves the fit alone.
 
 The same run counts the squad year's stand-ins (`src/lib/standInReport.ts`): the games with a
 club known only by name or a bracket slot on a side, played and all, and of the clubs known only
 by name, how many share a name with a club pulled the same year, which is a matching gap a
-region or a picture might settle, and how many have nothing of that name.
+region or a picture might settle, and how many have nothing of that name. The ones with a namesake
+are split by where it is: on a page the stand-in played on (most likely the club itself, which the
+import would not join it to), or only on another page; with the played games filed against a
+bracket slot nobody resolved.
 
 It reads a backup, the seeded pool (`--fixture`), or the cloud copy once (`--cloud`), read only, as
 the nightly reads it, on GitHub's runner (`.github/workflows/research-model.yml`, on a push to its

@@ -85,6 +85,19 @@ describe("the research sweep of the shipped model", () => {
     expect(chanceAt(2, 0, 10, 0.02)).toBe(chanceAt(2, 0, 10));
   });
 
+  it("widens the odds curve by a multiple, the chance only, the shipped curve at one", () => {
+    // At one the chance is the boards' to the digit; wider, a margin's chance sits nearer evens.
+    expect(chanceAt(5, 0, 10, undefined, 1)).toBe(predictMatchup(5, 0, 10).winProbA);
+    expect(chanceAt(5, 0, 10, undefined, 1.2)).toBeLessThan(chanceAt(5, 0, 10));
+    expect(chanceAt(5, 0, 10, undefined, 1.2)).toBeGreaterThan(0.5);
+    expect(chanceAt(0, 5, 10, undefined, 1.2)).toBeGreaterThan(chanceAt(0, 5, 10));
+    const of = (key: string) => sweep.variants.find((variant) => variant.key === key)!;
+    // The fit is the shipped one, so the margin's error is the shipped one's to the digit, and
+    // the chances, and so the log loss, are not.
+    expect(of("spread-1.2").vsShipped?.squared?.by).toBe(0);
+    expect(of("spread-1.2").logLoss).not.toBe(of("shipped").logLoss);
+  });
+
   it("fits each cut on the games before it and scores the games after the scoring day", () => {
     expect(sweep.cuts.map((cut) => cut.cut)).toEqual(["2026-09-01", "2026-09-08", "2026-09-15"]);
     const trained = sweep.cuts.map((cut) => cut.trained);

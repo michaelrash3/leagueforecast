@@ -43,6 +43,13 @@ export type ModelVariant = {
    * floor binds first, at about 9.6 runs at 10U and 11.6 at 18U, so no clamp past it moves a chance.
    */
   floor?: number;
+  /**
+   * The odds curve's width as a multiple of `matchupOddsSpread`, one as shipped: wider reads a
+   * margin's chance nearer evens. Swept because the shipped model's calibration ran 1.5 to 2.6
+   * points sure of the favourite from 60% to 85% on the cloud copy of 27 October 2026, which a
+   * curve about a tenth wider would close. Like the floor, it leaves the fit alone.
+   */
+  spread?: number;
 };
 
 /** The shipped model first, then each setting moved on its own either way. */
@@ -67,6 +74,12 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
   { key: "floor-0.02", why: "a chance allowed to 98%", floor: 0.02 },
   { key: "floor-0.05", why: "to 95%", floor: 0.05 },
   { key: "floor-0.12", why: "held to 88%", floor: 0.12 },
+  { key: "spread-0.95", why: "the odds curve a twentieth narrower", spread: 0.95 },
+  { key: "spread-1.05", why: "a twentieth wider", spread: 1.05 },
+  { key: "spread-1.1", why: "a tenth wider", spread: 1.1 },
+  { key: "spread-1.15", why: "three twentieths wider", spread: 1.15 },
+  { key: "spread-1.2", why: "a fifth wider", spread: 1.2 },
+  { key: "spread-1.3", why: "three tenths wider", spread: 1.3 },
 ];
 
 /** The cut days the sweeps of this pool have read, and the day later games are scored from. */
@@ -77,16 +90,19 @@ const clamp = (value: number, low: number, high: number) => Math.min(high, Math.
 
 /**
  * The first club's chance against the second, as `predictMatchup` reads it, held to `floor` either
- * way rather than `MATCHUP_PROBABILITY_FLOOR`: the same at the shipped floor, to the digit.
+ * way rather than `MATCHUP_PROBABILITY_FLOOR`, on a curve `spread` times as wide: the same at the
+ * shipped floor and a spread of one, to the digit.
  */
 export const chanceAt = (
   ratingA: number,
   ratingB: number,
   ageLevel: number | undefined,
-  floor = MATCHUP_PROBABILITY_FLOOR
+  floor = MATCHUP_PROBABILITY_FLOOR,
+  spread = 1
 ): number => {
   const margin = clamp(ratingA - ratingB, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP);
-  return clamp(1 / (1 + Math.exp(-margin / matchupOddsSpread(ageLevel))), floor, 1 - floor);
+  const width = matchupOddsSpread(ageLevel) * spread;
+  return clamp(1 / (1 + Math.exp(-margin / width)), floor, 1 - floor);
 };
 
 /**
@@ -114,7 +130,7 @@ const boardPlacer = (fit: ScoutYearFit) => {
  * Only for two clubs one board lists (`boardPlacer`): no other matchup is ever stated, and the sweep
  * leaves those games out rather than score a forecast nobody was shown.
  */
-const predicted = (fit: ScoutYearFit, game: ScoutGame, floor?: number) => {
+const predicted = (fit: ScoutYearFit, game: ScoutGame, floor?: number, spread?: number) => {
   const shown = (id: string) =>
     fit.confident(fit.adjusted.ratings.get(id) ?? 0, fit.effective.get(id) ?? 0);
   const a = shown(game.teamAId);
@@ -122,7 +138,7 @@ const predicted = (fit: ScoutYearFit, game: ScoutGame, floor?: number) => {
   const level = fit.homeLevels.get(game.teamAId) ?? fit.homeLevels.get(game.teamBId);
   return {
     margin: clamp(a - b, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP),
-    win: chanceAt(a, b, level, floor),
+    win: chanceAt(a, b, level, floor, spread),
   };
 };
 
@@ -292,7 +308,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
       const pile = piles[at]!;
       for (const { game } of scored) {
         const margin = clamp(ratedMargin(game) ?? 0, -RATING_CAP, RATING_CAP);
-        const guess = predicted(fit, game, variant.floor);
+        const guess = predicted(fit, game, variant.floor, variant.spread);
         pile.squared.push((guess.margin - margin) ** 2);
         if (margin === 0) continue;
         const won = margin > 0;

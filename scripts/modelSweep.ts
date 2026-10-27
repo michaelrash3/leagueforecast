@@ -56,7 +56,7 @@ import {
   type ModelSweep,
 } from "../src/lib/modelSweep.ts";
 import type { PairedReading } from "../src/lib/scoutBacktest.ts";
-import { standInReport, type StandInReport } from "../src/lib/standInReport.ts";
+import { standInReport, type StandInReport, type StandInWhy } from "../src/lib/standInReport.ts";
 import {
   loadAgeGroups,
   loadAutoRemoved,
@@ -340,6 +340,13 @@ const describeStandIns = (report: StandInReport) => {
     `  Of those known only by name: ${report.withNamesake} share a name with a club pulled this year` +
       ` (${share(report.withNamesake, report.nameOnly)}), ${report.withoutNamesake} have none.`
   );
+  const bucket = (label: string, b: StandInReport["onPage"]) =>
+    say(`    ${label}: ${b.clubs} clubs, holding ${b.games} games (${b.played} played)`);
+  say("  The clubs known only by name, by where a pulled club of the same name is:");
+  bucket("on a page they played on (likely the same club, not joined)", report.onPage);
+  bucket("only on another page", report.elsewhere);
+  bucket("nowhere (a club nobody has pulled)", report.unmatched);
+  say(`  Played games against a bracket slot nobody resolved: ${report.slotPlayed}.`);
   if (report.top.length > 0) {
     say(
       `  The ${report.top.length} holding the most games: ${report.top.map((club) => club.games).join(", ")}.`
@@ -353,6 +360,30 @@ const describeStandIns = (report: StandInReport) => {
     ),
     "The stand-ins known only by name holding the most games:"
   );
+  const reasons: Array<[StandInWhy, string]> = [
+    [
+      "oneSameState",
+      "one pulled club of the name on its page, in the namers' state (should have joined)",
+    ],
+    ["oneOtherState", "one on its page, in another state"],
+    ["several", "several of the name on its page"],
+    ["nearOne", "none of the name on its page, one spelled near it"],
+    ["nearSeveral", "none of the name on its page, several spelled near it"],
+    ["elsewhere", "a namesake only on another page"],
+    ["unmatched", "nothing of the name or near it (never pulled)"],
+  ];
+  say("  Why each club known only by name was not joined to a pulled club:");
+  for (const [reason, label] of reasons) bucket(label, report.why[reason]);
+  for (const [reason, label] of reasons) {
+    sayNamed(
+      report.topWhy[reason].map(
+        (club) =>
+          `    ${club.name} (${club.teamId}): ${club.games} games, ${club.played} played` +
+          (club.candidate ? ` -> ${club.candidate.name} (${club.candidate.teamId})` : "")
+      ),
+      `Holding the most games, ${label}:`
+    );
+  }
 };
 
 /* -------------------------------------------------------------------------------------- run */
