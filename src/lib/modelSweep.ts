@@ -1,6 +1,7 @@
 import { DEFAULT_SHRINKAGE } from "./powerRating";
 import { dayInstant } from "./ratingRecency";
 import { pairedImprovement, type PairedReading } from "./scoutBacktest";
+import { isRankedAgeLevel } from "./teamRankings/seasons";
 import {
   ageGroupYear,
   fitScoutYear,
@@ -89,11 +90,29 @@ export const chanceAt = (
 };
 
 /**
+ * Whether one board lists both sides of a game on a fit, as `rowsOfYearFit` cuts a board from a fit: neither
+ * a club known only by name nor a slot ("standIn"), both at home on the same ranked page, or else
+ * on different pages ("apart"). A forecast is only ever stated between two rows of one board (Next
+ * up, the scouting report and Compare all read one board's rows), so only "listed" games are scored.
+ */
+const boardPlacer = (fit: ScoutYearFit) => {
+  const listed = new Set(
+    fit.nodes.filter((team) => !team.placeholder && !team.nameOnly).map((team) => team.id)
+  );
+  return (game: ScoutGame): "listed" | "apart" | "standIn" => {
+    if (!listed.has(game.teamAId) || !listed.has(game.teamBId)) return "standIn";
+    const a = fit.homeLevels.get(game.teamAId);
+    const b = fit.homeLevels.get(game.teamBId);
+    return a === b && isRankedAgeLevel(a) ? "listed" : "apart";
+  };
+};
+
+/**
  * A game's stated margin and the first club's chance on a fit, as a board's matchup reads them
  * (`predictMatchup` on the two shown ratings): the margin held to `MATCHUP_MARGIN_CAP` either way,
  * so a gap between two ratings wider than any board would say is not scored as if it had been said.
- * Only for two clubs of one age: a board's clubs are one age, so no board states a forecast across
- * ages, and the sweep leaves those games out rather than score a forecast nobody was shown.
+ * Only for two clubs one board lists (`boardPlacer`): no other matchup is ever stated, and the sweep
+ * leaves those games out rather than score a forecast nobody was shown.
  */
 const predicted = (fit: ScoutYearFit, game: ScoutGame, floor?: number) => {
   const shown = (id: string) =>
@@ -140,11 +159,23 @@ export type VariantReading = {
 
 export type ModelSweep = {
   year: number | undefined;
-  cuts: { cut: string; trained: number; scored: number; decided: number; crossAge: number }[];
+  cuts: {
+    cut: string;
+    trained: number;
+    scored: number;
+    decided: number;
+    crossAge: number;
+    standIns: number;
+  }[];
   /** Every scored game, and the decided ones the chances are scored on. */
   games: number;
-  /** Later games between two rated clubs of different ages, left out of every reading, over the cuts. */
+  /**
+   * Later games between two rated clubs that no one board lists together, left out of every
+   * reading, over the cuts: two clubs at home on different pages (across ages), and a club known
+   * only by name or a bracket slot on a side, which no board lists at all.
+   */
   crossAge: number;
+  standIns: number;
   decided: number;
   variants: VariantReading[];
   /** The shipped model's chance for the favourite, in bands of five points, and how often it won. */
@@ -184,6 +215,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
     cuts: [],
     games: 0,
     crossAge: 0,
+    standIns: 0,
     decided: 0,
     variants: [],
     calibration: [],
@@ -235,7 +267,9 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
         (shipped.adjusted.games.get(game.teamAId) ?? 0) > 0 &&
         (shipped.adjusted.games.get(game.teamBId) ?? 0) > 0
     );
-    const scored = rated.filter(({ ageGap }) => ageGap === 0);
+    const placeOf = boardPlacer(shipped);
+    const placed = rated.map((entry) => ({ ...entry, on: placeOf(entry.game) }));
+    const scored = placed.filter(({ on }) => on === "listed");
     let decided = 0;
     for (const { game } of scored) {
       const pair = [sideOf(game.teamAId), sideOf(game.teamBId)] as const;
@@ -250,7 +284,8 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
       trained: trained.length,
       scored: scored.length,
       decided,
-      crossAge: rated.length - scored.length,
+      crossAge: placed.filter(({ on }) => on === "apart").length,
+      standIns: placed.filter(({ on }) => on === "standIn").length,
     });
     variants.forEach((variant, at) => {
       const fit = fitOf(variant, at);
@@ -330,6 +365,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
     cuts: cutReadings,
     games: shippedPile.squared.length,
     crossAge: cutReadings.reduce((sum, cut) => sum + cut.crossAge, 0),
+    standIns: cutReadings.reduce((sum, cut) => sum + cut.standIns, 0),
     decided: shippedPile.logLoss.length,
     variants: readings,
     calibration,

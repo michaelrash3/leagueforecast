@@ -286,15 +286,18 @@ const describeSweep = (sweep: ModelSweep) => {
     say("No ranked page of that squad year: nothing to fit.");
     return;
   }
-  say("  cut         rated games before   scored after   decided   across ages, left out");
+  say(
+    "  cut         rated games before   scored after   decided   left out: across ages, stand-ins"
+  );
   for (const cut of sweep.cuts) {
     say(
-      `  ${cut.cut}  ${String(cut.trained).padStart(19)}  ${String(cut.scored).padStart(13)}  ${String(cut.decided).padStart(8)}  ${String(cut.crossAge).padStart(10)}`
+      `  ${cut.cut}  ${String(cut.trained).padStart(19)}  ${String(cut.scored).padStart(13)}  ${String(cut.decided).padStart(8)}  ${String(cut.crossAge).padStart(10)}  ${String(cut.standIns).padStart(9)}`
     );
   }
   say(
     `  Scored: ${sweep.games} games over the cuts, ${sweep.decided} of them decided; ` +
-      `${sweep.crossAge} across ages left out, since no board states those.`
+      `${sweep.crossAge} across ages and ${sweep.standIns} with a stand-in left out, ` +
+      "since no board states those."
   );
   say("\n  Lower is better. Against the shipped model, game by game, + is better, z by club:");
   say(

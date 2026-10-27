@@ -217,6 +217,43 @@ describe("the research sweep of the shipped model", () => {
     expect(withIt.calibration).toEqual(without.calibration);
   });
 
+  it("counts a stand-in's game apart: no board lists a club known only by name, or a slot", () => {
+    // A club known only from somebody else's schedule plays four of the 10Us in August, in both
+    // pools, so it is in every fit as an opponent; its later game is left out of every reading.
+    const named: ScoutTeam = { id: "N-1", name: "Somebody's Opponent", nameOnly: true };
+    const meeting = (id: string, a: number, date: string, scores: [number, number]): ScoutGame => ({
+      id,
+      ageGroupId: PAGE,
+      teamAId: `S-${a}`,
+      teamBId: "N-1",
+      teamAScore: scores[0],
+      teamBScore: scores[1],
+      date,
+    });
+    const august = [0, 1, 2, 3].map((a) =>
+      meeting(`named-${a}`, a, `2026-08-${20 + a}`, [5, 2 + a])
+    );
+    const pool = (extra: ScoutGame[]) =>
+      runModelSweep({
+        ageGroups: groups,
+        teams: [...teams, named],
+        games: [...games, ...august, ...extra],
+        year: 2027,
+        today: "2026-10-31",
+      });
+    const without = pool([]);
+    const withIt = pool([meeting("later-named", 5, "2026-10-02", [7, 3])]);
+    expect(sweep.standIns).toBe(0);
+    expect(without.standIns).toBe(0);
+    expect(withIt.standIns).toBe(3);
+    expect(withIt.crossAge).toBe(0);
+    expect(withIt.games).toBe(without.games);
+    const readings = (of: typeof sweep) =>
+      of.variants.map(({ logLoss, brier, squared }) => [logLoss, brier, squared]);
+    expect(readings(withIt)).toEqual(readings(without));
+    expect(withIt.calibration).toEqual(without.calibration);
+  });
+
   it("bands the favourite's chance and how often it won, every decided game in one band", () => {
     expect(sweep.calibration).toHaveLength(10);
     expect(sweep.calibration.reduce((sum, band) => sum + band.games, 0)).toBe(sweep.decided / 1);
