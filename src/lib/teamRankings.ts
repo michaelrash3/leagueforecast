@@ -3371,12 +3371,20 @@ export const yearFitGames = (rated: readonly RatedScoutGame[]): RatingGame[] => 
   }));
 };
 
+/**
+ * The fit's two settings a research sweep varies (`modelSweep.ts`): the cap on a game's margin and
+ * the ridge's pull toward a club's starting level. Left out, the boards' own, `RATING_CAP` and the
+ * fit's default shrinkage; nothing in the app passes either.
+ */
+export type ScoutFitTuning = { cap?: number; shrinkage?: number };
+
 export const fitScoutYear = (
   year: number | undefined,
   teams: ScoutTeam[],
   games: ScoutGame[],
   rated: readonly RatedScoutGame[],
-  ageGroups: AgeGroup[]
+  ageGroups: AgeGroup[],
+  tuning: ScoutFitTuning = {}
 ): ScoutYearFit => {
   const ratedGames = rated.map(({ game }) => game);
 
@@ -3408,7 +3416,8 @@ export const fitScoutYear = (
   const communities = scheduleCommunities(nodeIds, pairs, pieces);
 
   const adjusted = buildOpponentAdjustedRatings(nodeIds, yearFitGames(rated), {
-    cap: RATING_CAP,
+    cap: tuning.cap ?? RATING_CAP,
+    ...(tuning.shrinkage === undefined ? {} : { shrinkage: tuning.shrinkage }),
     priorCentre: startingLevels(communities),
   });
 
@@ -3611,10 +3620,10 @@ export const MATCHUP_PROBABILITY_FLOOR = 0.08;
 
 /**
  * The spread of the odds curve at 8U, in runs: the projected margin that moves a matchup from even
- * to about 73%, and 0.10 of a run wider for each year of age above it (`matchupOddsSpread`).
+ * to about 73%, and 0.11 of a run wider for each year of age above it (`matchupOddsSpread`).
  */
-export const MATCHUP_ODDS_SPREAD_AT_8U = 3.75;
-export const MATCHUP_ODDS_SPREAD_PER_YEAR = 0.1;
+export const MATCHUP_ODDS_SPREAD_AT_8U = 4.125;
+export const MATCHUP_ODDS_SPREAD_PER_YEAR = 0.11;
 
 /**
  * How far apart two teams' projected margin has to be for the odds to reach about 73%, at the age
@@ -3640,9 +3649,18 @@ export const MATCHUP_ODDS_SPREAD_PER_YEAR = 0.1;
  * cuts, 23 of the 30 improved; the seven that did not were 10U to 18U by at most 0.0034, on 205 to
  * 1,610 games each.
  *
+ * A tenth wider since 27 October 2026. The model sweep (`scripts/modelSweep.ts`) read the cloud copy
+ * that day, fitted the 2027 squad year as its boards would have been on 1, 8 and 15 September, and
+ * scored the 124,311 later decided games between two clubs one board lists on the chances the board
+ * showed: on 3.75 rising 0.10 a year the favourite was called 1.7 to 3.3 points too sure from 60% to
+ * 90% (72.4% said, 69.1% won between 70 and 75%), and the whole curve a twentieth, a tenth and three
+ * twentieths wider lowered the log loss by 0.0006, 0.0008 and 0.0008 (z 6.3, 4.6 and 3.1, a club's
+ * games read together, `pairedImprovement`) and the Brier score by 0.0002 to 0.0003, a fifth wider
+ * by less and three tenths wider not at all. A tenth wider is 4.125 at 8U rising 0.11 a year. The
+ * margin a matchup states is unchanged, and so is every rating: the curve reads them, nothing more.
+ *
  * A level outside 8U to 18U, where the pool had nothing to measure, is read as the nearer end; a
- * matchup with no level is read at 12U, whose spread, 4.15, sits among the flat values that did
- * best over every level at once (4.00 to 4.30 at the three cuts).
+ * matchup with no level is read at 12U, whose spread is now 4.565 (4.15 before the tenth).
  */
 export const matchupOddsSpread = (ageLevel?: number): number => {
   const level = ageLevel === undefined || !Number.isFinite(ageLevel) ? 12 : clamp(ageLevel, 8, 18);

@@ -90,6 +90,7 @@ server/
   gc-team.ts            # Firebase handler: GameChanger pull
 scripts/
   poolFixture.ts        # a seeded pool of a real pool's shape, for the live views' tests and timings
+  modelSweep.ts         # research: the shipped model's forecasts scored, settings moved, stand-ins
   recencySweep.ts       # research: which recency scheme predicts best on a real pool
   sweepTidy.ts          # the pool it fits: a backup through the device's tidy, vouched clubs spared
   verify-gc-pull.ts     # the one check that talks to GameChanger for real
@@ -641,7 +642,7 @@ by name, per age group.
 
 The projection is the rating difference, capped at 14 runs, put through a
 logistic curve; no home-field term, because at this level which side is "home" is
-a coin flip. The curve's spread rises with age, 3.75 runs at 8U and 0.10 more a
+a coin flip. The curve's spread rises with age, 4.125 runs at 8U and 0.11 more a
 year, because a margin says less about who wins as players get older. It was 2.8
 at every level, and on the pool of 26 September, fitted up to three different
 days and scored on the games after each, that was overconfident: favourites it
@@ -650,7 +651,12 @@ spread rising from 2.95 by 0.09 a year fixed that for ratings capped at 8 runs;
 when the cap went to 12 (below) the ratings stretched and the spread was fitted
 again, the same way, through the app's own fit. Favourites it calls at about 75%
 won 73 to 75% of the time, and at about 85% won 85 to 86.5%. The cap and the
-curve move together: cap 12 on the old curve read worse than cap 8 on it.
+curve move together: cap 12 on the old curve read worse than cap 8 on it. On 27
+October 2026 the model sweep (**The model, measured**) scored the boards on the
+cloud copy's later games and found that curve, 3.75 runs at 8U and 0.10 more a
+year, 1.7 to 3.3 points too sure from 60% to 90%; a tenth wider forecast the
+same games better (log loss 0.0008 lower, z 4.6), so it is 4.125 at 8U and 0.11
+more a year now.
 
 **What if?** Under each fixture is the question the projection cannot answer: not
 who is favoured on Saturday, but where Saturday leaves you. A rating here is not a
@@ -3953,6 +3959,60 @@ are drawn only while a row on the list carries a line, so a pending Not this tea
 takes every such row off takes them too, though the lines, worked out from the card as
 published, are still in hand. Team Rankings on this device's own copy draws none, having
 no published board to explain.
+
+#### The model, measured
+
+`scripts/modelSweep.ts` (`npm run model:sweep`) asks how well the boards forecast, the way the
+counted level and the recency weights were measured: the squad year is fitted as its boards would
+have been on 1, 8 and 15 September, and every later game between two clubs one board lists, from
+23 September to the board's day, is scored on the ratings the board showed, as `predictMatchup`
+states the matchup. Every forecast the app shows is between two rows of one board, so a game
+across ages (the clubs at home on different pages) and a game against a club known only by name
+or a bracket slot (which no board lists) are counted apart rather than scored
+(`src/lib/modelSweep.ts`). It reads the shipped model's log loss and Brier score on the decided
+games, the squared error of its margin on all of them (the margin a board states, held to 14
+runs), and its calibration: the favourite's chance in bands of five points beside how often the
+favourite won. Beside the shipped model it fits each setting moved on its own, either way, and
+reads each against it game by game, with a standard error that reads a club's games together
+(`pairedImprovement`):
+
+- the ridge's pull toward a club's starting level at half, three quarters, half again and twice
+  `DEFAULT_SHRINKAGE`;
+- a game's margin capped at 8, 10, 14 and 16 runs in the fit, against `RATING_CAP`'s 12;
+- the floor under a matchup's chance at 2%, 5% and 12%, against `MATCHUP_PROBABILITY_FLOOR`'s 8%.
+  The floor is swept rather than the margin a chance is read to (`MATCHUP_MARGIN_CAP`, 14 runs):
+  the floor binds first, at about 9.6 runs at 10U and 11.6 at 18U, so no cap past it moves a
+  chance. A floor leaves the fit alone, so its margin error is the shipped one's to the digit.
+- the odds curve a twentieth narrower, and a twentieth, a tenth, three twentieths, a fifth and three
+  tenths wider than `matchupOddsSpread`: the first run found the boards 1.5 to 2.6 points too sure
+  of the favourite from 60% to 85%, which a curve about a tenth wider would close. Like the floor,
+  it leaves the fit alone.
+
+The same run counts the squad year's stand-ins (`src/lib/standInReport.ts`): the games with a
+club known only by name or a bracket slot on a side, played and all, and of the clubs known only
+by name, how many share a name with a club pulled the same year, which is a matching gap a
+region or a picture might settle, and how many have nothing of that name. The ones with a namesake
+are split by where it is: on a page the stand-in played on (most likely the club itself, which the
+import would not join it to), or only on another page; with the played games filed against a
+bracket slot nobody resolved.
+
+It reads a backup, the seeded pool (`--fixture`), or the cloud copy once (`--cloud`), read only, as
+the nightly reads it, on GitHub's runner (`.github/workflows/research-model.yml`, on a push to its
+branch marked `[run-sweep]`). A public log gets numbers only; the stand-ins' names are sealed to
+`scripts/researchSeal.pub.pem` and opened with its private half, which is never committed. What it
+finds becomes a constant only by a later commit that pins the boards first.
+
+What it found on the cloud copy of 27 October 2026 (GitHub run 40443133874; 127,961 later games
+a board states, 124,311 decided): the shipped model's log loss is 0.6146 and its Brier score
+0.2134. No setting of the fit beats it: the ridge either way and a fit cap of 8 are clearly worse,
+a cap of 10 or 14 is level, and 16 worse. A floor of 2% or 5% is better by a hair (z 1.9 and
+2.5), and 12% worse. The odds curve a twentieth to three twentieths wider is clearly better (log
+loss +0.0006 to +0.0008, z 6.3, 4.6 and 3.1), a fifth wider is level, and three tenths or a twentieth
+narrower worse: the boards are 1.7 to 3.3 points too sure of the favourite from 60% to 90%. Of the
+year's 391,391 games, 33.4% have a stand-in on a side (28.7% of the played). Of the 58,489 clubs known
+only by name: 7,540 have one pulled club of the name on their page in a state of the clubs naming
+them, 3,208 one in another state, 4,327 several, 1,151 one or several spelled near it, 6,826 a
+namesake only on another page, and 35,437, holding 70,254 games, nothing of the name at all.
 
 ## Postseason format
 
