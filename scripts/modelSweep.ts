@@ -11,6 +11,11 @@
  *                                             the cloud copy, read once, read only
  *   npm run model:sweep -- --fixture[=CLUBS]  the seeded pool (`poolFixture.ts`), clubs a page
  *
+ * With --stand-in-rules it measures the stand-in rule instead (`src/lib/standInRules.ts`): the
+ * whole pool tidied as the nightly tidies it, under the rules as shipped and under each reading of
+ * `inStateNamesakes`, and for each how much of the year still leans on a stand-in or a slot and how
+ * the rows it filed read (`readRules`).
+ *
  * Options: --year=2027 (the squad year), --today=DAY (the board's day; the members' day by
  * default), --top=25 (the stand-ins named, most games first), --public (numbers only),
  * --seal=FILE with --seal-to-key=PEM (the named lines, sealed to that public key), and
@@ -45,10 +50,16 @@ import { asWorkerSees } from "../src/lib/live/views/board.ts";
 import { readCloudLeague, seasonReaderOf } from "../src/lib/live/cloudLeague.ts";
 import { fetchValues } from "../src/lib/cloud/cloudEngine.ts";
 import { LEAGUE_PART } from "../src/lib/cloud/cloudPlan.ts";
-import { loadPoolFrom } from "../src/lib/cloud/cloudRunner.ts";
+import { loadPoolFrom, sparedByTidy } from "../src/lib/cloud/cloudRunner.ts";
 import { failureWords } from "../src/lib/cloud/firestoreRest.ts";
 import { todayIsoDay } from "../src/lib/date.ts";
-import { describeTidy } from "../src/lib/gameChangerImport.ts";
+import {
+  describeTidy,
+  SHIPPED_TIDY_RULES,
+  tidyPool,
+  type GcImportState,
+  type TidyRules,
+} from "../src/lib/gameChangerImport.ts";
 import {
   MODEL_CUTS,
   MODEL_SCORE_FROM,
@@ -58,8 +69,21 @@ import {
 import type { PairedReading } from "../src/lib/scoutBacktest.ts";
 import { standInReport, type StandInReport, type StandInWhy } from "../src/lib/standInReport.ts";
 import {
+  filedByName,
+  leaningOf,
+  readRules,
+  slotsRead,
+  wrongShare,
+  type Leaning,
+  type NearCount,
+  type RuleReading,
+} from "../src/lib/standInRules.ts";
+import {
   loadAgeGroups,
   loadAutoRemoved,
+  loadKeptApart,
+  loadNotThisTeam,
+  loadScoutGames,
   loadScoutGamesForYear,
   loadScoutTeams,
   resetTeamRankingsStore,
@@ -99,6 +123,8 @@ type Source = {
   ageGroups: AgeGroup[];
   teams: ScoutTeam[];
   gamesOfYear: (year: number) => ScoutGame[];
+  /** Every year's games, for a tidy, which reads the pool whole as the nightly does. */
+  allGames: () => ScoutGame[];
   readSeason: SeasonReader;
   leagueRead: boolean;
   autoRemoved: AutoRemovals;
@@ -125,6 +151,7 @@ const fromBackup = (path: string): Source => {
     ageGroups,
     teams,
     gamesOfYear: (year) => games.filter((game) => yearOf.get(game.ageGroupId) === year),
+    allGames: () => games,
     readSeason: seasons ?? (() => NO_SEASON),
     leagueRead: seasons !== null,
     autoRemoved: coerceAutoRemovals(pool.answers?.autoRemoved ?? []),
@@ -142,6 +169,7 @@ const fromFixture = (): Source => {
     ageGroups: pool.ageGroups,
     teams: pool.teams,
     gamesOfYear: (year) => pool.games.filter((game) => yearOf.get(game.ageGroupId) === year),
+    allGames: () => pool.games,
     readSeason: (id) => pool.seasons[id] ?? NO_SEASON,
     leagueRead: true,
     autoRemoved: coerceAutoRemovals([]),
@@ -184,6 +212,7 @@ const fromCloud = async (): Promise<Source> => {
     ageGroups: loadAgeGroups(),
     teams: loadScoutTeams(),
     gamesOfYear: loadScoutGamesForYear,
+    allGames: loadScoutGames,
     readSeason,
     leagueRead,
     autoRemoved: loadAutoRemoved(),
@@ -386,6 +415,107 @@ const describeStandIns = (report: StandInReport) => {
   }
 };
 
+/* ------------------------------------------------------------------- the stand-in rule, read */
+
+/** The readings of the stand-in rule measured, the rules as shipped first. */
+const RULE_READINGS: { key: string; why: string; rules: TidyRules }[] = [
+  { key: "shipped", why: "the tidy as it ships", rules: SHIPPED_TIDY_RULES },
+  {
+    key: "in-state",
+    why: "the one pulled club of the name in the namer's state, at the row's level, any name",
+    rules: { inState: { rareAmong: 1, nearLevel: false } },
+  },
+  {
+    key: "in-state-rare",
+    why: "the same, only a name with a word in no more than 1 in 2,000 pulled clubs' names",
+    rules: { inState: { rareAmong: 2_000, nearLevel: false } },
+  },
+  {
+    key: "in-state-near",
+    why: "the same as in-state, or failing one at the row's level, one a level either side",
+    rules: { inState: { rareAmong: 1, nearLevel: true } },
+  },
+];
+
+const describeLeaning = (label: string, leaning: Leaning) =>
+  say(
+    `  ${label}: ${leaning.withStandIn} of ${leaning.games} games lean on a stand-in or a slot` +
+      ` (${share(leaning.withStandIn, leaning.games)}), ${leaning.playedWithStandIn} of` +
+      ` ${leaning.played} played (${share(leaning.playedWithStandIn, leaning.played)});` +
+      ` ${leaning.playedWithSlot} played against a slot; ${leaning.standIns} clubs known only by name.`
+  );
+
+const nearShare = (count: NearCount) =>
+  `${count.near} of ${count.rows} (${share(count.near, count.rows)})`;
+
+const describeReading = (reading: RuleReading, right: NearCount, why: string) => {
+  say(`\n  ${reading.key}: ${why}`);
+  say(
+    `    tidy: ${reading.passes} pass(es), ${reading.refiled} rows refiled, ${reading.resettled}` +
+      ` resettled, ${reading.named} slot or stand-in rows settled (${reading.seconds.toFixed(0)} s)`
+  );
+  describeLeaning("  after", reading.after);
+  say(
+    `    played slot games: ${reading.slots.played}; ${reading.slots.timed} with a start,` +
+      ` ${reading.slots.standInAtTheHour} with a stand-in's row at the hour`
+  );
+  say(`    rows moved off a stand-in onto a pulled club: ${reading.moved.rows}`);
+  say(
+    `      between neighbours: ${nearShare(reading.moved)}; their decoys: ${nearShare(reading.decoy)}`
+  );
+  const wrong = wrongShare(reading.moved, reading.decoy, right);
+  say(
+    `      the share wrong, read between: ${wrong === null ? "-" : `${(100 * wrong).toFixed(1)}%`}`
+  );
+  sayNamed(
+    reading.sample.map(
+      (one) => `    ${one.namer} named "${one.name}" -> ${one.club} (${one.state})`
+    ),
+    `A sample of the rows ${reading.key} moved:`
+  );
+};
+
+/**
+ * The whole pool tidied under each reading, as the nightly tidies it: the pairs kept apart, the
+ * names the owner refused, and the clubs it spares (`sparedByTidy`, every club where League was not
+ * read). Each reading starts from the pool as read; the copy is not written.
+ */
+const measureStandInRules = (source: Source, year: number) => {
+  say(`\n${"=".repeat(78)}\nThe stand-in rule, read on the whole pool\n${"=".repeat(78)}`);
+  const pool: GcImportState = {
+    ageGroups: source.ageGroups,
+    teams: source.teams,
+    games: source.allGames(),
+  };
+  const apart = loadKeptApart();
+  const refused = loadNotThisTeam();
+  const spared = sparedByTidy(pool, source.leagueRead ? source.readSeason : null);
+  const tidy = (state: GcImportState, rules: TidyRules) =>
+    tidyPool(state, undefined, apart, refused, spared, rules);
+  describeLeaning("before", leaningOf(pool, year));
+  const slots = slotsRead(pool, year);
+  say(
+    `  played slot games: ${slots.played}; ${slots.timed} with a start, ${slots.standInAtTheHour}` +
+      " with a stand-in's row at the hour (the rest have nothing at that hour to pair with)"
+  );
+  const right = filedByName(pool, year);
+  say(`  rows filed by name as shipped (the club's own schedules not holding them): ${right.rows}`);
+  say(`    between neighbours: ${nearShare(right)} (how often a right reading of a name is)`);
+  for (const { key, why, rules } of RULE_READINGS) {
+    try {
+      describeReading(
+        readRules(pool, year, key, rules, tidy, Number(flag("top") || 25), () => performance.now()),
+        right,
+        why
+      );
+    } catch (error) {
+      say(`  ${key} stopped: ${failureWords(error)}`);
+      process.exitCode = 1;
+    }
+    say(`  (${key} done at ${since()})`);
+  }
+};
+
 /* -------------------------------------------------------------------------------------- run */
 
 const main = async (): Promise<void> => {
@@ -413,6 +543,11 @@ const main = async (): Promise<void> => {
     `  ${source.ageGroups.length} pages, ${source.teams.length} teams; League Standings` +
       ` ${source.leagueRead ? "read" : "not read"}. Read in ${since()}.`
   );
+  if (has("stand-in-rules")) {
+    measureStandInRules(source, year);
+    finish();
+    return;
+  }
   const page = source.ageGroups.find(
     (group) => ageGroupYear(group) === year && scoutFitRanks(group.id, source.ageGroups)
   );
@@ -464,6 +599,11 @@ const main = async (): Promise<void> => {
     process.exitCode = 1;
   }
 
+  finish();
+};
+
+/** The named lines sealed, and the closing lines, whichever measurement ran. */
+const finish = () => {
   const sealTo = flag("seal");
   const keyPem = flag("seal-to-key");
   if (sealTo && keyPem) {
