@@ -1507,6 +1507,24 @@ describe("a pull run on the cloud copy", () => {
       // Aces list two games that night and Bears one, and every one of them reads.
       expect(result.ingest).toMatchObject({ listed: 3, read: 3, drifted: false });
     });
+
+    it("counts the rows a schedule listed that never reached the import", async () => {
+      const cloud = memoryCloud();
+      await seed(cloud);
+      const unreadable = [...Array(600).keys()].map((at) => `row${at}`);
+      // The Bears' answer lists 600 entries the reader could not read, and one it could.
+      schedules.set(BEARS, {
+        ...schedule(BEARS, "Bears", [game("b1", "Aces", 3, 5)]),
+        rowIds: ["b1", ...unreadable],
+      });
+      try {
+        const result = await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
+        expect(result.ingest?.listed).toBeGreaterThanOrEqual(601);
+        expect(result.ingest?.drifted).toBe(true);
+      } finally {
+        schedules.set(BEARS, schedule(BEARS, "Bears", [game("b1", "Aces", 3, 5)]));
+      }
+    });
   });
 
   it("files the same answers onto a copy another device saved meanwhile, keeping its change", async () => {

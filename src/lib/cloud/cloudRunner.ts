@@ -449,7 +449,11 @@ export const workOutRefresh = async (store: CloudStore, now: Date): Promise<Work
   return { ok: true, on: epochOf(copy.manifest), ...refreshNow(now) };
 };
 
-type Filed = { outcomes: GcImportOutcome[] };
+/**
+ * What a filing did with each schedule, and how many entries each schedule listed, read or not
+ * (`rowIds`), at the same places, for the ingest canary (`ingestReading`).
+ */
+type Filed = { outcomes: GcImportOutcome[]; rows?: readonly number[] };
 
 /** The levels a run logs as refreshed once it has asked about every team, and on which day. */
 type Marking = {
@@ -631,6 +635,7 @@ const fileScheduleSource = async (
   );
   // In the order asked, so a replay files the same answers the same way.
   const outcomes: GcImportOutcome[] = [];
+  const rows: number[] = [];
   const unaged = new Map<string, number>();
   // Retain a bounded prefix so retry order stays identical to the original selection.
   const retained = new Map<string, GcTeamSchedule>();
@@ -650,6 +655,7 @@ const fileScheduleSource = async (
       }
     }
     outcomes.push(outcome);
+    rows.push(schedule.rowIds?.length ?? schedule.games.length);
   }
   // Reconsider clubs skipped before their opponents arrived. The source stays on disk;
   // only these clubs are filed again, without refetching or running a tidy between them.
@@ -696,7 +702,7 @@ const fileScheduleSource = async (
   if (mark && complete) saveRefreshLog(withRefreshed(loadRefreshLog(), mark, now));
   if (!(await flushPoolWrites())) throw new Error("The store in memory refused the pull's pool.");
   await onOutcomes?.(outcomes);
-  return { outcomes };
+  return { outcomes, rows };
 };
 
 /**
@@ -941,7 +947,13 @@ const fileAndSave = async (
     result.filed = filed.outcomes.filter((outcome) => !outcome.skip).length;
     result.gamesAdded = filed.outcomes.reduce((sum, outcome) => sum + outcome.gamesAdded, 0);
     result.gamesUpdated = filed.outcomes.reduce((sum, outcome) => sum + outcome.gamesUpdated, 0);
-    result.ingest = ingestReading(filed.outcomes.filter((outcome) => !outcome.skip));
+    const read = filed.outcomes.flatMap((outcome, at) =>
+      outcome.skip ? [] : [{ outcome, rows: filed.rows?.[at] ?? 0 }]
+    );
+    result.ingest = ingestReading(
+      read.map((one) => one.outcome),
+      read.map((one) => one.rows)
+    );
 
     const now = deps.now();
     const changes = await changesSince(copy, touched, now.getTime());

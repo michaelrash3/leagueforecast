@@ -21,20 +21,28 @@ export const INGEST_READ_SHARE = 0.5;
 
 export type IngestReading = { listed: number; read: number; drifted: boolean };
 
+/**
+ * Read from the import's outcomes, and from each schedule's own rows (`rows`, the outcome's at the
+ * same place: every entry the answer listed, read as a game or not, `GcTeamSchedule.rowIds`). An
+ * entry the schedule reader could not read at all, no opponent it recognised, never reaches the
+ * import, so the outcomes alone counted a change in how GameChanger writes the opponent as nothing
+ * listed, and read "fine 0/0". A schedule's listed games are the more of the two.
+ */
 export const ingestReading = (
   outcomes: readonly Pick<
     GcImportOutcome,
     "gamesAdded" | "gamesUpdated" | "gamesUnchanged" | "gamesOutOfSeason" | "gamesIgnored"
-  >[]
+  >[],
+  rows: readonly number[] = []
 ): IngestReading => {
   let read = 0;
-  let ignored = 0;
-  for (const outcome of outcomes) {
-    read +=
+  let listed = 0;
+  outcomes.forEach((outcome, at) => {
+    const filed =
       outcome.gamesAdded + outcome.gamesUpdated + outcome.gamesUnchanged + outcome.gamesOutOfSeason;
-    ignored += outcome.gamesIgnored;
-  }
-  const listed = read + ignored;
+    read += filed;
+    listed += Math.max(filed + outcome.gamesIgnored, rows[at] ?? 0);
+  });
   return {
     listed,
     read,

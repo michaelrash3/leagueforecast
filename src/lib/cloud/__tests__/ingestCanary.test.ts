@@ -36,6 +36,23 @@ describe("the ingest canary", () => {
     expect(ingestReading([one])).toEqual({ listed: 500, read: 400, drifted: false });
   });
 
+  it("counts what a schedule listed that the reader could not read at all", () => {
+    // GameChanger writes the opponent another way, and no entry reaches the import: every
+    // schedule's 30 rows are dropped before it, and the outcomes alone read "fine 0/0".
+    const night = Array.from({ length: 100 }, () => outcome(0, 0));
+    const rows = night.map(() => 30);
+    expect(ingestReading(night)).toEqual({ listed: 0, read: 0, drifted: false });
+    expect(ingestReading(night, rows)).toEqual({ listed: 3000, read: 0, drifted: true });
+  });
+
+  it("takes the more of the rows and the import's count for each team", () => {
+    // A schedule kept without its rows counts as the import saw it; one whose rows say fewer
+    // than the import counted counts the import's.
+    const [kept, short] = [outcome(28, 2), outcome(10, 0)];
+    const rows = [0, 4];
+    expect(ingestReading([kept, short], rows)).toEqual({ listed: 40, read: 38, drifted: false });
+  });
+
   it("hands the alarm step its word, drift or fine, with the numbers", () => {
     expect(ingestWord({ listed: 3000, read: 300, drifted: true })).toBe("drift 300/3000");
     expect(ingestWord({ listed: 3000, read: 2800, drifted: false })).toBe("fine 2800/3000");
