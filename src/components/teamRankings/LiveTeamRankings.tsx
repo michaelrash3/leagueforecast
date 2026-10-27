@@ -46,7 +46,7 @@ import { myTeamGlance } from "../../lib/myTeamGlance";
 import { movementOf } from "../../lib/rankMovement";
 import { weekMovers } from "../../lib/thisWeek";
 import { teamWeek } from "../../lib/theWeekly";
-import { recordVsExpected } from "../../lib/clubForm";
+import { recordVsExpected, withSeason } from "../../lib/clubForm";
 import {
   buildUpcomingSchedule,
   inSegment,
@@ -647,10 +647,11 @@ function LiveBoard({
         : [],
     [mineCard.card, myTeamId, rows, poolIds, today]
   );
-  const myTeam = useMemo(
-    () => myTeamGlance(rows, myTeamId, (teamId) => stateById.get(teamId), myUpcoming, lastWeek),
-    [rows, myTeamId, stateById, myUpcoming, lastWeek]
-  );
+  const myTeam = useMemo(() => {
+    const stateOf = (teamId: string) => stateById.get(teamId);
+    const glance = myTeamGlance(rows, myTeamId, stateOf, myUpcoming, lastWeek);
+    return glance && withSeason(glance, rows, stateOf, myUpcoming);
+  }, [rows, myTeamId, stateById, myUpcoming, lastWeek]);
   // Its record against the clubs rated here beside the one its ratings expected, over the board's
   // half, off the same card (`recordVsExpected`).
   const myExpected = useMemo(() => {

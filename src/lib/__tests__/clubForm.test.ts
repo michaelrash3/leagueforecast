@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { formOf, recordVsExpected, scheduleRankInState, weekendAhead } from "../clubForm";
+import {
+  formOf,
+  recordVsExpected,
+  scheduleRankInState,
+  weekendAhead,
+  withSeason,
+} from "../clubForm";
+import { myTeamGlance } from "../myTeamGlance";
 import {
   previewMatchup,
   type ScoutGame,
@@ -88,6 +95,25 @@ describe("a record beside the one the ratings expected", () => {
     });
   });
 
+  it("reads the club's own schedule's word where the two schedules disagree", () => {
+    // A's schedule says A won 5-4; B's says B won 6-2.
+    const disputed = {
+      ...game("A", "B", "2026-09-05", 5, 4),
+      reportedByB: { teamAScore: 2, teamBScore: 6 },
+    };
+    expect(recordVsExpected("A", [disputed], rowOf, "2026-10-01")).toMatchObject({
+      wins: 1,
+      losses: 0,
+      oneRun: { wins: 1, losses: 0 },
+    });
+    expect(recordVsExpected("B", [disputed], rowOf, "2026-10-01")).toMatchObject({
+      wins: 1,
+      losses: 0,
+      oneRun: { wins: 0, losses: 0 },
+    });
+    expect(formOf("B", [disputed], rowOf, "2026-10-01")?.games[0]).toMatchObject({ won: true });
+  });
+
   it("is nothing with no such game", () => {
     expect(recordVsExpected("A", [GAMES[4]!], rowOf, "2026-10-01")).toBeUndefined();
     expect(recordVsExpected("Z", GAMES, rowOf, "2026-10-01")).toBeUndefined();
@@ -160,5 +186,37 @@ describe("the weekend ahead", () => {
 
   it("is nothing with no dated game", () => {
     expect(weekendAhead([match("", "D", 0.9)])).toBeUndefined();
+  });
+});
+
+describe("the season added to the page's own club's glance", () => {
+  const states: Record<string, string> = { A: "KY", B: "KY", C: "KY", D: "OH" };
+  const stateOf = (teamId: string) => states[teamId];
+  const match = (date: string, opponentId: string, winProb: number): UpcomingMatchup => ({
+    gameId: `${date}-${opponentId}`,
+    date,
+    opponentId,
+    opponentName: `Club ${opponentId}`,
+    winProb,
+  });
+
+  it("adds the schedule's rank in its state and a weekend of two games or more", () => {
+    const saturday = match("2026-10-31", "B", 0.42);
+    const sunday = match("2026-11-01", "C", 0.8);
+    const later = match("2026-11-07", "D", 0.6);
+    const glance = myTeamGlance(ROWS, "A", stateOf, [saturday, sunday, later])!;
+    expect(withSeason(glance, ROWS, stateOf, [saturday, sunday, later])).toEqual({
+      ...glance,
+      schedule: { rank: 2, of: 3 },
+      weekend: {
+        sunday: "2026-11-01",
+        games: [saturday, sunday],
+        expectedWins: 0.42 + 0.8,
+        toughest: saturday,
+        likeliest: sunday,
+      },
+    });
+    // A weekend of one game says nothing the next game does not.
+    expect(withSeason(glance, ROWS, stateOf, [saturday, later])).not.toHaveProperty("weekend");
   });
 });

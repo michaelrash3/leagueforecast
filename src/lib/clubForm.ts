@@ -1,9 +1,10 @@
 import { weekEndingSunday } from "./nextWeekend";
+import type { MyTeamGlance } from "./myTeamGlance";
 import {
   countsTowardRating,
   MATCHUP_MARGIN_CAP,
   previewMatchup,
-  ratedMargin,
+  scoreSeenBy,
   type ScoutGame,
   type ScoutRankingRow,
   type UpcomingMatchup,
@@ -70,8 +71,9 @@ const ratedGames = (
     if (!opponent) continue;
     const odds = previewMatchup(mine, opponent);
     if (odds.unconnected) continue;
-    const marginA = ratedMargin(game)!;
-    const margin = game.teamAId === teamId ? marginA : -marginA;
+    // Its own schedule's word, as its record on the board reads it (`scoreSeenBy`).
+    const seen = scoreSeenBy(game, teamId)!;
+    const margin = seen.own - seen.opponent;
     out.push({
       game,
       won: margin > 0,
@@ -196,5 +198,25 @@ export const weekendAhead = (upcoming: readonly UpcomingMatchup[]): WeekendAhead
     ...(byChance.length >= 2
       ? { toughest: byChance[0]!, likeliest: byChance[byChance.length - 1]! }
       : {}),
+  };
+};
+
+/**
+ * A glance at the page's own club with its season beside its ratings added: its schedule's rank in
+ * its state and its next weekend, where it has two games or more on it. Apart from `myTeamGlance`,
+ * which League Standings reads as well, so its first download carries none of this.
+ */
+export const withSeason = (
+  glance: MyTeamGlance,
+  rankings: readonly ScoutRankingRow[],
+  stateOf: (teamId: string) => string | undefined,
+  upcoming: readonly UpcomingMatchup[]
+): MyTeamGlance => {
+  const schedule = scheduleRankInState(rankings, glance.teamId, stateOf);
+  const weekend = weekendAhead(upcoming);
+  return {
+    ...glance,
+    ...(schedule ? { schedule } : {}),
+    ...(weekend && weekend.games.length >= 2 ? { weekend } : {}),
   };
 };

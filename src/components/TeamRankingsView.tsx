@@ -14,7 +14,7 @@ import { myTeamGlance } from "../lib/myTeamGlance";
 import { movementOf } from "../lib/rankMovement";
 import { weekMovers } from "../lib/thisWeek";
 import { teamWeek, theWeekly } from "../lib/theWeekly";
-import { recordVsExpected } from "../lib/clubForm";
+import { recordVsExpected, withSeason } from "../lib/clubForm";
 import { compareClubs } from "../lib/clubCompare";
 import { setClubAge } from "../lib/clubAge";
 import { createAgeGroupId } from "../lib/teamRankings/seasons";
@@ -992,13 +992,9 @@ export function TeamRankingsView({
       myTeamId === reportForId
         ? upcomingRows
         : buildUpcomingSchedule(myTeamId, rankings, poolGames, allKnown.teams, today);
-    return myTeamGlance(
-      rankings,
-      myTeamId,
-      (teamId) => stateById.get(teamId),
-      upcoming,
-      lastWeek?.ranks ?? null
-    );
+    const stateOf = (teamId: string) => stateById.get(teamId);
+    const glance = myTeamGlance(rankings, myTeamId, stateOf, upcoming, lastWeek?.ranks ?? null);
+    return glance && withSeason(glance, rankings, stateOf, upcoming);
   }, [
     lastWeek,
     myTeamId,

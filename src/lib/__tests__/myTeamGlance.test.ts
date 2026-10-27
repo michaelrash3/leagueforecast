@@ -16,14 +16,7 @@ const row = (teamId: string, rank: number, extra: Partial<ScoutRankingRow> = {})
     ...extra,
   }) as ScoutRankingRow;
 
-// D's schedule the second toughest of Ohio's three: B's is tougher, E's easier.
-const rankings = [
-  row("A", 1, { strengthOfSchedule: 3 }),
-  row("B", 2, { strengthOfSchedule: 1.5 }),
-  row("C", 3, { strengthOfSchedule: 2 }),
-  row("D", 4, { strengthOfSchedule: 1 }),
-  row("E", 5, { strengthOfSchedule: -1 }),
-];
+const rankings = [row("A", 1), row("B", 2), row("C", 3), row("D", 4), row("E", 5)];
 const states: Record<string, string> = { A: "TX", B: "OH", C: "KY", D: "OH", E: "OH" };
 const stateOf = (teamId: string) => states[teamId];
 const saturday: UpcomingMatchup = {
@@ -48,22 +41,7 @@ describe("my team at a glance", () => {
       record: "6-4",
       rating: 6,
       next: saturday,
-      schedule: { rank: 2, of: 3 },
     });
-  });
-
-  it("says its next weekend where it plays two or more games on it", () => {
-    const sunday = { ...saturday, gameId: "g2", date: "2026-09-20", opponentId: "E", winProb: 0.8 };
-    const later = { ...saturday, gameId: "g3", date: "2026-09-26" };
-    const glance = myTeamGlance(rankings, "D", stateOf, [saturday, sunday, later]);
-    expect(glance?.weekend).toEqual({
-      sunday: "2026-09-20",
-      games: [saturday, sunday],
-      expectedWins: 0.42 + 0.8,
-      toughest: saturday,
-      likeliest: sunday,
-    });
-    expect(myTeamGlance(rankings, "D", stateOf, [saturday, later])).not.toHaveProperty("weekend");
   });
 
   it("keeps the unfiltered place when a filter has renumbered the rows", () => {
