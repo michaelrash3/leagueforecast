@@ -584,9 +584,10 @@ const invalidIdsOf = (answers: ReadonlyMap<string, GcTeamResponse>): string[] =>
  * every club a League Standings team links (`leagueLinkedClubs`), which only the League pass sees,
  * as the device's tidy is told them. Where League could not be read, every team in the pool, so the
  * step deletes nothing that run rather than a club a season's pick leans on, which a deletion would
- * leave pointing at nothing; the next run that reads League does what this one left.
+ * leave pointing at nothing; the next run that reads League does what this one left. Exported for
+ * the research sweep that tidies the copy as the nightly does (`scripts/modelSweep.ts`).
  */
-const sparedByTidy = (pool: GcImportState, seasons: SeasonReader | null): Set<string> => {
+export const sparedByTidy = (pool: GcImportState, seasons: SeasonReader | null): Set<string> => {
   const real = loadRealClubs();
   if (!seasons) return new Set([...real, ...pool.teams.map((team) => team.id)]);
   return new Set([...real, ...leagueLinkedClubsOf(pool, seasons)]);
