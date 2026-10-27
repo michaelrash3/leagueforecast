@@ -14,7 +14,7 @@ describe("forecastWords", () => {
     expect(at(2.34)).toEqual({
       even: false,
       headline: "Aces should beat Bears by 2.3 runs",
-      chances: "Win chance: Aces 64%, Bears 36%",
+      chances: "Win chance: Aces 63%, Bears 37%",
     });
   });
 
@@ -22,7 +22,7 @@ describe("forecastWords", () => {
     expect(at(-2.34)).toEqual({
       even: false,
       headline: "Bears should beat Aces by 2.3 runs",
-      chances: "Win chance: Bears 64%, Aces 36%",
+      chances: "Win chance: Bears 63%, Aces 37%",
     });
   });
 
@@ -33,16 +33,16 @@ describe("forecastWords", () => {
   });
 
   it("names no winner on a margin too small to move either chance off 50%", () => {
-    // 0.07 of a run prints as 0.1 but leaves both chances at 50%: "should beat by 0.1 runs" at
-    // 50-50 would be a winner picked by a rounding error.
-    for (const margin of [0, 0.04, -0.04, 0.07, -0.07]) {
+    // 0.07 and 0.09 of a run print as 0.1 but leave both chances at 50%: "should beat by 0.1 runs"
+    // at 50-50 would be a winner picked by a rounding error.
+    for (const margin of [0, 0.04, -0.04, 0.07, -0.07, 0.09, -0.09]) {
       expect(at(margin)).toEqual({
         even: true,
         headline: "Too close to call: dead even",
         chances: "Win chance: Aces 50%, Bears 50%",
       });
     }
-    expect(at(0.09)).toEqual({
+    expect(at(0.1)).toEqual({
       even: false,
       headline: "Aces should beat Bears by 0.1 runs",
       chances: "Win chance: Aces 51%, Bears 49%",
