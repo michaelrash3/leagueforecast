@@ -8,6 +8,7 @@ import {
   leftClubSheet,
   markClubSheet,
 } from "../../lib/clubSheetHistory";
+import { useConfirmation } from "../../hooks/useConfirmation";
 import { TeamNameCombobox } from "../TeamNameCombobox";
 import { ClubSheet } from "./ClubSheet";
 
@@ -163,6 +164,62 @@ describe("a club's sheet", () => {
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("listbox")).toBeNull();
     expect(screen.getByRole("dialog", { name: "Aces" })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("leaves Tab and Esc to a confirmation opened over it", async () => {
+    // As the app asks before folding a club into another: its dialog drawn outside the sheet.
+    function WithConfirm() {
+      const [open, setOpen] = useState(true);
+      const [answer, setAnswer] = useState<boolean | null>(null);
+      const confirm = useConfirmation();
+      return (
+        <>
+          {open && (
+            <ClubSheet label="Aces" onShut={() => setOpen(false)} onClose={() => setOpen(false)}>
+              <button
+                type="button"
+                onClick={() =>
+                  void confirm.request({ title: "Fold Aces?", message: "" }).then(setAnswer)
+                }
+              >
+                Fold into it
+              </button>
+            </ClubSheet>
+          )}
+          {confirm.state && (
+            <section
+              ref={confirm.dialogRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label={confirm.state.title}
+            >
+              <button type="button" onClick={() => confirm.resolve(false)}>
+                Cancel
+              </button>
+              <button type="button" onClick={() => confirm.resolve(true)}>
+                Confirm
+              </button>
+            </section>
+          )}
+          <output>{answer === null ? "unanswered" : String(answer)}</output>
+        </>
+      );
+    }
+    render(<WithConfirm />);
+    const fold = screen.getByRole("button", { name: "Fold into it" });
+    await userEvent.click(fold);
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+    await userEvent.tab();
+    expect(screen.getByRole("button", { name: "Confirm" })).toHaveFocus();
+
+    // Esc dismisses the confirmation only: the sheet stays, with focus back on what asked.
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Fold Aces?" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Aces" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("false");
+    expect(fold).toHaveFocus();
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).toBeNull();
   });

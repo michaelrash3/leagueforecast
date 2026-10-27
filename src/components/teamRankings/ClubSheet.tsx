@@ -37,12 +37,18 @@ export function ClubSheet({
   useEffect(() => holdClubSheet(() => shut.current()), []);
   /*
    * Esc and Tab, heard on the window: after React's own handlers, so an Esc a box inside used to
-   * close its list, and said so (`preventDefault`), is left to the box.
+   * close its list, and said so (`preventDefault`), is left to the box. While another dialog is
+   * open outside the sheet, the app's confirmation before folding a club into another among them,
+   * both are that dialog's: it is drawn over the sheet and traps focus itself.
    */
   useEffect(() => {
     const keyDown = (event: KeyboardEvent) => {
       const node = sheet.current;
       if (!node) return;
+      const above = [...document.querySelectorAll('[aria-modal="true"]')].some(
+        (dialog) => dialog !== node && !node.contains(dialog)
+      );
+      if (above) return;
       if (event.key === "Escape" && !event.defaultPrevented) {
         event.preventDefault();
         close.current();
