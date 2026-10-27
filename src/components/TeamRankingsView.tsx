@@ -2576,7 +2576,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               onSwept={(change, spared) => {
                 // The clubs plainly made up, swept as the nightly sweeps the cloud copy after its
                 // pull, for a pool kept on this device (`obviousFakes.ts`), in the tidy worker.
-                runCommand({ kind: "autoRemoved", ...change }, { quiet: true });
+                if (change) runCommand({ kind: "autoRemoved", ...change }, { quiet: true });
                 // ...and those marked for a game their own schedule reports won or lost by 40 or
                 // more deleted outright, as the nightly deletes them (`lopsidedDrops`).
                 return lopsidedDrops(loadAutoRemoved(), loadScoutTeams(), spared).filter(

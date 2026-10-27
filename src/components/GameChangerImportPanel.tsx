@@ -209,9 +209,10 @@ type GameChangerImportPanelProps = {
    * its pull. Up, for the same reason as the clubs thrown out: the marks are the view's state. With
    * the clubs the tidy spares (the real list and every club a League Standings team links), which
    * the view deletes none of when it deletes the clubs a lopsided score marked (`lopsidedDrops`).
-   * Answers with the clubs it deleted, which this run's working copy still holds.
+   * Told after every sweep, `change` null where it changed no mark, since a club marked before
+   * still goes. Answers with the clubs it deleted, which this run's working copy still holds.
    */
-  onSwept?: (change: MarksChange, spared: ReadonlySet<string>) => readonly string[];
+  onSwept?: (change: MarksChange | null, spared: ReadonlySet<string>) => readonly string[];
   /** Which levels have already had their turn today, and how to record that they have. */
   refreshLog: RefreshLog;
   onRefreshLog: (log: RefreshLog) => void;
@@ -1353,7 +1354,9 @@ export function GameChangerImportPanel({
       if (lists.tooYoung) setTooYoung(lists.tooYoung);
       // Thrown out like a club somebody deleted by hand, which is the page's to do.
       if (lists.invented.length > 0) onInvented(lists.invented);
-      if (outcome?.marks) {
+      // Whenever the sweep ran (`marks` null where it changed nothing): a club it marked before, under
+      // a line that only marked, is deleted now (Codex on #469).
+      if (outcome && outcome.marks !== undefined) {
         const deleted = onSwept?.(
           outcome.marks,
           new Set([...loadRealClubs(), ...leagueLinkedClubsOf(outcome.state, readStoredSeason)])

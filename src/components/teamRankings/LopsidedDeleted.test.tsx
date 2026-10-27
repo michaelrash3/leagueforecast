@@ -137,6 +137,58 @@ describe("a pull from the page that meets a club reporting a game won by 40 or m
     expect(loadScoutGames().filter((game) => game.id.includes(ROUT))).toEqual([]);
   });
 
+  it("deletes a club marked for H before, at a pull that changes no mark", async () => {
+    // Codex on #469: a club this device's sweep had already marked for its 80-0 (under the line of
+    // 50, which marked and did not delete) stayed for good, since a sweep that changed no mark never
+    // reached the page. The pull of another club changes no mark; the club still goes.
+    const user = userEvent.setup();
+    const page = ageGroup(12, 2027);
+    const gameId = `gc_${ROUT}_g1`;
+    renderTeamRankings({
+      ageGroups: [page],
+      teams: [
+        {
+          id: "S-ROUT",
+          name: "Wexcombe Wreckers",
+          gcTeams: [
+            { teamId: ROUT, name: "Wexcombe Wreckers 12U", ageGroupId: page.id, ageLevel: 12 },
+          ],
+        },
+        { id: "S-NOBO", name: "Nobody", nameOnly: true },
+      ],
+      games: [
+        {
+          id: gameId,
+          ageGroupId: page.id,
+          teamAId: "S-ROUT",
+          teamBId: "S-NOBO",
+          teamAScore: 80,
+          teamBScore: 0,
+          date: "2026-09-20",
+          source: { kind: "gamechanger", teamId: ROUT, gameId: "g1" },
+        },
+      ],
+      autoRemoved: new Map([
+        [
+          ROUT,
+          {
+            gcTeamId: ROUT,
+            name: "Wexcombe Wreckers",
+            on: "2026-09-21",
+            signs: ["hundred"],
+            reported: [{ gameId, margin: 80, date: "2026-09-20" }],
+          },
+        ],
+      ]),
+      search: "?section=import",
+    });
+    await user.type(await screen.findByLabelText("Teams"), REAL);
+    await user.click(screen.getByRole("button", { name: /^Pull \d+ schedules?$/ }));
+    await waitFor(() => expect([...loadDroppedClubs()]).toEqual([ROUT]));
+    expect(holds(ROUT)).toBe(false);
+    expect(loadScoutGames().filter((game) => game.id === gameId)).toEqual([]);
+  });
+
   it("keeps one a League Standings team picks, marked and on its boards", async () => {
     // Its 80-0 is already filed, as its own schedule's row; the pull of another club tidies and
     // sweeps the whole pool, as every pull's end does.

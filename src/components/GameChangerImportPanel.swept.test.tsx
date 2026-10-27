@@ -85,7 +85,7 @@ describe("a run's end", () => {
   beforeEach(() => resetPullSession());
 
   it("sweeps the pool it leaves for clubs plainly made up, and hands up what that changed", async () => {
-    const onSwept = vi.fn<(change: MarksChange) => readonly string[]>(() => []);
+    const onSwept = vi.fn<(change: MarksChange | null) => readonly string[]>(() => []);
     const user = userEvent.setup();
     render(
       <GameChangerImportPanel
