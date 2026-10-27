@@ -1443,9 +1443,13 @@ clubs were neighbours 16.4% of the time, near the decoys' rate, so the rule read
 level. The model sweep's `--stand-in-rules` mode reads these again (`src/lib/standInRules.ts`).
 
 What no reading of a name reaches: of the 58,519 clubs known only by name, 35,437 holding 70,254
-games have no pulled club of the name, or near it, anywhere in the year. Those are clubs nobody
-has pulled, and only pulling them moves them: the file of every club worth pulling
-(`unpulledClubs`), most games first, is where to start.
+games have no pulled club of the name, or near it, anywhere in the year. They are not clubs nobody
+has pulled: every team on GameChanger has been (the owner, 27 October 2026), so each is a pulled
+club under a name its opponent's coach wrote, which only the game can tie to it. The model sweep's
+`--stand-in-halves` mode asks where the other half of each such game is (`src/lib/standInHalves.ts`):
+another pulled club's own row a day either side with the result mirrored, filed against the namer,
+against a stand-in or slot of its own, or against a third club, or nowhere, beside the same search
+a week either side for the rate it finds one by chance.
 
 **Not this team.** The matcher will still be wrong sometimes, and the club's panel is where that
 shows. Beside each game a club has only because a name on another club's schedule was matched to

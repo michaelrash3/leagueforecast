@@ -16,6 +16,12 @@
  * `inStateNamesakes`, and for each how much of the year still leans on a stand-in or a slot and how
  * the rows it filed read (`readRules`).
  *
+ * With --stand-in-halves it measures where the other half of each played game against a stand-in is,
+ * if anywhere (`src/lib/standInHalves.ts`): another pulled club's own row a day either side with the
+ * result mirrored, filed against the namer, against a stand-in or slot, or against a third club,
+ * and the same search a week either side for the rate it finds one by chance; for every stand-in
+ * and for those with nothing of their name pulled (`standInReport`'s "unmatched").
+ *
  * Options: --year=2027 (the squad year), --today=DAY (the board's day; the members' day by
  * default), --top=25 (the stand-ins named, most games first), --public (numbers only),
  * --seal=FILE with --seal-to-key=PEM (the named lines, sealed to that public key), and
@@ -72,6 +78,14 @@ import {
 } from "../src/lib/modelSweep.ts";
 import type { PairedReading } from "../src/lib/scoutBacktest.ts";
 import { standInReport, type StandInReport, type StandInWhy } from "../src/lib/standInReport.ts";
+import {
+  findHalves,
+  HALF_KINDS,
+  tallyHalves,
+  type HalfKind,
+  type HalfTally,
+  type StandInRow,
+} from "../src/lib/standInHalves.ts";
 import {
   filedByName,
   leaningOf,
@@ -551,6 +565,117 @@ const measureStandInRules = (source: Source, year: number) => {
   }
 };
 
+/* ------------------------------------------------------- the other halves of stand-in games */
+
+const KIND_WORDS: Record<HalfKind, string> = {
+  namer: "filed against the namer itself (the claim step's case)",
+  standIn: "filed against a stand-in or slot of its own (the crossed halves' case)",
+  other: "filed against a third pulled club, by name",
+};
+
+const describeHalves = (label: string, tally: HalfTally) => {
+  say(`\n  ${label}: ${tally.rows} played rows against a stand-in`);
+  say(
+    `    no other half anywhere (by date and result): ${tally.none} (${share(tally.none, tally.rows)});` +
+      ` two candidates or more: ${tally.several} (${share(tally.several, tally.rows)})`
+  );
+  for (const kind of HALF_KINDS) {
+    const k = tally.kinds[kind];
+    say(`    ${KIND_WORDS[kind]}:`);
+    say(
+      `      rows with one: ${k.rows} (${share(k.rows, tally.rows)}); a week either side, by chance:` +
+        ` ${k.decoyRows.toFixed(1)} (${share(k.decoyRows, tally.rows)})`
+    );
+    say(
+      `      the only candidate: ${k.only}; same day ${k.sameDay}; start the same minute ${k.sameStart},` +
+        ` within the hour ${k.withinHour}, none to compare ${k.noStart}`
+    );
+    say(
+      `        one region ${k.inRegion}; same page ${k.samePage}; names fit ${k.namesFit},` +
+        ` share a word ${k.shareWord}; its opponent lists it too ${k.bothListed}`
+    );
+  }
+  say(
+    `    stand-ins with two rows or more each answered by one candidate: all the same club` +
+      ` ${tally.agreeing}, two clubs or more ${tally.split}`
+  );
+};
+
+const measureStandInHalves = (source: Source, year: number) => {
+  say(`\n${"=".repeat(78)}\nThe other half of each game against a stand-in\n${"=".repeat(78)}`);
+  const page = source.ageGroups.find(
+    (group) => ageGroupYear(group) === year && scoutFitRanks(group.id, source.ageGroups)
+  );
+  if (!page) {
+    say(`No ranked page of squad year ${year} in this pool.`);
+    process.exitCode = 1;
+    return;
+  }
+  // The year's pool as the boards hold it, the clubs taken off left out, every row's own schedule
+  // kept (the worker's codec drops it, so it is not used here).
+  const known = deriveAllKnown({
+    ageGroups: source.ageGroups,
+    teams: source.teams,
+    yearGames: source.gamesOfYear(year),
+    readSeason: source.readSeason,
+    autoRemoved: source.autoRemoved,
+  });
+  const games = gamesOnPages(known.games, rankingPoolGroupIds(page.id, source.ageGroups));
+  say(`  The year's pool: ${known.teams.length} clubs, ${games.length} games (${since()}).`);
+  const report = standInReport(known.teams, games, source.ageGroups, year, Number.MAX_SAFE_INTEGER);
+  const whyOf = new Map(report.top.map((club) => [club.teamId, club.why]));
+  say(
+    `  Clubs known only by name: ${report.nameOnly}; with nothing of the name pulled ("unmatched"):` +
+      ` ${report.why.unmatched.clubs}, holding ${report.why.unmatched.games} games.`
+  );
+  const search = findHalves(known.teams, games);
+  say(
+    `  Played rows against a stand-in: ${search.rows.length}; not read (no result, set not to` +
+      ` count): ${search.unplayed}. Searched in ${since()}.`
+  );
+  const unmatched = (row: StandInRow) => whyOf.get(row.standInId) === "unmatched";
+  describeHalves("Every stand-in", tallyHalves(search, known.teams));
+  describeHalves(
+    'Stand-ins with nothing of their name pulled ("unmatched")',
+    tallyHalves(search, known.teams, unmatched)
+  );
+  describeHalves(
+    "Stand-ins with a pulled club of the name somewhere",
+    tallyHalves(search, known.teams, (row) => !unmatched(row))
+  );
+
+  // A sample of the unmatched rows each answered by one candidate, to read by eye: names, sealed.
+  const byId = new Map(known.teams.map((team) => [team.id, team]));
+  const nameOf = (id: string) => {
+    const team = byId.get(id);
+    return team ? `${team.name}${team.state ? ` (${team.state})` : ""}` : id;
+  };
+  const sample = Number(flag("top") || 25);
+  for (const kind of HALF_KINDS) {
+    const picked = search.rows
+      .filter((row) => unmatched(row) && row.candidates.length === 1)
+      .filter((row) => row.candidates[0]!.kind === kind);
+    // Evenly through the list, not its first few, which one namer's schedule would fill.
+    const step = Math.max(1, Math.floor(picked.length / sample));
+    sayNamed(
+      picked
+        .filter((_, at) => at % step === 0)
+        .slice(0, sample)
+        .map((row) => {
+          const only = row.candidates[0]!;
+          const runs = `${row.game.teamAScore}-${row.game.teamBScore}`;
+          const gap =
+            only.minutesApart === undefined ? "no start" : `${Math.round(only.minutesApart)} min`;
+          return (
+            `    ${row.game.date} ${nameOf(row.namerId)} v "${nameOf(row.standInId)}" ${runs}` +
+            ` -> ${nameOf(only.clubId)} v ${nameOf(only.opponentId)}; ${only.daysApart} day(s), ${gap}`
+          );
+        }),
+      `Unmatched stand-ins answered by one row ${KIND_WORDS[kind]}:`
+    );
+  }
+};
+
 /* -------------------------------------------------------------------------------------- run */
 
 const main = async (): Promise<void> => {
@@ -584,6 +709,16 @@ const main = async (): Promise<void> => {
   );
   if (has("stand-in-rules")) {
     measureStandInRules(source, year);
+    finish();
+    return;
+  }
+  if (has("stand-in-halves")) {
+    try {
+      measureStandInHalves(source, year);
+    } catch (error) {
+      say(`The stand-in halves stopped: ${failureWords(error)}`);
+      process.exitCode = 1;
+    }
     finish();
     return;
   }

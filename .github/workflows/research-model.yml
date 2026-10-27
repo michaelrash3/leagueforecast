@@ -5,9 +5,11 @@
 # clubs known only by name.
 #
 # It runs only on a push to rash/raines whose head commit's message holds the marker [run-sweep],
-# or to rash/hornsby whose head commit's message holds [run-standins], and never on any other
-# branch or push. The second measures the stand-in rule instead (`--stand-in-rules`): the whole
-# copy tidied in memory under each reading of it, as the nightly tidies it, and nothing written.
+# to rash/hornsby whose head commit's message holds [run-standins], or to rash/frisch whose head
+# commit's message holds [run-halves], and never on any other branch or push. The second measures
+# the stand-in rule instead (`--stand-in-rules`): the whole copy tidied in memory under each reading
+# of it, as the nightly tidies it, and nothing written. The third looks for the other half of each
+# game against a stand-in (`--stand-in-halves`), on the copy as it is.
 #
 # It prints numbers only: this repository is public, and so are its Actions logs. The lines that
 # name clubs are sealed to the public key in scripts/researchSeal.pub.pem, whose private half is
@@ -18,7 +20,7 @@ name: Research model sweep
 
 on:
   push:
-    branches: [rash/raines, rash/hornsby]
+    branches: [rash/raines, rash/hornsby, rash/frisch]
 
 permissions:
   contents: read
@@ -33,7 +35,8 @@ jobs:
   sweep:
     if: >-
       (github.ref == 'refs/heads/rash/raines' && contains(github.event.head_commit.message, '[run-sweep]')) ||
-      (github.ref == 'refs/heads/rash/hornsby' && contains(github.event.head_commit.message, '[run-standins]'))
+      (github.ref == 'refs/heads/rash/hornsby' && contains(github.event.head_commit.message, '[run-standins]')) ||
+      (github.ref == 'refs/heads/rash/frisch' && contains(github.event.head_commit.message, '[run-halves]'))
     runs-on: ubuntu-latest
     # Four tidies of the whole copy for the stand-in rule, each about as long as the nightly's
     # (its filing and tidy took 34 s on 26 October 2026), come on top of the read.
@@ -50,7 +53,7 @@ jobs:
         run: npm run model:sweep -- --cloud $MODE --seal="$RUNNER_TEMP/model-sweep.sealed.json" --seal-to-key=scripts/researchSeal.pub.pem
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          MODE: ${{ github.ref == 'refs/heads/rash/hornsby' && '--stand-in-rules' || '' }}
+          MODE: ${{ github.ref == 'refs/heads/rash/hornsby' && '--stand-in-rules' || github.ref == 'refs/heads/rash/frisch' && '--stand-in-halves' || '' }}
           # The members' day, which the board of the day is read on, as the nightly reads it.
           TZ: America/New_York
           LANG: en_US.UTF-8
