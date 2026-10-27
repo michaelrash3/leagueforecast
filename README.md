@@ -597,14 +597,17 @@ at two weeks running without the club on it. Nothing is drawn until two weeks ha
   "about what the ratings expect", and its record in games decided by one run. The ratings are
   fitted on margins, not results, so a club that wins its close games reads better than its
   ratings;
-- its next weekend with a dated game, Friday to Sunday, where it has two games or more on it:
-  how many, the wins they add up to, and the game it is least and most likely to win.
+- its next weekend with a game on it, Friday to Sunday (a midweek game is no weekend's), where it
+  has two games or more on it: how many, the wins they add up to, said of the games the ratings
+  can call ("from the 2 the ratings can call" where an opponent is unrated, nothing where none
+  is), and the game it is least and most likely to win.
 
 The club's panel says its form: its last five games against the clubs rated here, newest
 first, each beside the margin the ratings expected (a blowout read at the 14 runs a
 projection can state), how many it beat that margin in and by how many runs a game on
-average. Both read the club's games of the board's half, as its record does: a device off
-its pool, a member's device off the club's card it already reads.
+average. Both read the club's games of the board's year and half, as its record does: a device
+off its pool, a member's device off the club's card it already reads, which names its games of
+every year.
 
 ### Scouting report
 

@@ -31,6 +31,7 @@ const GLANCE: MyTeamGlance = {
   weekend: {
     sunday: "2026-11-01",
     games: [match("2026-10-31", "H/R Bulldogs", 0.67), match("2026-11-01", "Ospreys", 0.31)],
+    called: 2,
     expectedWins: 0.98,
     toughest: match("2026-11-01", "Ospreys", 0.31),
     likeliest: match("2026-10-31", "H/R Bulldogs", 0.67),
@@ -59,6 +60,36 @@ describe("the My Team card's season", () => {
     expect(card.textContent).toMatch(
       /Weekend to .+: 2 games, about 1\.0 wins expected · toughest vs Ospreys \(31%\) · likeliest vs H\/R Bulldogs \(67%\)/
     );
+  });
+
+  it("says how many of the weekend's games its wins expected cover, and none of none", () => {
+    const weekend = GLANCE.weekend!;
+    const third = { ...match("2026-11-01", "Owls", 0.5), winProb: undefined };
+    const { unmount } = render(
+      <MyTeamCard
+        glance={{
+          ...GLANCE,
+          weekend: { ...weekend, games: [...weekend.games, third] },
+        }}
+        onOpenTeam={() => undefined}
+      />
+    );
+    expect(screen.getByRole("region", { name: "My team" }).textContent).toMatch(
+      /Weekend to .+: 3 games, about 1\.0 wins expected from the 2 the ratings can call · toughest/
+    );
+    unmount();
+    render(
+      <MyTeamCard
+        glance={{
+          ...GLANCE,
+          weekend: { sunday: weekend.sunday, games: [third, third], called: 0, expectedWins: 0 },
+        }}
+        onOpenTeam={() => undefined}
+      />
+    );
+    const card = screen.getByRole("region", { name: "My team" });
+    expect(card.textContent).toMatch(/Weekend to .+: 2 games/);
+    expect(card.textContent).not.toContain("wins expected");
   });
 
   it("leaves out what it does not know", () => {
