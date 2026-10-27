@@ -464,6 +464,35 @@ describe("Team Rankings on the cloud's board", () => {
     ).toBeTruthy();
   });
 
+  it("draws the page's week the board carries, The Weekly", async () => {
+    live = memoryLive();
+    const weekly = {
+      asOf: "2027-04-14",
+      upsets: [
+        {
+          winnerId: "S-3",
+          loserId: "S-1",
+          winnerRuns: 5,
+          loserRuns: 3,
+          date: "2027-04-10",
+          chance: 0.12,
+        },
+      ],
+      ahead: { teamAId: "S-1", teamBId: "S-2", date: "2027-04-17", chanceA: 0.55, margin: 0.6 },
+      streaks: [{ teamId: "S-1", wins: 6 }],
+    };
+    await publish(live, [{ key: `board:2027:${PAGE}:spring`, value: { ...SPRING, weekly } }]);
+    open(sourcesOf(live));
+    const week = await screen.findByRole("region", { name: /^The Weekly/ });
+    expect(week.textContent).toContain(
+      "Upset of the week: Placeholder S-3 5–3 over Placeholder S-1 (#1) · Placeholder S-3 had a 12% chance"
+    );
+    expect(week.textContent).toMatch(
+      /Game of the week: .+ · Placeholder S-1 \(#1\) vs Placeholder S-2 \(#2\) · 55% to 45%/
+    );
+    expect(week.textContent).toContain("Winning streaks: Placeholder S-1 6 straight");
+  });
+
   it("draws no standing line from a board published before its weeks were counted", async () => {
     live = memoryLive();
     const uncounted = {

@@ -108,7 +108,11 @@ const DIST = "dist";
  * types). Before those it was 257.6 KB. Team Rankings to 162.5 KB on 27 Oct 2026 for the My Team
  * card's standing line, 162.1 KB against 161.9 KB on main (162,078 bytes against 161,946): the
  * line draws each week's place as a share of that week's board (`topShare`, `StandingLine`), with
- * the count of each past board carried beside its places (`pastBoardAsOf`).
+ * the count of each past board carried beside its places (`pastBoardAsOf`). Team Rankings to 164.5
+ * KB the same day for The Weekly, 163.9 KB against 162.1 KB on main (163,866 bytes against
+ * 162,078): the week's upsets, game ahead and streaks worked out on the device (`theWeekly.ts`), the
+ * card that says them and the club's own week, the Games tab's Upsets, and the reader of a published
+ * board's week. The first download, 252.9 KB against 252.6 KB, carries that reader with the board's.
  */
 const BUDGET = {
   firstDownload: 255_000,
@@ -124,7 +128,7 @@ const BUDGET = {
     "Data Quality": 3_500,
     Settings: 13_700,
     "Seasons at a glance": 4_400,
-    "Team Rankings": 162_500,
+    "Team Rankings": 164_500,
   },
 };
 

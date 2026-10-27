@@ -25,6 +25,7 @@ import {
 import { countedByHalf } from "../../teamRankings/halves";
 import type { AutoRemovals } from "../../autoRemoved";
 import { daysBefore, pastBoardAsOf, rankLineStep, type PastBoard } from "../../rankMovement";
+import { theWeekly, type Weekly } from "../../theWeekly";
 import {
   deriveAllKnown,
   gamesOnPages,
@@ -90,6 +91,8 @@ export type PageBoard = {
   history?: { teamId: string; points: HistoryPoint[] };
   /** What the rows' games were fitted against (`boardFitOf`), on a board with rows. */
   fit?: BoardFit;
+  /** The page's week (`theWeekly`), on a board with rows that reads its week before (`past`). */
+  weekly?: Weekly;
 };
 
 /**
@@ -373,8 +376,20 @@ function* boardBuildSteps({
     // A fit shared with an older page still gives this one none if it is too young to rank.
     const rows = fit ? rowsOfYearFit(fit, pageId, page?.myTeamId, ageGroups) : [];
     const fitted = fit ? boardFitOf(fit, rows, today) : undefined;
-    const board: PageBoard = { pageId, half, rows, ...(fitted ? { fit: fitted } : {}) };
-    if (!past) return board;
+    if (!past) return { pageId, half, rows, ...(fitted ? { fit: fitted } : {}) };
+    /*
+     * The page's week, from the games of the board's half the build already holds: a pass over
+     * them beside the year's fit, so a member's Rankings tab reads the week with its board.
+     */
+    const weekly =
+      rows.length > 0 ? theWeekly(pageId, rows, pool.games, today, { year, segment }) : undefined;
+    const board: PageBoard = {
+      pageId,
+      half,
+      rows,
+      ...(fitted ? { fit: fitted } : {}),
+      ...(weekly ? { weekly } : {}),
+    };
 
     /*
      * Every club of the year's place on the board as it stood on `asOf`, and how many each page's
@@ -390,12 +405,12 @@ function* boardBuildSteps({
         scoutFitYear(pageId, ageGroups) ?? null,
         asOf,
       ]);
-      let board = pastRanks.get(key);
-      if (!board) {
-        board = pastBoardAsOf(pageId, pool.teams, pool.games, ageGroups, segment, asOf);
-        pastRanks.set(key, board);
+      let kept = pastRanks.get(key);
+      if (!kept) {
+        kept = pastBoardAsOf(pageId, pool.teams, pool.games, ageGroups, segment, asOf);
+        pastRanks.set(key, kept);
       }
-      return board;
+      return kept;
     };
     const weekAgo = boardOn(daysBefore(today));
     const lastWeek = { asOf: daysBefore(today), ranks: weekAgo.ranks };
@@ -521,7 +536,7 @@ export const boardViews = (
   { boards, facts }: BoardsBuilt
 ): Array<{ key: string; value: BoardView }> => {
   const byId = groupsById(ageGroups);
-  return boards.map(({ pageId, half, rows, past, history, fit }) => {
+  return boards.map(({ pageId, half, rows, past, history, fit, weekly }) => {
     const page = facts.get(pageId);
     if (!page) throw new Error(`No facts were built for the page ${pageId}.`);
     return {
@@ -539,6 +554,7 @@ export const boardViews = (
         ...(past ? { past: { asOf: past.asOf, empty: Object.keys(past.ranks).length === 0 } } : {}),
         ...(history ? { history } : {}),
         ...(fit ? { fit } : {}),
+        ...(weekly ? { weekly } : {}),
       },
     };
   });

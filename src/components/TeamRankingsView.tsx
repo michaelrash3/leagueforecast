@@ -12,6 +12,8 @@ import { lastBackupTakenAt, noteBackupTaken } from "../lib/lastBackup";
 import { reloadApp, resetApp } from "../lib/resetApp";
 import { myTeamGlance } from "../lib/myTeamGlance";
 import { movementOf } from "../lib/rankMovement";
+import { weekMovers } from "../lib/thisWeek";
+import { teamWeek, theWeekly } from "../lib/theWeekly";
 import { compareClubs } from "../lib/clubCompare";
 import { setClubAge } from "../lib/clubAge";
 import { createAgeGroupId } from "../lib/teamRankings/seasons";
@@ -943,6 +945,29 @@ export function TeamRankingsView({
     (row: ScoutRankingRow) =>
       movementOf(row.teamId, row.overallRank ?? row.rank, lastWeek?.ranks ?? null),
     [lastWeek]
+  );
+
+  /*
+   * The page's week (`theWeekly`): the board's movers since last week's places, and the upsets,
+   * the game ahead and the streaks from the half's games, as a published board carries them.
+   */
+  const thisWeek = useMemo(
+    () => weekMovers(rankings, lastWeek?.ranks ?? null),
+    [rankings, lastWeek]
+  );
+  const weekly = useMemo(
+    () =>
+      rankings.length > 0
+        ? theWeekly(selectedAgeGroupId, rankings, poolGames, today, {
+            year: ageGroupYear(ageGroups.find((group) => group.id === selectedAgeGroupId)),
+            segment: selectedSegment,
+          })
+        : null,
+    [rankings, selectedAgeGroupId, poolGames, today, ageGroups, selectedSegment]
+  );
+  const myWeek = useMemo(
+    () => (myTeamId === undefined ? null : teamWeek(myTeamId, poolGames, rankings, today)),
+    [myTeamId, poolGames, rankings, today]
   );
 
   /** The team marked as yours, where it stands on this page and what it plays next. */
@@ -2510,6 +2535,9 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               onOpenTeam={openClub}
               onMarkMine={setMyTeam}
               myTeam={myTeam}
+              thisWeek={thisWeek}
+              weekly={weekly}
+              myWeek={myWeek}
               {...(rankHistory ? { rankHistory } : {})}
               movementOf={boardMovement}
               watch={watchCard}

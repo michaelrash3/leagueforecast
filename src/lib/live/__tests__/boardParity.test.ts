@@ -43,6 +43,7 @@ import {
 } from "../../../workers/rankingsProtocol";
 import { deriveAllKnown, gamesOnPages, type SeasonReader } from "../allKnown";
 import { daysBefore, movementOf, ranksAsOf } from "../../rankMovement";
+import { theWeekly } from "../../theWeekly";
 import {
   BOARD_HALVES,
   BOARD_RULES,
@@ -554,6 +555,49 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
       Object.values(seen).every((count) => count > 0),
       JSON.stringify(seen)
     ).toBe(true);
+  });
+
+  it("publish the page's week as the page works it out from the same rows and games", () => {
+    const source = stored();
+    const built = buildBoardsAndFacts({ ...source, today: FIXTURE_TODAY });
+    const views = new Map(boardViews(ageGroups, built).map(({ key, value }) => [key, value]));
+    const seen = { boards: 0, upsets: 0, ahead: 0, streaks: 0 };
+    for (const page of [...new Set(ageGroups.map((group) => group.id))].map((pageId) =>
+      ageGroups.find((group) => group.id === pageId)!
+    )) {
+      const year = ageGroupYear(page);
+      const known = deriveAllKnown({
+        ageGroups,
+        teams: source.teams,
+        yearGames: source.gamesOfYear(year),
+        readSeason,
+        autoRemoved: source.autoRemoved,
+      });
+      const games = gamesOnPages(known.games, rankingPoolGroupIds(page.id, ageGroups));
+      for (const { half, segment } of BOARD_HALVES) {
+        const key = `board:${year ?? "none"}:${page.id}:${half}`;
+        const view = views.get(key);
+        if (!view) throw new Error(`no board ${key}`);
+        if (view.rows.length === 0) {
+          expect(view.weekly, key).toBeUndefined();
+          continue;
+        }
+        // The rows as the page holds them, with the owner's star a published row leaves off.
+        const rows = view.rows.map((row) => ({ ...row, isMine: false }));
+        expect(view.weekly, key).toEqual(
+          theWeekly(page.id, rows, games, FIXTURE_TODAY, { year, segment })
+        );
+        seen.boards += 1;
+        seen.upsets += view.weekly!.upsets.length;
+        seen.ahead += view.weekly!.ahead ? 1 : 0;
+        seen.streaks += view.weekly!.streaks.length;
+      }
+    }
+    // The fixture's week reaches games ahead and streaks on many boards; its results all went the
+    // way the ratings read them, so the upsets are left to the week's own tests.
+    expect(seen.boards, JSON.stringify(seen)).toBeGreaterThan(0);
+    expect(seen.ahead, JSON.stringify(seen)).toBeGreaterThan(0);
+    expect(seen.streaks, JSON.stringify(seen)).toBeGreaterThan(0);
   });
 
   it("walk on past a week the club was missing from when it was on last week's board", () => {
