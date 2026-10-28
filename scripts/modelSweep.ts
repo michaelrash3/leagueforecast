@@ -1483,6 +1483,38 @@ const measureCase = async (source: Source, year: number) => {
   sayNamed(lines, "GameChanger's own schedules of the case's clubs, now:");
 };
 
+/** The GameChanger teams of the owner's case, by id: the club named and the club that named it. */
+const CASE_GC_IDS = ["PlNUXcMg4vdp", "EbfzqgbImIwA"];
+
+/** Those teams' profiles and their October rows as GameChanger has them now, nothing else read. */
+const askGcForCase = async () => {
+  say(`Asking GameChanger for ${CASE_GC_IDS.length} schedules of the owner's case.`);
+  const answers = await fetchGcTeams(CASE_GC_IDS, { fetchImpl: handlerFetch() });
+  const lines: string[] = [];
+  answers.forEach((answer, teamId) => {
+    if (!answer.ok) {
+      lines.push(`    ${teamId}: ${answer.reason} ${answer.message}`);
+      return;
+    }
+    const { profile, games } = answer.schedule;
+    lines.push(
+      `    ${teamId} "${profile.name}" ${profile.ageLabel ?? "?"} ${JSON.stringify(profile.season ?? null)}` +
+        ` ${profile.city ?? ""} ${profile.state ?? ""}` +
+        ` avatar ${profile.avatarKey ?? "-"}: ${games.length} games`
+    );
+    games
+      .filter((game) => game.date !== undefined && game.date >= CASE_FROM && game.date <= CASE_TO)
+      .forEach((game) =>
+        lines.push(
+          `      ${game.date} ${game.startTs?.slice(11, 16) ?? "--:--"} ${game.id} v "${game.opponentName}"` +
+            ` ${game.teamScore ?? "?"}-${game.opponentScore ?? "?"} ${game.status}` +
+            ` avatar ${game.opponentAvatarKey ?? "-"}`
+        )
+      );
+  });
+  sayNamed(lines, "GameChanger's own schedules of the owner's case, now:");
+};
+
 /* -------------------------------------------------------------------------------------- run */
 
 const main = async (): Promise<void> => {
@@ -1492,6 +1524,17 @@ const main = async (): Promise<void> => {
     if (!pem)
       throw new Error("Name the private key the names were sealed to: --with-key=<private.pem>.");
     console.log(open(readFileSync(opening, "utf8"), readFileSync(pem, "utf8")));
+    return;
+  }
+  if (has("gc-teams")) {
+    // GameChanger only, before any copy is read: the teams the owner named in their case.
+    try {
+      await askGcForCase();
+    } catch (error) {
+      say(`The GameChanger ask stopped: ${failureWords(error)}`);
+      process.exitCode = 1;
+    }
+    finish();
     return;
   }
   const path = args.find((arg) => !arg.startsWith("--"));
