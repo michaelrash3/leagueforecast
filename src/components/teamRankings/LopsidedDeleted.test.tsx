@@ -19,6 +19,8 @@ import { ageGroup, renderTeamRankings } from "../../test/teamRankingsHarness";
  */
 const ROUT = "RoutClub0001";
 const REAL = "RealClub0002";
+/** Two coaches the real club's two squads share, which is what offers them as one squad. */
+const COACHES = ["Quinn Stubwell", "Reese Stubby"];
 vi.mock("../../lib/gameChangerClient", async () => {
   const actual = await vi.importActual<typeof import("../../lib/gameChangerClient")>(
     "../../lib/gameChangerClient"
@@ -47,7 +49,7 @@ vi.mock("../../lib/gameChangerClient", async () => {
                 id: teamId,
                 name: rout ? "Wexcombe Wreckers 12U" : "Real Club 12U",
                 ageLevel: 12,
-                ...(rout ? {} : { state: "KY", avatarKey: "real-club-badge" }),
+                ...(rout ? {} : { state: "KY", staff: COACHES }),
                 season: { season: "fall", year: 2026 },
               },
               games: [
@@ -116,7 +118,7 @@ describe("a pull from the page that meets a club reporting a game won by 40 or m
               ageLevel: 11,
               season: "spring",
               seasonYear: 2026,
-              avatarKey: "real-club-badge",
+              staff: COACHES,
             },
           ],
         },

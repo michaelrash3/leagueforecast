@@ -103,7 +103,8 @@ export type TrackedTeam = {
   gamesIgnored?: number;
   gamesOutOfSeason?: number;
   oppCreated?: number;
-  oppByAvatar?: number;
+  /** Found by the other club's own row of the game. */
+  oppByGame?: number;
   oppByName?: number;
   /** The level the opponents settled, when the team itself named none. */
   oppAge?: number;
@@ -434,7 +435,7 @@ export const createPullTracker = (
       entry.gamesIgnored = outcome.gamesIgnored;
       entry.gamesOutOfSeason = outcome.gamesOutOfSeason;
       entry.oppCreated = outcome.opponentsCreated;
-      entry.oppByAvatar = outcome.opponentsMatchedByAvatar;
+      entry.oppByGame = outcome.opponentsMatchedByGame;
       entry.oppByName = outcome.opponentsMatchedByName;
       if (outcome.ageFromOpponents !== undefined) entry.oppAge = outcome.ageFromOpponents;
       if (outcome.issue) entry.issue = outcome.issue;
@@ -580,7 +581,7 @@ const TEAM_HEADERS = [
   "Ignored",
   "Out Of Season",
   "Opp New",
-  "Opp By Avatar",
+  "Opp By Game",
   "Opp By Name",
   "Age From Opponents",
 ];
@@ -634,7 +635,7 @@ export const pullTeamsCsv = (log: PullRunLog, settled: readonly string[]): strin
       cell(entry?.gamesIgnored),
       cell(entry?.gamesOutOfSeason),
       cell(entry?.oppCreated),
-      cell(entry?.oppByAvatar),
+      cell(entry?.oppByGame),
       cell(entry?.oppByName),
       cell(entry?.oppAge),
     ]

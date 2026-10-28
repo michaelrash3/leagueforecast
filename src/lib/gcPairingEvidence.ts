@@ -6,8 +6,6 @@
 
 /** The things that are not coincidences when two GameChanger teams are the same club. */
 export type GcPairingEvidence =
-  /** The same badge. GameChanger keeps a club's picture across seasons; nobody else has it. */
-  | "avatar"
   /**
    * Two or more coaches in common, neither of them an organisation's officer.
    *
@@ -34,7 +32,6 @@ export type GcPairingEvidence =
 
 /** What the panel calls each piece of evidence. */
 export const GC_PAIRING_EVIDENCE_LABEL: Record<GcPairingEvidence, string> = {
-  avatar: "same picture",
   staff: "the same coaches",
   city: "same town",
   state: "same state",

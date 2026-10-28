@@ -129,8 +129,8 @@ describe("games round-trip", () => {
     expect(roundTripGames(games)).toEqual(games);
   });
 
-  // What makes a row's opponent an identity rather than a name (`namedByAvatar`), which a tidy rule
-  // moving rows on a name reads: lost on a save, the next tidy moved the row it had kept.
+  // What makes a row's opponent the owner's word rather than a name (`namedByAvatar`), which a tidy
+  // rule moving rows on a name reads: lost on a save, the next tidy moved the row it had kept.
   it("keeps a win by forty runs or more the user said is real", () => {
     const games: ScoutGame[] = [
       {
@@ -203,7 +203,7 @@ describe("games round-trip", () => {
     expect(decodeScoutGames(JSON.parse(JSON.stringify(games)), coerceScoutGames)).toEqual(games);
   });
 
-  it("keeps the club a row's picture named", () => {
+  it("keeps the club the owner said a row faced (Same team as)", () => {
     const games: ScoutGame[] = [
       {
         id: "gc_gcTIDES_t1",
@@ -360,9 +360,10 @@ describe("teams round-trip", () => {
             season: "fall",
             seasonYear: 2026,
             ageLevel: 9,
-            avatarKey: "5192a689-d888-4ae5-abce-446885dca7c7",
             record: { win: 11, loss: 1, tie: 0 },
             importedAt: "2026-09-14T12:44:04.965Z",
+            ageLabel: "9U",
+            ageFrom: "gamechanger",
           },
           {
             teamId: "aBcDeFgHiJkL",
@@ -376,6 +377,19 @@ describe("teams round-trip", () => {
       },
     ];
     expect(roundTripTeams(teams)).toEqual(teams);
+
+    // A pool saved by data schema 6 or before holds a picture at a club's and a link's seventh place,
+    // which is read as nothing: the places after it are where they were.
+    const stored = JSON.parse(JSON.stringify(encodeScoutTeams(teams))) as {
+      r: (string | number | null | (string | number | null)[][])[][];
+    };
+    const [club] = stored.r;
+    const links = club?.[5] as (string | number | null)[][];
+    expect(club).toHaveLength(6);
+    expect(links[0]?.[6]).toBeNull();
+    club!.push("av-club");
+    links[0]![6] = "av-link";
+    expect(decodeScoutTeams(stored, coerceScoutTeams)).toEqual(teams);
   });
 
   it("keeps a nil-nil record rather than losing it", () => {

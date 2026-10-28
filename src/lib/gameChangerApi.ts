@@ -39,8 +39,6 @@ export type GcTeamProfile = {
   season?: GcSeason;
   /** GameChanger's own record for the team's season — a check on the games read, never rated. */
   record?: { win: number; loss: number; tie: number };
-  /** The media id of the team's avatar; the one stable thing that identifies an opponent. */
-  avatarKey?: string;
   playerCount?: number;
   /**
    * The bodies the team plays under — `["usssa"]`, `["little league"]` — lowercased.
@@ -71,7 +69,6 @@ export type GcGame = {
   startTs?: string;
   timezone?: string;
   opponentName: string;
-  opponentAvatarKey?: string;
   homeAway?: "home" | "away";
   teamScore?: number;
   opponentScore?: number;
@@ -1294,23 +1291,6 @@ export const gcSeasonIsCurrent = (season: GcSeason, today: string): boolean => {
   return season.year === year && month >= first && month <= last;
 };
 
-/**
- * The media id in a GameChanger avatar URL: the path segment after the media-service host, with
- * the signed-URL query (Policy, Signature, expiry) left behind. That segment is stable for a team
- * while the query changes on every page load, so only the segment can identify a team.
- */
-export const avatarKeyFromUrl = (url: unknown): string | undefined => {
-  if (typeof url !== "string") return undefined;
-  const match = /(?:^|\/\/)media-service\.gc\.com\/([^/?#\s]+)/i.exec(url.trim());
-  const key = match?.[1];
-  if (!key) return undefined;
-  try {
-    return decodeURIComponent(key);
-  } catch {
-    return key;
-  }
-};
-
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 const formatDateParts = (date: Date, timeZone: string): string | undefined => {
@@ -1418,9 +1398,6 @@ export const normalizeGcTeamProfile = (raw: unknown, fallbackId?: string): GcTea
 
   const record = normalizeRecord(teamSeason?.record ?? source.record);
   if (record) profile.record = record;
-
-  const avatarKey = avatarKeyFromUrl(source.avatar_url ?? source.avatarUrl);
-  if (avatarKey) profile.avatarKey = avatarKey;
 
   const playerCount = asNumber(source.player_count ?? source.playerCount);
   if (playerCount !== undefined) profile.playerCount = playerCount;
@@ -1534,9 +1511,6 @@ const normalizeGcGame = (raw: unknown): GcGame | null => {
   if (timezone) game.timezone = timezone;
   const date = startTs ? localDateInZone(startTs, allDay ? undefined : timezone) : undefined;
   if (date) game.date = date;
-
-  const avatarKey = avatarKeyFromUrl(opponent.avatar_url ?? opponent.avatarUrl);
-  if (avatarKey) game.opponentAvatarKey = avatarKey;
 
   const homeAway = asString(raw.home_away ?? raw.homeAway)?.toLowerCase();
   if (homeAway === "home" || homeAway === "away") game.homeAway = homeAway;

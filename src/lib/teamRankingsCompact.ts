@@ -230,7 +230,8 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
                     // level that name gave: what it goes back to if the claim stops fitting.
                     row.filedAgainst === undefined ? null : teams.index(row.filedAgainst),
                     row.filedLevel ?? null,
-                    // The club its picture named, which the tidy leaves it on once stood back up.
+                    // The club the owner said it faced (Same team as), which the tidy leaves it on
+                    // once stood back up.
                     row.namedByAvatar === undefined ? null : teams.index(row.namedByAvatar),
                     // The opponent's name as its schedule typed it (`FoldedRow.typedAs`).
                     typed.index(row.typedAs),
@@ -240,7 +241,7 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
         : null,
       // Side B's own schedule's score, A's runs then B's.
       game.reportedByB ? [game.reportedByB.teamAScore, game.reportedByB.teamBScore] : null,
-      // The club the row's GameChanger picture named, which a tidy rule moving rows on a name leaves.
+      // The club the owner said the row faced (Same team as), which a rule moving rows on a name leaves.
       game.namedByAvatar === undefined ? null : teams.index(game.namedByAvatar),
       // The margin the user vouched for in a game won by forty runs or more.
       game.scoreConfirmed ?? null,
@@ -453,14 +454,15 @@ export type CompactTeams = {
    * staff was stored, which reads as no staff rather than as an error.
    */
   p?: string[];
-  /** 0 id, 1 name, 2 flags, 3 state, 4 city, 5 links, 6 avatar */
+  /** 0 id, 1 name, 2 flags, 3 state, 4 city, 5 links, 6 a picture (data schema 6 and before) */
   r: TeamRow[];
 };
 
 type TeamRow = (number | string | null | CompactLink[])[];
 
 /**
- * 0 gc id, 1 name, 2 age group, 3 season, 4 season year, 5 age level, 6 avatar, 7 w, 8 l, 9 t,
+ * 0 gc id, 1 name, 2 age group, 3 season, 4 season year, 5 age level, 6 none (a picture by data
+ * schema 6 and before), 7 w, 8 l, 9 t,
  * 10 importedAt, 11 staff (indexes into `p`), 12 player count, 13 counted at, 14 GameChanger's own
  * age field, 15 which rule filed it at its level (`GcAgeSource`).
  *
@@ -496,7 +498,7 @@ export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
         seasons.index(link.season),
         link.seasonYear ?? null,
         link.ageLevel ?? null,
-        link.avatarKey ?? null,
+        null,
         link.record?.win ?? null,
         link.record?.loss ?? null,
         link.record?.tie ?? null,
@@ -518,7 +520,6 @@ export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
       team.state ?? null,
       team.city ?? null,
       links.length ? links : null,
-      team.avatarKey ?? null,
     ];
     return trimTrailing(row);
   });
@@ -552,8 +553,6 @@ const decodeLink = (row: unknown, pool: CompactTeams): GcTeamLink | null => {
   if (seasonYear !== undefined) link.seasonYear = seasonYear;
   const ageLevel = num(row[5]);
   if (ageLevel !== undefined) link.ageLevel = ageLevel;
-  const avatarKey = str(row[6]);
-  if (avatarKey) link.avatarKey = avatarKey;
   const win = num(row[7]);
   const loss = num(row[8]);
   const tie = num(row[9]);
@@ -618,9 +617,6 @@ export const decodeScoutTeams = (
     const city = str(row[4]);
     if (city) team.city = city;
 
-    const avatarKey = str(row[6]);
-    if (avatarKey) team.avatarKey = avatarKey;
-
     const linkRows = row[5];
     if (Array.isArray(linkRows)) {
       const links = linkRows
@@ -669,7 +665,6 @@ export const coerceGcTeamLink = (raw: unknown): GcTeamLink | null => {
     ...(isString(raw.season) ? { season: raw.season } : {}),
     ...(isNumber(raw.seasonYear) ? { seasonYear: raw.seasonYear } : {}),
     ...(isNumber(raw.ageLevel) ? { ageLevel: raw.ageLevel } : {}),
-    ...(isString(raw.avatarKey) ? { avatarKey: raw.avatarKey } : {}),
     ...(record ? { record } : {}),
     /*
      * The coaches, the roster count and when it was taken. Dropped here until now, which the
@@ -732,11 +727,9 @@ export const coerceScoutTeams = (raw: unknown): ScoutTeam[] => {
          * A stand-in is a club somebody named and nobody pulled, and it is kept out of the
          * rankings for it. Losing the mark on the way back in put every one of them into the
          * tables, ranked on whatever fraction of a season happened to face a club that *was*
-         * pulled — and the picture is what lets the next schedule recognise the same club rather
-         * than making a second of it.
+         * pulled.
          */
         ...(entry.nameOnly === true ? { nameOnly: true as const } : {}),
-        ...(isString(entry.avatarKey) ? { avatarKey: entry.avatarKey } : {}),
         ...(gcTeams.length ? { gcTeams } : {}),
       };
     });

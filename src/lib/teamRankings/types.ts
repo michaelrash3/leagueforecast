@@ -81,28 +81,17 @@ export type ScoutTeam = {
   /**
    * A club known only because somebody else's schedule named it as their opponent.
    *
-   * There is no club behind it yet, only a name and perhaps a picture: no id anybody pulled, no
-   * town, no state, and a record made of whatever fraction of its season happens to face a team
-   * that *was* pulled. Rating that against clubs whose whole schedule is here would put a team
-   * with one recorded win above teams that played thirty games, so it is left out of the tables —
-   * exactly as a bracket slot is, and for the same reason.
+   * There is no club behind it yet, only a name: no id anybody pulled, no town, no state, and a
+   * record made of whatever fraction of its season happens to face a team that *was* pulled.
+   * Rating that against clubs whose whole schedule is here would put a team with one recorded win
+   * above teams that played thirty games, so it is left out of the tables — exactly as a bracket
+   * slot is, and for the same reason.
    *
    * It still stands in the fit as the opponent it was, which is how the game counts for the club
    * that played it. Pull the club's own id, or add it by hand, and the mark comes off: at that
    * point it is a team somebody has vouched for, and it is ranked like any other.
    */
   nameOnly?: true;
-  /**
-   * The picture a club was listed with by whoever named it as their opponent.
-   *
-   * An opponent has no GameChanger id — a schedule never gives one — so there is no link to hang
-   * its avatar on, and a name is not an identity in a pool holding a dozen clubs called the same
-   * thing. The picture is, and it is the one thing that means the same on two schedules, so it is
-   * kept here: the next schedule to name this club recognises it, and so does the club itself when
-   * its own id is finally pulled. Without it a club named by two schedules becomes two teams and
-   * its games are filed twice.
-   */
-  avatarKey?: string;
   /**
    * The GameChanger teams this team is known by, one per GameChanger season: GameChanger mints a
    * new team id every season, so a club's Fall and Spring squads arrive as two ids that the user
@@ -115,8 +104,8 @@ export type ScoutTeam = {
 /**
  * Which rung of the import's ladder filed a pulled team at its level (`importOne`), best evidence
  * first: somebody naming it, GameChanger's own age field, an age written in its name, the league or
- * organization the user's list puts it under, its opponents' names, the level the pool files its
- * opponents at, and the clubs its games identify.
+ * organization the user's list puts it under, its opponents' names, and the clubs its games
+ * identify.
  */
 export type GcAgeSource =
   | "you"
@@ -124,7 +113,6 @@ export type GcAgeSource =
   | "name"
   | "list"
   | "opponents"
-  | "pool"
   | "fixtures"
   /** The oldest age its opponents are, until they settle one (`oldestOpponentAge`). */
   | "tentative";
@@ -135,7 +123,6 @@ export const GC_AGE_SOURCES: readonly GcAgeSource[] = [
   "name",
   "list",
   "opponents",
-  "pool",
   "fixtures",
   "tentative",
 ];
@@ -166,13 +153,6 @@ export type GcTeamLink = {
   ageLabel?: string;
   /** Which rule of the import filed it at `ageLevel` (`GcAgeSource`). */
   ageFrom?: GcAgeSource;
-  /**
-   * The id of the team's avatar image. GameChanger names an opponent but never gives its team id;
-   * the avatar it shows beside that name is the one stable thing that survives the trip, so a
-   * matching avatar on someone else's schedule is how a name-only opponent is recognised as a team
-   * already pulled by id.
-   */
-  avatarKey?: string;
   /** GameChanger's own season record when last pulled — a check on the games read, never rated. */
   record?: { win: number; loss: number; tie: number };
   /**
@@ -234,8 +214,8 @@ export type FoldedRow = {
   /** Its own club is the game's side B, not side A. */
   onSideB?: boolean;
   /**
-   * The club the row's picture named (`ScoutGame.namedByAvatar`), kept so that a row stood back up
-   * is still the row that named that club, which a tidy rule moving rows on a name leaves alone.
+   * The club the owner said the row's opponent is (`ScoutGame.namedByAvatar`), kept so that a row
+   * stood back up is still on that club, which a tidy rule moving rows on a name leaves alone.
    */
   namedByAvatar?: string;
   /**
@@ -349,17 +329,17 @@ export type ScoutGame = {
    */
   typedAs?: string;
   /**
-   * The club the row this game stands on (`source`) named by its GameChanger picture, rather than
-   * by the name its coach typed: an identity, where a name is a guess. Set by the import that files
-   * the row that way, by a later pull of a row already here whose picture names the club it is
-   * filed against, and by the user folding the stand-in the row was filed against into a pulled
-   * club ("Same team as", `mergeScoutTeams`), which is the user saying who played. A tidy rule
-   * that moves a row off a club on its name alone leaves it on this one
-   * — a club across the country is a club a travelling team plays, when GameChanger says so. Only
-   * while the row still names this club: a club merged into another takes it along
-   * (`withFiledRepointed`), a pull whose picture names another pulled club takes it off, and a pull
-   * with no picture, which GameChanger often sends, leaves it. A row folded into another copy of
-   * the game keeps it on its record there (`FoldedRow.namedByAvatar`).
+   * The club the owner said this game's own row (`source`) was played against, by folding the
+   * stand-in the row was filed against into a pulled club ("Same team as", `mergeScoutTeams`): the
+   * owner saying who played, where a name is a guess. A tidy rule that moves a row off a club on its
+   * name alone leaves it on this one. Only while the row still names this club: a club merged into
+   * another takes it along (`withFiledRepointed`). A row folded into another copy of the game keeps
+   * it on its record there (`FoldedRow.namedByAvatar`).
+   *
+   * Named for the GameChanger picture that once set it too. A pulled club's picture never turned up
+   * on another schedule: on 28 October 2026 none of 12,994 opponents' pictures on 3,000 pulled
+   * schedules was any of the 44,840 pulled clubs' (GitHub run 40693355959), and no stored game
+   * carried one, so pictures are no longer read at all. The name stays, as the stored pool has it.
    */
   namedByAvatar?: string;
   /** References an `AgeGroup.id` — the age level this result belongs to. */

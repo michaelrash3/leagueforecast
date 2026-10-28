@@ -48,7 +48,6 @@ import {
   ageGroupYear,
   createScoutTeam,
   findGcLink,
-  findTeamsByAvatarKey,
   gameSideLevels,
   gcSeasonLabel,
   isRankedAgeLevel,
@@ -2117,14 +2116,11 @@ describe("gcSeasonLabel", () => {
   });
 });
 
-describe("findGcLink / findTeamsByAvatarKey", () => {
+describe("findGcLink", () => {
   const teams: ScoutTeam[] = [
     team("A", "Aces"),
-    { ...team("B", "Bears"), gcTeams: [link("gcB1", "u9", { avatarKey: "av-b" })] },
-    {
-      ...team("C", "Cubs"),
-      gcTeams: [link("gcC1", "u9", { avatarKey: "av-c" }), link("gcC2", "u10")],
-    },
+    { ...team("B", "Bears"), gcTeams: [link("gcB1", "u9")] },
+    { ...team("C", "Cubs"), gcTeams: [link("gcC1", "u9"), link("gcC2", "u10")] },
   ];
 
   it("finds the team carrying a GameChanger id, and the link itself", () => {
@@ -2136,16 +2132,6 @@ describe("findGcLink / findTeamsByAvatarKey", () => {
   it("is null for an id nobody carries", () => {
     expect(findGcLink("nope", teams)).toBeNull();
     expect(findGcLink("gcB1", [team("A", "Aces")])).toBeNull();
-  });
-
-  it("finds teams by the avatar on any of their links", () => {
-    expect(findTeamsByAvatarKey("av-c", teams).map((t) => t.id)).toEqual(["C"]);
-    expect(findTeamsByAvatarKey("av-b", teams).map((t) => t.id)).toEqual(["B"]);
-  });
-
-  it("matches nothing for an unknown or blank key", () => {
-    expect(findTeamsByAvatarKey("av-z", teams)).toEqual([]);
-    expect(findTeamsByAvatarKey("", teams)).toEqual([]);
   });
 });
 
@@ -2587,7 +2573,7 @@ describe("collapseSameGames", () => {
 });
 
 describe("mergeScoutTeams", () => {
-  const fall = link("gcFall", "u9", { season: "fall", seasonYear: 2026, avatarKey: "av" });
+  const fall = link("gcFall", "u9", { season: "fall", seasonYear: 2026 });
   const spring = link("gcSpring", "u9", { season: "spring", seasonYear: 2027 });
   const teams: ScoutTeam[] = [
     { ...team("A", "Aces"), state: "KY", gcTeams: [fall] },

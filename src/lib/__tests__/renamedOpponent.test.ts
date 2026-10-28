@@ -31,20 +31,13 @@ const played = (
   startTs: `${start}:00.000Z`,
   ...extra,
 });
-const schedule = (
-  id: string,
-  name: string,
-  state: string,
-  games: Played[],
-  avatarKey?: string
-): GcTeamSchedule => ({
+const schedule = (id: string, name: string, state: string, games: Played[]): GcTeamSchedule => ({
   profile: {
     id,
     name,
     ageLevel: 9,
     season: { season: "fall", year: 2026 },
     state,
-    ...(avatarKey ? { avatarKey } : {}),
   },
   games,
   fetchedAt: "2026-10-26T12:00:00.000Z",
@@ -57,13 +50,9 @@ const namer = (typed: string, extra: Partial<Played> = {}) =>
     played("n1", typed, "2026-10-24T14:15", [17, 10], extra),
   ]);
 /** The pulled club of the short name, in the next state, with no game on the 24th. */
-const rams = schedule(
-  "GCRAMS000001",
-  "Rams",
-  "KY",
-  [played("r1", "Reds", "2026-10-17T15:00", [20, 3])],
-  "picture-of-rams"
-);
+const rams = schedule("GCRAMS000001", "Rams", "KY", [
+  played("r1", "Reds", "2026-10-17T15:00", [20, 3]),
+]);
 /** The club the coach meant, whose own schedule has the game. */
 const wise = schedule("GCWISE000001", "Rams-Wise 9U", "KY", [
   played("w1", "Comets 9U Ortiz", "2026-10-24T14:15", [10, 17]),
@@ -163,13 +152,10 @@ describe("a renamed opponent read again only where the name is all the row rests
 
   it("leaves a game the club's own schedule lists against the namer, and reads it once it does not", () => {
     const withRow = (...games: Played[]) =>
-      schedule(
-        "GCRAMS000001",
-        "Rams",
-        "KY",
-        [played("r1", "Reds", "2026-10-17T15:00", [20, 3]), ...games],
-        "picture-of-rams"
-      );
+      schedule("GCRAMS000001", "Rams", "KY", [
+        played("r1", "Reds", "2026-10-17T15:00", [20, 3]),
+        ...games,
+      ]);
     const theirs = played("r2", "Comets 9U Ortiz", "2026-10-24T14:15", [10, 17]);
     // The namer pulled first, so the game stands on its row with the Rams' own row held in it.
     const both = pull(empty, namer("Rams"), withRow(theirs)).state;
@@ -184,27 +170,16 @@ describe("a renamed opponent read again only where the name is all the row rests
     ]);
   });
 
-  it("keeps the picture of the club a renamed row is filed onto by it (Codex on #480)", () => {
-    // Renamed from a name nobody pulled to the Rams, picture and all: the picture names the club,
-    // and a later rename with no picture leaves the row on it.
-    const unnamed = pull(empty, rams, namer("Sharks")).state;
-    expect(the24th(unnamed)).toEqual(["Comets Ortiz 17-10 Sharks (stand-in)"]);
-    const pictured = pull(unnamed, namer("Rams", { opponentAvatarKey: "picture-of-rams" })).state;
-    expect(the24th(pictured)).toEqual(["Comets Ortiz 17-10 Rams"]);
-    expect(pictured.games.find((game) => game.date === "2026-10-24")?.namedByAvatar).toBeDefined();
-    expect(the24th(pull(pictured, namer("Rams Gold")).state)).toEqual(["Comets Ortiz 17-10 Rams"]);
-  });
-
-  it("leaves a game whose opponent's picture named the club", () => {
-    const pictured = pull(
-      empty,
-      rams,
-      namer("Rams", { opponentAvatarKey: "picture-of-rams" })
-    ).state;
-    expect(the24th(pictured)).toEqual(["Comets Ortiz 17-10 Rams"]);
-    expect(the24th(pull(pictured, namer("Rams-Wise 9U")).state)).toEqual([
-      "Comets Ortiz 17-10 Rams",
-    ]);
+  it("leaves a game the owner said is against the club (Same team as)", () => {
+    const first = pull(empty, rams, namer("Rams")).state;
+    const ramsId = first.teams.find((team) => team.name === "Rams")!.id;
+    const marked = {
+      ...first,
+      games: first.games.map((game) =>
+        game.date === "2026-10-24" ? { ...game, namedByAvatar: ramsId } : game
+      ),
+    };
+    expect(the24th(pull(marked, namer("Rams-Wise 9U")).state)).toEqual(["Comets Ortiz 17-10 Rams"]);
   });
 
   it("only learns the name of a row filed before names were kept, and reads a rename after", () => {

@@ -12,10 +12,12 @@
  *   Fall and Spring squads arrive as two ids. They are two teams here until somebody says
  *   otherwise — see `proposeSeasonPairings`, which suggests the pairing and waits. Folding them
  *   together automatically would be guessing, and the country has a great many Yankees.
- * - **An opponent is a name and a picture.** GameChanger never gives an opponent's team id, so the
- *   avatar is the only stable thing that survives the trip. A matching avatar is the same club. A
- *   matching name is only the same club within one age level and season year, because "Yankees" on
- *   a 9U schedule in Kentucky and "Yankees" on an 11U schedule in California are not related.
+ * - **An opponent is a name.** GameChanger never gives an opponent's team id, and the picture it
+ *   shows beside the name is no identity either: none of 12,994 opponents' pictures on 3,000 pulled
+ *   schedules was a pulled club's own (28 October 2026). A matching name is only the same club within
+ *   one age level and season year, because "Yankees" on a 9U schedule in Kentucky and "Yankees" on an
+ *   11U schedule in California are not related; the game itself, where the other club's own schedule
+ *   holds it, is what says which one.
  */
 
 import {
@@ -154,7 +156,6 @@ type ImportIndex = {
   teamsById: Map<string, ScoutTeam>;
   /** The team carrying a GameChanger id. One id lives on one team. */
   teamByGcId: Map<string, ScoutTeam>;
-  teamsByAvatar: Map<string, ScoutTeam[]>;
   /** Team ids with a game filed on a page, for the "on this page" that name matching needs. */
   teamIdsByGroup: Map<string, Set<string>>;
   /**
@@ -173,8 +174,7 @@ type ImportIndex = {
   /**
    * The same, without the level. Only the fixture check searches this: it is looking for a club
    * whose schedule holds this very game, and a game is evidence enough to cross a level — which
-   * is the whole of how a club that played up is recognised, now that the picture has turned out
-   * to be no kind of identifier.
+   * is the whole of how a club that played up is recognised.
    */
   teamIdsByPoolName: Map<string, string[]>;
   /**
@@ -270,7 +270,6 @@ const buildIndex = (state: GcImportState): ImportIndex => {
     gamesByMatch: new Map(),
     teamsById: new Map(),
     teamByGcId: new Map(),
-    teamsByAvatar: new Map(),
     teamIdsByGroup: new Map(),
     teamIdsByGroupName: new Map(),
     teamIdsByPoolName: new Map(),
@@ -296,18 +295,7 @@ const buildIndex = (state: GcImportState): ImportIndex => {
 
 const indexTeam = (index: ImportIndex, team: ScoutTeam) => {
   index.teamsById.set(team.id, team);
-  const noteAvatar = (avatarKey: string | undefined) => {
-    if (!avatarKey) return;
-    const bucket = index.teamsByAvatar.get(avatarKey);
-    if (!bucket) index.teamsByAvatar.set(avatarKey, [team]);
-    else if (!bucket.some((entry) => entry.id === team.id)) bucket.push(team);
-  };
-  // A club named as somebody's opponent has no link to carry its picture, so it keeps its own.
-  noteAvatar(team.avatarKey);
-  (team.gcTeams ?? []).forEach((link) => {
-    index.teamByGcId.set(link.teamId, team);
-    noteAvatar(link.avatarKey);
-  });
+  (team.gcTeams ?? []).forEach((link) => index.teamByGcId.set(link.teamId, team));
 };
 
 /**
@@ -531,34 +519,13 @@ const addTeam = (index: ImportIndex, teams: ScoutTeam[], team: ScoutTeam): void 
   indexTeam(index, team);
 };
 
-/** Takes a team out of the avatar index, so a key it no longer carries stops pointing at it. */
-const unindexAvatars = (index: ImportIndex, team: ScoutTeam): void => {
-  const forget = (avatarKey: string | undefined) => {
-    if (!avatarKey) return;
-    const bucket = index.teamsByAvatar.get(avatarKey);
-    if (!bucket) return;
-    const at = bucket.findIndex((entry) => entry.id === team.id);
-    if (at >= 0) bucket.splice(at, 1);
-    if (bucket.length === 0) index.teamsByAvatar.delete(avatarKey);
-  };
-  forget(team.avatarKey);
-  (team.gcTeams ?? []).forEach((link) => forget(link.avatarKey));
-};
-
-/**
- * Replaces a team in place. Its id does not change, so nothing it is filed under moves — except
- * its avatars, which a re-pull can change: GameChanger teams do get new pictures, and the old key
- * left behind would go on claiming this team, or worse make it ambiguous with whoever takes that
- * picture next.
- */
+/** Replaces a team in place. Its id does not change, so nothing it is filed under moves. */
 const replaceTeam = (index: ImportIndex, teams: ScoutTeam[], team: ScoutTeam): void => {
   const position = index.teamPos.get(team.id);
   if (position === undefined) {
     addTeam(index, teams, team);
     return;
   }
-  const previous = teams[position];
-  if (previous) unindexAvatars(index, previous);
   teams[position] = team;
   indexTeam(index, team);
 };
@@ -600,7 +567,8 @@ export type GcImportOutcome = {
   /** Dated before this squad year began (or after it ends): last year's squad's games. */
   gamesOutOfSeason: number;
   opponentsCreated: number;
-  opponentsMatchedByAvatar: number;
+  /** Found by the other club's own row of the game (`opponentFromSameFixture`). */
+  opponentsMatchedByGame: number;
   opponentsMatchedByName: number;
   /**
    * The level this team was filed under because its opponents named one, GameChanger having named
@@ -677,7 +645,7 @@ export type GcSeasonPairing = {
   evidence: GcPairingEvidence[];
   /** Whether the name matches too, which is corroboration rather than the case on its own. */
   sameName: boolean;
-  /** A picture, or a name plus a place they both give, is as strong as this gets. */
+  /** Two coaches in common, or a town they both give, is as strong as this gets. */
   confidence: "strong" | "likely";
   /**
    * What kind of pairing this is, because the two read very differently to whoever is deciding.
@@ -848,82 +816,6 @@ const isTentativeClub = (team: ScoutTeam | undefined): boolean => {
 };
 
 /**
- * The level of each distinct club in the pool a schedule's opponents are, by their pictures
- * (`ageFromPooledOpponents`): one level a club, and none for a picture two clubs share, a club
- * filed at two levels, or a club filed only by its oldest opponent.
- */
-const pooledOpponentLevels = (games: readonly GcGame[], index: ImportIndex): number[] => {
-  const seen = new Set<string>();
-  const found: number[] = [];
-  games.forEach((game) => {
-    const key = game.opponentAvatarKey;
-    if (!key) return;
-    const known = index.teamsByAvatar.get(key) ?? [];
-    // Two clubs sharing a picture is two clubs, and neither is evidence about this one.
-    if (known.length !== 1) return;
-    const team = known[0];
-    if (!team || seen.has(team.id)) return;
-    seen.add(team.id);
-    if (isTentativeClub(team)) return;
-    const levels = index.levelsByTeam.get(team.id);
-    // A club filed at two ages is a club running two squads: it says nothing about this one.
-    if (!levels || levels.size !== 1) return;
-    const level = [...levels][0];
-    if (level === undefined) return;
-    found.push(level);
-  });
-  return found;
-};
-
-/**
- * The age the pool already files this team's opponents at.
- *
- * `ageFromOpponentNames` above reads an age out of an opponent's *name*, which is the only thing
- * a schedule says about a club the pool has never met. But the pool has usually met them. A team
- * refused for having no age has just had its whole schedule fetched, and most of the clubs on it
- * are already in the pool, already filed, already at an age somebody or something settled. That
- * answer was sitting one lookup away and nothing asked for it.
- *
- * It matters most exactly where the name rule fails. The backlog's worst population is the closed
- * league where nobody writes an age in anything — "Team 4" playing "Team 2" and "Team 5" — and
- * `ageFromOpponentNames` can never settle one of those, because it only reads names and the names
- * say nothing. This rule can, as soon as one of those teams has been filed by any other route.
- *
- * **By identity, never by name.** The opponent is matched on its avatar key, which is stable per
- * club across schedules and is what `planOpponent` already trusts. That is the whole reason
- * this is safe: a name match on "Team 4" would collect a stranger from the other side of the
- * country, and a pool holding tens of thousands of teams has a great many "Team 4"s.
- *
- * Held to the same evidence bar as the name rule — `MIN_OPPONENT_AGE_EVIDENCE` distinct opponents
- * agreeing, a tie refused — because it is the same kind of claim: circumstantial, about the
- * company a club keeps, and wrong in the same way if a squad plays up all season. An opponent the
- * pool has filed at two different levels says nothing and is skipped rather than guessed at.
- */
-export const ageFromPooledOpponents = (
-  games: readonly GcGame[],
-  index: ImportIndex,
-  needed: number
-): number | undefined => {
-  const levels = pooledOpponentLevels(games, index);
-  const counts = new Map<number, number>();
-  levels.forEach((level) => counts.set(level, (counts.get(level) ?? 0) + 1));
-  const readable = levels.length;
-  if (readable < needed) return undefined;
-
-  let best: number | undefined;
-  let bestCount = 0;
-  let tied = false;
-  counts.forEach((count, level) => {
-    if (count > bestCount) {
-      best = level;
-      bestCount = count;
-      tied = false;
-    } else if (count === bestCount) tied = true;
-  });
-  return tied ? undefined : best;
-};
-
-/**
  * The level of each distinct pulled club a schedule's games were against, found by the other half
  * of each game (`ageFromFixtures`): one level a club, and none for a game two clubs could each have
  * been, a club filed at two levels, or a club filed only by its oldest opponent.
@@ -1034,8 +926,8 @@ export const ageFromFixtures = (
 
 /**
  * The age a team nobody could age is filed at until its opponents settle one: the oldest any of
- * them is, by its name (`ageLevelFromName`), by the level the pool files it at (`pooledOpponentLevels`)
- * or by the club its games found (`fixtureOpponentLevels`). The owner's rule of 23 October 2026,
+ * them is, by its name (`ageLevelFromName`) or by the club its games found
+ * (`fixtureOpponentLevels`). The owner's rule of 23 October 2026,
  * to file such a team "under the oldest age of the team they play until they meet the threshold
  * for confirming their age based on opponents". Every pull of it reads the rules afresh, so the
  * pull that finds its opponents agreeing (`ageFromOpponentNames` and the rest) moves it to their
@@ -1075,7 +967,6 @@ export const oldestOpponentAge = (
       const level = ageLevelFromName(game.opponentName);
       return level === undefined ? [] : [level];
     }),
-    ...pooledOpponentLevels(games, index),
     ...fixtureOpponentLevels(schedule, index),
   ].filter(
     (level) =>
@@ -1303,7 +1194,6 @@ const linkFor = (
     // What GameChanger's own field said, and which rule filed it: see `GcTeamLink.ageFrom`.
     ...(profile.ageLabel ? { ageLabel: profile.ageLabel } : {}),
     ...(ageFrom === undefined ? {} : { ageFrom }),
-    ...(profile.avatarKey ? { avatarKey: profile.avatarKey } : {}),
     ...(profile.record ? { record: profile.record } : {}),
     /*
      * The user's list first, GameChanger's profile behind it. The list is the newer reading and
@@ -1436,27 +1326,8 @@ const resolveOwnTeam = (
   const isStub = (team: ScoutTeam | undefined): team is ScoutTeam =>
     Boolean(team) && !team?.gcTeams?.length;
 
-  /*
-   * The picture first, for the same reason opponents are matched on it first: it is the only
-   * identifier that means the same thing on two schedules. It also settles the case a name cannot
-   * — a club that plays up, listed as an opponent by an older team and so filed at that team's
-   * level, is still recognisably itself here when its own schedule arrives.
-   */
-  if (profile.avatarKey) {
-    const byAvatar = (index.teamsByAvatar.get(profile.avatarKey) ?? []).filter(isStub);
-    // Exactly one, or the picture is shared and says nothing about which of them this is.
-    if (byAvatar.length === 1 && byAvatar[0]) {
-      const adopted = withLink(byAvatar[0], link);
-      const avatarState = normalizeState(profile.state ?? "");
-      if (avatarState && !adopted.state) adopted.state = avatarState;
-      if (profile.city && !adopted.city) adopted.city = profile.city;
-      replaceTeam(index, teams, adopted);
-      return { teamId: byAvatar[0].id, created: false };
-    }
-  }
-
   /**
-   * Failing that: this club is very likely already here as a name-only opponent, put there
+   * This club is very likely already here as a name-only opponent, put there
    * by a schedule pulled earlier. Adopting that entry is what keeps one club one team — in a pull
    * of a whole list nearly every team appears as somebody's opponent before its own turn comes,
    * so creating a second would duplicate most of the pull. Only an entry with no GameChanger id
@@ -1535,7 +1406,7 @@ const resolveOwnTeam = (
 
 type OpponentMatch = {
   teamId: string;
-  basis: "avatar" | "name" | "created";
+  basis: "game" | "name" | "created";
 };
 
 /**
@@ -1609,7 +1480,7 @@ const holdsThisGame = (
  * opponent as the words somebody typed and nothing else, so a name is where to look rather than
  * who played; the club it points at either has a game that day on its own schedule or did not
  * play this one. Asked only of the name's own guesses: the game itself (`clubHoldingThisGame`,
- * `opponentFromSameFixture`) and the picture already are the club's own word.
+ * `opponentFromSameFixture`) is already the club's own word.
  */
 const couldHavePlayed = (index: ImportIndex, clubId: string, date: string | undefined): boolean => {
   const club = index.teamsById.get(clubId);
@@ -1711,7 +1582,7 @@ const corroborates = (
  *
  * Both clubs post the fixture, and the two rows agree on the things a fixture actually is: the
  * day, the time it started, and how it finished, mirrored. That is a far better identifier than a
- * name — it needs no picture, survives the two schedules spelling the club differently, and works
+ * name — it survives the two schedules spelling the club differently, and works
  * on a name that identifies nobody at all, which is what makes it the answer for a bracket's
  * "TBD". Where exactly one game already filed for this team that day says the same thing, the club
  * it was filed against is who this game was against.
@@ -1777,10 +1648,10 @@ const opponentFromSameFixture = (
 type OpponentPlan = OpponentMatch | { create: Partial<ScoutTeam>; basis: "created" };
 
 /**
- * The team an opponent name refers to. The avatar first, because it is the only identifier
- * GameChanger gives that means the same thing on two different schedules. Failing that, a name —
- * but only among teams already on this page, since a name on its own says nothing across levels or
- * seasons. Failing that, a new team, which is the honest answer for a club nobody has pulled.
+ * The team an opponent name refers to. The game first, where the other club's own schedule holds
+ * it. Failing that, a name — but only among teams already on this page, since a name on its own
+ * says nothing across levels or seasons. Failing that, a new team, which is the honest answer for a
+ * club nobody has pulled.
  *
  * Only looked up here, never made: `teamOfPlan` makes the team a plan asks for. `byFixture`
  * asks the game itself as well, which a caller asking what a name says leaves out.
@@ -1794,15 +1665,6 @@ const planOpponent = (
   byFixture: boolean,
   refused: NotThisTeam = NO_REFUSALS
 ): OpponentPlan => {
-  // The picture is a direct identifier, so it is asked first when the game carries one.
-  if (game.opponentAvatarKey) {
-    const byAvatar = index.teamsByAvatar.get(game.opponentAvatarKey) ?? [];
-    // Exactly one, or the picture is shared and says nothing about which team this is.
-    if (byAvatar.length === 1 && byAvatar[0]) {
-      return { teamId: byAvatar[0].id, basis: "avatar" };
-    }
-  }
-
   /*
    * A club the owner has said this name, on this schedule, is not ("Not this team",
    * `notThisTeam.ts`) is no answer to the name: not as the one club of it, nor as the one something
@@ -1817,7 +1679,7 @@ const planOpponent = (
   const allowed = (teamId: string) => !refusedHere(teamId);
 
   /*
-   * Then the game itself, which beats the name even when the name is a real one — and is the only
+   * The game itself, which beats the name even when the name is a real one — and is the only
    * thing that can answer a name that identifies nobody, so it comes before the slot below.
    */
   const fixture = byFixture
@@ -1827,7 +1689,7 @@ const planOpponent = (
     fixture &&
     (allowed(fixture.teamId) || listedByOwn(fixture.row, index.teamsById.get(fixture.teamId)))
   ) {
-    return { teamId: fixture.teamId, basis: "avatar" };
+    return { teamId: fixture.teamId, basis: "game" };
   }
 
   /**
@@ -1980,41 +1842,6 @@ const planOpponent = (
   return { create: { nameOnly: true }, basis: "created" };
 };
 
-/**
- * The club a row's picture names after this pull (`ScoutGame.namedByAvatar`), given the one it
- * named before. `pictured` is the pulled club this pull's picture names, where it names one: the
- * row's club where the row is filed against it (`filedAgainst`, the club it faces and, for a
- * claimed row, the team it goes back to); none where it is another club, since what the row named
- * before it names no longer; and the one before where the picture names no pulled club at all, as
- * GameChanger often sends a row with no picture.
- */
-const pictureNow = (
-  before: string | undefined,
-  pictured: string | undefined,
-  filedAgainst: ReadonlyArray<string | undefined>
-): string | undefined =>
-  pictured === undefined ? before : filedAgainst.includes(pictured) ? pictured : undefined;
-
-/**
- * `existing`, a row this schedule filed before, carrying the club its picture names after this pull
- * (`pictureNow`) where that is a club the row is filed against. The same object when nothing
- * changes.
- */
-const withPictureOf = (
-  existing: ScoutGame,
-  candidate: ScoutGame,
-  pictured: string | undefined
-): ScoutGame => {
-  const named = pictureNow(existing.namedByAvatar, pictured, [candidate.teamBId]);
-  if (named === existing.namedByAvatar) return existing;
-  if (named === undefined) {
-    const { namedByAvatar: _before, ...rest } = existing;
-    return rest;
-  }
-  if (existing.teamAId !== named && existing.teamBId !== named) return existing;
-  return { ...existing, namedByAvatar: named };
-};
-
 /** The team `plan` asks for, made where it asks for one and added to the roster. */
 const teamOfPlan = (
   plan: OpponentPlan,
@@ -2042,7 +1869,7 @@ const teamOfPlan = (
  * - The same day, the club's own row on side B of the other club's own copy, and no other row of
  *   the club in it: a claim is read by its own day, and a copy holding the club's own row is not
  *   one the claim step offers.
- * - A name that is not the other club's, by its key, a GameChanger listing's or its picture, nor a
+ * - A name that is not the other club's, by its key or a GameChanger listing's, nor a
  *   shorthand for it at the very start, as the slot settle files one; nor one this pull's other
  *   rows already stand against the other club under, which is what a hand merge leaves. The name
  *   is read as a pull reads one, less the game itself (`planOpponent`), and a pulled club is not
@@ -2103,8 +1930,6 @@ const filedMarkFor = (
     Boolean(name)
   );
   if (listings.some((name) => teamNameKey(name) === key)) return undefined;
-  const pictures = [club.avatarKey, ...links.map((link) => link.avatarKey)];
-  if (game.opponentAvatarKey && pictures.includes(game.opponentAvatarKey)) return undefined;
   if (fold.standingByName.get(key)?.has(clubId)) return undefined;
 
   const mine: [number, number] | undefined = isScored(candidate)
@@ -2262,8 +2087,8 @@ const scoresAsExisting = (
  * game's opponent changed (`ScoutGame.typedAs`): its own row is the one `schedule` lists, and
  * nothing else says who was played. Not a game holding another schedule's row or record of it,
  * which is that club's own word that the two met; nor one the namesake join made (`joinedFrom`),
- * which holds the other club's row; nor one whose picture named its club (`namedByAvatar`), an
- * identity where a name is a guess.
+ * which holds the other club's row; nor one the owner said is against its club (`namedByAvatar`,
+ * Same team as), whose word stands where a name is a guess.
  */
 const restsOnItsName = (game: ScoutGame, schedule: string): boolean =>
   game.source?.teamId === schedule &&
@@ -2284,30 +2109,22 @@ const withTypedAs = (game: ScoutGame, typedAs: string, renamed: boolean): ScoutG
 
 /**
  * `game` with its other side, the one its own row named, replaced by the side `filed` names: at the
- * level read off the name that files it there, or none where that name gives none, and named by the
- * picture that files it there, where one does (`ScoutGame.namedByAvatar`). The picture is the new
- * club's own, so it goes with the side: kept from the old one, it read the game against the old
- * club, and a later rename with no picture moved the row off the club its picture had named (Codex
- * on #480).
+ * level read off the name that files it there, or none where that name gives none.
  */
 const withOpponent = (game: ScoutGame, ownSideA: boolean, filed: ScoutGame): ScoutGame => {
-  const { namedByAvatar: _picture, ...unnamed } = game;
-  const picture = filed.namedByAvatar === undefined ? {} : { namedByAvatar: filed.namedByAvatar };
   if (ownSideA) {
-    const { ageLevelB: _old, ...rest } = unnamed;
+    const { ageLevelB: _old, ...rest } = game;
     return {
       ...rest,
       teamBId: filed.teamBId,
       ...(filed.ageLevelB === undefined ? {} : { ageLevelB: filed.ageLevelB }),
-      ...picture,
     };
   }
-  const { ageLevelA: _old, ...rest } = unnamed;
+  const { ageLevelA: _old, ...rest } = game;
   return {
     ...rest,
     teamAId: filed.teamBId,
     ...(filed.ageLevelB === undefined ? {} : { ageLevelA: filed.ageLevelB }),
-    ...picture,
   };
 };
 
@@ -2585,40 +2402,19 @@ const importOne = (
       ? withNamed
       : { ...withNamed, profile: { ...withNamed.profile, ageLevel: fromLeague } };
   const fromNames = withOpponentAge(withLeague);
+  const withOpponents = fromNames.schedule;
   /*
-   * And last, the age the pool already files this team's opponents at.
-   *
-   * Below the name reading above it, and for a reason worth stating: a club that writes "12U" in
-   * its own name is telling you something about itself, while this is telling you about the
-   * company it keeps. But it reaches where the name rule cannot. The closed league where nobody
-   * writes an age in anything is the backlog's largest population and its most hopeless one —
-   * `ageFromOpponentNames` can never settle a team whose opponents are all called "Team 4" — and
-   * this settles it the moment any of those opponents has been filed by another route.
-   */
-  const fromPool =
-    profileAgeLevel(fromNames.schedule.profile) === undefined
-      ? ageFromPooledOpponents(fromNames.schedule.games, index, MIN_OPPONENT_AGE_EVIDENCE)
-      : undefined;
-  const withPool: GcTeamSchedule =
-    fromPool === undefined
-      ? fromNames.schedule
-      : {
-          ...fromNames.schedule,
-          profile: { ...fromNames.schedule.profile, ageLevel: fromPool },
-        };
-  /*
-   * And after that, the clubs the games themselves identify. The picture above turned out to be
-   * no kind of identifier — every one of 7,948 was different — so it seldom answers; the other
-   * halves of this team's games are already in the pool, filed by the clubs that played it.
+   * And after that, the clubs the games themselves identify: the other halves of this team's games
+   * are already in the pool, filed by the clubs that played it.
    */
   const fromFixtures =
-    profileAgeLevel(withPool.profile) === undefined
-      ? ageFromFixtures(withPool, index, MIN_OPPONENT_AGE_EVIDENCE)
+    profileAgeLevel(withOpponents.profile) === undefined
+      ? ageFromFixtures(withOpponents, index, MIN_OPPONENT_AGE_EVIDENCE)
       : undefined;
   const withFixtures: GcTeamSchedule =
     fromFixtures === undefined
-      ? withPool
-      : { ...withPool, profile: { ...withPool.profile, ageLevel: fromFixtures } };
+      ? withOpponents
+      : { ...withOpponents, profile: { ...withOpponents.profile, ageLevel: fromFixtures } };
   /*
    * And very last, an age the name writes against its other words or without its U — "Spiders12U",
    * "10U_Hartman", "Giants 11-12". Last of everything rather than beside the name reader, so a team
@@ -2647,7 +2443,7 @@ const importOne = (
     fromOldest === undefined
       ? withLoose
       : { ...withLoose, profile: { ...withLoose.profile, ageLevel: fromOldest } };
-  const inferred = fromNames.inferred ?? fromPool ?? fromFixtures;
+  const inferred = fromNames.inferred ?? fromFixtures;
   const { profile } = schedule;
   const base: GcImportOutcome = {
     gcTeamId: profile.id,
@@ -2663,7 +2459,7 @@ const importOne = (
     gamesIgnored: 0,
     gamesOutOfSeason: 0,
     opponentsCreated: 0,
-    opponentsMatchedByAvatar: 0,
+    opponentsMatchedByGame: 0,
     opponentsMatchedByName: 0,
     ...(inferred === undefined ? {} : { ageFromOpponents: inferred }),
     ...(named === undefined ? {} : { ageNamedByUser: named }),
@@ -2825,15 +2621,13 @@ const importOne = (
           ? "list"
           : fromNames.inferred !== undefined
             ? "opponents"
-            : fromPool !== undefined
-              ? "pool"
-              : fromFixtures !== undefined
-                ? "fixtures"
-                : fromLooseName !== undefined
-                  ? "name"
-                  : fromOldest !== undefined
-                    ? "tentative"
-                    : undefined;
+            : fromFixtures !== undefined
+              ? "fixtures"
+              : fromLooseName !== undefined
+                ? "name"
+                : fromOldest !== undefined
+                  ? "tentative"
+                  : undefined;
   // Read before this pull's link replaces it: whether the club was filed at a guess (`onClubPage`).
   const wasTentative =
     index.teamByGcId.get(profile.id)?.gcTeams?.find((link) => link.teamId === profile.id)
@@ -3142,7 +2936,7 @@ const importOne = (
       );
       opponentId = teamOfPlan(plan, game.opponentName, index, teams);
       if (plan.basis === "created") outcome.opponentsCreated += 1;
-      else if (plan.basis === "avatar") outcome.opponentsMatchedByAvatar += 1;
+      else if (plan.basis === "game") outcome.opponentsMatchedByGame += 1;
       else outcome.opponentsMatchedByName += 1;
     }
     /*
@@ -3174,26 +2968,10 @@ const importOne = (
       } else {
         opponentId = teamOfPlan(plan, game.opponentName, index, teams);
         if (plan.basis === "created") outcome.opponentsCreated += 1;
-        else if (plan.basis === "avatar") outcome.opponentsMatchedByAvatar += 1;
+        else if (plan.basis === "game") outcome.opponentsMatchedByGame += 1;
         else outcome.opponentsMatchedByName += 1;
       }
     }
-    /*
-     * A pulled club this row names by its picture is that club whoever else carries its name
-     * (`ScoutGame.namedByAvatar`): so on arrival, and on a later pull of a row already filed against
-     * the club its picture names, which is how a row filed before the picture was kept comes to
-     * carry it.
-     */
-    const byPicture =
-      game.opponentAvatarKey === undefined
-        ? undefined
-        : index.teamsByAvatar.get(game.opponentAvatarKey);
-    /** The pulled club the picture names, where it names exactly one. */
-    const pictured =
-      byPicture?.length === 1 && byPicture[0]!.gcTeams?.length ? byPicture[0]!.id : undefined;
-    const namedByAvatar =
-      pictured !== undefined && pictured === opponentId ? opponentId : undefined;
-
     /*
      * Their level is only ever a guess from the name; ours is what GameChanger said.
      *
@@ -3220,7 +2998,6 @@ const importOne = (
       ...(theirLevel === undefined ? {} : { ageLevelB: theirLevel }),
       ...(profile.season ? { season: formatGcSeason(profile.season) } : {}),
       ...(game.startTs ? { startTs: game.startTs } : {}),
-      ...(namedByAvatar === undefined ? {} : { namedByAvatar }),
       ...(typedAs ? { typedAs } : {}),
       source: { kind: "gamechanger", teamId: profile.id, gameId: game.id },
     };
@@ -3247,24 +3024,20 @@ const importOne = (
       const record = (folded.alsoRows ?? []).find(
         (entry) => gcRowId(entry.teamId, entry.gameId) === candidate.id
       );
-      // The record keeps the club the row's picture named as a row filed on its own does
-      // (`withPictureOf`): through a pull with no picture, and not past one naming another club.
-      // A claimed row's club is the team it goes back to as well (`FoldedRow.filedAgainst`), so a
-      // row stood back up there is still the row that named it.
-      const named = pictureNow(record?.namedByAvatar, pictured, [
-        candidate.teamBId,
-        record?.filedAgainst,
-      ]);
-      const pictureKept =
-        named === candidate.namedByAvatar ? candidate : { ...candidate, namedByAvatar: named };
+      // The record keeps the club the owner said the row's opponent is (`FoldedRow.namedByAvatar`):
+      // a pull says nothing of it.
+      const marked =
+        record?.namedByAvatar === undefined
+          ? candidate
+          : { ...candidate, namedByAvatar: record.namedByAvatar };
       const updated = withSchedulesOf(
         folded,
         record &&
           record.date === undefined &&
           record.filedAgainst === undefined &&
           folded.date !== undefined
-          ? { ...pictureKept, date: folded.date }
-          : pictureKept
+          ? { ...marked, date: folded.date }
+          : marked
       );
       /*
        * This schedule's own game whose own row the schedule no longer lists — deleted, and entered
@@ -3373,7 +3146,7 @@ const importOne = (
      */
     const recorded =
       existing === known
-        ? withTypedAs(onClubPage(withPictureOf(existing, candidate, pictured)), typedAs, renamed)
+        ? withTypedAs(onClubPage(existing), typedAs, renamed)
         : withSchedulesOf(existing, candidate);
     /*
      * A renamed row filed by its new name against another team than the one it stands against: the
@@ -4331,7 +4104,7 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
     }
     const against = game.teamBId;
     if (against === club) return;
-    // A club the row named by its picture is not a name to be claimed away from.
+    // A row the owner said is against its club (Same team as) is not a name to be claimed away from.
     if (
       isStandIn(against) ||
       (isClub(against) && !listedBy(game, against) && game.namedByAvatar !== against)
@@ -6004,26 +5777,19 @@ export const proposeSeasonPairings = (
   };
 
   /*
-   * Only a shared name or a shared picture can make a pairing, so those are the only ids worth
-   * looking at for each team. Comparing every id with every other was fine for one club's list
-   * and several seconds for a nationwide one, at the end of every pull.
+   * Only a shared name can make a pairing, so those are the only ids worth looking at for each
+   * team. Comparing every id with every other was fine for one club's list and several seconds for
+   * a nationwide one, at the end of every pull.
    */
   const byName = new Map<string, typeof linked>();
-  const byAvatar = new Map<string, typeof linked>();
-  const file = (map: Map<string, typeof linked>, key: string, entry: (typeof linked)[number]) => {
-    const bucket = map.get(key);
-    if (bucket) bucket.push(entry);
-    else map.set(key, [entry]);
-  };
   linked.forEach((entry) => {
-    file(byName, teamNameKey(entry.link.name), entry);
-    if (entry.link.avatarKey) file(byAvatar, entry.link.avatarKey, entry);
+    const key = teamNameKey(entry.link.name);
+    const bucket = byName.get(key);
+    if (bucket) bucket.push(entry);
+    else byName.set(key, [entry]);
   });
-  const candidatesFor = (from: (typeof linked)[number]): typeof linked => {
-    const same = byName.get(teamNameKey(from.link.name)) ?? [];
-    const pictured = from.link.avatarKey ? (byAvatar.get(from.link.avatarKey) ?? []) : [];
-    return pictured.length === 0 ? same : [...new Set([...same, ...pictured])];
-  };
+  const candidatesFor = (from: (typeof linked)[number]): typeof linked =>
+    byName.get(teamNameKey(from.link.name)) ?? [];
 
   /**
    * Who coaches each team, over every GameChanger id it is linked to.
@@ -6112,7 +5878,6 @@ export const proposeSeasonPairings = (
        */
       const sameName = squadNameKey(from.link.name) === squadNameKey(to.link.name);
       const evidence: GcPairingEvidence[] = [];
-      if (from.link.avatarKey && from.link.avatarKey === to.link.avatarKey) evidence.push("avatar");
       if (sharedStaff(from.team.id, to.team.id, staffIndex).length >= 2) evidence.push("staff");
       // A town is evidence only in its own state: Lawrenceburg IN is not Lawrenceburg KY.
       const city = townKey(from.team.city);
@@ -6132,20 +5897,19 @@ export const proposeSeasonPairings = (
        * offering none: read enough of them and they all start looking approvable.
        */
       /*
-       * The name and the state are asked of every pairing now, not weighed against the rest.
+       * The name and the state are asked of every pairing, not weighed against the rest.
        *
-       * A picture used to stand in for the name, on the reasoning that GameChanger keeps a club's
-       * badge across seasons. It does not: over a nationwide pull 7,948 teams carried 7,948
-       * distinct pictures and not one was shared by two of them. So a pairing made on a picture
-       * against a name that did not match was a pairing made on nothing, and the state is the
-       * cheapest thing that is true of a club and not of its namesake three states away.
+       * Not a picture: GameChanger does not keep a club's badge across seasons. Over a nationwide
+       * pull 7,948 teams carried 7,948 distinct pictures and not one was shared by two of them. The
+       * state is the cheapest thing that is true of a club and not of its namesake three states
+       * away.
        */
       if (!sameName) continue;
       if (!evidence.includes("state")) continue;
       /*
        * Two GameChanger accounts a season apart with one name in one state are, as often as not,
-       * two rec-league teams in two towns. A town in common, a pulled club in common, the same
-       * picture, or two coaches is what makes one squad out of them.
+       * two rec-league teams in two towns. A town in common, a pulled club in common, or two
+       * coaches is what makes one squad out of them.
        */
       if (evidence.every((item) => item === "state")) continue;
 
@@ -6190,14 +5954,11 @@ export const proposeSeasonPairings = (
           /*
            * The name and the state are asked of everything here now, so neither can grade
            * anything: counting them made every offer "strong", which is a grading that says
-           * nothing. What is left is what a pairing actually rests on beyond them — the same
-           * picture, two coaches in common, or the same town — against a club in common or an
-           * empty id, which get this far and are worth reading but not worth approving in bulk.
+           * nothing. What is left is what a pairing actually rests on beyond them — two coaches in
+           * common, or the same town — against a club in common or an empty id, which get this far
+           * and are worth reading but not worth approving in bulk.
            */
-          confidence:
-            evidence.includes("avatar") || evidence.includes("staff") || evidence.includes("city")
-              ? "strong"
-              : "likely",
+          confidence: evidence.includes("staff") || evidence.includes("city") ? "strong" : "likely",
           kind: sameSeason ? "same-season" : "next-season",
         },
       });
@@ -6471,12 +6232,12 @@ export const summarizeGcImport = (outcomes: GcImportOutcome[]): string[] => {
 
   const createdTeams = filed.filter((outcome) => outcome.createdTeam).length;
   const createdOpponents = sum((outcome) => outcome.opponentsCreated);
-  const byAvatar = sum((outcome) => outcome.opponentsMatchedByAvatar);
+  const byGame = sum((outcome) => outcome.opponentsMatchedByGame);
   const byName = sum((outcome) => outcome.opponentsMatchedByName);
   lines.push(
     `${createdTeams + createdOpponents} team${
       createdTeams + createdOpponents === 1 ? "" : "s"
-    } new, ${byAvatar} opponent${byAvatar === 1 ? "" : "s"} recognised by picture, ${byName} by name.`
+    } new, ${byGame} opponent${byGame === 1 ? "" : "s"} found by the game, ${byName} by name.`
   );
 
   const newPages = filed.filter((outcome) => outcome.createdAgeGroup);
@@ -6926,7 +6687,7 @@ export const reclaimMisfiled = (
     const namedId = pullerId === game.teamAId ? game.teamBId : game.teamAId;
     const named = teamById.get(namedId);
     if (!named?.gcTeams?.length) return game;
-    // Named by its picture, not attached by name (`ScoutGame.namedByAvatar`).
+    // Named by the owner (Same team as), not attached by name (`ScoutGame.namedByAvatar`).
     if (game.namedByAvatar === namedId) return game;
     // Attached by name only: the club it sits on did not file it, and its own schedule does not
     // hold a row that could be it. A row a join or a slot fold made one of two keeps the other
@@ -7800,8 +7561,8 @@ export const resettleOffLevel = (
     if (namedId === undefined) return game;
     const named = teamById.get(namedId);
     if (!named?.gcTeams?.length) return game;
-    // A club the row named by its picture is that club whatever its listings or its state say:
-    // nothing here reads more than a name (`ScoutGame.namedByAvatar`).
+    // A row the owner said is against this club (Same team as) is, whatever its listings or its
+    // state say: nothing here reads more than a name (`ScoutGame.namedByAvatar`).
     if (game.namedByAvatar === namedId) return game;
     // A game the named club's own schedule gave a row too, folded in or settled into it, is on that
     // club's schedule by its own word, as `reclaimMisfiled` reads it. Moved off, the club's own row
@@ -8631,7 +8392,7 @@ export const dropNotATeam = (
   const goes = (record: FoldedRow) =>
     goingRows.has(record.teamId) ||
     (record.filedAgainst !== undefined && going.has(record.filedAgainst));
-  /** `game` without anything a going club's schedule said of it, and the picture naming one. */
+  /** `game` without anything a going club's schedule said of it, nor the owner's word naming one. */
   const unsaid = (game: ScoutGame): ScoutGame => {
     const dropped = (game.alsoRows ?? []).filter(goes).reduce(releaseClaim, game);
     const {

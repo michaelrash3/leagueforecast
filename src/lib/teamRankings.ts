@@ -1028,7 +1028,7 @@ const poolKeyFor = (ageGroupId: string, index: GroupIndex): string => {
 /**
  * The record a game keeps of a row folded into it (`ScoutGame.alsoRows`): the schedule and id, the
  * start, the day where it is not the game's, the score as the row's own schedule gave it, and the
- * club its picture named. A score the row had only borrowed from the other club's schedule
+ * club the owner said it faced (Same team as). A score the row had only borrowed from the other club's schedule
  * (`scoreFromB`) is not its own and is not kept. Undefined for a row with no schedule behind it — a
  * league fixture or a game typed in — which has nothing to be found by.
  */
@@ -4688,34 +4688,34 @@ export const ownPageFor = (ageGroups: AgeGroup[]): ((row: ScoutGame) => ScoutGam
 
 /**
  * `game` with every claim it holds (`FoldedRow.filedAgainst`) filed against `to(team)` instead, and
- * the club each of its rows' pictures named (`namedByAvatar`, its own row's and the folded rows')
- * too: a team folded into another takes the rows claimed from it along, and what named it. The same
- * game when nothing moves.
+ * the club the owner said each of its rows faced (`namedByAvatar`, its own row's and the folded
+ * rows') too: a team folded into another takes the rows claimed from it along, and what named it.
+ * The same game when nothing moves.
  */
 export const withFiledRepointed = (game: ScoutGame, to: (teamId: string) => string): ScoutGame => {
-  // The club the row's picture named goes where the club goes (`ScoutGame.namedByAvatar`), and so
+  // The club the owner said the row faced goes where the club goes (`ScoutGame.namedByAvatar`), and so
   // does the stand-in a namesake join would put the game's own row back against
   // (`ScoutGame.joinedFrom`).
-  const avatar = game.namedByAvatar === undefined ? undefined : to(game.namedByAvatar);
+  const marked = game.namedByAvatar === undefined ? undefined : to(game.namedByAvatar);
   const joinedFrom = game.joinedFrom === undefined ? undefined : to(game.joinedFrom);
-  const withAvatar =
-    avatar === game.namedByAvatar && joinedFrom === game.joinedFrom
+  const withMarks =
+    marked === game.namedByAvatar && joinedFrom === game.joinedFrom
       ? game
       : {
           ...game,
-          ...(avatar ? { namedByAvatar: avatar } : {}),
+          ...(marked ? { namedByAvatar: marked } : {}),
           ...(joinedFrom ? { joinedFrom } : {}),
         };
   if (
-    !withAvatar.alsoRows?.some(
+    !withMarks.alsoRows?.some(
       (record) => record.filedAgainst !== undefined || record.namedByAvatar !== undefined
     )
   ) {
-    return withAvatar;
+    return withMarks;
   }
   let changed = false;
-  const alsoRows = withAvatar.alsoRows.map((record) => {
-    // And so does the club a folded row's picture named (`FoldedRow.namedByAvatar`).
+  const alsoRows = withMarks.alsoRows.map((record) => {
+    // And so does the club the owner said a folded row faced (`FoldedRow.namedByAvatar`).
     const named = record.namedByAvatar === undefined ? undefined : to(record.namedByAvatar);
     const filed = record.filedAgainst === undefined ? undefined : to(record.filedAgainst);
     if (named === record.namedByAvatar && filed === record.filedAgainst) return record;
@@ -4726,7 +4726,7 @@ export const withFiledRepointed = (game: ScoutGame, to: (teamId: string) => stri
       ...(filed === undefined ? {} : { filedAgainst: filed }),
     };
   });
-  return changed ? { ...withAvatar, alsoRows } : withAvatar;
+  return changed ? { ...withMarks, alsoRows } : withMarks;
 };
 
 /**
@@ -4819,8 +4819,8 @@ export const mergeScoutTeams = (
   /*
    * A team known only by a name — a stand-in, a slot, one made by hand — folded into a pulled club
    * is the user saying who played those games, which is an identity, where the name was a guess: its
-   * rows name the club from here on, as a row whose picture names a club does
-   * (`ScoutGame.namedByAvatar`), and no tidy rule moves one of those on a name. Folded with no mark,
+   * rows name the club from here on (`ScoutGame.namedByAvatar`), and no tidy rule moves one of those
+   * on a name. Folded with no mark,
    * a row went back to a stand-in at the next tidy wherever the club's own schedule had no game that
    * day (`resettleOffLevel`), as the two stand-ins of "513 Force - Bouley" folded into the pulled
    * club on the pool of 29 September 2026 did.

@@ -147,7 +147,7 @@ const AGE_GROUP_HEADERS = [
 
 /**
  * A team's GameChanger links go in one cell as a JSON array. A link is a small record of its own
- * (id, name, season, avatar, record…) and a team can carry several; flattening them into columns
+ * (id, name, season, record…) and a team can carry several; flattening them into columns
  * would either cap how many a team may have or turn one team into several rows, and a spreadsheet
  * reader has no reason to edit them by hand. `csvEscape` quotes the JSON's commas and doubles its
  * quotes, so the cell survives the trip like any other text.
@@ -160,7 +160,6 @@ const TEAM_HEADERS = [
   "Is My Team",
   "Placeholder",
   "Name Only",
-  "Avatar Key",
   "GameChanger Teams",
 ];
 
@@ -193,8 +192,8 @@ const GAME_HEADERS = [
   /**
    * The rows folded into this game, whole: `team:game`, then `#day` for a row its schedule dated a
    * day off the game's, `@start`, `=own-opponent`, `/B` for a row whose club is side B, `!team^level`
-   * for a claimed row's team and level, and `~team` for the club the row's picture named, each
-   * where there is one.
+   * for a claimed row's team and level, and `~team` for the club you said the row faced (Same team
+   * as), each where there is one.
    */
   "Also Rows",
   /** The score as Team B's own schedule gave it, where that was kept: A's runs, a dash, B's. */
@@ -206,11 +205,11 @@ const GAME_HEADERS = [
   /** Team A's schedule no longer lists the row the game stands on; the next tidy takes it away. */
   "Withdrawn",
   /**
-   * The club the row the game stands on named by its GameChanger picture, which a tidy rule moving
-   * rows on a name leaves it on. Missing from the file the day the id was first kept, so a restore
-   * lost it.
+   * The club you said the row the game stands on faced (Same team as), which a tidy rule moving
+   * rows on a name leaves it on. Written as "Named By Picture" by data schema 6 and before, which
+   * a restore reads too.
    */
-  "Named By Picture",
+  "Same Team As",
   /**
    * The margin you said is real in a game won by forty runs or more, which counts while the game
    * still reads it; see `isImplausibleScore`.
@@ -459,7 +458,6 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
       yesNo(team.isMine),
       yesNo(team.placeholder),
       yesNo(team.nameOnly),
-      textCell(team.avatarKey),
       linksCell(team),
     ]
       .map(csvEscape)
@@ -847,7 +845,6 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         ...(isYes(cell("Is My Team")) ? { isMine: true as const } : {}),
         ...(isYes(cell("Placeholder")) ? { placeholder: true as const } : {}),
         ...(isYes(cell("Name Only")) ? { nameOnly: true as const } : {}),
-        ...(cell("Avatar Key") ? { avatarKey: cell("Avatar Key") } : {}),
         ...(state ? { state } : {}),
         ...(city ? { city } : {}),
         ...(gcTeams.length ? { gcTeams } : {}),
@@ -879,7 +876,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
     // A colon, because neither a GameChanger team id nor a game id ever holds one; the start holds
     // colons of its own, but never "@", "=" or "/". A row dated a day off its game's carries its own
     // day after "#", which no id holds either, a claimed row the team it was filed against after
-    // "!", with the level that name gave after "^", and a row that named its club by its picture
+    // "!", with the level that name gave after "^", and a row you said faced a club (Same team as)
     // that club after "~", which no id or start holds; and the name its schedule typed after "*",
     // escaped so it holds none of these (`typedToken`).
     const alsoRows = cell("Also Rows")
@@ -927,7 +924,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         ];
       });
     const reported = /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(cell("Team B Reported").trim());
-    const namedByAvatar = cell("Named By Picture");
+    const namedByAvatar = cell("Same Team As") || cell("Named By Picture");
     const confirmed = parseScore(cell("Margin Confirmed Real"));
     const joinedFrom = cell("Joined From");
     const joinedFromLevel = parseLevel(cell("Joined From Age"));

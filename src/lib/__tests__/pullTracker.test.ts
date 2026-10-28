@@ -54,7 +54,7 @@ const outcome = (gcTeamId: string, extra: Partial<GcImportOutcome> = {}): GcImpo
   gamesIgnored: 1,
   gamesOutOfSeason: 0,
   opponentsCreated: 3,
-  opponentsMatchedByAvatar: 1,
+  opponentsMatchedByGame: 1,
   opponentsMatchedByName: 0,
   ...extra,
 });

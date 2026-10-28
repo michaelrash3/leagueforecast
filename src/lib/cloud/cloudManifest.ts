@@ -51,8 +51,12 @@ const FORMAT_WITHOUT_EPOCH = 2;
  * 6: a game keeps the opponent's name as its own row typed it (`ScoutGame.typedAs`); dropped by an
  * older build, a coach's later rename of the opponent would go unread until a pull learned the
  * name again.
+ * 7: no GameChanger picture is kept (`ScoutTeam.avatarKey`, `GcTeamLink.avatarKey`), nor the age
+ * rule that read opponents' pictures (`GcTeamLink.ageFrom` "pool"): none ever named a pulled club.
+ * An older build would read pictures nobody stores and save nothing new; raised so the shapes this
+ * build writes are the ones its schema names.
  */
-export const DATA_SCHEMA = 6;
+export const DATA_SCHEMA = 7;
 
 /**
  * Thrown for a manifest this build cannot read, which is never to be taken for no copy at all: the
