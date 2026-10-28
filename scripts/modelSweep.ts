@@ -34,6 +34,12 @@
  * boards (`src/lib/standInLevers.ts`); leaving the few-game names' games out was read on 28 October
  * 2026 and forecast clearly worse.
  *
+ * With --stand-in-cases it reads, for the played rows against stand-ins, how often another pulled
+ * club's own row starts within the clock whatever its result, scored or not, and how often its
+ * club's name shares a word, or a rare one, with the stand-in's, beside a week either side; then a
+ * sample of the rows against stand-ins with nothing of their name pulled, each with the pulled clubs
+ * whose names read most like it and every row on the clock (`src/lib/standInCases.ts`), sealed.
+ *
  * Options: --year=2027 (the squad year), --today=DAY (the board's day; the members' day by
  * default), --top=25 (the stand-ins named, most games first), --public (numbers only),
  * --seal=FILE with --seal-to-key=PEM (the named lines, sealed to that public key), and
@@ -57,6 +63,7 @@ import {
   publicEncrypt,
   randomBytes,
 } from "node:crypto";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { coerceAutoRemovals, type AutoRemovals } from "../src/lib/autoRemoved.ts";
 import { coerceKeptApart, type KeptApart } from "../src/lib/keptApart.ts";
 import {
@@ -145,6 +152,15 @@ import {
   type NamesakeReach,
 } from "../src/lib/standInLevers.ts";
 import { shiftDay } from "../src/lib/standInHalves.ts";
+import {
+  caseIndex,
+  CLOCK_MINUTES,
+  RARE_AMONG,
+  standInCases,
+  tallyClock,
+  type CaseOwnRow,
+  type ClockTally,
+} from "../src/lib/standInCases.ts";
 import { openStores } from "./cloudPool.ts";
 import { poolFixture } from "./poolFixture.ts";
 import { readSweepFile, sweepTidy } from "./sweepTidy.ts";
@@ -341,9 +357,11 @@ const seal = (text: string, publicKey: ReturnType<typeof createPublicKey>): stri
   const aes = randomBytes(32);
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", aes, iv);
-  const data = joined(cipher.update(new TextEncoder().encode(text)), cipher.final());
+  // Compressed first, so a long sample is short enough to copy out of a log.
+  const data = joined(cipher.update(gzipSync(new TextEncoder().encode(text))), cipher.final());
   return JSON.stringify({
     format: SEALED_FORMAT,
+    gzip: "1",
     key: toBase64(publicEncrypt({ key: publicKey, ...OAEP }, aes)),
     iv: toBase64(iv),
     tag: toBase64(cipher.getAuthTag()),
@@ -358,7 +376,7 @@ const open = (sealed: string, privateKey: string): string => {
   const decipher = createDecipheriv("aes-256-gcm", aes, fromBase64(parsed.iv ?? ""));
   decipher.setAuthTag(fromBase64(parsed.tag ?? ""));
   const text = joined(decipher.update(fromBase64(parsed.data ?? "")), decipher.final());
-  return new TextDecoder().decode(text);
+  return new TextDecoder().decode(parsed.gzip === "1" ? gunzipSync(text) : text);
 };
 
 /* ----------------------------------------------------------------------------------- printing */
@@ -1093,6 +1111,108 @@ const measureStandInLevers = (source: Source, year: number) => {
   }
 };
 
+/**
+ * The owner, 28 October 2026: "They are not private on gamechanger. You just aren't matching them
+ * appropriately." For the played rows against stand-ins, how often another pulled club's own row
+ * starts within the clock, scored or not, and how often its club's name shares a word, or a rare
+ * one, with the stand-in's, beside a week either side; then a sample of the rows against stand-ins
+ * with nothing of their name pulled, laid out with the clubs whose names read most like theirs and
+ * every row on the clock, to read by eye (`standInCases.ts`). Names sealed.
+ */
+const measureStandInCases = (source: Source, year: number) => {
+  say(`\n${"=".repeat(78)}\nThe rows against stand-ins, laid out\n${"=".repeat(78)}`);
+  const page = source.ageGroups.find(
+    (group) => ageGroupYear(group) === year && scoutFitRanks(group.id, source.ageGroups)
+  );
+  if (!page) {
+    say(`No ranked page of squad year ${year} in this pool.`);
+    process.exitCode = 1;
+    return;
+  }
+  const known = deriveAllKnown({
+    ageGroups: source.ageGroups,
+    teams: source.teams,
+    yearGames: source.gamesOfYear(year),
+    readSeason: source.readSeason,
+    autoRemoved: source.autoRemoved,
+  });
+  const games = gamesOnPages(known.games, rankingPoolGroupIds(page.id, source.ageGroups));
+  const report = standInReport(known.teams, games, source.ageGroups, year, Number.MAX_SAFE_INTEGER);
+  const whyOf = new Map(report.top.map((club) => [club.teamId, club.why]));
+  const levels = new Map(source.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
+  const index = caseIndex(known.teams, games, (id) => levels.get(id));
+  say(
+    `  Played rows a pulled club's own schedule gave against a stand-in: ${index.against.length};` +
+      ` pulled names: ${index.names} (${since()}).`
+  );
+  const describe = (label: string, tally: ClockTally) => {
+    const vs = (part: number, chance: number) =>
+      `${part} (${share(part, tally.rows - tally.noStart)}; a week off ${share(chance, tally.rows - tally.noStart)})`;
+    say(`\n  ${label}: ${tally.rows} rows read, ${tally.noStart} with no start.`);
+    say(
+      `    another club's own row within ${CLOCK_MINUTES} min, two levels: ${vs(tally.any, tally.decoy.any)}`
+    );
+    say(`    and its club's name sharing a word: ${vs(tally.sharesWord, tally.decoy.sharesWord)}`);
+    say(
+      `    and a word in no more than 1 in ${RARE_AMONG} pulled names: ` +
+        vs(tally.sharesRare, tally.decoy.sharesRare)
+    );
+    say(
+      `    of those sharing a word, the result mirrored ${tally.mirrored}, scored otherwise` +
+        ` ${tally.scoredOtherwise}, not scored ${tally.unscored}`
+    );
+  };
+  const unmatched = (row: { standInId: string }) => whyOf.get(row.standInId) === "unmatched";
+  describe(
+    'Stand-ins with nothing of their name pulled ("unmatched")',
+    tallyClock(index, unmatched, 8000)
+  );
+  describe(
+    "Stand-ins with a pulled club of the name somewhere",
+    tallyClock(index, (row) => !unmatched(row), 8000)
+  );
+  say(`  (${since()})`);
+
+  const nameOf = (id: string) => {
+    const team = index.byId.get(id);
+    if (!team) return id;
+    const tag = team.gcTeams?.length ? "" : team.placeholder ? " [slot]" : " [stand-in]";
+    return `${team.name}${team.state ? ` (${team.state})` : ""}${tag}`;
+  };
+  const clock = (at: number) =>
+    Number.isNaN(at) ? "--:--" : new Date(at).toISOString().slice(11, 16);
+  const result = (row: { own?: number; opponent?: number }) =>
+    row.own === undefined ? "no score" : `${row.own}-${row.opponent}`;
+  const ownRow = (other: CaseOwnRow) =>
+    `${other.game.date!.slice(5)} ${clock(other.at)} v ${nameOf(other.opponentId)} ${result(other)}` +
+    `${other.level === undefined ? "" : ` ${other.level}U`}`;
+  const held = new Map(report.top.map((club) => [club.teamId, club]));
+  const cases = standInCases(index, unmatched, Number(flag("top") || 40));
+  sayNamed(
+    cases.flatMap(({ row, byName, byClock }, at) => {
+      const standIn = held.get(row.standInId);
+      const head =
+        `#${at + 1} ${row.game.date} ${clock(row.at)} ${nameOf(row.namerId)} ${row.level ?? "?"}U` +
+        ` ${result(row)} v "${index.byId.get(row.standInId)?.name ?? row.standInId}"` +
+        ` (holds ${standIn?.games ?? "?"} games)`;
+      return [
+        head,
+        ...byName.map(
+          ({ clubId, like, thatDay }) =>
+            `   name: ${nameOf(clubId)} [${like.shared.join(" ")}; ${like.weight.toFixed(1)}]` +
+            ` ${thatDay.length === 0 ? "no rows that day or either side" : thatDay.slice(0, 4).map(ownRow).join(" | ")}`
+        ),
+        ...byClock.map(
+          ({ other, like }) =>
+            `   clock: ${Math.round((other.at - row.at) / 60000)} min ${nameOf(other.clubId)}` +
+            ` ${ownRow(other)}${like.shared.length ? ` [${like.shared.join(" ")}]` : ""}`
+        ),
+      ];
+    }),
+    "Rows against stand-ins with nothing of their name pulled, laid out:"
+  );
+};
+
 /* -------------------------------------------------------------------------------------- run */
 
 const main = async (): Promise<void> => {
@@ -1134,6 +1254,16 @@ const main = async (): Promise<void> => {
       measureStandInLevers(source, year);
     } catch (error) {
       say(`The stand-in levers stopped: ${failureWords(error)}`);
+      process.exitCode = 1;
+    }
+    finish();
+    return;
+  }
+  if (has("stand-in-cases")) {
+    try {
+      measureStandInCases(source, year);
+    } catch (error) {
+      say(`The stand-in cases stopped: ${failureWords(error)}`);
       process.exitCode = 1;
     }
     finish();

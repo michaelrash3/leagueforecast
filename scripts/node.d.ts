@@ -46,5 +46,6 @@ declare module "node:crypto" {
 }
 
 declare module "node:zlib" {
-  export function gzipSync(data: string): Uint8Array;
+  export function gzipSync(data: string | Uint8Array): Uint8Array;
+  export function gunzipSync(data: Uint8Array): Uint8Array;
 }

@@ -71,14 +71,16 @@ const FILLER = new Set([
  * spacing, the filler words out (`FILLER`), and no spaces at all. A colour, a coach or a sponsor
  * stays, so "KC Crushers Black" is still not "KC Crushers".
  */
-export const looseNameKey = (name: string): string =>
+export const looseNameKey = (name: string): string => looseNameWords(name).join("");
+
+/** The words of a name read loosely, as `looseNameKey` reads them before it joins them. */
+export const looseNameWords = (name: string): string[] =>
   teamNameKey(name)
     .replace(/\bsaint\b/g, "st")
     .replace(/\bst\.?\s*louis\b/g, "stl")
     .replace(/[.,'&]/g, " ")
     .split(/\s+/)
-    .filter((word) => word !== "" && !FILLER.has(word))
-    .join("");
+    .filter((word) => word !== "" && !FILLER.has(word));
 
 export type StandInClub = {
   teamId: string;
