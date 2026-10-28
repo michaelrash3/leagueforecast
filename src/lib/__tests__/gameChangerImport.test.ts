@@ -3702,7 +3702,7 @@ describe("claimFiledRows: a claim the schedules stop bearing out goes back", () 
     const state = tidyPool(pull(settled(), listed)).state;
     expect(page(state, "gcA")).toEqual(["7-3 v Sharks at 18:00", "unplayed v Bears at 18:45"]);
     expect(state.games.find((game) => game.id === "gc_gcB_b1")?.alsoRows).toEqual([
-      { teamId: "gcA", gameId: "a2", startTs: at("18:45"), onSideB: true },
+      { teamId: "gcA", gameId: "a2", startTs: at("18:45"), onSideB: true, typedAs: "bears" },
     ]);
   });
 

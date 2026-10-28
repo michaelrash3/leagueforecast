@@ -217,6 +217,7 @@ const SHAPES_NOW = {
       "source",
       "joinedFrom",
       "joinedFromLevel",
+      "typedAs",
     ]),
     reported: fieldsOf<NonNullable<ScoutGame["reportedByB"]>>()(["teamAScore", "teamBScore"]),
     source: fieldsOf<ScoutGameSource>()(["kind", "teamId", "gameId"]),
@@ -229,6 +230,7 @@ const SHAPES_NOW = {
       "opponentScore",
       "onSideB",
       "namedByAvatar",
+      "typedAs",
       "filedAgainst",
       "filedLevel",
     ]),
@@ -330,6 +332,8 @@ const SHAPES: readonly { schema: number; fingerprint: string }[] = [
   { schema: 4, fingerprint: "5d986c46f0539b0c11f77b31c939494191d6e8be52d6c63a14b6e5adce078d24" },
   // A club filed at the oldest age its opponents are says so (`GcTeamLink.ageFrom: "tentative"`).
   { schema: 5, fingerprint: "a5707780f579ea9056ba501628d0688fddcd3b4ad1e126614e0959eb2f5be438" },
+  // A game, and a row folded into one, keeps the opponent's name as its row typed it (`typedAs`).
+  { schema: 6, fingerprint: "2bd87304b56459c2626cede98a58b89cac6d1b144b629f1bcd9c7963813f5855" },
 ];
 
 /** Order-free, so a list tidied into another order is not taken for a new shape. */

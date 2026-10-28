@@ -2257,6 +2257,49 @@ const scoresAsExisting = (
     ? { a: candidate.teamAScore, b: candidate.teamBScore }
     : { a: candidate.teamBScore, b: candidate.teamAScore };
 
+/**
+ * Whether a game rests on its own row's name alone, so a name its coach has since changed is the
+ * game's opponent changed (`ScoutGame.typedAs`): its own row is the one `schedule` lists, and
+ * nothing else says who was played. Not a game holding another schedule's row or record of it,
+ * which is that club's own word that the two met; nor one the namesake join made (`joinedFrom`),
+ * which holds the other club's row; nor one whose picture named its club (`namedByAvatar`), an
+ * identity where a name is a guess.
+ */
+const restsOnItsName = (game: ScoutGame, schedule: string): boolean =>
+  game.source?.teamId === schedule &&
+  game.joinedFrom === undefined &&
+  game.namedByAvatar === undefined &&
+  (game.alsoRows ?? []).every((row) => row.teamId === schedule) &&
+  (game.alsoFrom ?? []).every((teamId) => teamId === schedule);
+
+/**
+ * `game` carrying the name its own row typed (`ScoutGame.typedAs`): learned where it has none, and
+ * taken where the row was filed again by it (`renamed`). A name typed otherwise on a game that
+ * rests on more than it is left as it was, so the rename is still read once nothing else does.
+ */
+const withTypedAs = (game: ScoutGame, typedAs: string, renamed: boolean): ScoutGame =>
+  !typedAs || game.typedAs === typedAs || (game.typedAs !== undefined && !renamed)
+    ? game
+    : { ...game, typedAs };
+
+/**
+ * `game` with its other side, the one its own row named, replaced by `opponent` at `level`: the
+ * level read off the name that files it there, or none where that name gives none.
+ */
+const withOpponent = (
+  game: ScoutGame,
+  ownSideA: boolean,
+  opponent: string,
+  level: number | undefined
+): ScoutGame => {
+  if (ownSideA) {
+    const { ageLevelB: _old, ...rest } = game;
+    return { ...rest, teamBId: opponent, ...(level === undefined ? {} : { ageLevelB: level }) };
+  }
+  const { ageLevelA: _old, ...rest } = game;
+  return { ...rest, teamAId: opponent, ...(level === undefined ? {} : { ageLevelA: level }) };
+};
+
 const differs = (existing: ScoutGame, candidate: ScoutGame): boolean => {
   const scores = scoresAsExisting(existing, candidate);
   // An unscored copy says nothing about the result; it must not be read as disagreeing with one.
@@ -3063,6 +3106,35 @@ const importOne = (
 
     let opponentId = knownOpponentId;
     /*
+     * The opponent's name as this schedule types it now, and whether the coach has renamed it since
+     * the row was filed (`ScoutGame.typedAs`): then the opponent the row settled on was the old
+     * name's, and the row is filed by the new one, as a row first pulled under it would be, where
+     * nothing but its name says who was played (`restsOnItsName`). The owner's case of 28 October
+     * 2026: a one-word name, filed onto the one pulled club of it near the namer, renamed in full
+     * to a club of a longer name, stayed on the first club through every pull after.
+     */
+    const typedAs = teamNameKey(game.opponentName);
+    const renamed =
+      known !== undefined &&
+      known.typedAs !== undefined &&
+      known.typedAs !== typedAs &&
+      restsOnItsName(known, profile.id);
+    if (renamed) {
+      const plan = planOpponent(
+        game,
+        group.id,
+        index,
+        own.teamId,
+        profile.id,
+        true,
+        options.notThisTeam
+      );
+      opponentId = teamOfPlan(plan, game.opponentName, index, teams);
+      if (plan.basis === "created") outcome.opponentsCreated += 1;
+      else if (plan.basis === "avatar") outcome.opponentsMatchedByAvatar += 1;
+      else outcome.opponentsMatchedByName += 1;
+    }
+    /*
      * The other club's copy holding this schedule on record with no row kept (`alsoFrom` alone, from
      * before rows were kept), where this row is one its name files against nobody the pool knows,
      * within the hour of the copy and not scored apart from it (`heldOnRecord`). The record stood
@@ -3138,6 +3210,7 @@ const importOne = (
       ...(profile.season ? { season: formatGcSeason(profile.season) } : {}),
       ...(game.startTs ? { startTs: game.startTs } : {}),
       ...(namedByAvatar === undefined ? {} : { namedByAvatar }),
+      ...(typedAs ? { typedAs } : {}),
       source: { kind: "gamechanger", teamId: profile.id, gameId: game.id },
     };
 
@@ -3289,8 +3362,17 @@ const importOne = (
      */
     const recorded =
       existing === known
-        ? onClubPage(withPictureOf(existing, candidate, pictured))
+        ? withTypedAs(onClubPage(withPictureOf(existing, candidate, pictured)), typedAs, renamed)
         : withSchedulesOf(existing, candidate);
+    /*
+     * A renamed row filed by its new name against another team than the one it stands against: the
+     * game's other side goes, at the level the new name gives, and nothing else of it.
+     */
+    const ownSideA = existing.teamAId === own.teamId;
+    const refiled =
+      renamed &&
+      existing === known &&
+      (ownSideA ? existing.teamBId : existing.teamAId) !== candidate.teamBId;
     /*
      * The other club's own copy of the game: its score goes beside this one's rather than over it
      * (`withSideBReport`), so neither club's schedule speaks for the other's and the score no longer
@@ -3351,7 +3433,7 @@ const importOne = (
       existing === known &&
       isScored(candidate) &&
       (existing.scoreFromB === true || existing.scoreFromTwin === true);
-    if (!differs(existing, candidate) && !moved && !redated && !ownAtLast) {
+    if (!differs(existing, candidate) && !moved && !redated && !ownAtLast && !refiled) {
       // The record is bookkeeping, not news: nothing the reader would call a change.
       if (recorded !== existing) writeInPlace(existing, recorded);
       outcome.gamesUnchanged += 1;
@@ -3397,14 +3479,14 @@ const importOne = (
         : { ...kept, joinedFromLevel: candidate.ageLevelB }
       : kept;
     const merged: ScoutGame = {
-      ...base,
+      ...(refiled ? withOpponent(base, ownSideA, candidate.teamBId, candidate.ageLevelB) : base),
       ...(isScored(candidate) ? { teamAScore: scores.a, teamBScore: scores.b } : {}),
       ...(candidate.season ? { season: candidate.season } : {}),
       ...(displaced ? { note: withNote(existing.note, displaced) } : {}),
       ...(moved ? { startTs: candidate.startTs } : {}),
       ...(redated ? { date: candidate.date } : {}),
     };
-    if (redated) refileInPlace(existing, merged);
+    if (redated || refiled) refileInPlace(existing, merged);
     else writeInPlace(existing, merged);
     outcome.gamesUpdated += 1;
   }

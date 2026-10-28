@@ -126,6 +126,7 @@ const COUNTED_ELSEWHERE = 16;
  * 12 event    13 note       14 id (only when it cannot be rebuilt from the source)
  * 15 start time (the instant the source gave, when it gave one)
  * 16 also-from (other GameChanger schedules that listed this game, as source indexes)
+ * ... 23 the opponent's name as the game's own row typed it, as an index into `n`
  *
  * Positions are only ever appended to. An older file simply stops earlier, and every reader below
  * treats a missing position as the field being absent, so a pool written before a position existed
@@ -145,6 +146,11 @@ export type CompactPool = {
   c: string[];
   /** Event names. */
   e: string[];
+  /**
+   * The opponents' names as their rows typed them (`ScoutGame.typedAs`), where any game carries
+   * one: left out of a pool none does, so a pool written before names were kept is the same.
+   */
+  n?: string[];
   r: GameRow[];
 };
 
@@ -164,6 +170,7 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
   const seasons = interner();
   const sources = interner();
   const events = interner();
+  const typed = interner();
 
   const rows = games.map((game): GameRow => {
     const sourceTeam = game.source?.teamId;
@@ -225,6 +232,8 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
                     row.filedLevel ?? null,
                     // The club its picture named, which the tidy leaves it on once stood back up.
                     row.namedByAvatar === undefined ? null : teams.index(row.namedByAvatar),
+                    // The opponent's name as its schedule typed it (`FoldedRow.typedAs`).
+                    typed.index(row.typedAs),
                   ]),
                 ];
           })
@@ -239,6 +248,8 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
       // the level that name gave: what the join puts the row back against if it stops fitting.
       game.joinedFrom === undefined ? null : teams.index(game.joinedFrom),
       game.joinedFromLevel ?? null,
+      // The opponent's name as the game's own row typed it, which a pull reads a rename against.
+      typed.index(game.typedAs),
     ]);
   });
 
@@ -249,6 +260,7 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
     s: seasons.values,
     c: sources.values,
     e: events.values,
+    ...(typed.values.length > 0 ? { n: typed.values } : {}),
     r: rows,
   };
 };
@@ -327,6 +339,7 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
         const filedAgainst = at(pool.t, entry[7]);
         const filedLevel = num(entry[8]);
         const namedByAvatar = at(pool.t, entry[9]);
+        const typedAs = at(pool.n, entry[10]);
         // In `recordOf`'s order, which the tidy compares records in.
         return [
           {
@@ -339,6 +352,7 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
               : {}),
             ...(entry[5] === 1 ? { onSideB: true } : {}),
             ...(namedByAvatar ? { namedByAvatar } : {}),
+            ...(typedAs ? { typedAs } : {}),
             ...(filedAgainst
               ? { filedAgainst, ...(filedLevel === undefined ? {} : { filedLevel }) }
               : {}),
@@ -364,6 +378,8 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
     const joinedFromLevel = num(row[22]);
     if (joinedFromLevel !== undefined) game.joinedFromLevel = joinedFromLevel;
   }
+  const typedAs = at(pool.n, row[23]);
+  if (typedAs) game.typedAs = typedAs;
 
   if (sourceTeam && sourceGame) {
     game.source = { kind: "gamechanger", teamId: sourceTeam, gameId: sourceGame };
@@ -405,6 +421,7 @@ export const decodeScoutGames = (
     s: Array.isArray(raw.s) ? raw.s : [],
     c: Array.isArray(raw.c) ? raw.c : [],
     e: Array.isArray(raw.e) ? raw.e : [],
+    n: Array.isArray(raw.n) ? raw.n : [],
     r: raw.r,
   };
 
@@ -743,6 +760,7 @@ const coerceFoldedRows = (raw: unknown): FoldedRow[] =>
                 ...(isFilledString(entry.namedByAvatar)
                   ? { namedByAvatar: entry.namedByAvatar }
                   : {}),
+                ...(isFilledString(entry.typedAs) ? { typedAs: entry.typedAs } : {}),
                 ...(isFilledString(entry.filedAgainst)
                   ? {
                       filedAgainst: entry.filedAgainst,
@@ -795,6 +813,7 @@ export const coerceScoutGames = (raw: unknown): ScoutGame[] => {
                 : {}),
             }
           : {}),
+        ...(isFilledString(entry.typedAs) ? { typedAs: entry.typedAs } : {}),
         ...(isNumber(entry.ageLevelA) ? { ageLevelA: entry.ageLevelA } : {}),
         ...(isNumber(entry.ageLevelB) ? { ageLevelB: entry.ageLevelB } : {}),
         ...(isString(entry.season) ? { season: entry.season } : {}),

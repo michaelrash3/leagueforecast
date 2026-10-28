@@ -48,8 +48,11 @@ const FORMAT_WITHOUT_EPOCH = 2;
  * an older build, the club it names would be credited with the game twice until the next tidy.
  * 5: a club filed at the oldest age its opponents are says so (`GcTeamLink.ageFrom` "tentative");
  * dropped by an older build, the club would count as evidence of other teams' ages.
+ * 6: a game keeps the opponent's name as its own row typed it (`ScoutGame.typedAs`); dropped by an
+ * older build, a coach's later rename of the opponent would go unread until a pull learned the
+ * name again.
  */
-export const DATA_SCHEMA = 5;
+export const DATA_SCHEMA = 6;
 
 /**
  * Thrown for a manifest this build cannot read, which is never to be taken for no copy at all: the

@@ -2355,6 +2355,24 @@ two clubs' schedules** says how), and only a score that has since been played is
 written. A 0-0 is read as no score entered,
 which is what GameChanger means by it.
 
+**A renamed opponent is read again.** A pull finds a row it has already filed by the row's id and
+keeps the opponent it settled on, so a coach who corrected the opponent's name afterwards was never
+read: on 28 October 2026 the owner found a 9U club's win still filed onto the one pulled club of a
+one-word name near it, whose own schedule had no game that day, after the coach had renamed the
+opponent in full, a club of a longer name. So every row keeps the name its schedule typed (`ScoutGame.typedAs`,
+as names are compared, `teamNameKey`), and a pull that finds it typed otherwise files the row by
+the new name, as a row first pulled under it would be, where the name is all the row rests on
+(`restsOnItsName`): not a game holding another club's own row of it, which is that club's word that
+the two met, nor one whose picture named its club, nor one the namesake join made. A name written
+otherwise ("RAMS 9u" for "Rams") is no rename. A row learns its name once and keeps it until it is
+filed again by another, so a rename on a game that rests on more is read once nothing else does;
+a row held in another club's copy keeps the name on its record there (`FoldedRow.typedAs`), as a
+claim keeps the team it was filed against, so a claim given back stands up under the name it was
+filed by and is read for the rename at its next pull. A row filed before names were kept learns its
+name on its next pull and is read from the rename after that. The names are kept in the stored
+pool once each (`CompactPool.n`) and in the backup's games ("Typed As", and after "*" on a folded
+row); the data schema went to 6 for them.
+
 **A squad year runs August 1 to July 31.** "2027" is the squad that plays Fall
 2026 and Spring 2027, and its season began on 2026-08-01. GameChanger lists a
 club's older games under its new id often enough that a nationwide pull carried
