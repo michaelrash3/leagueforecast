@@ -121,11 +121,10 @@ export function StandingLine({
   const y = (share: number) => 4 + share * (LINE_HEIGHT - 8);
   const first = points[0]!;
   const last = points[points.length - 1]!;
-  const said = points
-    .map((point) =>
-      point.asOf ? `${point.words} on ${shortDay(point.asOf)}` : `${point.words} now`
-    )
-    .join(", ");
+  // Today's point is the one without a day. A club listed last today has none, and its line ends
+  // on the last week it had a share, which is said by its day, not as now.
+  const when = (point: { asOf: string }) => (point.asOf ? `on ${shortDay(point.asOf)}` : "now");
+  const said = points.map((point) => `${point.words} ${when(point)}`).join(", ");
   return (
     <div className="mt-2 flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
       <svg
@@ -155,8 +154,8 @@ export function StandingLine({
         ))}
       </svg>
       <span>
-        {first.words.charAt(0).toUpperCase() + first.words.slice(1)} on {shortDay(first.asOf)},{" "}
-        {last.words} now
+        {first.words.charAt(0).toUpperCase() + first.words.slice(1)} {when(first)}, {last.words}{" "}
+        {when(last)}
       </span>
     </div>
   );

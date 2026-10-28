@@ -118,6 +118,24 @@ describe("the standing line", () => {
     expect(heights()).toHaveLength(2);
   });
 
+  it("says the day of its last week, not now, when the club is listed last today", () => {
+    render(
+      <StandingLine
+        history={[
+          { asOf: "2026-09-01", rank: 100, of: 1000 },
+          { asOf: "2026-09-08", rank: 200, of: 1000 },
+        ]}
+        now={1100}
+        nowOf={1000}
+      />
+    );
+    expect(screen.getByRole("img").getAttribute("aria-label")).toMatch(
+      /^Standing by week: top 10% on .+, top 20% on .+$/
+    );
+    expect(screen.getByText(/^Top 10% on .+, top 20% on .+$/)).toBeTruthy();
+    expect(screen.queryByText(/now/)).toBeNull();
+  });
+
   it("leaves out weeks whose board was not counted, and draws nothing short of two weeks", () => {
     const { container } = render(
       <StandingLine
