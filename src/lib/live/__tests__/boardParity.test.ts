@@ -245,14 +245,23 @@ const steady = (boards: PageBoard[]) =>
     pageId,
     half,
     rows: rows
-      .map(({ rank: _rank, sosRank: _sosRank, overallRank: _overallRank, ...row }) => ({
-        ...row,
-        rating: toMillionth(row.rating),
-        pointRating: toMillionth(row.pointRating),
-        ...(row.levelPrior === undefined ? {} : { levelPrior: toMillionth(row.levelPrior) }),
-        rawMargin: toMillionth(row.rawMargin),
-        strengthOfSchedule: toMillionth(row.strengthOfSchedule),
-      }))
+      .map(
+        ({
+          rank: _rank,
+          sosRank: _sosRank,
+          overallRank: _overallRank,
+          // Which clubs are listed last is the order's, as a place is, and the digit pin's to hold.
+          listedLast: _listedLast,
+          ...row
+        }) => ({
+          ...row,
+          rating: toMillionth(row.rating),
+          pointRating: toMillionth(row.pointRating),
+          ...(row.levelPrior === undefined ? {} : { levelPrior: toMillionth(row.levelPrior) }),
+          rawMargin: toMillionth(row.rawMargin),
+          strengthOfSchedule: toMillionth(row.strengthOfSchedule),
+        })
+      )
       .sort((a, b) => (a.teamId < b.teamId ? -1 : a.teamId > b.teamId ? 1 : 0)),
   }));
 
@@ -866,10 +875,13 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
       // Every number, rank and row order exactly, so a change to the order the fit walks or sums
       // anything in is caught, as the parity tests cannot: both sides share that code. The rows
       // alone: last week's places and the rank lines beside them are the parity tests' to hold.
+      // Which clubs are listed last (`listedLast`) is said by the order this holds, and was added
+      // to the rows after this was pinned, so it is left out: the pin is the same to the digit with
+      // it or without, which is what says the flag moved nothing.
       const boards = builtBoards(stored()).map(({ pageId, half, rows }) => ({
         pageId,
         half,
-        rows,
+        rows: rows.map(({ listedLast: _listedLast, ...row }) => row),
       }));
       expect(fingerprint(boards)).toBe(digitPin);
     }

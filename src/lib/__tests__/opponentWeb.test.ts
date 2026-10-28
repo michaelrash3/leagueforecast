@@ -133,6 +133,11 @@ describe("the order a board lists clubs in", () => {
     const ratings = wideRows.map((row) => row.rating);
     expect(ratings).toEqual([...ratings].sort((a, b) => b - a));
     expect(rows.map((row) => row.rank)).toEqual(rows.map((_, at) => at + 1));
+    // The rows say which they are, for a share of the board read off a place (`StandingLine`),
+    // and the rest carry no flag at all.
+    expect(longhorns.listedLast).toBe(true);
+    expect(minors.listedLast).toBe(true);
+    expect(wideRows.filter((row) => "listedLast" in row)).toEqual([]);
   };
 
   it("lists a club whose web falls short after every club whose web reaches the line", () => {

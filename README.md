@@ -574,10 +574,25 @@ board at or above it ("top 39%"), the top of the board at the top. It drew the p
 until 27 October 2026, and a board fills all season as clubs play their first games, so
 a club in the middle sank from #439 on 1 September to #2,737 of 7,126 by late October
 while holding its own, and read as a team getting worse. The share is the place over
-the clubs on that week's board, rounded up so it never reads better than the place,
-and the line spans at least a tenth of the board so a point or two is drawn as one.
-Each week's count comes off the same fit as its places (`pastBoardAsOf`); a week
-without one, a board published before it was counted, is left out of the line.
+the clubs that week's board listed by rating, rounded up so it never reads better than
+the place, and said as the smaller slice: "top 10%", or below the middle "bottom 16%"
+rather than "top 84%". The line is drawn on the whole board, its top edge the top of the
+board and its bottom edge the foot.
+
+Both since 28 October 2026, when the owner's club, losing, drew a line climbing all
+season. Two things drew it. The clubs a board lists after the rest because their web of
+games falls short of the line (`listedLast` on their rows, `opponentWeb.ts`) stood below
+every other club by the order, not by rating, and the line grows with the season, so
+more of them sat under each club every week: on that day's page the club's share of the
+whole board went from the top 83% to the top 71%, of the clubs listed by rating from the
+top 93% to the top 84% (a research read of the cloud copy). And the line was scaled to its own
+range, at least a tenth of the board, so nine points near the foot ran from its
+bottom edge to its top. Now a club near the foot sits near the bottom edge, nine points
+are two and a half pixels of 28, and a week the club itself was listed last has no share of
+the clubs listed by rating and is left out of the line. Each week's count comes off the
+same fit as its places (`pastBoardAsOf`); a week without one, a board published before
+it was counted, is left out of the line. A board published before the flag reads as one
+listed wholly by rating, its count the whole board, until the nightly publishes it again.
 Each week is another fit of the year as it stood that day, so the worker is asked
 for them one at a time, naming the club so only its place comes back, and keeps every
 board of a line and one more (`RANK_HISTORY_WEEKS`, eight at most, so nine boards, about
@@ -6384,7 +6399,8 @@ row's place on last week's board (`was`, absent for a club that was not on it), 
 the day of that board and whether anyone was on it (`past`), so a device can tell a
 club new to the board from a half that had not begun. A page that has its own club
 gets that club's rank line too (`history`): its place week by week, and how many
-clubs each week's board held (`of`, which the standing line reads the place against),
+clubs each week's board listed by rating (`of`, which the standing line reads the place
+against),
 walked back from last week's board by the same step the page walks it with
 (`rankLineStep` in `rankMovement.ts`), with last week's place on the end. Each past week is another fit
 of the year as it stood that day, kept for the build by page, half, fitted year and

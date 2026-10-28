@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { tidyPool, type GcImportState } from "../gameChangerImport";
+import {
+  tidyPool as shippedTidyPool,
+  type GcImportState,
+  IN_STATE_TIDY_RULES,
+} from "../gameChangerImport";
 import {
   gcRowId,
   type AgeGroup,
@@ -8,6 +12,21 @@ import {
   type ScoutTeam,
 } from "../teamRankings";
 import { countsTowardRating, scoreSeenBy } from "../teamRankings/games";
+
+/*
+ * Read under the tidy's rules of 27 October 2026 (`IN_STATE_TIDY_RULES`), which these tests were
+ * written to: since rules 34 the tidy also files a name onto the one pulled club of it near the
+ * namer though its own schedules have no game that day (`oneNamesake`), which has tests of its own
+ * (`oneNamesake.test.ts`).
+ */
+const tidyPool: typeof shippedTidyPool = (
+  state,
+  watch,
+  apart,
+  refused,
+  real,
+  rules = IN_STATE_TIDY_RULES
+) => shippedTidyPool(state, watch, apart, refused, real, rules);
 
 /*
  * One GameChanger row, one place in the pool.

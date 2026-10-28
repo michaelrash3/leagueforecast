@@ -115,6 +115,7 @@ import { borderingStates, farApart, inOneRegion } from "./stateBorders";
 import { namedAgeFor, type NamedAges } from "./namedAges";
 import { GC_PAIRING_EVIDENCE_LABEL, type GcPairingEvidence } from "./gcPairingEvidence";
 import { fillMissingStates } from "./clubStates";
+import { looseNameKey } from "./standInReport";
 
 /**
  * The lookups an import does, precomputed.
@@ -6860,6 +6861,10 @@ type NamedRow = {
 type PulledNames = {
   /** Pulled clubs by pool, name and level, as the refile files them. */
   clubs: Map<string, ScoutTeam[]>;
+  /** The same by the name read loosely (`looseNameKey`), for `oneNamesake`. */
+  loose: Map<string, ScoutTeam[]>;
+  /** The levels each pulled club is listed at. */
+  listed: Map<string, Set<number>>;
   /** How many pulled names hold each word. */
   holding: Map<string, number>;
   names: number;
@@ -6876,11 +6881,14 @@ const pulledNamesOf = (
   return () => {
     if (index) return index;
     const clubs = new Map<string, ScoutTeam[]>();
+    const loose = new Map<string, ScoutTeam[]>();
+    const listed = new Map<string, Set<number>>();
     const keys = new Set<string>();
     const clubOfSchedule = new Map<string, string>();
     state.teams.forEach((team) => {
       if (!team.gcTeams?.length) return;
       const key = teamNameKey(team.name);
+      const looseKey = looseNameKey(team.name);
       keys.add(key);
       team.gcTeams.forEach((link) => clubOfSchedule.set(link.teamId, team.id));
       new Set(
@@ -6888,6 +6896,19 @@ const pulledNamesOf = (
           (link) => `${poolKeyOf(link.ageGroupId)}\u0000${key}\u0000${link.ageLevel}`
         )
       ).forEach((slot) => push(clubs, slot, team));
+      new Set(
+        team.gcTeams.map(
+          (link) => `${poolKeyOf(link.ageGroupId)}\u0000${looseKey}\u0000${link.ageLevel}`
+        )
+      ).forEach((slot) => push(loose, slot, team));
+      listed.set(
+        team.id,
+        new Set(
+          team.gcTeams
+            .map((link) => link.ageLevel)
+            .filter((level): level is number => level !== undefined)
+        )
+      );
     });
     const holding = new Map<string, number>();
     keys.forEach((key) =>
@@ -6904,7 +6925,7 @@ const pulledNamesOf = (
         if (first === undefined || day < first) firstDay.set(at, day);
       });
     });
-    index = { clubs, holding, names: keys.size, firstDay };
+    index = { clubs, loose, listed, holding, names: keys.size, firstDay };
     return index;
   };
 };
@@ -6993,19 +7014,39 @@ export type InStateRule = {
   vouched: boolean;
 };
 
+/**
+ * How far a name is read as the one pulled club that carries it near the namer, though that club's
+ * own schedules have no game that day (`oneNamesake`); null, or left out, reads no name so.
+ */
+export type NamesakeRule = {
+  /** Failing one of the name at the row's level, the one whose name reads the same loosely. */
+  loose: boolean;
+  /** Failing either, the one of the name within this many levels of the row's. */
+  levelsApart: number;
+};
+
 /** The tidy's rules that a measurement reads one way and another, as `tidyPool` takes them. */
-export type TidyRules = { inState: InStateRule | null };
+export type TidyRules = { inState: InStateRule | null; namesake?: NamesakeRule | null };
 
 /**
  * The tidy as it ships: the one pulled club of a name in the namer's state, any name, at the row's
- * level, where the two are neighbours by their own schedules (`inStateNamesakes`).
+ * level, where the two are neighbours by their own schedules (`inStateNamesakes`); and failing
+ * that, the one pulled club of the name in the namer's region at the row's level, or spelled near
+ * it, or within two levels (`oneNamesake`).
  */
 export const SHIPPED_TIDY_RULES: TidyRules = {
   inState: { rareAmong: 1, nearLevel: false, vouched: true },
+  namesake: { loose: true, levelsApart: 2 },
 };
 
 /** The tidy before 27 October 2026, which read no name as the one club of it in a state. */
-export const DAY_CHECK_TIDY_RULES: TidyRules = { inState: null };
+export const DAY_CHECK_TIDY_RULES: TidyRules = { inState: null, namesake: null };
+
+/** The tidy of 27 October 2026, before a name was read as its one club in the namer's region. */
+export const IN_STATE_TIDY_RULES: TidyRules = {
+  inState: { rareAmong: 1, nearLevel: false, vouched: true },
+  namesake: null,
+};
 
 /** A row a name filed, as `inStateNamesakes` asks of it: the start time too. */
 type TimedNamedRow = NamedRow & { start: string | undefined };
@@ -7097,24 +7138,7 @@ export const inStateNamesakes = (
   pulledNow: () => PulledNames = pulledNamesOf(state, poolKeyOf)
 ): ((row: TimedNamedRow) => ScoutTeam | undefined) => {
   if (!rule) return () => undefined;
-  /** Each pulled club's own rows by day, at their start and against whom: what a clash reads. */
-  let ownStarts: Map<string, { start: string | undefined; other: string }[]> | undefined;
-  const ownStartsNow = () => {
-    if (ownStarts) return ownStarts;
-    const clubOfSchedule = new Map<string, string>();
-    state.teams.forEach((team) =>
-      team.gcTeams?.forEach((link) => clubOfSchedule.set(link.teamId, team.id))
-    );
-    const starts = new Map<string, { start: string | undefined; other: string }[]>();
-    state.games.forEach((game) =>
-      ownRowDays(game, (schedule) => clubOfSchedule.get(schedule)).forEach(([club, day]) => {
-        const other = club === game.teamAId ? game.teamBId : game.teamAId;
-        push(starts, `${club}\u0000${day}`, { start: game.startTs, other });
-      })
-    );
-    ownStarts = starts;
-    return starts;
-  };
+  const clashes = ownClashes(state);
   let opponents: Map<string, Set<string>> | undefined;
   return ({ pool, key, level, namer, date, start }) => {
     if (date === undefined || level === undefined || !namer?.state) return undefined;
@@ -7138,10 +7162,153 @@ export const inStateNamesakes = (
     ) {
       return undefined;
     }
-    const clash = (ownStartsNow().get(`${club.id}\u0000${date}`) ?? []).some(
-      (row) => row.other !== namer.id && startsWithinTheHour(row.start, start)
+    return clashes(club.id, date, start, namer.id) ? undefined : club;
+  };
+};
+
+/**
+ * Whether a pulled club's own schedules have a row that day starting within the hour of `start`
+ * against a club other than `namerId`: a club plays one game at a time, so a name read as that club
+ * there is somebody else. Read only once a row asks.
+ */
+const ownClashes = (
+  state: GcImportState
+): ((clubId: string, date: string, start: string | undefined, namerId: string) => boolean) => {
+  /** Each pulled club's own rows by day, at their start and against whom. */
+  let ownStarts: Map<string, { start: string | undefined; other: string }[]> | undefined;
+  const ownStartsNow = () => {
+    if (ownStarts) return ownStarts;
+    const clubOfSchedule = new Map<string, string>();
+    state.teams.forEach((team) =>
+      team.gcTeams?.forEach((link) => clubOfSchedule.set(link.teamId, team.id))
     );
-    return clash ? undefined : club;
+    const starts = new Map<string, { start: string | undefined; other: string }[]>();
+    state.games.forEach((game) =>
+      ownRowDays(game, (schedule) => clubOfSchedule.get(schedule)).forEach(([club, day]) => {
+        const other = club === game.teamAId ? game.teamBId : game.teamAId;
+        push(starts, `${club}\u0000${day}`, { start: game.startTs, other });
+      })
+    );
+    ownStarts = starts;
+    return starts;
+  };
+  return (clubId, date, start, namerId) =>
+    (ownStartsNow().get(`${clubId}\u0000${date}`) ?? []).some(
+      (row) => row.other !== namerId && startsWithinTheHour(row.start, start)
+    );
+};
+
+/**
+ * The pulled clubs each pulled club has met in a game both clubs' own schedules have a row in: what
+ * the resettle reads two far-apart clubs' acquaintance by (`unvouched`).
+ */
+const bothListedOpponents = (state: GcImportState): Map<string, Set<string>> => {
+  const clubOfSchedule = new Map<string, string>();
+  state.teams.forEach((team) =>
+    team.gcTeams?.forEach((link) => clubOfSchedule.set(link.teamId, team.id))
+  );
+  const opponents = new Map<string, Set<string>>();
+  const add = (club: string, other: string) => {
+    const bucket = opponents.get(club);
+    if (bucket) bucket.add(other);
+    else opponents.set(club, new Set([other]));
+  };
+  state.games.forEach((game) => {
+    const clubs = new Set<string>();
+    const of = (schedule: string) => {
+      const club = clubOfSchedule.get(schedule);
+      if (club !== undefined) clubs.add(club);
+    };
+    if (game.source) of(game.source.teamId);
+    game.alsoRows?.forEach((record) => of(record.teamId));
+    game.alsoFrom?.forEach(of);
+    if (clubs.has(game.teamAId) && clubs.has(game.teamBId)) {
+      add(game.teamAId, game.teamBId);
+      add(game.teamBId, game.teamAId);
+    }
+  });
+  return opponents;
+};
+
+/** A row a name filed, as `oneNamesake` asks of it: the name read loosely, and a level typed with it. */
+type NamesakeRow = TimedNamedRow & { looseKey: string; typed: number | undefined };
+
+/**
+ * The pulled club a name means because it is the one pulled club that carries the name near the
+ * club whose schedule wrote it down, though that club's own schedules have no game that day: in the
+ * namer's state or one bordering it, or either of no known state, or further where the two clubs
+ * have met or shared an opponent by both sides' own schedules (as the resettle reads it,
+ * `unvouched`), at the row's level in its squad year; failing any there, the one whose name reads the same loosely
+ * (`looseNameKey`: "Saint Louis Stars Baseball" and "St. Louis Stars"); failing that, the one of the
+ * name within two levels, since a club plays up. Two is a guess, and none is read. And as with the
+ * in-state rule: never a club named like a slot or nobody, on a day no earlier than a week before
+ * its own first game of the year, never where one of its own rows that day starts within the hour
+ * against another club, and never two levels from a level typed into the name where it is listed
+ * nowhere within one of it (the resettle takes such a row off, `twoOff`, and the two must agree).
+ *
+ * The owner, 27 and 28 October 2026: "I need stand in games at or below 15%", then "If you can get
+ * to 25%, great". On the cloud copy of 28 October (GitHub runs 40606022999 and 40607594214), 32.1% of
+ * the year's games had a stand-in or a slot on a side. Boards trained with each name filed onto the
+ * one pulled club of it on its page, any state, forecast the later games better than the boards as
+ * they were (log loss +0.0005 ± 0.0002, z 2.0; Brier z 2.0, on 126,563 decided games), and the share
+ * fell about four points; spelled near it, about 0.4 more, and the one within two levels about 1.7
+ * more, neither forecasting measurably better or worse (z 1.4 and 0.2). Leaving the names' games out
+ * instead forecast clearly worse (z -6.2 for the names holding one game), so this files them.
+ *
+ * Both tidy steps that read a club's own days ask this of the same row, and must agree: the refile
+ * files the row, and the step that takes a name's rows off a club with no game that day leaves it.
+ */
+export const oneNamesake = (
+  state: GcImportState,
+  poolKeyOf: (ageGroupId: string) => string,
+  rule: NamesakeRule | null | undefined,
+  pulledNow: () => PulledNames = pulledNamesOf(state, poolKeyOf)
+): ((row: NamesakeRow) => ScoutTeam | undefined) => {
+  if (!rule) return () => undefined;
+  const clashes = ownClashes(state);
+  let met: Map<string, Set<string>> | undefined;
+  /** As the resettle reads a name filed far from its namer (`unvouched`), so the two agree. */
+  const backed = (namerId: string, clubId: string): boolean => {
+    met ??= bothListedOpponents(state);
+    const theirs = met.get(clubId);
+    if (!theirs) return false;
+    if (theirs.has(namerId)) return true;
+    const ours = met.get(namerId);
+    return [...theirs].some((other) => other !== clubId && ours?.has(other));
+  };
+  return ({ pool, key, looseKey, level, namer, date, start, typed }) => {
+    if (date === undefined || level === undefined) return undefined;
+    const pulled = pulledNow();
+    // Near the namer, or far from it where the two clubs' own schedules meet: a Kentucky club
+    // plays Michigan's all the time (the owner, 27 October 2026), and no border joins them.
+    const near = (club: ScoutTeam) =>
+      club.id !== namer?.id &&
+      (!farApart(namer?.state, club.state) || (namer !== undefined && backed(namer.id, club.id)));
+    const at = (from: Map<string, ScoutTeam[]>, name: string, levels: readonly number[]) => [
+      ...new Set(
+        levels.flatMap((at) => from.get(`${pool}\u0000${name}\u0000${at}`) ?? []).filter(near)
+      ),
+    ];
+    let found = at(pulled.clubs, key, [level]);
+    if (found.length === 0 && rule.loose) found = at(pulled.loose, looseKey, [level]);
+    if (found.length === 0 && rule.levelsApart > 0) {
+      const levels: number[] = [];
+      for (let gap = 1; gap <= rule.levelsApart; gap += 1) levels.push(level - gap, level + gap);
+      found = at(pulled.clubs, key, levels);
+    }
+    if (found.length !== 1) return undefined;
+    const club = found[0]!;
+    if (isPlaceholderName(club.name) || namesNobody(club.name)) return undefined;
+    if (!inItsSeason(pulled, club.id, pool, date)) return undefined;
+    const listed = pulled.listed.get(club.id);
+    if (
+      typed !== undefined &&
+      listed?.size &&
+      ![...listed].some((at) => Math.abs(at - typed) <= 1)
+    ) {
+      return undefined;
+    }
+    return clashes(club.id, date, start, namer?.id ?? "") ? undefined : club;
   };
 };
 
@@ -7236,6 +7403,7 @@ export const resettleOffLevel = (
   const pulled = pulledNamesOf(state, poolKeyOf);
   const sole = soleNamesakes(state, poolKeyOf, pulled);
   const oneInState = inStateNamesakes(state, poolKeyOf, rules.inState, pulled);
+  const theNamesake = oneNamesake(state, poolKeyOf, rules.namesake, pulled);
 
   /**
    * What each pulled club's own schedules say of it: the levels its own rows were played at and the
@@ -7456,7 +7624,8 @@ export const resettleOffLevel = (
       refusedHere || farOff || twoOff(namedId, typed, game.date) || unvouched(namedId, moverId);
     // A name no other club carries is the club's though it has no game that day, which is where
     // the refile files it (`soleNamesakes`); so is the one club of it in the namer's state, where
-    // the rules read it so (`inStateNamesakes`).
+    // the rules read it so (`inStateNamesakes`), and the one of it in the namer's region
+    // (`oneNamesake`).
     const meant = () => {
       const row = {
         pool: poolKeyOf(game.ageGroupId),
@@ -7466,7 +7635,11 @@ export const resettleOffLevel = (
         date: game.date,
         start: game.startTs,
       };
-      return sole(row)?.id === namedId || oneInState(row)?.id === namedId;
+      return (
+        sole(row)?.id === namedId ||
+        oneInState(row)?.id === namedId ||
+        theNamesake({ ...row, looseKey: looseNameKey(named.name), typed })?.id === namedId
+      );
     };
     if (!offByRule && (!unlisted(namedId, game.date) || meant())) return game;
 
@@ -7591,14 +7764,16 @@ export const refileStandIns = (
   const pulled = pulledNamesOf(state, poolKeyOf);
   const sole = soleNamesakes(state, poolKeyOf, pulled);
   const oneInState = inStateNamesakes(state, poolKeyOf, rules.inState, pulled);
+  const theNamesake = oneNamesake(state, poolKeyOf, rules.namesake, pulled);
   let refiled = 0;
   const games = state.games.map((game) => {
     const a = teamById.get(game.teamAId);
     const b = teamById.get(game.teamBId);
     const standIn = a?.nameOnly ? a : b?.nameOnly ? b : undefined;
     const puller = standIn === a ? b : a;
-    if (!standIn || !puller?.gcTeams?.length || !puller.state) return game;
-    const level = (standIn === a ? game.ageLevelA : game.ageLevelB) ?? levelOf.get(game.ageGroupId);
+    if (!standIn || !puller?.gcTeams?.length) return game;
+    const typed = standIn === a ? game.ageLevelA : game.ageLevelB;
+    const level = typed ?? levelOf.get(game.ageGroupId);
     const pool = poolKeyOf(game.ageGroupId);
     const key = teamNameKey(standIn.name);
     const slot = `${pool}\u0000${key}\u0000${level}`;
@@ -7613,9 +7788,11 @@ export const refileStandIns = (
     // Two in the state: the one in the puller's own town, if exactly one is.
     const pullerTown = townKey(puller.city);
     // None in the state: the one across a border, if exactly one is.
-    const near = borderingStates(puller.state);
-    const chosen =
-      inState.length === 1
+    const near = puller.state ? borderingStates(puller.state) : new Set<string>();
+    // A puller of no known state reads none of these, only the one namesake near it below.
+    const chosen = !puller.state
+      ? []
+      : inState.length === 1
         ? inState
         : inState.length > 1
           ? pullerTown
@@ -7640,12 +7817,19 @@ export const refileStandIns = (
     const vouched =
       pick !== undefined && (listsThatDay(pick.id, game.date) || sole(row)?.id === pick.id);
     // Or, where the rules read it so, the one club of the name in the namer's own state, which the
-    // resettle leaves where this files it (`inStateNamesakes`).
-    const club = vouched ? pick : oneInState(row);
+    // resettle leaves where this files it (`inStateNamesakes`); or the one of it in the namer's
+    // region (`oneNamesake`), which it leaves too, unless the owner has said the club's own name is
+    // not the club on this schedule, which the resettle reads off the club once it is filed.
+    const inStateClub = vouched ? pick : puller.state ? oneInState(row) : undefined;
+    const namesakeClub = inStateClub
+      ? undefined
+      : theNamesake({ ...row, looseKey: looseNameKey(standIn.name), typed });
+    const club = inStateClub ?? namesakeClub;
     if (
       !club ||
       club.id === puller.id ||
-      refusesName(refused, game.source?.teamId, standIn.name, club)
+      refusesName(refused, game.source?.teamId, standIn.name, club) ||
+      (namesakeClub !== undefined && refusesName(refused, game.source?.teamId, club.name, club))
     ) {
       return game;
     }
@@ -9125,8 +9309,11 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *  33 — a stand-in filed onto the one pulled club of its name at its level in the namer's state,
  *       where the two are neighbours by their own schedules, though the club's own schedules have
  *       no game that day (`inStateNamesakes`), and such a row left on it
+ *  34 — failing that, onto the one pulled club of its name near the namer at its level, or spelled
+ *       near it, or within two levels (`oneNamesake`), the owner's "If you can get to 25%, great"
+ *       of 28 October 2026, and such a row left on it
  */
-const TIDY_RULES_VERSION = 33;
+const TIDY_RULES_VERSION = 34;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this

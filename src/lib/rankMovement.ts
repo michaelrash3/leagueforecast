@@ -25,10 +25,10 @@ export const RANK_HISTORY_WEEKS = 8;
 
 /**
  * A week of a club's place, oldest first in a rank line; null where it was not on the board. `of`
- * is how many clubs that week's board of the page held, which the line needs to say what share of
- * them stood above the club: a board grows all season as clubs play their first games, so the place
- * alone sinks for a club that holds its own. Left out where it was not known: a board published
- * before the count was.
+ * is how many clubs that week's board of the page listed by rating (`PastBoard.sizes`), which the
+ * line needs to say what share of them stood above the club: a board grows all season as clubs
+ * play their first games, so the place alone sinks for a club that holds its own. Left out where it
+ * was not known: a board published before the count was.
  */
 export type RankLinePoint = { asOf: string; rank: number | null; of?: number };
 
@@ -93,9 +93,16 @@ export const ranksAsOf = (
   pastBoardAsOf(ageGroupId, teams, games, ageGroups, segment, asOf).ranks;
 
 /**
- * The boards of `ranksAsOf`'s day: every club's place, and how many clubs each page's board held
- * (`sizes`, by page id), the count a place is read against in a rank line (`RankLinePoint.of`).
- * Both come off the one fit, so the count costs nothing the places did not.
+ * The boards of `ranksAsOf`'s day: every club's place, and how many clubs each page's board listed
+ * by rating (`sizes`, by page id), the count a place is read against in a rank line
+ * (`RankLinePoint.of`). Both come off the one fit, so the count costs nothing the places did not.
+ *
+ * The clubs listed last (`ScoutRankingRow.listedLast`) are not counted. They stand below every
+ * other club by the order, whatever their rating, and the line grows with the season, so more of
+ * them sat under each club every week: on the owner's page of 27 October 2026, read on the cloud
+ * copy for research, a club whose share of the rest went from the top 93% to the top 84% read as
+ * the top 83% of the board going to the top 71%, and a line scaled to its own range drew that as a
+ * steep climb. A club itself listed last has a place past the count and no point on the line.
  */
 export type PastBoard = { ranks: Record<string, number>; sizes: Record<string, number> };
 
@@ -113,7 +120,8 @@ export const pastBoardAsOf = (
   const sizes: Record<string, number> = {};
   rankingPoolGroupIds(ageGroupId, ageGroups).forEach((pageId) => {
     const rows = rowsOfYearFit(fit, pageId, undefined, ageGroups);
-    if (rows.length > 0) sizes[pageId] = rows.length;
+    const listed = rows.filter((row) => !row.listedLast).length;
+    if (listed > 0) sizes[pageId] = listed;
     rows.forEach((row) => {
       ranks[row.teamId] = row.rank;
     });

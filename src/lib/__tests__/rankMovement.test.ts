@@ -157,6 +157,30 @@ describe("the size of a past week's board", () => {
     });
   });
 
+  it("counts the clubs listed by rating, not those listed after them", () => {
+    // Forty clubs in a ring, each playing the two after it, and two who play only each other: a
+    // web of one club, short of the line, so they are listed after the forty whatever they won by.
+    const ring = Array.from({ length: 40 }, (_, at) => [
+      played(`r${at}a`, `W${at}`, `W${(at + 1) % 40}`, 4 + (at % 3), 3, "2026-09-05"),
+      played(`r${at}b`, `W${at}`, `W${(at + 2) % 40}`, 5, 3, "2026-09-06"),
+    ]).flat();
+    const pool: ScoutTeam[] = [
+      ...Array.from({ length: 40 }, (_, at) => ({ id: `W${at}`, name: `Wide ${at}` })),
+      { id: "LH", name: "Longhorns" },
+      { id: "MN", name: "Minors" },
+    ];
+    const board = pastBoardAsOf(
+      "ag10",
+      pool,
+      [...ring, played("lm", "LH", "MN", 16, 1, "2026-09-05")],
+      groups,
+      undefined,
+      "2026-09-30"
+    );
+    expect(board.sizes).toEqual({ ag10: 40 });
+    expect([board.ranks.LH, board.ranks.MN]).toEqual([41, 42]);
+  });
+
   it("counts nothing for a day before anyone played", () => {
     expect(pastBoardAsOf("ag10", teams, games, groups, undefined, "2026-08-01")).toEqual({
       ranks: {},
