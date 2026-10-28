@@ -1,5 +1,11 @@
 import type { StandInWhy } from "./standInReport";
-import { ageGroupYear, type AgeGroup, type ScoutGame, type ScoutTeam } from "./teamRankings";
+import {
+  ageGroupYear,
+  type AgeGroup,
+  type RatedScoutGame,
+  type ScoutGame,
+  type ScoutTeam,
+} from "./teamRankings";
 
 /*
  * What the year's share of games on a stand-in is made of, and how far each lever would take it
@@ -160,3 +166,26 @@ export const boardShift = (
     movedTenth: moves.filter((move) => move > tenth).length,
   };
 };
+
+/**
+ * A lever as the model sweep tries it (`ModelVariant.leaveOut`): the games of names holding no more
+ * than `most` of the games trained so far, and, with `slots`, every game against a bracket slot
+ * nobody resolved, left out of what the fit is trained on.
+ */
+export const leaveOutStandIns =
+  (most: number, slots: boolean) =>
+  (teams: readonly ScoutTeam[], trained: readonly RatedScoutGame[]): ReadonlySet<string> => {
+    const games = trained.map(({ game }) => game);
+    const out = most > 0 ? oneOffGames(teams, games, most) : new Set<string>();
+    if (slots) {
+      const byId = new Map(teams.map((team) => [team.id, team]));
+      const isSlot = (id: string) => {
+        const team = byId.get(id);
+        return team?.placeholder === true && !team.gcTeams?.length;
+      };
+      games.forEach((game) => {
+        if (isSlot(game.teamAId) || isSlot(game.teamBId)) out.add(game.id);
+      });
+    }
+    return out;
+  };

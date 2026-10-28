@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boardShift, oneOffGames, standInBreakdown } from "../standInLevers";
+import { boardShift, leaveOutStandIns, oneOffGames, standInBreakdown } from "../standInLevers";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 
 /*
@@ -87,6 +87,21 @@ describe("the games a one-off name holds", () => {
     expect([...oneOffGames(teams, mixed)]).toEqual([]);
     // Names holding two games or fewer: both of "Twice"'s as well.
     expect([...oneOffGames(TEAMS, year, 2)]).toEqual([year[1]!.id, year[2]!.id, year[3]!.id]);
+  });
+});
+
+describe("a lever as the model sweep tries it", () => {
+  it("leaves out the few-game names' games of those trained, and the slots' games where asked", () => {
+    const trained = GAMES.slice(0, 5).map((game) => ({ game, ageGap: 0 }));
+    const ids = (set: ReadonlySet<string>) => [...set].sort();
+    expect(ids(leaveOutStandIns(1, false)(TEAMS, trained))).toEqual([GAMES[1]!.id]);
+    expect(ids(leaveOutStandIns(2, false)(TEAMS, trained))).toEqual(
+      [GAMES[1]!.id, GAMES[2]!.id, GAMES[3]!.id].sort()
+    );
+    expect(ids(leaveOutStandIns(1, true)(TEAMS, trained))).toEqual(
+      [GAMES[1]!.id, GAMES[4]!.id].sort()
+    );
+    expect(ids(leaveOutStandIns(0, true)(TEAMS, trained))).toEqual([GAMES[4]!.id]);
   });
 });
 

@@ -13,6 +13,7 @@ import {
   scoutFitRanks,
   scoutRatingGames,
   type AgeGroup,
+  type RatedScoutGame,
   type ScoutFitTuning,
   type ScoutGame,
   type ScoutTeam,
@@ -50,6 +51,15 @@ export type ModelVariant = {
    * curve about a tenth wider would close. Like the floor, it leaves the fit alone.
    */
   spread?: number;
+  /**
+   * Games left out of what the fit is trained on, by id, read off the games trained at each cut:
+   * the stand-in levers (`standInLevers.ts`) are tried this way, the games scored left as they are,
+   * so a lever is judged on the same games as the boards it would replace.
+   */
+  leaveOut?: (
+    teams: readonly ScoutTeam[],
+    trained: readonly RatedScoutGame[]
+  ) => ReadonlySet<string>;
 };
 
 /** The shipped model first, then each setting moved on its own either way. */
@@ -262,7 +272,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
   const cutReadings: ModelSweep["cuts"] = [];
   // Each distinct fit once a cut: the floors share the shipped fit.
   const tuningKey = (variant: ModelVariant) =>
-    `${variant.tuning?.cap ?? ""}|${variant.tuning?.shrinkage ?? ""}`;
+    `${variant.tuning?.cap ?? ""}|${variant.tuning?.shrinkage ?? ""}|${variant.leaveOut ? variant.key : ""}`;
 
   for (const cut of cuts) {
     const trained = scoutRatingGames(page.id, teams, games, ageGroups, undefined, cut);
@@ -272,7 +282,15 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
       const known = fits.get(key);
       if (known) return known;
       const started = now();
-      const fit = fitScoutYear(year, teams, games, trained, ageGroups, variant.tuning ?? {});
+      const drop = variant.leaveOut?.(teams, trained);
+      const fit = fitScoutYear(
+        year,
+        teams,
+        games,
+        drop ? trained.filter(({ game }) => !drop.has(game.id)) : trained,
+        ageGroups,
+        variant.tuning ?? {}
+      );
       piles[at]!.seconds += (now() - started) / 1000;
       fits.set(key, fit);
       return fit;

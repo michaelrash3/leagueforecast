@@ -137,6 +137,7 @@ import { rankLineCheck, topOf } from "../src/lib/rankLineCheck.ts";
 import {
   boardShift,
   GAME_COUNTS,
+  leaveOutStandIns,
   oneOffGames,
   standInBreakdown,
   type GameCount,
@@ -1001,6 +1002,50 @@ const measureStandInLevers = (source: Source, year: number) => {
     say("  No fit of the year to compare against.");
     return;
   }
+  // Whether boards fitted without them forecast the games after each cut better or worse: the
+  // bar a change to the fit is held to, on the same games the boards as they are are scored on.
+  say(`\n  Forecasting later games without them (${since()}):`);
+  try {
+    describeSweep(
+      runModelSweep({
+        ageGroups: source.ageGroups,
+        teams: pool.teams,
+        games: pool.games,
+        year,
+        cuts: MODEL_CUTS,
+        scoreFrom: MODEL_SCORE_FROM,
+        today: source.today,
+        now: () => performance.now(),
+        variants: [
+          { key: "shipped", why: "the boards as they are" },
+          {
+            key: "names-1",
+            why: "the games of names holding one game left out",
+            leaveOut: leaveOutStandIns(1, false),
+          },
+          {
+            key: "names-2",
+            why: "the games of names holding two or fewer left out",
+            leaveOut: leaveOutStandIns(2, false),
+          },
+          {
+            key: "names-2-slots",
+            why: "and every game against an unresolved bracket slot",
+            leaveOut: leaveOutStandIns(2, true),
+          },
+          {
+            key: "slots",
+            why: "only the games against an unresolved bracket slot left out",
+            leaveOut: leaveOutStandIns(0, true),
+          },
+        ],
+      })
+    );
+  } catch (error) {
+    say(`  The forecast stopped: ${failureWords(error)}`);
+    process.exitCode = 1;
+  }
+
   for (const most of [1, 2]) {
     const drop = oneOffGames(pool.teams, pool.games, most);
     const fit = fitScoutYearFor(
