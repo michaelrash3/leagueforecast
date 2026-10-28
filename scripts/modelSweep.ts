@@ -148,8 +148,8 @@ import {
   GAME_COUNTS,
   namesakeFilings,
   standInBreakdown,
+  wordFilings,
   type GameCount,
-  type NamesakeReach,
 } from "../src/lib/standInLevers.ts";
 import { shiftDay } from "../src/lib/standInHalves.ts";
 import {
@@ -1027,19 +1027,57 @@ const measureStandInLevers = (source: Source, year: number) => {
   // they are are scored on. Leaving the few-game names' games out was read the same way on 28
   // October 2026 (GitHub run 40606022999) and forecast clearly worse: log loss z -6.2 for the names
   // holding one game, -7.8 for two or fewer, -2.3 for the slots alone.
-  const reaches: Array<{ reach: NamesakeReach; why: string }> = [
-    { reach: "one", why: "each name filed onto the one pulled club of the name on its page" },
-    { reach: "near", why: "and where none is, the one spelled near it" },
+  const fileOne = namesakeFilings(pool.teams, pool.games, source.ageGroups, year, "one");
+  const fileNear = namesakeFilings(pool.teams, pool.games, source.ageGroups, year, "near");
+  const fileElsewhere = namesakeFilings(
+    pool.teams,
+    pool.games,
+    source.ageGroups,
+    year,
+    "elsewhere"
+  );
+  // The owner, 28 October 2026: "You just aren't matching them appropriately." The names whose
+  // words a pulled club's name holds, or that hold its (`wordFilings`), on top of the namesakes.
+  const byWords = (region: boolean) =>
+    wordFilings(pool.teams, pool.games, source.ageGroups, year, fileElsewhere, region);
+  const inRegion = byWords(true);
+  const anywhere = byWords(false);
+  const filings = [
+    {
+      reach: "one",
+      why: "each name filed onto the one pulled club of the name on its page",
+      onto: fileOne,
+    },
+    { reach: "near", why: "and where none is, the one spelled near it", onto: fileNear },
     {
       reach: "elsewhere",
       why: "and where neither is, the one of the name in the year within two levels",
+      onto: fileElsewhere,
+    },
+    {
+      reach: "words",
+      why: "and the one whose name's words the name holds or is held in, in a namer's region",
+      onto: new Map([...fileElsewhere, ...inRegion]),
+    },
+    {
+      reach: "words-any",
+      why: "the same in any state",
+      onto: new Map([...fileElsewhere, ...anywhere]),
     },
   ];
-  const filings = reaches.map(({ reach, why }) => ({
-    reach,
-    why,
-    onto: namesakeFilings(pool.teams, pool.games, source.ageGroups, year, reach),
-  }));
+  const nameAt = new Map(pool.teams.map((team) => [team.id, team]));
+  const pairs = [...inRegion];
+  const every = Math.max(1, Math.floor(pairs.length / 40));
+  sayNamed(
+    pairs
+      .filter((_, at) => at % every === 0)
+      .slice(0, 40)
+      .map(([standInId, clubId]) => {
+        const club = nameAt.get(clubId);
+        return `    "${nameAt.get(standInId)?.name}" -> ${club?.name} (${club?.state ?? "?"})`;
+      }),
+    "Names filed by their words, in a namer's region, a sample:"
+  );
   const byId = new Map(pool.teams.map((team) => [team.id, team]));
   const standing = (id: string) => {
     const team = byId.get(id);

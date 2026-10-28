@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   boardShift,
+  coreNameWords,
   leaveOutStandIns,
   namesakeFilings,
   oneOffGames,
   standInBreakdown,
+  wordFilings,
 } from "../standInLevers";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 
@@ -194,5 +196,98 @@ describe("each name filed onto its namesake, as far as a reach goes", () => {
       "n-stars": "STARS",
       "n-owls": "OWLS",
     });
+  });
+});
+
+describe("a name filed onto the one pulled club whose name's words it holds, or that hold it", () => {
+  const page = (level: number): AgeGroup => ({
+    id: `ag_${level}u_2027`,
+    name: `${level}U 2027`,
+    ageLevel: level,
+    year: 2027,
+    seasonIds: [],
+  });
+  const groups = [page(10), page(12), page(14)];
+  const club = (id: string, name: string, state: string, level = 10): ScoutTeam => ({
+    id,
+    name,
+    state,
+    gcTeams: [{ teamId: `gc-${id}`, name, ageGroupId: `ag_${level}u_2027`, ageLevel: level }],
+  });
+  const name = (id: string, called: string): ScoutTeam => ({ id, name: called, nameOnly: true });
+  // Two thousand clubs called Hawks something, so "hawks" says nothing of which club: each with a
+  // word of letters of its own, since a number alone reads as an age.
+  const letters = (at: number) => at.toString(10).replace(/\d/g, (digit) => "abcdefghij"[+digit]!);
+  const many = Array.from({ length: 2000 }, (_, at) =>
+    club(`H${at}`, `Hawks q${letters(at)}`, "TX")
+  );
+  const teams: ScoutTeam[] = [
+    ...many,
+    club("AR", "Arkansas Namer", "AR"),
+    club("PA", "Pennsylvania Namer", "PA"),
+    club("TX", "Texas Namer", "TX"),
+    club("MI", "Michigan Namer", "MI"),
+    club("NJ", "New Jersey Namer", "NJ"),
+    club("SY", "Sheridan Yellowjacket", "AR"),
+    club("GV", "Ghost Valley Dawgs Black", "PA"),
+    club("PT", "Prodigy Baseball Texas", "TX"),
+    club("KG", "Kiski Guardians", "PA", 14),
+    club("BG", "LV Bruins Gold", "TX"),
+    club("BB", "LV Bruins Blue", "TX"),
+    club("MD", "Mason Devine", "CA"),
+    club("ML", "Mount Laurel", "NJ"),
+    club("HK", "Hawks", "TX"),
+    name("n-sy", "Sheridan Yellowjacket Fall 2026"),
+    name("n-gv", "Ghost Valley Dawgs"),
+    name("n-pt", "Texas Prodigy"),
+    name("n-kg", "Kiski"),
+    name("n-lv", "LV Bruins"),
+    name("n-md", "Mason Coach Pitch Devine"),
+    name("n-ml", "Mt Laurel Babe Ruth"),
+    name("n-hk", "Hawks Elite"),
+  ];
+  const on = (a: string, b: string) => game(a, b, "ag_10u_2027");
+  const games = [
+    on("AR", "n-sy"),
+    on("PA", "n-gv"),
+    on("TX", "n-pt"),
+    on("PA", "n-kg"),
+    on("TX", "n-lv"),
+    on("MI", "n-md"),
+    on("NJ", "n-ml"),
+    on("TX", "n-hk"),
+  ];
+  const filed = (region: boolean, already = new Map<string, string>()) =>
+    Object.fromEntries(wordFilings(teams, games, groups, 2027, already, region));
+
+  it("reads a name's words with the season off and its shortenings spelled out, in any order", () => {
+    expect([...coreNameWords("Sheridan Yellowjacket Fall 2026")]).toEqual([
+      "sheridan",
+      "yellowjacket",
+    ]);
+    expect([...coreNameWords("Mt Laurel - Babe Ruth F26")]).toEqual([
+      "mount",
+      "laurel",
+      "babe",
+      "ruth",
+    ]);
+    expect(filed(true)).toEqual({ "n-sy": "SY", "n-gv": "GV", "n-pt": "PT", "n-ml": "ML" });
+  });
+
+  it("never files where the words shared say little, two clubs fit, or the club is levels off", () => {
+    const at = filed(true);
+    // "Hawks" is in two thousand names; two LV Bruins fit; Kiski Guardians are four levels up.
+    expect(at).not.toHaveProperty("n-hk");
+    expect(at).not.toHaveProperty("n-lv");
+    expect(at).not.toHaveProperty("n-kg");
+  });
+
+  it("asks for a state of a club that named it or one bordering it, where asked to", () => {
+    expect(filed(true)).not.toHaveProperty("n-md");
+    expect(filed(false)).toHaveProperty("n-md", "MD");
+  });
+
+  it("leaves a name another lever filed", () => {
+    expect(filed(true, new Map([["n-sy", "X"]]))).not.toHaveProperty("n-sy");
   });
 });

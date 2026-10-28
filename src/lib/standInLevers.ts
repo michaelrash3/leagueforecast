@@ -1,4 +1,5 @@
-import { standInReport, type StandInWhy } from "./standInReport";
+import { inOneRegion } from "./stateBorders";
+import { looseNameWords, standInReport, type StandInWhy } from "./standInReport";
 import { ageGroupLevel } from "./teamRankings/seasons";
 import { teamNameKey } from "./teamRankings/names";
 import {
@@ -260,6 +261,149 @@ export const namesakeFilings = (
       near(own, levelsOf.get(id) ?? new Set<number>())
     );
     if (within.length === 1) onto.set(club.teamId, within[0]!);
+  });
+  return onto;
+};
+
+/**
+ * Words a schedule adds to a club's name for the season or its year, which say nothing of which club
+ * it is: "Sheridan Yellowjacket Fall 2026" is the Sheridan Yellowjacket pulled from GameChanger.
+ * (Age labels are already off, `teamNameKey`.)
+ */
+const SEASON_WORD = /^(?:fall|spring|summer|winter|(?:fall|spring|summer|winter|f|s)?\d{2}|\d{4})$/;
+/** Shortenings a schedule writes for a word a club's own name spells out. */
+const SPELLED_OUT: Record<string, string> = { mt: "mount", ft: "fort", co: "county" };
+
+/** The words of a name that say which club it is: read loosely, the season off, shortenings spelled out. */
+export const coreNameWords = (name: string): Set<string> =>
+  new Set(
+    looseNameWords(name)
+      .filter((word) => !SEASON_WORD.test(word))
+      .map((word) => SPELLED_OUT[word] ?? word)
+  );
+
+/** How telling the words two names share must be together: about one name in a thousand's. */
+export const TELLING_WEIGHT = Math.log(1000);
+
+/**
+ * The owner, 28 October 2026: "They are not private on gamechanger. You just aren't matching them
+ * appropriately." Laid out by eye, the rows against stand-ins with nothing of their name pulled
+ * held names a pulled club's own name sits inside, or that sit inside it: "Sheridan Yellowjacket
+ * Fall 2026" and "Sheridan Yellowjacket" (both Arkansas), "Mason Coach Pitch Devine" and "Mason
+ * Devine" (both Michigan), "Ghost Valley Dawgs" and "Ghost Valley Dawgs Black" (both Pennsylvania),
+ * "Texas Prodigy" and "Prodigy Baseball Texas" — and the club's own schedule, mostly, with no game
+ * that day, which is why no step that asks for one ever paired them.
+ *
+ * So each club known only by name that `filed` leaves, filed onto the one pulled club of the year
+ * whose name's words (`coreNameWords`) hold all of its own or are all held in them, the words they
+ * share telling together (`TELLING_WEIGHT`, each word weighed by how few pulled clubs' names hold
+ * it, so "Hawks" alone never decides), listed within two levels of a page the name played on, never
+ * one of the clubs that named it, and, with `region`, in a state of a club that named it or one
+ * bordering it, or of no known state. Two such clubs is a guess, and nothing is filed.
+ */
+export const wordFilings = (
+  teams: readonly ScoutTeam[],
+  games: readonly ScoutGame[],
+  ageGroups: readonly AgeGroup[],
+  year: number,
+  filed: ReadonlyMap<string, string>,
+  region: boolean
+): Map<string, string> => {
+  const yearPages = new Map(
+    ageGroups
+      .filter((group) => ageGroupYear(group) === year)
+      .map((group) => [group.id, ageGroupLevel(group)] as const)
+  );
+  const byId = new Map(teams.map((team) => [team.id, team]));
+  // The year's pulled clubs, every one listed on a page of the year whether or not it has a game
+  // here: a club whose own schedule is empty is still the club a name may mean.
+  const clubs = new Map<string, { words: Set<string>; levels: Set<number> }>();
+  const holding = new Map<string, number>();
+  const byWord = new Map<string, string[]>();
+  teams.forEach((team) => {
+    if (!team.gcTeams?.length || team.nameOnly || team.placeholder) return;
+    const levels = new Set<number>();
+    team.gcTeams.forEach((link) => {
+      if (!yearPages.has(link.ageGroupId)) return;
+      const level = link.ageLevel ?? yearPages.get(link.ageGroupId);
+      if (level !== undefined) levels.add(level);
+    });
+    if (levels.size === 0) return;
+    const words = coreNameWords(team.name);
+    if (words.size === 0) return;
+    clubs.set(team.id, { words, levels });
+    words.forEach((word) => {
+      holding.set(word, (holding.get(word) ?? 0) + 1);
+      const ids = byWord.get(word);
+      if (ids) ids.push(team.id);
+      else byWord.set(word, [team.id]);
+    });
+  });
+  const weight = (word: string) => Math.log(clubs.size / Math.max(1, holding.get(word) ?? 1));
+  const byRarity = (words: Iterable<string>) =>
+    [...words].sort((a, b) => (holding.get(a) ?? 0) - (holding.get(b) ?? 0) || a.localeCompare(b));
+  // Each club once more, under its rarest word: a club whose words a name holds whole is under one
+  // of the name's words here, which keeps the search to a few clubs a name.
+  const byRarest = new Map<string, string[]>();
+  clubs.forEach(({ words }, clubId) => {
+    const rarest = byRarity(words)[0]!;
+    const ids = byRarest.get(rarest);
+    if (ids) ids.push(clubId);
+    else byRarest.set(rarest, [clubId]);
+  });
+
+  // Each stand-in's levels in the year, and the clubs and states that named it.
+  const levelsOf = new Map<string, Set<number>>();
+  const namers = new Map<string, Set<string>>();
+  games.forEach((game) => {
+    const level = yearPages.get(game.ageGroupId);
+    if (!yearPages.has(game.ageGroupId)) return;
+    for (const [side, other] of [
+      [game.teamAId, game.teamBId],
+      [game.teamBId, game.teamAId],
+    ] as const) {
+      const team = byId.get(side);
+      if (!team?.nameOnly || team.placeholder || team.gcTeams?.length || filed.has(side)) continue;
+      const levels = levelsOf.get(side) ?? new Set<number>();
+      if (level !== undefined) levels.add(level);
+      levelsOf.set(side, levels);
+      if (byId.get(other)?.gcTeams?.length) {
+        const by = namers.get(side) ?? new Set<string>();
+        by.add(other);
+        namers.set(side, by);
+      }
+    }
+  });
+
+  const onto = new Map<string, string>();
+  levelsOf.forEach((levels, standInId) => {
+    const words = coreNameWords(byId.get(standInId)?.name ?? "");
+    if (words.size === 0) return;
+    // Every club the name could mean holds its rarest word, or is held in it whole and so filed
+    // under one of its words as that club's rarest.
+    const seen = new Set<string>(byWord.get(byRarity(words)[0]!) ?? []);
+    words.forEach((word) => (byRarest.get(word) ?? []).forEach((clubId) => seen.add(clubId)));
+    const named = namers.get(standInId) ?? new Set<string>();
+    const states = new Set(
+      [...named].map((id) => byId.get(id)?.state).filter((state): state is string => !!state)
+    );
+    const fits = [...seen].filter((clubId) => {
+      if (named.has(clubId)) return false;
+      const club = clubs.get(clubId)!;
+      const inside = [...words].every((word) => club.words.has(word));
+      const holds = [...club.words].every((word) => words.has(word));
+      if (!inside && !holds) return false;
+      const shared = inside ? words : club.words;
+      if ([...shared].reduce((sum, word) => sum + weight(word), 0) < TELLING_WEIGHT) return false;
+      const near = [...club.levels].some((at) =>
+        [...levels].some((level) => Math.abs(at - level) <= LEVELS_APART)
+      );
+      if (levels.size > 0 && !near) return false;
+      if (!region) return true;
+      const state = byId.get(clubId)?.state;
+      return !state || states.size === 0 || [...states].some((one) => inOneRegion(one, state));
+    });
+    if (fits.length === 1) onto.set(standInId, fits[0]!);
   });
   return onto;
 };
