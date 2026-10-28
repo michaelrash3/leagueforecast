@@ -119,6 +119,12 @@ const DIST = "dist";
  * panel's last five games against the margins expected (`clubForm.ts`). They are added on the Team
  * Rankings pages (`withSeason`) rather than in `myTeamGlance`, which League Standings reads: there
  * they had put 0.8 KB on the first download, which stays 252.9 KB.
+ * Team Rankings to 166.5 KB on 28 Oct 2026 for the one pulled club of a name near the namer (tidy
+ * rules 34, `oneNamesake`), 165.5 KB against 164.9 KB on main (165,471 bytes against 164,886): the
+ * rule, the pulled clubs' names read loosely, and the two clubs' shared opponents it reads a club
+ * far off by, all in the tidy, which is part of that load. The loose reading of a name moved beside
+ * `teamNameKey` rather than bringing the stand-in report into the chunk, which had put it over; the
+ * first download, 253.4 KB against 253.3 KB, carries the few lines of it.
  */
 const BUDGET = {
   firstDownload: 255_000,
@@ -134,7 +140,7 @@ const BUDGET = {
     "Data Quality": 3_500,
     Settings: 13_700,
     "Seasons at a glance": 4_400,
-    "Team Rankings": 165_500,
+    "Team Rankings": 166_500,
   },
 };
 

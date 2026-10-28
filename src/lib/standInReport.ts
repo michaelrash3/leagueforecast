@@ -6,6 +6,9 @@ import {
   type ScoutGame,
   type ScoutTeam,
 } from "./teamRankings";
+import { looseNameKey } from "./teamRankings/names";
+
+export { looseNameKey };
 
 /*
  * The stand-ins of a squad year (the stand-ins plan's Part 3, measured rather than assumed): the
@@ -29,7 +32,7 @@ import {
  *   in common;
  * - `several`: more than one of the name on its page, which needs something beyond the name;
  * - `nearOne` / `nearSeveral`: none of the name on its page, but one, or several, spelled near it
- *   (`looseNameKey`), which no rule reads today;
+ *   (`looseNameKey`), which only rules 34 reads (`oneNamesake`);
  * - `elsewhere`: a pulled namesake only on another page of the year;
  * - `unmatched`: nothing of the name or near it: a club nobody has pulled.
  */
@@ -50,35 +53,6 @@ const WHYS: readonly StandInWhy[] = [
   "elsewhere",
   "unmatched",
 ];
-
-/** Words a schedule adds to or drops from a club's name that say nothing about which club it is. */
-const FILLER = new Set([
-  "baseball",
-  "bb",
-  "bsb",
-  "bc",
-  "club",
-  "the",
-  "travel",
-  "team",
-  "org",
-  "organization",
-]);
-
-/**
- * A name read loosely, for measuring how many stand-ins a looser match would join: `teamNameKey`,
- * then "Saint" and "St. Louis" as "st" and "stl", full stops, commas, apostrophes and ampersands as
- * spacing, the filler words out (`FILLER`), and no spaces at all. A colour, a coach or a sponsor
- * stays, so "KC Crushers Black" is still not "KC Crushers".
- */
-export const looseNameKey = (name: string): string =>
-  teamNameKey(name)
-    .replace(/\bsaint\b/g, "st")
-    .replace(/\bst\.?\s*louis\b/g, "stl")
-    .replace(/[.,'&]/g, " ")
-    .split(/\s+/)
-    .filter((word) => word !== "" && !FILLER.has(word))
-    .join("");
 
 export type StandInClub = {
   teamId: string;
