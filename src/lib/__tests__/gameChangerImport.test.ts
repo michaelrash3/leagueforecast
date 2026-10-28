@@ -27,6 +27,7 @@ import {
   tidyChangedAnything,
   TIDY_STEPS,
   tidyPool,
+  IN_STATE_TIDY_RULES,
   importGcSchedules,
   comparePairing,
   isSettledPairing,
@@ -73,6 +74,14 @@ const game = (overrides: Partial<GcTeamSchedule["games"][number]> = {}) => ({
   opponentScore: 2,
   ...overrides,
 });
+
+/**
+ * The tidy under its rules of 27 October 2026 (`IN_STATE_TIDY_RULES`), for the tests written to a
+ * name filed only where its club's own schedule has a game that day: since rules 34 the one pulled
+ * club of a name near the namer takes it too (`oneNamesake`, tested in `oneNamesake.test.ts`).
+ */
+const tidyPoolAsOf27October = (state: GcImportState) =>
+  tidyPool(state, undefined, undefined, undefined, undefined, IN_STATE_TIDY_RULES);
 
 describe("importGcSchedule", () => {
   it("files a schedule under the squad year its season belongs to", () => {
@@ -3464,7 +3473,7 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
         const comet = pulled.teams.find((team) =>
           team.gcTeams?.some((link) => link.teamId === "gcD")
         )!;
-        const tidy = tidyPool(pulled);
+        const tidy = tidyPoolAsOf27October(pulled);
         expect(tidy.state.games.map((game) => game.id)).toEqual(["gc_gcB_b1"]);
         /*
          * The Aces' row is in the Bears' game, and never on the Comets. Their schedule has no game
@@ -3482,10 +3491,10 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
         expect(
           tidy.state.games.some((game) => [game.teamAId, game.teamBId].includes(comet.id))
         ).toBe(false);
-        expect(tidyChangedAnything(tidyPool(tidy.state))).toBe(false);
+        expect(tidyChangedAnything(tidyPoolAsOf27October(tidy.state))).toBe(false);
         const again = importGcSchedule(aces, tidy.state).state;
         expect(again.games.map((game) => game.id)).toEqual(["gc_gcB_b1"]);
-        expect(tidyChangedAnything(tidyPool(again))).toBe(false);
+        expect(tidyChangedAnything(tidyPoolAsOf27October(again))).toBe(false);
       }
     });
   });
@@ -4121,10 +4130,10 @@ describe("poolSignature", () => {
     // r8 since the tidy learned to file a stand-in onto a lone namesake in a bordering state.
     // This digit is meant to move on exactly that kind of change: it is what makes a pool nobody
     // has touched read as unseen, once, so the new rule reaches what is already filed.
-    expect(before).toBe(`r33|1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(before).toBe(`r34|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r33|0|0|0|");
+    expect(poolSignature(empty)).toBe("r34|0|0|0|");
   });
 
   /*
@@ -4255,7 +4264,7 @@ describe("who a name belongs to: level, state and the game", () => {
      * The import files it against the stand-in the 5th made, as that has made the name two
      * entries; the tidy that follows every pull puts it on the Bucks (`refileStandIns`).
      */
-    const tidied = tidyPool(pool).state;
+    const tidied = tidyPoolAsOf27October(pool).state;
     const bucks = named(tidied, "Brazos Valley Bucks Lemons");
     expect(bucks).toHaveLength(2);
     const pulled = bucks.find((team) => team.gcTeams?.length)!;
@@ -4264,7 +4273,7 @@ describe("who a name belongs to: level, state and the game", () => {
       tidied.games.find((game) => game.id === `gc_gcTXC1100000_${gameId}`)!.teamBId;
     expect(against("k1")).toBe(standIn.id);
     expect(against("k2")).toBe(pulled.id);
-    expect(tidyChangedAnything(tidyPool(tidied))).toBe(false);
+    expect(tidyChangedAnything(tidyPoolAsOf27October(tidied))).toBe(false);
   });
 
   it("reads a club's row folded into a copy dated a day off at its own day", () => {
@@ -4430,7 +4439,7 @@ describe("who a name belongs to: level, state and the game", () => {
     );
     // On the 5th their schedule has a game, so the name is theirs.
     const stale = staleOn("2026-09-05");
-    const out = refileStandIns(stale);
+    const out = refileStandIns(stale, undefined, IN_STATE_TIDY_RULES);
     expect(out.refiled).toBe(1);
     const ms = named(out.state, "Cubs").find((team) => team.state === "MS")!;
     const row = out.state.games.find((game) => game.id === "gc_gcMSA8000000_old")!;
@@ -4508,7 +4517,7 @@ describe("who a name belongs to: level, state and the game", () => {
           },
         ],
       };
-      const out = refileStandIns(stale);
+      const out = refileStandIns(stale, undefined, IN_STATE_TIDY_RULES);
       const row = out.state.games.find((game) => game.id === "gc_gcKYPULLER00_old")!;
       return { out, on: out.state.teams.find((team) => team.id === row.teamBId)! };
     };

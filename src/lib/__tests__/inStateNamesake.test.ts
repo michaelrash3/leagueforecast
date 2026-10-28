@@ -1,15 +1,41 @@
 import { describe, expect, it } from "vitest";
 import {
   DAY_CHECK_TIDY_RULES,
-  refileStandIns,
-  resettleOffLevel,
+  refileStandIns as shippedRefileStandIns,
+  resettleOffLevel as shippedResettleOffLevel,
   tidyChangedAnything,
-  tidyPool,
+  tidyPool as shippedTidyPool,
   type GcImportState,
   type TidyRules,
+  IN_STATE_TIDY_RULES,
 } from "../gameChangerImport";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 import { blastRadius, poolYears } from "../cloud/blastRadius";
+
+/*
+ * Read under the tidy's rules of 27 October 2026 (`IN_STATE_TIDY_RULES`), which these tests were
+ * written to: since rules 34 the tidy also files a name onto the one pulled club of it near the
+ * namer though its own schedules have no game that day (`oneNamesake`), which has tests of its own
+ * (`oneNamesake.test.ts`).
+ */
+const tidyPool: typeof shippedTidyPool = (
+  state,
+  watch,
+  apart,
+  refused,
+  real,
+  rules = IN_STATE_TIDY_RULES
+) => shippedTidyPool(state, watch, apart, refused, real, rules);
+const refileStandIns: typeof shippedRefileStandIns = (
+  state,
+  refused,
+  rules = IN_STATE_TIDY_RULES
+) => shippedRefileStandIns(state, refused, rules);
+const resettleOffLevel: typeof shippedResettleOffLevel = (
+  state,
+  refused,
+  rules = IN_STATE_TIDY_RULES
+) => shippedResettleOffLevel(state, refused, rules);
 
 /*
  * The one pulled club of a name in the namer's own state, on a day its own schedule skipped: the
