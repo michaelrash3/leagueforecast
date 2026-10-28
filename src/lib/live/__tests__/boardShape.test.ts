@@ -59,6 +59,14 @@ describe("a published board's row", () => {
     expect(isBoardRow({ ...ROW, was: 4 })).toBe(true);
   });
 
+  it("says a club is listed last only as true, and a board from before it reads as one", () => {
+    expect(isBoardRow({ ...ROW, listedLast: true })).toBe(true);
+    expect(isRankingRow({ ...ROW, isMine: false, listedLast: true })).toBe(true);
+    expect(isBoardRow({ ...ROW, listedLast: false })).toBe(false);
+    expect(isBoardRow({ ...ROW, listedLast: "yes" })).toBe(false);
+    expect(coerceBoardView({ rows: [ROW] })?.rows[0]).not.toHaveProperty("listedLast");
+  });
+
   it("is not one with a field missing, of the wrong kind, a star, or a fact that says nothing", () => {
     const required = Object.keys(ROW).filter((field) => field !== "ageLevel");
     for (const field of required) {

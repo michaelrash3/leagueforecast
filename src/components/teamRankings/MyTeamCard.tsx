@@ -4,7 +4,7 @@ import { formatRating, MovementMark } from "./RankingList";
 import { card } from "../../styles/tokens";
 import type { RankHistoryPoint } from "../../hooks/useRankingsWorker";
 import type { ExpectedRecord, WeekendAhead } from "../../lib/clubForm";
-import { topShare } from "../../lib/standing";
+import { standingWords } from "../../lib/standing";
 
 type MyTeamCardProps = {
   glance: MyTeamGlance;
@@ -82,18 +82,18 @@ const LINE_WIDTH = 168;
 const LINE_HEIGHT = 36;
 
 /**
- * The least a line spans, as a share of the board: a club that moved a point or two in a month
- * would otherwise be drawn as falling off a cliff, the line stretched to fill its height.
- */
-const LEAST_SPAN = 0.1;
-
-/**
  * The club's standing week by week, as a line: the share of its board at or above it, so a club
  * that holds its own draws flat. The place alone sank all season for a club in the middle, as
  * the board filled with clubs playing their first games (#439 of the clubs ranked on 1 September,
- * #2,737 of 7,126 by late October), and read as a team getting worse. Higher is better, so the
- * top of the board is the top edge. Only weeks it had a place on a board of known size are drawn,
- * and nothing at all until two of them are known, because one point is not a line.
+ * #2,737 of 7,126 by late October), and read as a team getting worse.
+ *
+ * The board is the clubs listed by rating (`of`, `nowOf`), not those listed after them, and the
+ * line is drawn on the whole board, the top edge its top and the bottom edge its foot. Scaled to
+ * its own range, as it was, a club near the foot that moved from the top 93% to the top 84% drew a
+ * climb from the bottom edge to the top, and its owner, whose team was losing, read the line going
+ * up all season. Drawn on the whole board, a club near the foot sits near the bottom edge and a
+ * move of a few points is a few pixels. Only weeks it had a place on a board of known size are
+ * drawn, and nothing at all until two of them are known, because one point is not a line.
  */
 export function StandingLine({
   history,
@@ -104,22 +104,26 @@ export function StandingLine({
   now: number;
   nowOf: number;
 }) {
+  // A week the club was listed last has a place past the clubs listed by rating, and no share of them.
   const points = [...history, { asOf: "", rank: now, of: nowOf }].flatMap((point) =>
-    point.rank !== null && point.of !== undefined && point.of > 0
-      ? [{ asOf: point.asOf, share: point.rank / point.of, top: topShare(point.rank, point.of) }]
+    point.rank !== null && point.of !== undefined && point.of > 0 && point.rank <= point.of
+      ? [
+          {
+            asOf: point.asOf,
+            share: point.rank / point.of,
+            words: standingWords(point.rank, point.of),
+          },
+        ]
       : []
   );
   if (points.length < 2) return null;
-  const shares = points.map((point) => point.share);
-  const best = Math.min(...shares);
-  const worst = Math.max(best + LEAST_SPAN, ...shares);
   const x = (at: number) => 4 + (at * (LINE_WIDTH - 8)) / (points.length - 1);
-  const y = (share: number) => 4 + ((share - best) * (LINE_HEIGHT - 8)) / (worst - best);
+  const y = (share: number) => 4 + share * (LINE_HEIGHT - 8);
   const first = points[0]!;
   const last = points[points.length - 1]!;
   const said = points
     .map((point) =>
-      point.asOf ? `top ${point.top}% on ${shortDay(point.asOf)}` : `top ${point.top}% now`
+      point.asOf ? `${point.words} on ${shortDay(point.asOf)}` : `${point.words} now`
     )
     .join(", ");
   return (
@@ -151,7 +155,8 @@ export function StandingLine({
         ))}
       </svg>
       <span>
-        Top {first.top}% on {shortDay(first.asOf)}, top {last.top}% now
+        {first.words.charAt(0).toUpperCase() + first.words.slice(1)} on {shortDay(first.asOf)},{" "}
+        {last.words} now
       </span>
     </div>
   );
@@ -224,7 +229,7 @@ export function MyTeamCard({
         </p>
       )}
       {history && (
-        <StandingLine history={history} now={glance.nationalRank} nowOf={glance.nationalOf} />
+        <StandingLine history={history} now={glance.nationalRank} nowOf={glance.listedOf} />
       )}
       {(next || !nextUnread) && (
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">

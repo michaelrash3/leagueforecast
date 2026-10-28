@@ -192,7 +192,7 @@ export type BoardView = {
   fit?: BoardFit;
 };
 
-type FieldKind = "string" | "number" | "boolean" | "number?";
+type FieldKind = "string" | "number" | "boolean" | "number?" | "true?";
 
 /**
  * What each field of a ranking row must be. Every field of `ScoutRankingRow`, whether or not the
@@ -228,6 +228,7 @@ const ROW_FIELDS: { [K in keyof ScoutRankingRow]-?: FieldKind } = {
   componentId: "string",
   comparable: "boolean",
   fromGameChanger: "boolean",
+  listedLast: "true?",
 };
 
 /** What each fact a published row may carry must be, when it is there. */
@@ -240,6 +241,7 @@ const FACT_FIELDS: { [K in keyof BoardFacts]-?: (value: unknown) => boolean } = 
 
 const holds = (record: Record<string, unknown>, field: string, kind: FieldKind): boolean => {
   const value = record[field];
+  if (kind === "true?") return value === undefined || value === true;
   return kind === "number?"
     ? value === undefined || typeof value === "number"
     : typeof value === kind;

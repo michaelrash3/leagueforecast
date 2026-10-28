@@ -9,6 +9,11 @@ export type MyTeamGlance = {
   /** Its place on this page's whole table, and how many are on it. */
   nationalRank: number;
   nationalOf: number;
+  /**
+   * How many of those are listed by rating, the rest listed after them (`listedLast`): what the
+   * standing line reads the place against, as each past week's board is (`PastBoard.sizes`).
+   */
+  listedOf: number;
   /** Its place among the clubs of its own state here, when it has one. */
   state?: string;
   stateRank?: number;
@@ -67,6 +72,7 @@ export const myTeamGlance = (
     teamName: row.teamName,
     nationalRank,
     nationalOf: rankings.length,
+    listedOf: rankings.filter((candidate) => !candidate.listedLast).length,
     ...(state && stateRank !== undefined ? { state, stateRank, stateOf: inState } : {}),
     record: row.record,
     rating: row.rating,
