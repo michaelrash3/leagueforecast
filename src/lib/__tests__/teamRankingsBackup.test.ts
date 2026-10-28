@@ -344,14 +344,16 @@ describe("teamRankingsCsvSections", () => {
         "Team B Score,Event,Note,Excluded,Season,Team A Age,Team B Age,Source Team ID,Source Game ID",
         "Also From,Start,Also Rows,Team B Reported,Score From Team B,Score From Second Listing",
         "Withdrawn,Named By Picture,Margin Confirmed Real,Joined From,Joined From Age,Counted Elsewhere",
+        "Typed As",
       ].join(",")
     );
     // The trailing empty cells are a game nothing was ever folded into, which is nearly all of them,
     // a game with no start, and one only its own club's schedule scored, and scored on its own row,
     // whose opponent was not named by its picture, whose score nobody had to vouch for, which no
-    // namesake join made, and which is no copy of a game counted elsewhere.
-    expect(lines[1]).toMatch(/,Spring 2028,10,11,gsUthn4XoIxS,59cdce43,,,,,,,,,,,,$/);
-    expect(lines[2]).toMatch(/,,,,,,,,,,,,,,,,,$/);
+    // namesake join made, which is no copy of a game counted elsewhere, and whose opponent's name
+    // as typed nobody kept.
+    expect(lines[1]).toMatch(/,Spring 2028,10,11,gsUthn4XoIxS,59cdce43,,,,,,,,,,,,,$/);
+    expect(lines[2]).toMatch(/,,,,,,,,,,,,,,,,,,$/);
   });
 });
 

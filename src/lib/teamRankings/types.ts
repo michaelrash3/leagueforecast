@@ -239,6 +239,13 @@ export type FoldedRow = {
    */
   namedByAvatar?: string;
   /**
+   * The opponent's name as the row's own schedule typed it (`ScoutGame.typedAs`), carried while the
+   * row is folded into another copy so the row stood back up is read for a rename as it was before.
+   * A newer pull leaves it as it is, as a claim keeps the team it was filed against: the name and
+   * where it put the row go together.
+   */
+  typedAs?: string;
+  /**
    * The team its schedule filed it against by name — a stand-in, or a pulled club none of whose
    * own schedules lists the game — where the club whose own schedule does list it claimed the row
    * (`claimFiledRows`). A claim is read again on every tidy, and one the schedules no longer bear
@@ -331,6 +338,16 @@ export type ScoutGame = {
   joinedFrom?: string;
   /** The level the row's name gave that stand-in, where it gave one (`ScoutGame.ageLevelB`). */
   joinedFromLevel?: number;
+  /**
+   * The opponent's name as the schedule this game stands on (`source`) typed it the last time it
+   * was pulled, read as names are compared (`teamNameKey`). A coach can rename the opponent after
+   * the row was filed, and a pull finds the row by its id and keeps the opponent it settled on, so
+   * a name that has since changed is read again: the row is filed by the new name where it rests on
+   * its name alone (`restsOnItsName`), the owner's case of 28 October 2026. Learned on the first
+   * pull that sees the row, so a row filed before this was kept is read again only from the
+   * rename after that.
+   */
+  typedAs?: string;
   /**
    * The club the row this game stands on (`source`) named by its GameChanger picture, rather than
    * by the name its coach typed: an identity, where a name is a guess. Set by the import that files

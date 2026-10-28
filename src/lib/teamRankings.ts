@@ -1044,6 +1044,7 @@ export const recordOf = (holder: ScoutGame, row: ScoutGame): FoldedRow | undefin
     ...(own ? { ownScore: row.teamAScore!, opponentScore: row.teamBScore! } : {}),
     ...(onSideB ? { onSideB: true } : {}),
     ...(row.namedByAvatar === undefined ? {} : { namedByAvatar: row.namedByAvatar }),
+    ...(row.typedAs === undefined ? {} : { typedAs: row.typedAs }),
   };
 };
 
@@ -1069,6 +1070,7 @@ export const rowOfRecord = (holder: ScoutGame, record: FoldedRow): ScoutGame => 
     ...(otherLevel === undefined ? {} : { ageLevelB: otherLevel }),
     ...(holder.season ? { season: holder.season } : {}),
     ...(record.namedByAvatar === undefined ? {} : { namedByAvatar: record.namedByAvatar }),
+    ...(record.typedAs === undefined ? {} : { typedAs: record.typedAs }),
     source: { kind: "gamechanger", teamId: record.teamId, gameId: record.gameId },
   };
 };
@@ -1161,15 +1163,27 @@ const asFiled = (row: ScoutGame, record: FoldedRow): ScoutGame => {
   };
 };
 
-/** `record` carrying the claim `from` holds, where it holds one and `record` does not. */
-const withClaimOf = (record: FoldedRow, from: FoldedRow | undefined): FoldedRow =>
-  from?.filedAgainst === undefined || record.filedAgainst !== undefined
-    ? record
-    : {
-        ...record,
-        filedAgainst: from.filedAgainst,
-        ...(from.filedLevel === undefined ? {} : { filedLevel: from.filedLevel }),
-      };
+/**
+ * `record` carrying the claim `from` holds, where it holds one and `record` does not, and the name
+ * `from` was typed as (`FoldedRow.typedAs`), where it kept one: the name and where it filed the row
+ * go together. In `recordOf`'s order, the name before the claim, which the tidy compares records in.
+ */
+const withClaimOf = (record: FoldedRow, from: FoldedRow | undefined): FoldedRow => {
+  const claimed = from?.filedAgainst !== undefined && record.filedAgainst === undefined;
+  const typedAs = from?.typedAs ?? record.typedAs;
+  if (!claimed && typedAs === record.typedAs) return record;
+  const { typedAs: _typed, filedAgainst, filedLevel, ...rest } = record;
+  const [against, level] = claimed
+    ? [from!.filedAgainst, from!.filedLevel]
+    : [filedAgainst, filedLevel];
+  return {
+    ...rest,
+    ...(typedAs === undefined ? {} : { typedAs }),
+    ...(against === undefined
+      ? {}
+      : { filedAgainst: against, ...(level === undefined ? {} : { filedLevel: level }) }),
+  };
+};
 
 /**
  * A result on the row being dropped fills a blank on the one kept; a result already there stands,

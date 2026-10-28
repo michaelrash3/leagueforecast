@@ -769,7 +769,15 @@ describe("the namesake join", () => {
       // Nothing either schedule says is new: the level the join wrote is not read as a change.
       expect(importer.add(ridgeAgain())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
       expect(importer.add(hustleAgain())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
-      expect(importer.state.games).toEqual(before.games);
+      // Only the names each row typed are learned, which a later rename is read against: A's on
+      // the game, B's on its row held in it.
+      expect(importer.state.games).toEqual(
+        before.games.map((game) => ({
+          ...game,
+          typedAs: "lakeshore hustle",
+          alsoRows: game.alsoRows?.map((record) => ({ ...record, typedAs: "nr ridge bombers" })),
+        }))
+      );
       const pulled = repulled(before, [ridgeAgain(), hustleAgain()]);
       expect(holdersOf(pulled, RIDGE_ROW)).toHaveLength(1);
       expect(holdersOf(pulled, HUSTLE_ROW)).toHaveLength(1);

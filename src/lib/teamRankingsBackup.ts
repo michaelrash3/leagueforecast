@@ -227,6 +227,7 @@ const GAME_HEADERS = [
    * its clubs' own schedules hold, which the tidy sets not to count and reads again every time.
    */
   "Counted Elsewhere",
+  "Typed As",
 ];
 
 /**
@@ -379,6 +380,25 @@ const yesNo = (value: boolean | undefined) => (value ? "yes" : "");
  * two unreadable ones. Free text is written flattened rather than left to corrupt the file.
  */
 const textCell = (value: string | undefined) => (value ?? "").replace(/\s+/g, " ").trim();
+
+/**
+ * A typed name as one token of the folded rows' cell, which is split on spaces and marked with
+ * "!", "~" and "*": every character an id could be read as escaped, as a web address escapes them.
+ */
+const typedToken = (name: string): string =>
+  encodeURIComponent(name).replace(
+    /[!'()*~]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+
+/** A typed name read back from its token, or nothing where the token is not one. */
+const fromTypedToken = (token: string): string | undefined => {
+  try {
+    return decodeURIComponent(token) || undefined;
+  } catch {
+    return undefined;
+  }
+};
 const isYes = (value: string) => /^(yes|y|true|1)$/i.test(value.trim());
 const scoreCell = (score: number | undefined) => (Number.isFinite(score) ? String(score) : "");
 const parseScore = (value: string): number | undefined => {
@@ -484,7 +504,8 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
               ? ""
               : `!${row.filedAgainst}` +
                 (row.filedLevel === undefined ? "" : `^${row.filedLevel}`)) +
-            (row.namedByAvatar === undefined ? "" : `~${row.namedByAvatar}`)
+            (row.namedByAvatar === undefined ? "" : `~${row.namedByAvatar}`) +
+            (row.typedAs === undefined ? "" : `*${typedToken(row.typedAs)}`)
         )
         .join(" "),
       game.reportedByB ? `${game.reportedByB.teamAScore}-${game.reportedByB.teamBScore}` : "",
@@ -496,6 +517,7 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
       game.joinedFrom ?? "",
       game.joinedFromLevel ?? "",
       yesNo(game.countedElsewhere),
+      textCell(game.typedAs),
     ]
       .map(csvEscape)
       .join(",")
@@ -858,18 +880,32 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
     // colons of its own, but never "@", "=" or "/". A row dated a day off its game's carries its own
     // day after "#", which no id holds either, a claimed row the team it was filed against after
     // "!", with the level that name gave after "^", and a row that named its club by its picture
-    // that club after "~", which no id or start holds.
+    // that club after "~", which no id or start holds; and the name its schedule typed after "*",
+    // escaped so it holds none of these (`typedToken`).
     const alsoRows = cell("Also Rows")
       .split(/\s+/)
       .flatMap((entry) => {
         // A score typed by hand can be any number the score cell takes, so not only whole ones.
         const parsed =
-          /^([^:@=/#!~]+):([^:@=/#!~]+)(?:#([^@=/!~]+))?(?:@([^@=/!~]+))?(?:=(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?))?(\/B)?(?:!([^\s!^~]+)(?:\^(\d+))?)?(?:~([^\s~]+))?$/.exec(
+          /^([^:@=/#!~*]+):([^:@=/#!~*]+)(?:#([^@=/!~*]+))?(?:@([^@=/!~*]+))?(?:=(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?))?(\/B)?(?:!([^\s!^~*]+)(?:\^(\d+))?)?(?:~([^\s~*]+))?(?:\*([^\s*]+))?$/.exec(
             entry
           );
         if (!parsed) return [];
-        const [, teamId, gameId, date, startTs, own, opponent, sideB, filed, filedLevel, named] =
-          parsed;
+        const [
+          ,
+          teamId,
+          gameId,
+          date,
+          startTs,
+          own,
+          opponent,
+          sideB,
+          filed,
+          filedLevel,
+          named,
+          typed,
+        ] = parsed;
+        const typedAs = typed === undefined ? undefined : fromTypedToken(typed);
         // In `recordOf`'s order, which the tidy compares records in: read back in another, every
         // game with a dated row read as regrouped on the first tidy after a restore.
         return [
@@ -883,6 +919,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
               : {}),
             ...(sideB ? { onSideB: true } : {}),
             ...(named ? { namedByAvatar: named } : {}),
+            ...(typedAs ? { typedAs } : {}),
             ...(filed
               ? { filedAgainst: filed, ...(filedLevel ? { filedLevel: Number(filedLevel) } : {}) }
               : {}),
@@ -894,6 +931,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
     const confirmed = parseScore(cell("Margin Confirmed Real"));
     const joinedFrom = cell("Joined From");
     const joinedFromLevel = parseLevel(cell("Joined From Age"));
+    const typedAs = cell("Typed As");
     return [
       {
         id,
@@ -930,6 +968,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         ...(joinedFrom
           ? { joinedFrom, ...(joinedFromLevel === undefined ? {} : { joinedFromLevel }) }
           : {}),
+        ...(typedAs ? { typedAs } : {}),
       },
     ];
   });
