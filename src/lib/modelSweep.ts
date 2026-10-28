@@ -60,7 +60,30 @@ export type ModelVariant = {
     teams: readonly ScoutTeam[],
     trained: readonly RatedScoutGame[]
   ) => ReadonlySet<string>;
+  /**
+   * Clubs known only by name filed onto a pulled club for the fit, stand-in id to club id: every
+   * game the fit reads, trained or not, reads the club where it read the stand-in, and a game the
+   * club would then play against itself is left out. The namesake levers (`namesakeFilings`) are
+   * tried this way: whether a name is its namesake's cannot be read off the name, but boards trained
+   * on the wrong club forecast that club's later games worse.
+   */
+  refile?: ReadonlyMap<string, string>;
 };
+
+/** Games read with each stand-in `onto` names as its club, any that club would play itself left out. */
+const refiledGames = <Entry>(
+  entries: readonly Entry[],
+  gameOf: (entry: Entry) => ScoutGame,
+  withGame: (entry: Entry, game: ScoutGame) => Entry,
+  onto: ReadonlyMap<string, string>
+): Entry[] =>
+  entries.flatMap((entry) => {
+    const game = gameOf(entry);
+    const teamAId = onto.get(game.teamAId) ?? game.teamAId;
+    const teamBId = onto.get(game.teamBId) ?? game.teamBId;
+    if (teamAId === game.teamAId && teamBId === game.teamBId) return [entry];
+    return teamAId === teamBId ? [] : [withGame(entry, { ...game, teamAId, teamBId })];
+  });
 
 /** The shipped model first, then each setting moved on its own either way. */
 export const MODEL_VARIANTS: readonly ModelVariant[] = [
@@ -272,7 +295,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
   const cutReadings: ModelSweep["cuts"] = [];
   // Each distinct fit once a cut: the floors share the shipped fit.
   const tuningKey = (variant: ModelVariant) =>
-    `${variant.tuning?.cap ?? ""}|${variant.tuning?.shrinkage ?? ""}|${variant.leaveOut ? variant.key : ""}`;
+    `${variant.tuning?.cap ?? ""}|${variant.tuning?.shrinkage ?? ""}|${variant.leaveOut || variant.refile ? variant.key : ""}`;
 
   for (const cut of cuts) {
     const trained = scoutRatingGames(page.id, teams, games, ageGroups, undefined, cut);
@@ -283,11 +306,27 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
       if (known) return known;
       const started = now();
       const drop = variant.leaveOut?.(teams, trained);
+      const kept = drop ? trained.filter(({ game }) => !drop.has(game.id)) : trained;
+      const onto = variant.refile;
       const fit = fitScoutYear(
         year,
         teams,
-        games,
-        drop ? trained.filter(({ game }) => !drop.has(game.id)) : trained,
+        onto
+          ? refiledGames(
+              games,
+              (game) => game,
+              (_, game) => game,
+              onto
+            )
+          : games,
+        onto
+          ? refiledGames(
+              kept,
+              (entry) => entry.game,
+              (entry, game) => ({ ...entry, game }),
+              onto
+            )
+          : kept,
         ageGroups,
         variant.tuning ?? {}
       );

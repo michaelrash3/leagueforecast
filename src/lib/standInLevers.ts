@@ -1,4 +1,6 @@
-import type { StandInWhy } from "./standInReport";
+import { standInReport, type StandInWhy } from "./standInReport";
+import { ageGroupLevel } from "./teamRankings/seasons";
+import { teamNameKey } from "./teamRankings/names";
 import {
   ageGroupYear,
   type AgeGroup,
@@ -189,3 +191,75 @@ export const leaveOutStandIns =
     }
     return out;
   };
+
+/**
+ * How far the namesake levers reach, each taking in the one before: `one`, the one pulled club of
+ * the name on a page the stand-in played on, in the namers' state or another; `near`, and where none
+ * is of the name, the one spelled near it (`looseNameKey`); `elsewhere`, and where neither is on its
+ * pages, the one pulled club of the name in the year on a page within two levels of one it played on
+ * (`PLAYS_UP_TO`), since a club plays up.
+ */
+export type NamesakeReach = "one" | "near" | "elsewhere";
+const LEVELS_APART = 2;
+
+/**
+ * Each club known only by name, filed onto the pulled club its name points to as far as `reach`
+ * goes (`ModelVariant.refile`), from why `standInReport` says it was not. Nothing here says the
+ * filing is right: a name is often a club nobody pulled that shares a pulled club's name, which is
+ * why the import asks for a game the namesake played that day. The sweep reads whether boards
+ * trained on the filing forecast later games better than the boards as they are.
+ */
+export const namesakeFilings = (
+  teams: readonly ScoutTeam[],
+  games: readonly ScoutGame[],
+  ageGroups: readonly AgeGroup[],
+  year: number,
+  reach: NamesakeReach
+): Map<string, string> => {
+  const report = standInReport(teams, games, ageGroups, year, Number.MAX_SAFE_INTEGER);
+  const onto = new Map<string, string>();
+  const whys: StandInWhy[] =
+    reach === "one"
+      ? ["oneSameState", "oneOtherState"]
+      : ["oneSameState", "oneOtherState", "nearOne"];
+  whys.forEach((why) =>
+    report.topWhy[why].forEach((club) => {
+      if (club.candidate) onto.set(club.teamId, club.candidate.teamId);
+    })
+  );
+  if (reach !== "elsewhere") return onto;
+
+  const yearPages = new Map(
+    ageGroups
+      .filter((group) => ageGroupYear(group) === year)
+      .map((group) => [group.id, ageGroupLevel(group)] as const)
+  );
+  const byId = new Map(teams.map((team) => [team.id, team]));
+  const levelsOf = new Map<string, Set<number>>();
+  games.forEach((game) => {
+    const level = yearPages.get(game.ageGroupId);
+    if (level === undefined) return;
+    [game.teamAId, game.teamBId].forEach((id) => {
+      const levels = levelsOf.get(id) ?? new Set<number>();
+      levels.add(level);
+      levelsOf.set(id, levels);
+    });
+  });
+  const pulledByName = new Map<string, string[]>();
+  levelsOf.forEach((_, id) => {
+    const team = byId.get(id);
+    if (!team || team.nameOnly || team.placeholder) return;
+    const key = teamNameKey(team.name);
+    pulledByName.set(key, [...(pulledByName.get(key) ?? []), id]);
+  });
+  const near = (a: ReadonlySet<number>, b: ReadonlySet<number>) =>
+    [...a].some((one) => [...b].some((other) => Math.abs(one - other) <= LEVELS_APART));
+  report.topWhy.elsewhere.forEach((club) => {
+    const own = levelsOf.get(club.teamId) ?? new Set<number>();
+    const within = (pulledByName.get(teamNameKey(club.name)) ?? []).filter((id) =>
+      near(own, levelsOf.get(id) ?? new Set<number>())
+    );
+    if (within.length === 1) onto.set(club.teamId, within[0]!);
+  });
+  return onto;
+};

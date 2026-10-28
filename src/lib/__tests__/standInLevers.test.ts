@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { boardShift, leaveOutStandIns, oneOffGames, standInBreakdown } from "../standInLevers";
+import {
+  boardShift,
+  leaveOutStandIns,
+  namesakeFilings,
+  oneOffGames,
+  standInBreakdown,
+} from "../standInLevers";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 
 /*
@@ -122,6 +128,71 @@ describe("how far a board's places move", () => {
       compared: 0,
       topKept: 0,
       medianMove: 0,
+    });
+  });
+});
+
+describe("each name filed onto its namesake, as far as a reach goes", () => {
+  const year = (level: number): AgeGroup => ({
+    id: `ag_${level}u_2027`,
+    name: `${level}U 2027`,
+    ageLevel: level,
+    year: 2027,
+    seasonIds: [],
+  });
+  const groups = [year(10), year(11), year(12), year(14)];
+  const club = (id: string, name: string): ScoutTeam => ({
+    id,
+    name,
+    state: "KY",
+    gcTeams: [{ teamId: `gc-${id}`, name, ageGroupId: "ag_10u_2027", ageLevel: 10 }],
+  });
+  const name = (id: string, called: string): ScoutTeam => ({ id, name: called, nameOnly: true });
+  const teams: ScoutTeam[] = [
+    club("A", "Namer"),
+    club("HAWKS", "Hawks"),
+    club("STARS", "St. Louis Stars"),
+    club("OWLS", "Owls"),
+    club("BATS", "Bats"),
+    club("TWO-11", "Pair"),
+    club("TWO-12", "Pair"),
+    club("X", "Other"),
+    name("n-hawks", "Hawks"),
+    name("n-stars", "Saint Louis Stars Baseball"),
+    name("n-owls", "Owls"),
+    name("n-bats", "Bats"),
+    name("n-pair", "Pair"),
+    name("n-nobody", "Nobody"),
+  ];
+  const games = [
+    // The namesakes, each at home on its own page.
+    game("HAWKS", "A", "ag_10u_2027"),
+    game("STARS", "A", "ag_10u_2027"),
+    game("OWLS", "X", "ag_12u_2027"),
+    game("BATS", "X", "ag_14u_2027"),
+    game("TWO-11", "X", "ag_11u_2027"),
+    game("TWO-12", "X", "ag_12u_2027"),
+    // The names, every one on the 10U page.
+    game("A", "n-hawks", "ag_10u_2027"),
+    game("A", "n-stars", "ag_10u_2027"),
+    game("A", "n-owls", "ag_10u_2027"),
+    game("A", "n-bats", "ag_10u_2027"),
+    game("A", "n-pair", "ag_10u_2027"),
+    game("A", "n-nobody", "ag_10u_2027"),
+  ];
+  const filed = (reach: "one" | "near" | "elsewhere") =>
+    Object.fromEntries(namesakeFilings(teams, games, groups, 2027, reach));
+
+  it("files the one of the name on its page, then the one spelled near it", () => {
+    expect(filed("one")).toEqual({ "n-hawks": "HAWKS" });
+    expect(filed("near")).toEqual({ "n-hawks": "HAWKS", "n-stars": "STARS" });
+  });
+
+  it("then the one of the name within two levels, never one further off or one of several", () => {
+    expect(filed("elsewhere")).toEqual({
+      "n-hawks": "HAWKS",
+      "n-stars": "STARS",
+      "n-owls": "OWLS",
     });
   });
 });

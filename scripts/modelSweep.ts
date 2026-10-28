@@ -29,8 +29,10 @@
  *
  * With --stand-in-levers it says what the year's share of games on a stand-in is made of (a slot,
  * how many games the name holds, why the name is not a pulled club's), how far each lever would
- * take it, and what leaving out the games of names holding one or two games would do to the boards
- * (`src/lib/standInLevers.ts`).
+ * take it, and whether boards that file each name onto its pulled namesake forecast later games
+ * better than the boards as they are, with the share each filing leaves and what it does to the
+ * boards (`src/lib/standInLevers.ts`); leaving the few-game names' games out was read on 28 October
+ * 2026 and forecast clearly worse.
  *
  * Options: --year=2027 (the squad year), --today=DAY (the board's day; the members' day by
  * default), --top=25 (the stand-ins named, most games first), --public (numbers only),
@@ -137,10 +139,10 @@ import { rankLineCheck, topOf } from "../src/lib/rankLineCheck.ts";
 import {
   boardShift,
   GAME_COUNTS,
-  leaveOutStandIns,
-  oneOffGames,
+  namesakeFilings,
   standInBreakdown,
   type GameCount,
+  type NamesakeReach,
 } from "../src/lib/standInLevers.ts";
 import { shiftDay } from "../src/lib/standInHalves.ts";
 import { openStores } from "./cloudPool.ts";
@@ -1002,9 +1004,43 @@ const measureStandInLevers = (source: Source, year: number) => {
     say("  No fit of the year to compare against.");
     return;
   }
-  // Whether boards fitted without them forecast the games after each cut better or worse: the
-  // bar a change to the fit is held to, on the same games the boards as they are are scored on.
-  say(`\n  Forecasting later games without them (${since()}):`);
+  // Whether boards trained with each name filed onto its namesake forecast the games after each
+  // cut better or worse: the bar a change to the fit is held to, on the same games the boards as
+  // they are are scored on. Leaving the few-game names' games out was read the same way on 28
+  // October 2026 (GitHub run 40606022999) and forecast clearly worse: log loss z -6.2 for the names
+  // holding one game, -7.8 for two or fewer, -2.3 for the slots alone.
+  const reaches: Array<{ reach: NamesakeReach; why: string }> = [
+    { reach: "one", why: "each name filed onto the one pulled club of the name on its page" },
+    { reach: "near", why: "and where none is, the one spelled near it" },
+    {
+      reach: "elsewhere",
+      why: "and where neither is, the one of the name in the year within two levels",
+    },
+  ];
+  const filings = reaches.map(({ reach, why }) => ({
+    reach,
+    why,
+    onto: namesakeFilings(pool.teams, pool.games, source.ageGroups, year, reach),
+  }));
+  const byId = new Map(pool.teams.map((team) => [team.id, team]));
+  const standing = (id: string) => {
+    const team = byId.get(id);
+    return (team?.nameOnly === true || team?.placeholder === true) && !team.gcTeams?.length;
+  };
+  const yearPages = new Set(pages.map((one) => one.id));
+  const yearGames = pool.games.filter((game) => yearPages.has(game.ageGroupId));
+  say(`\n  Each name filed onto its namesake (${since()}):`);
+  filings.forEach(({ reach, why, onto }) => {
+    const left = yearGames.filter((game) =>
+      [game.teamAId, game.teamBId].some((id) => !onto.has(id) && standing(id))
+    ).length;
+    say(
+      `    ${reach}: ${why}: ${onto.size} names filed; the share ${share(left, yearGames.length)}` +
+        ` of ${yearGames.length} games`
+    );
+  });
+
+  say(`\n  Forecasting later games with them filed (${since()}):`);
   try {
     describeSweep(
       runModelSweep({
@@ -1018,26 +1054,7 @@ const measureStandInLevers = (source: Source, year: number) => {
         now: () => performance.now(),
         variants: [
           { key: "shipped", why: "the boards as they are" },
-          {
-            key: "names-1",
-            why: "the games of names holding one game left out",
-            leaveOut: leaveOutStandIns(1, false),
-          },
-          {
-            key: "names-2",
-            why: "the games of names holding two or fewer left out",
-            leaveOut: leaveOutStandIns(2, false),
-          },
-          {
-            key: "names-2-slots",
-            why: "and every game against an unresolved bracket slot",
-            leaveOut: leaveOutStandIns(2, true),
-          },
-          {
-            key: "slots",
-            why: "only the games against an unresolved bracket slot left out",
-            leaveOut: leaveOutStandIns(0, true),
-          },
+          ...filings.map(({ reach, why, onto }) => ({ key: `file-${reach}`, why, refile: onto })),
         ],
       })
     );
@@ -1046,20 +1063,21 @@ const measureStandInLevers = (source: Source, year: number) => {
     process.exitCode = 1;
   }
 
-  for (const most of [1, 2]) {
-    const drop = oneOffGames(pool.teams, pool.games, most);
+  for (const { reach, onto } of filings) {
+    const refiled = pool.games.flatMap((game) => {
+      const teamAId = onto.get(game.teamAId) ?? game.teamAId;
+      const teamBId = onto.get(game.teamBId) ?? game.teamBId;
+      return teamAId === teamBId ? [] : [{ ...game, teamAId, teamBId }];
+    });
     const fit = fitScoutYearFor(
       page.id,
       pool.teams,
-      pool.games.filter((game) => !drop.has(game.id)),
+      refiled,
       source.ageGroups,
       segment,
       source.today
     );
-    say(
-      `\n  The boards without the games of names holding ${most === 1 ? "one game" : "two or fewer"}` +
-        ` (${drop.size} games; ${since()}):`
-    );
+    say(`\n  The boards with the names filed, ${reach} (${since()}):`);
     if (!fit) continue;
     pages.forEach((one, at) => {
       const shift = boardShift(

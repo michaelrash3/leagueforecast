@@ -276,3 +276,47 @@ describe("the research sweep of the shipped model", () => {
     }
   });
 });
+
+describe("a stand-in filed onto its club for the fit", () => {
+  // The same autumn, but Club 3's August games filed against a name, as an import that could not
+  // tell the name was the club would file them, and one game of the name against the club itself.
+  const split: ScoutGame[] = [
+    ...games.map((game) =>
+      game.date! < "2026-09-01" && game.teamBId === "S-3" ? { ...game, teamBId: "N-3" } : game
+    ),
+  ];
+  const withName: ScoutTeam[] = [...teams, { id: "N-3", name: "Club 3", nameOnly: true }];
+  const moved = split.filter((game) => game.teamBId === "N-3").length;
+  const self: ScoutGame = {
+    id: "self",
+    ageGroupId: PAGE,
+    teamAId: "S-3",
+    teamBId: "N-3",
+    teamAScore: 9,
+    teamBScore: 1,
+    date: "2026-08-20",
+  };
+
+  it("reads the trained games as the club's, to the digit, and leaves out its game against itself", () => {
+    expect(moved).toBeGreaterThan(0);
+    const refiled = runModelSweep({
+      ageGroups: groups,
+      teams: withName,
+      games: [...split, self],
+      year: 2027,
+      today: "2026-10-31",
+      variants: [
+        { key: "shipped", why: "the boards as they are" },
+        { key: "file", why: "the name filed", refile: new Map([["N-3", "S-3"]]) },
+      ],
+    });
+    const truth = sweep.variants[0]!;
+    const asFiled = refiled.variants[1]!;
+    expect(asFiled.logLoss).toBe(truth.logLoss);
+    expect(asFiled.brier).toBe(truth.brier);
+    expect(asFiled.squared).toBe(truth.squared);
+    // The split boards forecast worse than the club's own, so the filing is read as a gain.
+    expect(refiled.variants[0]!.logLoss).not.toBe(truth.logLoss);
+    expect(asFiled.vsShipped?.logLoss?.by).toBeGreaterThan(0);
+  });
+});
