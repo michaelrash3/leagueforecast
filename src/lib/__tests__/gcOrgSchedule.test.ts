@@ -233,16 +233,6 @@ describe("the games between an organization's teams", () => {
     expect(apart).toHaveLength(2);
   });
 
-  it("knows an opponent by its avatar where its name is written another way", () => {
-    const games = orgGames([
-      pulled("A", "Aces", [
-        played("NKY Bears 9U Gold", "2026-09-12", "home", [5, 3], { opponentAvatarKey: "bear" }),
-      ]),
-      pulled("B", "Bears", [], { avatarKey: "bear" }),
-    ]);
-    expect(games).toEqual([expect.objectContaining({ teamAId: "B", teamBId: "A" })]);
-  });
-
   it("leaves a name two pulled teams share to nobody, and a canceled game out", () => {
     const games = orgGames([
       pulled("A", "Aces", [

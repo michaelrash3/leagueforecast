@@ -88,13 +88,12 @@ describe("a League Standings date, carried onto a Team Rankings page", () => {
 });
 
 describe("a stored team, read back", () => {
-  it("keeps the mark that says nobody has pulled it", () => {
+  it("keeps the mark that says nobody has pulled it, and leaves a picture once kept behind", () => {
     const [team] = coerceScoutTeams([
       { id: "t1", name: "Warriors", nameOnly: true, avatarKey: "av-1" },
     ]);
 
-    expect(team?.nameOnly).toBe(true);
-    expect(team?.avatarKey).toBe("av-1");
+    expect(team).toEqual({ id: "t1", name: "Warriors", nameOnly: true });
   });
 
   it("keeps the coaches, the roster count and when it was taken", () => {
@@ -138,4 +137,4 @@ describe("a stored team, read back", () => {
 });
 
 /** A roster with a mark and a picture, for the identity checks the pool runs on. */
-export const standIn: ScoutTeam = { id: "t1", name: "Warriors", nameOnly: true, avatarKey: "av" };
+export const standIn: ScoutTeam = { id: "t1", name: "Warriors", nameOnly: true };

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GcTeamSchedule } from "../gameChangerApi";
-import { createGcImporter, importGcSchedule, type GcImportState } from "../gameChangerImport";
+import { importGcSchedule, type GcImportState } from "../gameChangerImport";
 import { answerableByOldest, answerableToday } from "../agelessQueue";
 import type { AgeUnknownTeam } from "../ageUnknown";
 import { gameSideLevels } from "../teamRankings";
@@ -122,33 +122,6 @@ describe("a team below the opponents' bar", () => {
     ]);
   });
 
-  it("is read at its settled age by the rest of the run, not at both (Codex on #438)", () => {
-    // Three clubs filed at 10U off one opponent each, then settled at 9U, all in one run: a fourth
-    // club whose only opponents are those three is filed by their age, as a fresh run would file it.
-    const importer = createGcImporter(empty, { today: TODAY });
-    const clubs = ["A", "B", "C"].map((letter) => ({
-      profile: { id: `gcCLUB${letter}00000`, name: `Club ${letter}`, avatarKey: `av-${letter}` },
-      first: against("Hawks 10U"),
-    }));
-    clubs.forEach((club) => importer.add(ageless([club.first], club.profile)));
-    // Each schedule pulled again lists its first game beside the three that settle its age.
-    clubs.forEach((club) =>
-      importer.add(
-        ageless(
-          [club.first, against("Comets 9U"), against("Rockets 9U"), against("Bandits 9U")],
-          club.profile
-        )
-      )
-    );
-    clubs.forEach((club) => expect(filedAs(importer.state, club.profile.id).level).toBe(9));
-    const otters = ageless(
-      clubs.map((club) => against("Rivals", { opponentAvatarKey: club.profile.avatarKey })),
-      { id: "gcOTTERS0000", name: "Otters" }
-    );
-    expect(importer.add(otters).skip).toBeUndefined();
-    expect(filedAs(importer.state, "gcOTTERS0000").level).toBe(9);
-  });
-
   it("reads only ages this app ranks, inside GameChanger's own band", () => {
     expect(pull(ageless([against("Hawks 19U")])).outcome.skip).toBe("no-age");
     // An opponent writing an age above the oldest ranked is no older opponent to file by.
@@ -168,21 +141,6 @@ describe("a team below the opponents' bar", () => {
     expect(pull(ageless([against("Hawks 10U")], { playerCount: 12 })).outcome.skip).toBeUndefined();
   });
 
-  it("is no evidence of another team's age while it is filed so", () => {
-    // The Wildcats are filed at 12U off one opponent; a team whose opponents are them and a 9U
-    // side reads the 9U side alone, so it is filed at 9U and not at the Wildcats' guess.
-    const wildcats = pull(ageless([against("Hawks 12U")], { avatarKey: "av-wildcats" }));
-    expect(filedAs(wildcats.state, "gcWILDCATS00").level).toBe(12);
-    const { state } = pull(
-      ageless([against("Cats", { opponentAvatarKey: "av-wildcats" }), against("Comets 9U")], {
-        id: "gcOTTERS0000",
-        name: "Otters",
-      }),
-      wildcats.state
-    );
-    expect(filedAs(state, "gcOTTERS0000")).toEqual({ level: 9, ageFrom: "tentative" });
-  });
-
   it("is filed on its own page when another's is made in the same millisecond", () => {
     // CI on #461, 26 October 2026: the Wildcats' 12U page and the Otters' 9U page were made in
     // one millisecond under one random number, so under one id, and the Otters read as 12U. Pages
@@ -190,9 +148,9 @@ describe("a team below the opponents' bar", () => {
     vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
     vi.spyOn(Math, "random").mockReturnValue(0.5);
     try {
-      const wildcats = pull(ageless([against("Hawks 12U")], { avatarKey: "av-wildcats" }));
+      const wildcats = pull(ageless([against("Hawks 12U")]));
       const { state } = pull(
-        ageless([against("Cats", { opponentAvatarKey: "av-wildcats" }), against("Comets 9U")], {
+        ageless([against("Cats"), against("Comets 9U")], {
           id: "gcOTTERS0000",
           name: "Otters",
         }),

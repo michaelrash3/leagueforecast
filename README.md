@@ -199,8 +199,7 @@ age**.
 
 **The panel says which of them answered.** Each GameChanger link records the rule that filed it
 (`GcTeamLink.ageFrom`: GameChanger's age field, the name, a league or organization on your list,
-the opponents' names, where its opponents are filed, the clubs its games identify, the teams it
-has played, or you) and
+the opponents' names, the clubs its games identify, the teams it has played, or you) and
 GameChanger's own age field verbatim (`ageLabel`), and the link line reads "filed at 8U, from its
 league or organization on your list; GameChanger gives no age". The user asked on 28 September 2026
 why a club whose name carries no age was filed at 8U, and nothing stored could say: the rules
@@ -891,9 +890,8 @@ proxy (`gcOrgSchedule.ts`, `StartFromGcOrg`):
   where the list gives no season or age and every team the organization has had is one group,
   starts with none ticked, and a pull of more is refused.
 - **The games between them.** Both teams' schedules list a league game, against the other by name
-  only (a public schedule carries no opponent id). So an opponent is one of the pulled teams by
-  its avatar (the one stable mark of an opponent a schedule carries), else by a name no other
-  pulled team has (`teamNameKey`); each pair's games on a day are paired across the two schedules
+  only (a public schedule carries no opponent id). So an opponent is one of the pulled teams by a
+  name no other pulled team has (`teamNameKey`); each pair's games on a day are paired across the two schedules
   by their start, the nearest within the hour (an all-day copy, with none, takes the other side's
   first left over), so a doubleheader stays two even where one schedule lists only one of its
   games, and a copy matched to none is a game of its own; GameChanger says who was home, so a game is stood up
@@ -1400,9 +1398,9 @@ the day either side because two schedules can date one game a day apart, and the
 those (**A day apart**). Every road a name takes asks it: the import's match (`planOpponent`), the
 refile of a stand-in's rows (`refileStandIns`), and the tidy, which takes a row a name filed onto a
 club whose own schedule has no game near that day off it, onto a stand-in of the name, or a slot
-where the club's name reads as a weekend (`resettleOffLevel`). The game itself and the picture are
-not names and are not asked: a club whose own schedule holds the fixture, or whose picture the row
-carries, is that club. A club whose schedule came back empty has no game on any day, so a neighbour's
+where the club's name reads as a weekend (`resettleOffLevel`). The game itself is not a name and is
+not asked: a club whose own schedule holds the fixture is that club, and so is one the owner said
+the row faced (Same team as). A club whose schedule came back empty has no game on any day, so a neighbour's
 game against it stands against a stand-in of its name. The user asked for this check on 28
 September 2026, when an Illinois club's 8 August loss to "Eagles" sat on the Eagles of Independence,
 Kentucky — the one 9U Eagles across Illinois's border — whose own schedule opened on 3 September,
@@ -1499,8 +1497,7 @@ shows. Beside each game a club has only because a name on another club's schedul
 it, the panel offers **Not this team** (`filedByNameOn`): a row off GameChanger, off a schedule of
 the club on the game's other side, which is the schedule that wrote the name, on a pulled club, with
 nothing of the club's own saying the game is its — no row of its schedules folded in, claimed in or
-on record, and no picture naming it, which is GameChanger's identity or, after Same team as, the
-owner's word. A game the club's own schedule lists, one typed in and a League Standings game are
+on record, and no Same team as naming it, which is the owner's word. A game the club's own schedule lists, one typed in and a League Standings game are
 never offered it, and nor is a row off a schedule nobody holds: an Unlink leaves the club's own rows
 of the link it took off on the club, and on the backup of 29 September 2026 one such row was the
 one game of 8,200 whose schedule was not the other side's. Unlink, which the panel offered before,
@@ -1548,9 +1545,7 @@ namer, the fixture match, the holder test, the slot settle, the crossed halves, 
 claim step put it on the club as they would with no refusal, since the club saying it played the
 game is not a reading of a name. Kept from those too, the two clubs' next real meeting stood twice
 on the namer's record, once against the club from the club's schedule and once against a stand-in
-from the namer's. The picture still names the club as well, being GameChanger's identity. The
-import panel and the
-tidy on this page, in its worker or not, read the list, and so does every pull run on the cloud
+from the namer's. The import panel and the tidy on this page, in its worker or not, read the list, and so does every pull run on the cloud
 copy (`runCloudPull`: the nightly refresh and a list pulled in the cloud), its import and its tidy
 alike, and Pool health's count of what a tidy would settle (`settleableNow`, on the page, in its
 worker and in the server's `health.inspect`), which asked without it offered a Settle the tidy
@@ -1680,7 +1675,7 @@ that copy. The claim step's rules for a stand-in must hold, and no row of the cl
 club may be waiting that day or either side of it that could still be the copy. It leaves alone a
 fold whose name files it against the other club:
 
-- the other club's name, a GameChanger listing's name, or its picture;
+- the other club's name, or a GameChanger listing's name;
 - a shorthand for the other club's name at the very start, wherever the two clubs are, as the
   slot settle files one;
 - a name the club's other rows already stand against the other club under, as a hand merge
@@ -1896,24 +1891,26 @@ files it. On the pool of 26 September 2026 at 18:40 the tidy takes 121 rows off,
 records change: 30 toward GameChanger's own, 13 of them onto it, and one away, a loss its club's
 schedule has not scored yet, whose row the move let join the club's own copy of the game.
 
-A row that named its opponent by the club's GameChanger picture is kept apart from all of that
-(`ScoutGame.namedByAvatar`). The picture is the one identifier GameChanger gives that means the
-same club on two schedules, so a Florida row naming a Texas club by it played that club, and no
-rule that reads a name — the region, the age, the misfile check, the claim step — moves it off.
-The import records the club on a row it files by the picture and on a later pull of a row already
-filed against the club its picture names, and Same team as records it on every row of a team known
-only by a name — a stand-in, a slot, one made by hand — that the user folds into a pulled club,
-since that is the user saying who played: folded with no mark, the two stand-ins of "513 Force -
-Bouley" went back to stand-ins at the next tidy, the club's own schedule having no game those days
-(`mergeScoutTeams`). A row the region rule moved before the picture was kept
-stays where the rule put it until the other club's own schedule lists the game. A later pull whose
-picture names another pulled club takes the club off the row, and the rules that read names read it
-again; a pull with no picture, which GameChanger often sends, leaves it. A row folded into the
-other club's copy of the game keeps the club on its record there (`FoldedRow.namedByAvatar`), so a
-correction that stands it back up stands up the same row; a claimed row's record takes a picture
-naming the team it goes back to as well as one naming the club that claimed it, so a row whose
-claim the schedules release goes back to that team still carrying it. The stored pool, the JSON
-backup and the CSV a season export carries all keep it.
+A row the owner said is against a club is kept apart from all of that (`ScoutGame.namedByAvatar`).
+Same team as records the club on every row of a team known only by a name — a stand-in, a slot, one
+made by hand — that the user folds into a pulled club, since that is the user saying who played:
+folded with no mark, two such stand-ins went back to stand-ins at the next tidy, the club's own
+schedule having no game those days (`mergeScoutTeams`). So no rule that reads a name — the region,
+the age, the misfile check, the claim step — moves such a row off, and a pull, which says nothing of
+who the owner said played, leaves it. A row folded into the other club's copy of the game keeps the
+club on its record there (`FoldedRow.namedByAvatar`), so a correction that stands it back up stands
+up the same row, and a claimed row's record keeps it too, so a row whose claim the schedules release
+goes back to its team still carrying it. The stored pool, the JSON backup and the CSV a season
+export carries all keep it.
+
+The field is named for GameChanger's picture, which set it as well until 28 October 2026: a row
+whose opponent's picture was a pulled club's own was read as that club. None ever was. On that day
+none of 12,994 opponents' pictures on 3,000 pulled schedules was any of the 44,840 pulled clubs'
+(GitHub run 40693355959), and no stored game carried one; a nationwide pull before that had found
+7,948 different pictures on 7,948 teams. So pictures are no longer read, kept or matched anywhere —
+not for an opponent, a club's own stand-in, an age, a season pairing or an organization's games —
+and the stored pool keeps none (data schema 7). A pull's tally counts the opponents the game itself
+found (`opponentsMatchedByGame`); it called them found by picture before.
 
 A name nobody pulled is one stand-in per name, level and squad year among the clubs of a state that
 named it, and a lookup that missed made a second: a class year looked up at the page's age rather
@@ -2363,7 +2360,8 @@ opponent in full, a club of a longer name. So every row keeps the name its sched
 as names are compared, `teamNameKey`), and a pull that finds it typed otherwise files the row by
 the new name, as a row first pulled under it would be, where the name is all the row rests on
 (`restsOnItsName`): not a game holding another club's own row of it, which is that club's word that
-the two met, nor one whose picture named its club, nor one the namesake join made. A name written
+the two met, nor one the owner said is against its club (Same team as), nor one the namesake join
+made. A name written
 otherwise ("RAMS 9u" for "Rams") is no rename. A row learns its name once and keeps it until it is
 filed again by another, so a rename on a game that rests on more is read once nothing else does;
 a row held in another club's copy keeps the name on its record there (`FoldedRow.typedAs`), as a
@@ -2483,7 +2481,7 @@ import panel runs the same thing for whoever wants to watch.
 
 A pairing with the **same name, same town and same state**, a season apart at
 one level, is applied on its own at the end of a pull: that is a club, not a
-coincidence. Anything short of all three is **proposed, never applied** — the panel lists the clubs that look like the same club a season on (same name at the same level plus a pulled club in common, or the same picture; a shared name and state alone is no offer, since every rec league in a state has a Yankees), with a tick-all for the
+coincidence. Anything short of all three is **proposed, never applied** — the panel lists the clubs that look like the same club a season on (same name at the same level plus a pulled club in common, or two coaches in common; a shared name and state alone is no offer, since every rec league in a state has a Yankees), with a tick-all for the
 list and a tap on any name to lay the two side by side: GameChanger's name for
 each, town, state, record, games held here, and every opponent, with the ones in
 common marked. A team's own panel lists the GameChanger ids it is known by,
@@ -2782,32 +2780,8 @@ thirteen-year-olds three years old.
 league rung and under the company a team keeps, and only ever answers a team that has no
 other answer at all. On a real backlog it reaches **273** rows — small, and honestly so.
 
-**An age from the company the pool already knows.** The last rung of the ladder, and the
-one that reaches the backlog's most hopeless population. `ageFromOpponentNames` reads an
-age out of an opponent's _name_, so it can never settle a team in a closed league where
-nobody writes an age in anything — "Team 4" playing "Team 2" and "Team 5". Over a real
-36,194-row backlog, 10,709 rows are exactly that shape.
-
-But the pool has usually met those opponents. A team refused for having no age has just had
-its whole schedule fetched, and most of the clubs on it are already filed, at an age
-something else settled. That answer was one lookup away and nothing asked for it.
-
-**By identity, never by name.** The opponent is matched on its avatar key — stable per club
-across schedules, and what `resolveOpponent` already trusts. That is what makes this safe: a
-name match on "Team 4" would collect a stranger from the other side of the country, and a
-pool holding tens of thousands of teams has a great many "Team 4"s. Where two clubs share a
-picture the picture identifies nobody, and the opponent is skipped; where the pool has a
-club filed at two ages it is running two squads, and it says nothing about this one.
-
-Held to the same bar as the name rule — `MIN_OPPONENT_AGE_EVIDENCE` distinct opponents
-agreeing, a tie refused — because it is the same kind of claim: circumstantial, about the
-company a club keeps, and wrong in the same way if a squad plays up all season. It sits
-below the name reading for the same reason: a club writing "12U" in its own name is telling
-you about itself, while this tells you who it plays.
-
-**An age from the games themselves.** The picture turned out to be no kind of identifier —
-7,948 teams in a nationwide pull carried 7,948 different ones — so the rung above seldom
-answers. The games do. Each pulled club that played a no-age team holds its own half of the
+**An age from the games themselves.** A no-age team has usually met pulled clubs already, and
+the games say which. Each pulled club that played a no-age team holds its own half of the
 game, filed against a stand-in carrying whatever its coach typed for that team.
 `ageFromFixtures` finds those halves the way the crossed-halves join does: a row a pulled club
 filed that day off its own schedule, against a stand-in whose name is a shorthand for this
@@ -2819,7 +2793,7 @@ the level it gives. On the stand-in fixtures export of 22 September 2026 the two
 game were filed at one level 73.5% of the time and a level apart 22%, so one club's level is a
 guess and three agreeing is not. From the waiting list's own file, which keeps only three of
 each team's opponents, it ages at least 32 teams, and every one of the 31 whose GameChanger age
-field gives a band lands inside it. It sits below the picture, and is recorded on the
+field gives a band lands inside it. It sits below the opponents' names, and is recorded on the
 pull as `ageFromFixtures` as well as among the ages from opponents.
 
 **And last of all, an age the name writes loosely.** The ordinary reader wants an age
@@ -4143,7 +4117,7 @@ reads each against it game by game, with a standard error that reads a club's ga
 The same run counts the squad year's stand-ins (`src/lib/standInReport.ts`): the games with a
 club known only by name or a bracket slot on a side, played and all, and of the clubs known only
 by name, how many share a name with a club pulled the same year, which is a matching gap a
-region or a picture might settle, and how many have nothing of that name. The ones with a namesake
+region might settle, and how many have nothing of that name. The ones with a namesake
 are split by where it is: on a page the stand-in played on (most likely the club itself, which the
 import would not join it to), or only on another page; with the played games filed against a
 bracket slot nobody resolved.

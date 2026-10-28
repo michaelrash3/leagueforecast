@@ -118,7 +118,6 @@ describe("GET /api/gc-team", () => {
         name: "NV Stars 9u Scout",
         ageLevel: 9,
         season: { season: "fall", year: 2026 },
-        avatarKey: "5192a689-d888-4ae5-abce-446885dca7c7",
       });
       expect(body.schedule.games).toHaveLength(12);
       expect(body.schedule.games[0]?.date).toBe("2026-08-22");

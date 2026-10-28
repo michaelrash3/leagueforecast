@@ -17,7 +17,6 @@ import {
   ageFromLeagueNames,
   ageLevelOf,
   ageSpanFromName,
-  avatarKeyFromUrl,
   gradYearFromName,
   formatGcSeason,
   gcGamesApiUrl,
@@ -520,28 +519,6 @@ describe("ageLevelOf", () => {
   });
 });
 
-describe("avatarKeyFromUrl", () => {
-  it("returns the media id segment of a media-service URL, with or without the signed query", () => {
-    expect(
-      avatarKeyFromUrl(
-        "https://media-service.gc.com/e3157726-26f9-464c-9fa7-dab8e0fc0a03?Policy=abc&Signature=def"
-      )
-    ).toBe("e3157726-26f9-464c-9fa7-dab8e0fc0a03");
-    expect(
-      avatarKeyFromUrl("https://media-service.gc.com/5192a689-d888-4ae5-abce-446885dca7c7")
-    ).toBe("5192a689-d888-4ae5-abce-446885dca7c7");
-    expect(avatarKeyFromUrl("//media-service.gc.com/abc123/thumb.png")).toBe("abc123");
-  });
-
-  it("returns undefined for other hosts and non-strings", () => {
-    expect(avatarKeyFromUrl("https://example.com/e3157726")).toBeUndefined();
-    expect(avatarKeyFromUrl("https://media-service.gc.com/")).toBeUndefined();
-    expect(avatarKeyFromUrl(undefined)).toBeUndefined();
-    expect(avatarKeyFromUrl(null)).toBeUndefined();
-    expect(avatarKeyFromUrl(12)).toBeUndefined();
-  });
-});
-
 describe("localDateInZone", () => {
   it("computes the calendar date in the schedule's zone, not UTC", () => {
     expect(localDateInZone("2026-09-12T23:00:00.000Z", "America/New_York")).toBe("2026-09-12");
@@ -576,7 +553,6 @@ describe("normalizeGcTeamProfile", () => {
       ageLevel: 9,
       season: { season: "fall", year: 2026 },
       record: { win: 11, loss: 1, tie: 0 },
-      avatarKey: "5192a689-d888-4ae5-abce-446885dca7c7",
       playerCount: 10,
       // Both of these were in the capture from the start and neither was read: the sanctioning
       // body, which is the only thing that says whether "Majors" is an age or a skill class, and
@@ -735,14 +711,13 @@ describe("normalizeGcGames", () => {
     expect(games.every((game) => game.timezone === "America/New_York")).toBe(true);
   });
 
-  it("normalizes the first game with its opponent avatar", () => {
+  it("normalizes the first game, the picture beside its opponent left behind", () => {
     const first: GcGame = {
       id: "59cdce43-a346-4c2f-b06f-1a0b21ba3fdc",
       date: "2026-08-22",
       startTs: "2026-08-22T20:30:00.000Z",
       timezone: "America/New_York",
       opponentName: "NKY Sluggers 9U",
-      opponentAvatarKey: "e3157726-26f9-464c-9fa7-dab8e0fc0a03",
       homeAway: "away",
       teamScore: 12,
       opponentScore: 2,
@@ -752,7 +727,7 @@ describe("normalizeGcGames", () => {
     expect(games[0]).toEqual(first);
   });
 
-  it("leaves the avatar key out for an opponent without one", () => {
+  it("normalizes a home game", () => {
     const ambush = games.find((game) => game.id.startsWith("84901410"));
     expect(ambush).toEqual({
       id: "84901410-8dee-4ab1-8650-0d6a85f6639e",
@@ -766,7 +741,6 @@ describe("normalizeGcGames", () => {
       status: "completed",
       rawStatus: "completed",
     });
-    expect(ambush).not.toHaveProperty("opponentAvatarKey");
   });
 
   it("dates an evening game on its Kentucky day, not the UTC one", () => {
@@ -778,14 +752,6 @@ describe("normalizeGcGames", () => {
     expect(late?.date).toBe("2026-09-13");
     expect(late?.teamScore).toBe(7);
     expect(late?.opponentScore).toBe(16);
-  });
-
-  it("shares an avatar key between two games against the same opponent", () => {
-    const knights = games.filter((game) => game.opponentName === "9U North Oldham Knights - Navy");
-    expect(knights).toHaveLength(2);
-    expect(new Set(knights.map((game) => game.opponentAvatarKey))).toEqual(
-      new Set(["e24833fb-64dd-4f84-a4de-9ac709e0cf63"])
-    );
   });
 
   /*

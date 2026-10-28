@@ -20,7 +20,7 @@ export { looseNameKey };
  * What is left once the nightly's tidy has run, which is the cloud copy as it is: the tidy already
  * folds every stand-in it can prove is a club. So the report asks what it could not: of the clubs
  * known only by name, how many share a name with a club pulled in the same year (a matching gap,
- * where a region or a picture might settle it), and how many have nothing of that name at all.
+ * where a region might settle it), and how many have nothing of that name at all.
  */
 
 /**

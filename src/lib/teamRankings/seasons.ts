@@ -427,15 +427,6 @@ export const findGcLink = (
 };
 
 /**
- * Teams whose links carry this avatar key. Usually one; two means two GameChanger ids sharing an
- * image that the user has not paired, which is itself worth surfacing.
- */
-export const findTeamsByAvatarKey = (avatarKey: string, teams: ScoutTeam[]): ScoutTeam[] =>
-  avatarKey
-    ? teams.filter((team) => team.gcTeams?.some((link) => link.avatarKey === avatarKey))
-    : [];
-
-/**
  * The age group that carries a squad into its next season: a year older, a year later, pointed at
  * the one it came from so last year's opponents keep showing up in the name list, and carrying
  * "our team" over since that is the same real-world club either way. Seasons are deliberately not

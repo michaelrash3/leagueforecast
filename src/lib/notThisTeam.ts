@@ -35,8 +35,8 @@ import type { AgeGroup, ScoutGame, ScoutTeam } from "./teamRankings/types";
  * A, and offered there the button put the schedule's own side on a stand-in of its own name. The
  * club is a pulled one, since a stand-in is the name and nothing more; and nothing of the club's
  * own says the game is its: no row of its schedules folded in or claimed into it, none of them on
- * record (`alsoRows`, `alsoFrom`), and no picture naming it (`namedByAvatar`), which is
- * GameChanger's own identity and, after "Same team as", the owner's word. A game typed in has no
+ * record (`alsoRows`, `alsoFrom`), and no "Same team as" naming it (`namedByAvatar`), which is the
+ * owner's word. A game typed in has no
  * source and is the owner's own, and a League Standings game has none either.
  */
 export const filedByNameOn = (
@@ -84,7 +84,7 @@ export const listedByOwn = (game: ScoutGame, club: ScoutTeam | undefined): boole
  * when the club has a game that day, and a club's league opponent is named over and over. Nor
  * wider: the schedule and the name both stay in it, so the same club is still found by another
  * schedule that names it, or by this one under another name, and a club's own schedule listing the
- * game, and its picture, still say who played (`listedByOwn`).
+ * game still says who played (`listedByOwn`).
  *
  * Every schedule of the club that wrote the name, not only the one the row came off: a club listed
  * on GameChanger twice, or once for the spring and once for the fall, is one club writing the name,

@@ -40,7 +40,6 @@ const fallLink: GcTeamLink = {
   season: "fall",
   seasonYear: 2027,
   ageLevel: 10,
-  avatarKey: "5192a689-d888-4ae5-abce-446885dca7c7",
   record: { win: 11, loss: 1, tie: 0 },
   importedAt: "2027-09-14T12:00:00.000Z",
 };
@@ -186,7 +185,7 @@ describe("teamRankingsCsvSections", () => {
     expect(JSON.stringify(back?.games[0]?.alsoRows)).toBe(JSON.stringify(rows));
   });
 
-  it("round-trips the club a row's picture named, on the game and on the rows folded into it", () => {
+  it("round-trips the club the owner said a row faced, on the game and on the rows folded in", () => {
     const rows = [
       {
         teamId: "zjvVkYnqLrf0",
@@ -206,7 +205,7 @@ describe("teamRankingsCsvSections", () => {
         filedAgainst: "S-CANE",
       },
     ];
-    const pictured: TeamRankingsBackup = {
+    const marked: TeamRankingsBackup = {
       ...backup,
       teams: [...teams, { id: "S-CANE", name: "Canes" }],
       games: [
@@ -218,9 +217,13 @@ describe("teamRankingsCsvSections", () => {
         },
       ],
     };
-    const back = parseTeamRankingsCsv(teamRankingsCsvSections(pictured));
-    expect(back).toEqual(pictured);
+    const back = parseTeamRankingsCsv(teamRankingsCsvSections(marked));
+    expect(back).toEqual(marked);
     expect(JSON.stringify(back?.games[0]?.alsoRows)).toBe(JSON.stringify(rows));
+    // A file of data schema 6 or before calls the column "Named By Picture".
+    const older = teamRankingsCsvSections(marked).replace(",Same Team As,", ",Named By Picture,");
+    expect(older).not.toBe(teamRankingsCsvSections(marked));
+    expect(parseTeamRankingsCsv(older)).toEqual(marked);
   });
 
   it("round-trips a win by forty runs or more the user said is real", () => {
@@ -323,7 +326,7 @@ describe("teamRankingsCsvSections", () => {
       ?.trim();
     const lines = teamsSection?.split("\n") ?? [];
     expect(lines[0]).toBe(
-      "Team ID,Team Name,State,City,Is My Team,Placeholder,Name Only,Avatar Key,GameChanger Teams"
+      "Team ID,Team Name,State,City,Is My Team,Placeholder,Name Only,GameChanger Teams"
     );
     // One row per team, even though the first carries two links with quotes and commas inside.
     expect(lines).toHaveLength(3);
@@ -343,13 +346,13 @@ describe("teamRankingsCsvSections", () => {
         "Game ID,Age Group ID,Age Group,Date,Team A ID,Team A,Team A Score,Team B ID,Team B",
         "Team B Score,Event,Note,Excluded,Season,Team A Age,Team B Age,Source Team ID,Source Game ID",
         "Also From,Start,Also Rows,Team B Reported,Score From Team B,Score From Second Listing",
-        "Withdrawn,Named By Picture,Margin Confirmed Real,Joined From,Joined From Age,Counted Elsewhere",
+        "Withdrawn,Same Team As,Margin Confirmed Real,Joined From,Joined From Age,Counted Elsewhere",
         "Typed As",
       ].join(",")
     );
     // The trailing empty cells are a game nothing was ever folded into, which is nearly all of them,
     // a game with no start, and one only its own club's schedule scored, and scored on its own row,
-    // whose opponent was not named by its picture, whose score nobody had to vouch for, which no
+    // whose opponent the owner never named, whose score nobody had to vouch for, which no
     // namesake join made, which is no copy of a game counted elsewhere, and whose opponent's name
     // as typed nobody kept.
     expect(lines[1]).toMatch(/,Spring 2028,10,11,gsUthn4XoIxS,59cdce43,,,,,,,,,,,,,$/);

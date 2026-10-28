@@ -56,7 +56,6 @@ const fullLink: GcTeamLink = {
   season: "fall",
   seasonYear: 2026,
   ageLevel: 9,
-  avatarKey: "5192a689-d888-4ae5-abce-446885dca7c7",
   record: { win: 11, loss: 1, tie: 0 },
   importedAt: "2026-09-14T12:00:00.000Z",
 };

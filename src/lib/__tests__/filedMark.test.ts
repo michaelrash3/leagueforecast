@@ -314,23 +314,6 @@ describe("a row #270 folded with no mark, read again on its schedule's next pull
       ).toBeUndefined();
     });
 
-    // Shared with the Cubs, the picture is not one the name lookup reads as anybody's.
-    it("the other club's picture", () => {
-      expect(
-        markAfter(
-          { ...row("a1", "Sharks", "18:00", [7, 3]), opponentAvatarKey: "bear-face" },
-          (bare) => ({
-            ...bare,
-            teams: bare.teams.map((team) =>
-              team.gcTeams?.some((link) => link.teamId === "gcB" || link.teamId === "gcC")
-                ? { ...team, avatarKey: "bear-face" }
-                : team
-            ),
-          })
-        )
-      ).toBeUndefined();
-    });
-
     it("a name the Aces' own rows already stand against the Bears under, as a hand merge leaves", () => {
       const merged = (bare: GcImportState): GcImportState => {
         const bearsId = idOf(bare, "Bears");

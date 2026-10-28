@@ -160,7 +160,6 @@ const SHAPES_NOW = {
       "city",
       "placeholder",
       "nameOnly",
-      "avatarKey",
       "gcTeams",
     ]),
     link: fieldsOf<GcTeamLink>()([
@@ -172,7 +171,6 @@ const SHAPES_NOW = {
       "ageLevel",
       "ageLabel",
       "ageFrom",
-      "avatarKey",
       "record",
       "staff",
       "playerCount",
@@ -186,7 +184,6 @@ const SHAPES_NOW = {
       "name",
       "list",
       "opponents",
-      "pool",
       "fixtures",
       "tentative",
     ]),
@@ -334,6 +331,8 @@ const SHAPES: readonly { schema: number; fingerprint: string }[] = [
   { schema: 5, fingerprint: "a5707780f579ea9056ba501628d0688fddcd3b4ad1e126614e0959eb2f5be438" },
   // A game, and a row folded into one, keeps the opponent's name as its row typed it (`typedAs`).
   { schema: 6, fingerprint: "2bd87304b56459c2626cede98a58b89cac6d1b144b629f1bcd9c7963813f5855" },
+  // No GameChanger picture is kept, on a club or a link, nor the age rule that read opponents' ones.
+  { schema: 7, fingerprint: "5e30efea7c9b419ddbfc15aa6a8e05ed4e093ab78565a9bae0af66adb14abccc" },
 ];
 
 /** Order-free, so a list tidied into another order is not taken for a new shape. */

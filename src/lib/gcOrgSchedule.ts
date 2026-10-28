@@ -231,9 +231,8 @@ const scoreOf = (game: GcGame): { own: number; theirs: number } | undefined =>
  * The games among an organization's pulled teams, as the pool keeps games (`ScoutGame`), so a start
  * drafts them as it drafts a Team Rankings page's (`draftStart`).
  *
- * A game's opponent is one of the pulled teams where its avatar is that team's (the one stable mark
- * of an opponent a schedule carries) or, failing that, where its name is that team's and no other
- * pulled team's (`teamNameKey`). A game against anybody else is kept too, against that opponent's
+ * A game's opponent is one of the pulled teams where its name is that team's and no other pulled
+ * team's (`teamNameKey`). A game against anybody else is kept too, against that opponent's
  * name, only so that a team seen playing somebody else that day marks its league game there as
  * likely a tournament's (`tournamentReason`); a start leaves it out of the league.
  *
@@ -246,20 +245,14 @@ const scoreOf = (game: GcGame): { own: number; theirs: number } | undefined =>
  */
 export const orgGames = (pulled: readonly PulledOrgTeam[]): ScoutGame[] => {
   const ids = new Set(pulled.map((team) => team.teamId));
-  const byAvatar = new Map<string, string | null>();
   const byName = new Map<string, string | null>();
-  const note = (map: Map<string, string | null>, key: string | undefined, id: string) => {
-    if (!key) return;
-    const known = map.get(key);
-    map.set(key, known === undefined || known === id ? id : null);
-  };
   pulled.forEach(({ teamId, schedule }) => {
-    note(byAvatar, schedule.profile.avatarKey, teamId);
-    note(byName, teamNameKey(schedule.profile.name), teamId);
+    const key = teamNameKey(schedule.profile.name);
+    if (!key) return;
+    const known = byName.get(key);
+    byName.set(key, known === undefined || known === teamId ? teamId : null);
   });
   const opponentOf = (game: GcGame, from: string): string | undefined => {
-    const avatar = game.opponentAvatarKey ? byAvatar.get(game.opponentAvatarKey) : undefined;
-    if (avatar && avatar !== from) return avatar;
     const named = byName.get(teamNameKey(game.opponentName));
     return named && named !== from ? named : undefined;
   };

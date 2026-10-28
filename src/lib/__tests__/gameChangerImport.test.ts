@@ -280,7 +280,7 @@ describe("importGcSchedule", () => {
 
   it("records the GameChanger id on the team it was pulled as", () => {
     const { state } = importGcSchedule(
-      schedule({ avatarKey: "av-legends", state: "ky", city: "Lexington" }, [game()]),
+      schedule({ state: "ky", city: "Lexington" }, [game()]),
       empty
     );
     const pulled = state.teams.find((team) => team.gcTeams?.length);
@@ -290,7 +290,6 @@ describe("importGcSchedule", () => {
       ageLevel: 9,
       season: "fall",
       seasonYear: 2026,
-      avatarKey: "av-legends",
     });
   });
 
@@ -382,27 +381,6 @@ describe("the same game on two schedules", () => {
 });
 
 describe("who an opponent is", () => {
-  it("is the team with that avatar, wherever it was pulled from", () => {
-    const pulled = importGcSchedule(
-      schedule({ id: "gcSLUGGERS00", name: "NKY Sluggers 9U", avatarKey: "av-sluggers" }, []),
-      empty
-    );
-
-    const { state, outcome } = importGcSchedule(
-      schedule({}, [game({ opponentName: "Sluggers", opponentAvatarKey: "av-sluggers" })]),
-      pulled.state
-    );
-
-    expect(outcome.opponentsMatchedByAvatar).toBe(1);
-    expect(outcome.opponentsCreated).toBe(0);
-    // Named differently on this schedule, and still the same club.
-    expect(state.teams).toHaveLength(2);
-    const filed = state.games[0]!;
-    expect([filed.teamAId, filed.teamBId]).toContain(
-      state.teams.find((team) => team.gcTeams?.[0]?.teamId === "gcSLUGGERS00")!.id
-    );
-  });
-
   it("is not matched by name alone across a different age level", () => {
     const nineU = importGcSchedule(schedule({}, [game({ opponentName: "Yankees" })]), empty);
     const elevenU = importGcSchedule(
@@ -435,38 +413,9 @@ describe("who an opponent is", () => {
     expect(second.state.teams.filter((team) => team.name === "Yankees")).toHaveLength(1);
   });
 
-  /**
-   * GameChanger sends a picture for some opponents and not others. A row with no picture
-   * contradicts nothing, so it must not be the reason a second entry of the name appears — that
-   * is what left a nationwide pull with twelve "Xplosion" teams where there should be one.
-   */
-  it("reuses the entry when this row carries no picture", () => {
-    let state = importGcSchedule(
-      schedule({}, [game({ opponentName: "Xplosion", opponentAvatarKey: "av-x" })]),
-      empty
-    ).state;
-    state = importGcSchedule(
-      schedule({ id: "gcBBBBBBBBBB", name: "Bears 9U" }, [
-        game({ id: "b1", opponentName: "Xplosion", date: "2026-08-23" }),
-      ]),
-      state
-    ).state;
-    state = importGcSchedule(
-      schedule({ id: "gcCCCCCCCCCC", name: "Comets 9U" }, [
-        game({ id: "c1", opponentName: "Xplosion", date: "2026-08-24", opponentAvatarKey: "av-x" }),
-      ]),
-      state
-    ).state;
-
-    expect(state.teams.filter((team) => team.name === "Xplosion")).toHaveLength(1);
-  });
-
   it("lets a club's own schedule adopt the entry others made for it", () => {
-    // Two schedules name the Xplosion, one with a picture and one without; then it is pulled.
-    let state = importGcSchedule(
-      schedule({}, [game({ opponentName: "Xplosion", opponentAvatarKey: "av-x" })]),
-      empty
-    ).state;
+    // Two schedules name the Xplosion; then it is pulled.
+    let state = importGcSchedule(schedule({}, [game({ opponentName: "Xplosion" })]), empty).state;
     state = importGcSchedule(
       schedule({ id: "gcBBBBBBBBBB", name: "Bears 9U" }, [
         game({ id: "b1", opponentName: "Xplosion", date: "2026-08-23" }),
@@ -474,38 +423,13 @@ describe("who an opponent is", () => {
       state
     ).state;
     const pulled = importGcSchedule(
-      schedule({ id: "gcXXXXXXXXXX", name: "Xplosion 9U", avatarKey: "av-x" }, []),
+      schedule({ id: "gcXXXXXXXXXX", name: "Xplosion 9U" }, []),
       state
     );
 
     expect(pulled.outcome.createdTeam).toBe(false);
     expect(pulled.state.teams.filter((team) => team.name === "Xplosion")).toHaveLength(1);
     expect(pulled.state.teams.find((team) => team.name === "Xplosion")?.nameOnly).toBeUndefined();
-  });
-
-  /**
-   * A picture is not an identifier. GameChanger mints a fresh one for every listing rather than
-   * giving a club one that follows it about: over a nationwide pull, 7,948 teams carried 7,948
-   * distinct pictures and not one was shared by two of them. Read as identity it says "different
-   * club" about every mention of the same club, which is how one River City Raptors became six.
-   */
-  it("is one club however many pictures its mentions carry", () => {
-    const first = importGcSchedule(
-      schedule({}, [game({ opponentName: "Yankees", opponentAvatarKey: "av-one" })]),
-      empty
-    );
-    const second = importGcSchedule(
-      schedule({ id: "gcDDDDDDDDDD", name: "Comets 9U" }, [
-        game({
-          id: "g2",
-          opponentName: "Yankees",
-          date: "2026-08-30",
-          opponentAvatarKey: "av-two",
-        }),
-      ]),
-      first.state
-    );
-    expect(second.state.teams.filter((team) => team.name === "Yankees")).toHaveLength(1);
   });
 
   /** Two clubs somebody pulled by id are two clubs, whatever they are called. */
@@ -663,35 +587,8 @@ describe("both sides of a game in one run", () => {
 
   /**
    * A club that plays up is listed by the older team and filed at *that* team's level, so its own
-   * schedule cannot find it by name. The picture can: it is the one identifier that means the same
-   * thing on both schedules.
-   */
-  it("recognises a club that played up by the game they both filed", () => {
-    const { state } = importGcSchedules(
-      [
-        fixture(
-          "gcAAAAAAAAAA",
-          "Aces 11U",
-          [played("a1", "Comets", 10, 5, { opponentAvatarKey: "av-comets" })],
-          { ageLevel: 11, avatarKey: "av-aces" }
-        ),
-        fixture(
-          "gcBBBBBBBBBB",
-          "Comets 9U",
-          [played("c1", "Aces", 5, 10, { opponentAvatarKey: "av-aces" })],
-          { avatarKey: "av-comets" }
-        ),
-      ],
-      empty
-    );
-
-    expect(state.teams).toHaveLength(2);
-    expect(state.games).toHaveLength(1);
-  });
-
-  /**
-   * The two sides disagree about the level, and there is no picture worth anything — but they
-   * agree about the game, and that is what settles it. This is the case the user kept asking for:
+   * schedule cannot find it by name. The two sides disagree about the level — but they agree about
+   * the game, and that is what settles it. This is the case the user kept asking for:
    * go and look at the other club's schedule for that exact day and result.
    */
   it("joins them on the game when the two sides disagree about the level", () => {
@@ -721,7 +618,7 @@ describe("both sides of a game in one run", () => {
 
 /**
  * Both clubs post the fixture, and the two rows agree on the day, the start time and the result.
- * That identifies the opponent better than any name can: it needs no picture, it survives the two
+ * That identifies the opponent better than any name can: it survives the two
  * schedules spelling the club differently, and it answers a name that identifies nobody at all.
  */
 describe("the game itself as the identifier", () => {
@@ -755,6 +652,7 @@ describe("the game itself as the identifier", () => {
     // No slot: the fixture says who it was, so the game joins the one already filed.
     expect(second.state.teams.some((team) => team.placeholder)).toBe(false);
     expect(second.state.games).toHaveLength(1);
+    expect(second.outcome).toMatchObject({ opponentsMatchedByGame: 1, opponentsCreated: 0 });
   });
 
   it("matches a club whose two schedules spell it differently", () => {
@@ -1524,25 +1422,19 @@ describe("proposeSeasonPairings", () => {
     ],
   });
 
+  const lexington = { state: "KY", city: "Lexington" };
+
   it("offers a Fall squad and the Spring squad that follows it", () => {
     const pairings = proposeSeasonPairings([
-      withLinks("t1", "Trosky Illinois 9U", {
-        season: "fall",
-        seasonYear: 2026,
-        avatarKey: "av-1",
-      }),
-      withLinks("t2", "Trosky Illinois 9U", {
-        season: "spring",
-        seasonYear: 2027,
-        avatarKey: "av-1",
-      }),
+      withLinks("t1", "Trosky Illinois 9U", { season: "fall", seasonYear: 2026 }, lexington),
+      withLinks("t2", "Trosky Illinois 9U", { season: "spring", seasonYear: 2027 }, lexington),
     ]);
 
     expect(pairings).toHaveLength(1);
     expect(pairings[0]).toMatchObject({
       fromTeamId: "t1",
       toTeamId: "t2",
-      evidence: ["avatar", "state"],
+      evidence: ["city", "state"],
       sameName: true,
       confidence: "strong",
       fromSeason: "Fall 2026",
@@ -1561,8 +1453,8 @@ describe("proposeSeasonPairings", () => {
   // Summer to the next Fall is a squad ageing up, not the same squad continuing.
   it("does not offer a pairing across a squad year", () => {
     const pairings = proposeSeasonPairings([
-      withLinks("t1", "Trosky", { season: "spring", seasonYear: 2027, avatarKey: "av-1" }),
-      withLinks("t2", "Trosky", { season: "fall", seasonYear: 2027, avatarKey: "av-1" }),
+      withLinks("t1", "Trosky", { season: "spring", seasonYear: 2027 }, lexington),
+      withLinks("t2", "Trosky", { season: "fall", seasonYear: 2027 }, lexington),
     ]);
     expect(pairings).toEqual([]);
   });
@@ -1574,8 +1466,8 @@ describe("proposeSeasonPairings", () => {
         withLinks("a1", "Aces", { season: "fall", seasonYear: 2026 }),
         withLinks("a2", "Aces", { season: "spring", seasonYear: 2027 }),
         withLinks("rival", "Trash Pandas", { season: "fall", seasonYear: 2026 }),
-        withLinks("b1", "Bears", { season: "fall", seasonYear: 2026, avatarKey: "av-b" }),
-        withLinks("b2", "Bears", { season: "spring", seasonYear: 2027, avatarKey: "av-b" }),
+        withLinks("b1", "Bears", { season: "fall", seasonYear: 2026 }, lexington),
+        withLinks("b2", "Bears", { season: "spring", seasonYear: 2027 }, lexington),
       ],
       [
         { id: "g1", teamAId: "a1", teamBId: "rival", ageGroupId: "ag1" },
@@ -2953,7 +2845,7 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
     expect(tidyChangedAnything(tidyPool(tidy.state))).toBe(false);
   });
 
-  it("leaves a row that named the pulled club by its picture (`namedByAvatar`)", () => {
+  it("leaves a row the owner said is against the pulled club (`namedByAvatar`)", () => {
     const built = g3(nextDay("14:00", [1, 2]));
     const cubs = built.teams.find((team) => team.gcTeams?.some((link) => link.teamId === "gcC"))!;
     const named = {
@@ -6379,90 +6271,6 @@ describe("whether a tidy changed anything", () => {
    */
   it("is true for a roster the tidy took idle stand-ins out of", () => {
     expect(tidyChangedAnything({ ...nothing, idle: 1 })).toBe(true);
-  });
-});
-
-/**
- * The age the pool already files a team's opponents at.
- *
- * This is the rung that reaches the backlog's worst population. `ageFromOpponentNames` reads an
- * age out of an opponent's *name*, so it can never settle a team in a closed league where nobody
- * writes an age in anything — "Larkspire 4" playing "Larkspire 2" and "Larkspire 5". Measured over
- * a real 36,194 row backlog, 10,709 rows are exactly that shape. This settles one the moment any of
- * those opponents has been filed by some other route. (The same league written "Team 4" and "Team
- * 2" is refused at the door since 18 October 2026, as a name nobody chose, so these are numbered
- * under an invented town's name instead.)
- */
-describe("an age from the company the pool already knows", () => {
-  /** A closed league: four teams whose names say nothing, three of them already filed at 10U. */
-  const filed = (): GcImportState => {
-    let state = empty;
-    ["Larkspire 2", "Larkspire 3", "Larkspire 5"].forEach((name, i) => {
-      const built = importGcSchedule(
-        schedule({ id: `gcFILED0000${i}`, name, ageLevel: 10, avatarKey: `av-${i}` }, [
-          game({ id: `f${i}`, opponentName: "Somebody 10U" }),
-        ]),
-        state
-      );
-      state = built.state;
-    });
-    return state;
-  };
-
-  const closedLeague = (avatars: string[]) =>
-    schedule({ id: "gcTEAM400001", name: "Larkspire 4", ageLevel: undefined }, [
-      ...avatars.map((key, i) =>
-        game({ id: `c${i}`, opponentName: `Larkspire ${i + 2}`, opponentAvatarKey: key })
-      ),
-    ]);
-
-  it("ages a team whose opponents the pool has all filed at one age", () => {
-    const { outcome } = importGcSchedule(closedLeague(["av-0", "av-1", "av-2"]), filed());
-    expect(outcome.skip).toBeUndefined();
-    expect(outcome.ageGroupName).toContain("10U");
-  });
-
-  /*
-   * The same bar the name rule is held to. This is circumstantial evidence about the company a
-   * club keeps, and a squad that plays up all season is wrong in exactly the way three agreeing
-   * opponents is meant to guard against.
-   */
-  it("will not act on fewer opponents than the name rule needs", () => {
-    const { outcome } = importGcSchedule(closedLeague(["av-0", "av-1"]), filed());
-    expect(outcome.skip).toBe("no-age");
-  });
-
-  /*
-   * By identity, never by name. A pool holding tens of thousands of teams has a great many
-   * "Larkspire 4"s, and matching one by name would collect a stranger from the other side of the
-   * country and file this club at their age.
-   */
-  it("says nothing about an opponent it cannot identify by picture", () => {
-    const { outcome } = importGcSchedule(closedLeague([]), filed());
-    expect(outcome.skip).toBe("no-age");
-  });
-
-  it("skips an opponent two clubs share a picture with", () => {
-    let state = filed();
-    // A second club on the same avatar: that picture now identifies nobody.
-    state = importGcSchedule(
-      schedule({ id: "gcTWIN000001", name: "Twin", ageLevel: 14, avatarKey: "av-0" }, [
-        game({ id: "t1", opponentName: "Somebody 14U" }),
-      ]),
-      state
-    ).state;
-    const { outcome } = importGcSchedule(closedLeague(["av-0", "av-1", "av-2"]), state);
-    // Two of the three still agree, but the bar is three, so nothing is claimed.
-    expect(outcome.skip).toBe("no-age");
-  });
-
-  it("leaves a team that already has an age exactly where it was", () => {
-    const own = schedule({ id: "gcOWN0000001", name: "Larkspire 4", ageLevel: 12 }, [
-      game({ id: "o1", opponentName: "Larkspire 2", opponentAvatarKey: "av-0" }),
-      game({ id: "o2", opponentName: "Larkspire 3", opponentAvatarKey: "av-1" }),
-      game({ id: "o3", opponentName: "Larkspire 5", opponentAvatarKey: "av-2" }),
-    ]);
-    expect(importGcSchedule(own, filed()).outcome.ageGroupName).toContain("12U");
   });
 });
 
