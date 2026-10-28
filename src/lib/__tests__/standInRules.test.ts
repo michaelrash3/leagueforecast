@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DAY_CHECK_TIDY_RULES,
+  IN_STATE_TIDY_RULES,
   SHIPPED_TIDY_RULES,
   tidyPool,
   type GcImportState,
@@ -121,19 +122,25 @@ describe("the stand-in rule's measurement", () => {
     expect(reading.after.standIns).toBe(1);
     expect(reading.seconds).toBe(0);
     expect(reading.sample.every((one) => one.club === "Choctaw Mudcats")).toBe(true);
-    // As it ships: the same two rows, and the Heat's game against the Millers, whom nothing of the
-    // Heat's own vouches for, taken off them onto a stand-in of the name.
+    // As it shipped on 27 October 2026: the same two rows, and the Heat's game against the Millers,
+    // whom nothing of the Heat's own vouches for, taken off them onto a stand-in of the name.
+    const inStateShipped = readRules(pool, 2027, "in-state", IN_STATE_TIDY_RULES, tidy);
+    expect(inStateShipped.moved).toEqual({ rows: 2, near: 2 });
+    expect(inStateShipped.after.withStandIn).toBe(3);
+    expect(inStateShipped.after.standIns).toBe(2);
+    // As it ships since rules 34: the Millers are the one pulled club of the name near the Heat, so
+    // the game stays on them (`oneNamesake`).
     const shipped = readRules(pool, 2027, "shipped", SHIPPED_TIDY_RULES, tidy);
     expect(shipped.moved).toEqual({ rows: 2, near: 2 });
-    expect(shipped.after.withStandIn).toBe(3);
-    expect(shipped.after.standIns).toBe(2);
+    expect(shipped.after.withStandIn).toBe(2);
+    expect(shipped.after.standIns).toBe(1);
   });
 
   it("reads no wrong share for a rule that chose its rows for being neighbours", () => {
     // Codex on #471: the rule as it ships files a row only where the clubs are neighbours, so its
     // rows are neighbours every time, and the share read from that rate would say none are wrong.
     const right = { rows: 10, near: 8 };
-    const shipped = readRules(pool, 2027, "shipped", SHIPPED_TIDY_RULES, tidy);
+    const shipped = readRules(pool, 2027, "in-state", IN_STATE_TIDY_RULES, tidy);
     expect(shipped.selectedOnNeighbours).toBe(true);
     expect(wrongShare(shipped.moved, { rows: 10, near: 1 }, right)).toBe(0);
     expect(readingWrongShare({ ...shipped, decoy: { rows: 10, near: 1 } }, right)).toBeNull();

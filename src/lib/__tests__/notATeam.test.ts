@@ -5,15 +5,31 @@ import {
   dropNotATeam,
   importGcSchedule,
   TIDY_STEPS,
-  tidyPool,
+  tidyPool as shippedTidyPool,
   vouchedByImport,
   type GcImportState,
+  IN_STATE_TIDY_RULES,
 } from "../gameChangerImport";
 import { collectGcImportProblems } from "../gameChangerReport";
 import { filingProblems } from "../cloud/importReports";
 import { updateAgeUnknown } from "../ageUnknown";
 import { unpulledClubs } from "../unpulledClubs";
 import type { AgeGroup, GcTeamLink, ScoutGame, ScoutTeam } from "../teamRankings";
+
+/*
+ * Read under the tidy's rules of 27 October 2026 (`IN_STATE_TIDY_RULES`), which these tests were
+ * written to: since rules 34 the tidy also files a name onto the one pulled club of it near the
+ * namer though its own schedules have no game that day (`oneNamesake`), which has tests of its own
+ * (`oneNamesake.test.ts`).
+ */
+const tidyPool: typeof shippedTidyPool = (
+  state,
+  watch,
+  apart,
+  refused,
+  real,
+  rules = IN_STATE_TIDY_RULES
+) => shippedTidyPool(state, watch, apart, refused, real, rules);
 
 /*
  * A page whose name says it is no team — a practice, a scrimmage, a test, an old page marked do not
