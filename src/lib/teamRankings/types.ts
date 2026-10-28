@@ -483,6 +483,13 @@ export type ScoutRankingRow = {
   comparable: boolean;
   /** True when the team is pinned to at least one GameChanger id. */
   fromGameChanger: boolean;
+  /**
+   * Set where the club is listed after every club whose web of games reaches the line
+   * (`opponentWeb`), whatever its rating, and left out otherwise. Its place then says only that it
+   * is one of those; a share of the board read off a place (`StandingLine`) counts the clubs without
+   * it, since every one of them stands above a club listed last by the order, not by its rating.
+   */
+  listedLast?: true;
 };
 
 export type MatchupTier = "Favored" | "Toss-up" | "Underdog";

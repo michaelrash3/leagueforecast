@@ -7,3 +7,15 @@
  */
 export const topShare = (rank: number, of: number): number =>
   Math.min(100, Math.max(1, Math.ceil((100 * rank) / of)));
+
+/**
+ * Where a place stands, in the words a parent reads it in: the share at or above it, "top 10%",
+ * or where the share at or below it is the smaller, that one, "bottom 16%", which "top 84%" read as
+ * good news to the owner of a club near the foot of its board. Rounded up as `topShare` is, so it
+ * says no more than the place: #7,400 of 8,000 has 601 clubs at or below it, the bottom 8%.
+ */
+export const standingWords = (rank: number, of: number): string => {
+  const top = topShare(rank, of);
+  const bottom = topShare(Math.max(1, of - rank + 1), of);
+  return bottom < top ? `bottom ${bottom}%` : `top ${top}%`;
+};

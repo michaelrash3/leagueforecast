@@ -21,6 +21,7 @@ const GLANCE: MyTeamGlance = {
   teamName: "River City Raptors",
   nationalRank: 2737,
   nationalOf: 7126,
+  listedOf: 7126,
   state: "KY",
   stateRank: 40,
   stateOf: 98,
@@ -135,5 +136,23 @@ describe("the words", () => {
     expect(expectedWords({ ...record, wins: 6 })).toBe(
       "6–12–1 against rated clubs, about 2 wins worse than the ratings expect (8.3)"
     );
+  });
+});
+
+describe("the My Team card's standing line", () => {
+  it("reads today's place against the clubs listed by rating, as each past week's is", () => {
+    // #800 of a board of 1,200, 200 of them listed after the rest: the bottom 21% of the 1,000,
+    // where read against all 1,200 it would be the bottom 34%.
+    render(
+      <MyTeamCard
+        glance={{ ...GLANCE, nationalRank: 800, nationalOf: 1200, listedOf: 1000 }}
+        onOpenTeam={() => undefined}
+        history={[{ asOf: "2026-10-20", rank: 800, of: 1000 }]}
+      />
+    );
+    expect(screen.getByRole("img").getAttribute("aria-label")).toMatch(
+      /^Standing by week: bottom 21% on .+, bottom 21% now$/
+    );
+    expect(screen.getByText(/#800 of 1,200/)).toBeTruthy();
   });
 });

@@ -3018,6 +3018,8 @@ const rankRows = (rows: ScoutRankingRow[], web: OpponentWeb): ScoutRankingRow[] 
   rows.sort((a, b) => Number(short.has(a.teamId)) - Number(short.has(b.teamId)) || byRating(a, b));
   rows.forEach((row, index) => {
     row.rank = index + 1;
+    if (short.has(row.teamId)) row.listedLast = true;
+    else delete row.listedLast;
   });
 
   const sosOrder = rows

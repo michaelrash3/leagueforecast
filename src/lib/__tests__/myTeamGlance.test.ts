@@ -35,6 +35,7 @@ describe("my team at a glance", () => {
       teamName: "D",
       nationalRank: 4,
       nationalOf: 5,
+      listedOf: 5,
       state: "OH",
       stateRank: 2,
       stateOf: 3,
@@ -42,6 +43,20 @@ describe("my team at a glance", () => {
       rating: 6,
       next: saturday,
     });
+  });
+
+  it("counts the clubs listed by rating apart from those listed after them", () => {
+    const glance = myTeamGlance(
+      [
+        ...rankings.slice(0, 3),
+        row("D", 4, { listedLast: true }),
+        row("E", 5, { listedLast: true }),
+      ],
+      "B",
+      stateOf,
+      []
+    );
+    expect(glance).toMatchObject({ nationalRank: 2, nationalOf: 5, listedOf: 3 });
   });
 
   it("keeps the unfiltered place when a filter has renumbered the rows", () => {

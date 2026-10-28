@@ -459,7 +459,7 @@ describe("Team Rankings on the cloud's board", () => {
     // 5th of 6, 2nd of 4, and 2nd of the 3 on the board now.
     expect(
       within(mine).getByRole("img", {
-        name: /^Standing by week: top 84% on .+, top 50% on .+, top 67% now$/,
+        name: /^Standing by week: bottom 34% on .+, top 50% on .+, top 67% now$/,
       })
     ).toBeTruthy();
   });
