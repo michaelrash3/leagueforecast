@@ -1844,6 +1844,31 @@ it off the rows remembered as deleted, rather than take A's own row of the game 
 schedule never named, which A's next pull would then never have filed again; B's own row goes with
 B, as any claim of B's does.
 
+**A name that only fits, against a slot.** On 28 October 2026 the owner sent a game held twice: a
+9U club's own schedule had it as a 4-11 loss to "TBD- 10/25/26, 10:30 AM", set not to count as a
+TBD game no schedule paired, and the other club's own schedule had it at the same minute as an
+11-4 win over the first club's name with its region before it and an event's tag after it,
+counted against a stand-in ("Both teams have the game"). That is the namesake join's shape with
+a slot on B's side, but the stand-in's name was not B's very name, so nothing read it. So the join
+also reads a stand-in of no pulled club's name as each club its name fits (`nameFitsWithin`: every
+word of the shorter name in the longer, a club's own name or a name GameChanger lists it under),
+where that club's own row of the hour, the result mirrored, is against a slot (tidy rules 35,
+`FittedRule`). Every club the name fits is a reading before anything else is asked, so a second
+club with such a row leaves both rows alone; a name another pulled club is listed under, or the
+namer's own, is read for no other club; and the two clubs are of one state or of two sharing a
+border, both known. A refusal of the club for that game (**Not this team**), kept under the club's
+own name, holds against the name the row wrote as well.
+
+On the cloud copy of 28 October 2026 as rules 34 left it (GitHub run 40671389671) the reading
+joined 296 games, and the same search with every row against a slot a week or a fortnight either
+side, where its game is not, joined 0, 1, 2 and 0: 0.75 a shift, 0.3% of the day's, the rate the
+namesake join measured for a slot on B's side. Read wherever the two clubs are, it joined 30 more,
+and the shifts 3.0 a shift: about one in thirteen of those further pairs false, so the region is
+asked. A sealed sample of the joins read right throughout, the club's name with a season, a
+coach, a town or a colour written around it. The whole copy tidied under rules 35 moved 296 more
+rows off stand-ins than under 34, the played games against a slot fell from 10,422 to 10,127, and
+the share of played games leaning on a stand-in or a slot from 25.1% to 24.9%.
+
 A row filed by name on a pulled club that plays nowhere near the age it was played at is not that
 club's (`resettleOffLevel`): more than two levels off, it goes to the one namesake that plays near
 it, or to a stand-in. Two levels off is inside what a squad plays up or down, and still somebody
