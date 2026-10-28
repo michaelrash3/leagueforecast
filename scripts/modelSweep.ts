@@ -165,6 +165,9 @@ import {
   type ClockTally,
 } from "../src/lib/standInCases.ts";
 import { openStores } from "./cloudPool.ts";
+import { handlerFetch } from "./handlerFetch.ts";
+import { fetchGcTeams } from "../src/lib/gameChangerClient.ts";
+import { teamNameKey } from "../src/lib/teamRankings/names.ts";
 import { poolFixture } from "./poolFixture.ts";
 import { readSweepFile, sweepTidy } from "./sweepTidy.ts";
 
@@ -1308,6 +1311,178 @@ const measureStandInCases = (source: Source, year: number) => {
   );
 };
 
+/* ---------------------------------------------------------- one case the owner sent, laid out */
+
+/** FNV-1a of a word: the case's words by their hashes, so this public file need not spell them. */
+const wordHash = (word: string): number => {
+  let hash = 2166136261;
+  for (let at = 0; at < word.length; at += 1) {
+    hash ^= word.charCodeAt(at);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+};
+/** A word each club of the owner's case of 28 October 2026 carries, by its hash. */
+const CASE_CLUB_WORDS = new Set([4171853971, 2568107378]);
+/** Both words of the club whose schedule named them, by their hashes. */
+const CASE_NAMER_WORDS = [2757247054, 1564710266];
+const CASE_FROM = "2026-10-10";
+const CASE_TO = "2026-10-31";
+
+const namesOf = (team: ScoutTeam) => [team.name, ...(team.gcTeams ?? []).map((link) => link.name)];
+const hashesOf = (name: string) => new Set(teamNameKey(name).split(" ").map(wordHash));
+const isCaseClub = (team: ScoutTeam) =>
+  namesOf(team).some((name) => [...hashesOf(name)].some((hash) => CASE_CLUB_WORDS.has(hash)));
+const isCaseNamer = (team: ScoutTeam) =>
+  namesOf(team).some((name) => {
+    const hashes = hashesOf(name);
+    return CASE_NAMER_WORDS.every((hash) => hashes.has(hash));
+  });
+
+const caseKind = (team: ScoutTeam | undefined) =>
+  !team ? "gone" : team.gcTeams?.length ? "pulled" : team.placeholder ? "slot" : "stand-in";
+
+/** The case's clubs and their games in the window, as `state` holds them. */
+const layOutCase = (label: string, state: GcImportState, year: number) => {
+  const pages = new Map(state.ageGroups.map((group) => [group.id, group]));
+  const byId = new Map(state.teams.map((team) => [team.id, team]));
+  const scheduleOf = new Map<string, string>();
+  state.teams.forEach((team) =>
+    team.gcTeams?.forEach((link) => scheduleOf.set(link.teamId, team.id))
+  );
+  const clubs = state.teams.filter(isCaseClub);
+  const namers = state.teams.filter(isCaseNamer);
+  const watched = new Set([...clubs, ...namers].map((team) => team.id));
+  const inYear = (game: ScoutGame) => ageGroupYear(pages.get(game.ageGroupId)!) === year;
+  const games = state.games.filter(
+    (game) =>
+      inYear(game) &&
+      game.date !== undefined &&
+      game.date >= CASE_FROM &&
+      game.date <= CASE_TO &&
+      (watched.has(game.teamAId) || watched.has(game.teamBId))
+  );
+  const counts = new Map<string, number>();
+  state.games.forEach((game) => {
+    if (!inYear(game)) return;
+    [game.teamAId, game.teamBId].forEach((id) => {
+      if (watched.has(id)) counts.set(id, (counts.get(id) ?? 0) + 1);
+    });
+  });
+  say(
+    `\n  ${label}: ${clubs.length} clubs of the case's word, ${namers.length} namers, ${games.length} games in the window.`
+  );
+  const side = (id: string) => {
+    const team = byId.get(id);
+    return `${team?.name ?? id} {${id} ${caseKind(team)}${team?.state ? ` ${team.state}` : ""}}`;
+  };
+  const schedule = (teamId: string) => {
+    const club = scheduleOf.get(teamId);
+    return club ? `${teamId}=${byId.get(club)?.name ?? club}` : `${teamId}=?`;
+  };
+  sayNamed(
+    [...clubs, ...namers].map(
+      (team) =>
+        `    ${team.name} {${team.id} ${caseKind(team)}} ${team.state ?? "?"} ${team.city ?? ""};` +
+        ` ${counts.get(team.id) ?? 0} games of the year; GameChanger: ` +
+        ((team.gcTeams ?? [])
+          .map(
+            (link) =>
+              `${link.teamId} "${link.name}" ${pages.get(link.ageGroupId)?.name ?? link.ageGroupId}` +
+              ` ${link.season ?? ""} ${link.seasonYear ?? ""} avatar ${link.avatarKey ?? "-"}`
+          )
+          .join(" | ") || "none")
+    ),
+    `The case's clubs, ${label}:`
+  );
+  sayNamed(
+    games
+      .sort((a, b) => (a.startTs ?? a.date!).localeCompare(b.startTs ?? b.date!))
+      .map((game) => {
+        const marks = [
+          game.source ? `from ${schedule(game.source.teamId)}:${game.source.gameId}` : "no source",
+          ...(game.alsoRows ?? []).map(
+            (record) =>
+              `holds ${schedule(record.teamId)}:${record.gameId}` +
+              (record.filedAgainst ? ` filed against ${side(record.filedAgainst)}` : "") +
+              (record.namedByAvatar ? ` avatar-named ${record.namedByAvatar}` : "")
+          ),
+          ...(game.alsoFrom ?? []).map((teamId) => `also ${schedule(teamId)}`),
+          game.joinedFrom ? `joined from ${side(game.joinedFrom)}` : "",
+          game.namedByAvatar ? `avatar-named ${game.namedByAvatar}` : "",
+          game.countedElsewhere ? "not counted" : "",
+          game.excluded ? "excluded" : "",
+          game.withdrawn ? "withdrawn" : "",
+          `levels ${game.ageLevelA ?? "-"}/${game.ageLevelB ?? "-"}`,
+        ].filter(Boolean);
+        return (
+          `    ${game.date} ${game.startTs?.slice(11, 16) ?? "--:--"} ${pages.get(game.ageGroupId)?.name}` +
+          ` ${side(game.teamAId)} ${game.teamAScore ?? "?"}-${game.teamBScore ?? "?"} ${side(game.teamBId)}` +
+          ` [${marks.join("; ")}]`
+        );
+      }),
+    `The case's games ${CASE_FROM} to ${CASE_TO}, ${label}:`
+  );
+};
+
+/**
+ * The owner's case of 28 October 2026: a club's two games a weekend against a name of one word and
+ * a name of two, filed onto a pulled club and a stand-in, where the owner says both are one other
+ * club with a GameChanger team. Laid out as the copy holds it, as the tidy under the rules as
+ * shipped leaves it, and as GameChanger's own schedules have the games now, with the pulled club
+ * each opponent's picture belongs to.
+ */
+const measureCase = async (source: Source, year: number) => {
+  say(`\n${"=".repeat(78)}\nThe owner's case, laid out\n${"=".repeat(78)}`);
+  const pool: GcImportState = {
+    ageGroups: source.ageGroups,
+    teams: source.teams,
+    games: source.allGames(),
+  };
+  layOutCase("as the copy holds it", pool, year);
+  const { apart, refused, spared } = source.tidyAnswers();
+  const tidied = tidyPool(pool, undefined, apart, refused, spared(pool), SHIPPED_TIDY_RULES).state;
+  layOutCase("tidied under the rules as shipped", tidied, year);
+  say(`  (${since()})`);
+
+  const byAvatar = new Map<string, string[]>();
+  pool.teams.forEach((team) =>
+    team.gcTeams?.forEach((link) => {
+      if (!link.avatarKey) return;
+      const owners = byAvatar.get(link.avatarKey) ?? [];
+      owners.push(`${team.name} {${team.id}} ${link.teamId}`);
+      byAvatar.set(link.avatarKey, owners);
+    })
+  );
+  const ids = pool.teams
+    .filter((team) => isCaseClub(team) || isCaseNamer(team))
+    .flatMap((team) => (team.gcTeams ?? []).map((link) => link.teamId));
+  say(`  Asking GameChanger for ${ids.length} schedules of the case's clubs.`);
+  const answers = await fetchGcTeams(ids, { fetchImpl: handlerFetch() });
+  const lines: string[] = [];
+  answers.forEach((answer, teamId) => {
+    if (!answer.ok) {
+      lines.push(`    ${teamId}: ${answer.reason} ${answer.message}`);
+      return;
+    }
+    const { profile, games } = answer.schedule;
+    lines.push(
+      `    ${teamId} "${profile.name}" avatar ${profile.avatarKey ?? "-"}: ${games.length} games`
+    );
+    games
+      .filter((game) => game.date !== undefined && game.date >= CASE_FROM && game.date <= CASE_TO)
+      .forEach((game) =>
+        lines.push(
+          `      ${game.date} ${game.startTs?.slice(11, 16) ?? "--:--"} ${game.id} v "${game.opponentName}"` +
+            ` ${game.teamScore ?? "?"}-${game.opponentScore ?? "?"} ${game.status}` +
+            ` avatar ${game.opponentAvatarKey ?? "-"}` +
+            ` -> ${(game.opponentAvatarKey && byAvatar.get(game.opponentAvatarKey)?.join(" / ")) || "no pulled club of that picture"}`
+        )
+      );
+  });
+  sayNamed(lines, "GameChanger's own schedules of the case's clubs, now:");
+};
+
 /* -------------------------------------------------------------------------------------- run */
 
 const main = async (): Promise<void> => {
@@ -1341,6 +1516,16 @@ const main = async (): Promise<void> => {
   );
   if (has("stand-in-rules")) {
     measureStandInRules(source, year);
+    finish();
+    return;
+  }
+  if (has("owner-case")) {
+    try {
+      await measureCase(source, year);
+    } catch (error) {
+      say(`The owner's case stopped: ${failureWords(error)}`);
+      process.exitCode = 1;
+    }
     finish();
     return;
   }
