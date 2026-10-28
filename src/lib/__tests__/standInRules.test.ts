@@ -2,12 +2,21 @@ import { describe, expect, it } from "vitest";
 import {
   DAY_CHECK_TIDY_RULES,
   IN_STATE_TIDY_RULES,
+  ONE_NAMESAKE_TIDY_RULES,
   SHIPPED_TIDY_RULES,
   tidyPool,
   type GcImportState,
   type TidyRules,
 } from "../gameChangerImport";
-import { filedByName, leaningOf, readingWrongShare, readRules, wrongShare } from "../standInRules";
+import {
+  filedByName,
+  fittedJoinsOf,
+  leaningOf,
+  readingWrongShare,
+  readRules,
+  withSlotRowsMoved,
+  wrongShare,
+} from "../standInRules";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 
 /*
@@ -158,5 +167,91 @@ describe("the stand-in rule's measurement", () => {
     expect(wrongShare({ rows: 100, near: 10 }, decoy, right)).toBe(1);
     expect(wrongShare({ rows: 100, near: 70 }, { rows: 100, near: 80 }, right)).toBeNull();
     expect(wrongShare({ rows: 0, near: 0 }, decoy, right)).toBeNull();
+  });
+});
+
+describe("the fitted namesake join, measured against its slot rows a week off", () => {
+  const nine = (id: string, name: string, state: string): ScoutTeam => ({
+    id,
+    name,
+    state,
+    gcTeams: [{ teamId: `gc${id}`, name, ageGroupId: "ag9", ageLevel: 9 }],
+  });
+  const at = (
+    club: string,
+    gameId: string,
+    against: string,
+    start: string,
+    score: [number, number]
+  ) => ({
+    id: `gc_gc${club}_${gameId}`,
+    teamAId: club,
+    teamBId: against,
+    teamAScore: score[0],
+    teamBScore: score[1],
+    ageGroupId: "ag9",
+    date: start.slice(0, 10),
+    startTs: start,
+    source: { kind: "gamechanger" as const, teamId: `gc${club}`, gameId },
+  });
+  const state: GcImportState = {
+    ageGroups: groups,
+    teams: [
+      nine("OTTERS", "Otters", "KY"),
+      nine("COMETS", "Riverside Comets", "OH"),
+      { id: "S-OTTERS", name: "Northern Kentucky Otters", nameOnly: true },
+      { id: "TBD-1", name: "TBD", placeholder: true },
+    ],
+    games: [
+      at("COMETS", "c1", "S-OTTERS", "2026-10-25T14:30:00.000Z", [11, 4]),
+      at("OTTERS", "o1", "TBD-1", "2026-10-25T14:30:00.000Z", [4, 11]),
+    ],
+  };
+  const near = (a: string | undefined, b: string | undefined) =>
+    a === b || a === "KY" || b === "KY";
+
+  it("moves every row against a slot, its date and its start, and nothing else", () => {
+    const moved = withSlotRowsMoved(state, -7);
+    expect(moved.games[0]).toBe(state.games[0]);
+    expect(moved.games[1]).toMatchObject({
+      date: "2026-10-18",
+      startTs: "2026-10-18T14:30:00.000Z",
+    });
+    expect(withSlotRowsMoved(state, 0)).toBe(state);
+  });
+
+  it("counts the joins the reading adds, on the day and none a week off", () => {
+    const counted = fittedJoinsOf(
+      state,
+      SHIPPED_TIDY_RULES,
+      ONE_NAMESAKE_TIDY_RULES,
+      new Set(),
+      near,
+      5
+    );
+    expect(counted).toMatchObject({ joined: 1, near: 1 });
+    expect(counted.sample).toEqual(
+      [
+        {
+          namer: "Riverside Comets",
+          name: "Northern Kentucky Otters",
+          club: "Otters",
+          states: "OH-KY",
+          score: "11-4",
+        },
+      ].slice(0, counted.sample.length)
+    );
+    expect(
+      fittedJoinsOf(
+        withSlotRowsMoved(state, 7),
+        SHIPPED_TIDY_RULES,
+        ONE_NAMESAKE_TIDY_RULES,
+        new Set(),
+        near
+      ).joined
+    ).toBe(0);
+    expect(
+      fittedJoinsOf(state, ONE_NAMESAKE_TIDY_RULES, ONE_NAMESAKE_TIDY_RULES, new Set(), near).joined
+    ).toBe(0);
   });
 });

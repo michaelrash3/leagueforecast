@@ -1,10 +1,12 @@
 import {
   areOwnNeighbours,
+  joinNamesakeHalves,
   ownOpponentsOf,
   type GcImportState,
   type PoolTidy,
   type TidyRules,
 } from "./gameChangerImport";
+import type { NotThisTeam } from "./notThisTeam";
 import { ageGroupYear, isScoutGamePlayed, type ScoutGame, type ScoutTeam } from "./teamRankings";
 
 /*
@@ -185,11 +187,14 @@ export const readRules = (
   rules: TidyRules,
   tidy: (state: GcImportState, rules: TidyRules) => PoolTidy,
   sampleSize = 25,
-  now: () => number = Date.now
+  now: () => number = Date.now,
+  /** Handed the tidied pool, for a measurement read off it after (`fittedJoinsOf`). */
+  keep?: (state: GcImportState) => void
 ): RuleReading => {
   const started = now();
   const result = tidy(before, rules);
   const after = result.state;
+  keep?.(after);
   const byIdBefore = new Map(before.teams.map((team) => [team.id, team]));
   const byIdAfter = new Map(after.teams.map((team) => [team.id, team]));
   const gameAfter = new Map(after.games.map((game) => [game.id, game]));
@@ -262,4 +267,81 @@ export const readRules = (
     selectedOnNeighbours: rules.inState?.vouched === true,
     seconds: (now() - started) / 1000,
   };
+};
+
+/*
+ * The measurement before the namesake join reads a name that only fits a club (`FittedRule`): the
+ * games it joins on the pool as the rules before it left it, and the same with every row against a
+ * slot a week or a fortnight either side, where its game is not, so each join there is one a false
+ * pair would make. The namesake join was measured so before it shipped (`joinNamesakeHalves`).
+ */
+
+const DAY_MS = 86_400_000;
+
+/** The pool with every row against a slot moved `days` on, its date and its start. */
+export const withSlotRowsMoved = (state: GcImportState, days: number): GcImportState => {
+  if (days === 0) return state;
+  const slots = new Set(
+    state.teams
+      .filter((team) => team.placeholder === true && !isPulled(team))
+      .map((team) => team.id)
+  );
+  const games = state.games.map((game) => {
+    if (!slots.has(game.teamAId) && !slots.has(game.teamBId)) return game;
+    const at = game.startTs === undefined ? Number.NaN : Date.parse(game.startTs);
+    const day = game.date === undefined ? Number.NaN : Date.parse(`${game.date}T12:00:00.000Z`);
+    return {
+      ...game,
+      ...(Number.isNaN(at) ? {} : { startTs: new Date(at + days * DAY_MS).toISOString() }),
+      ...(Number.isNaN(day)
+        ? {}
+        : { date: new Date(day + days * DAY_MS).toISOString().slice(0, 10) }),
+    };
+  });
+  return { ...state, games };
+};
+
+/** The games one reading of the join makes that the rules without it do not. */
+export type FittedJoins = {
+  joined: number;
+  /** Of those, between clubs of one state or two sharing a border. */
+  near: number;
+  sample: { namer: string; name: string; club: string; states: string; score: string }[];
+};
+
+/** The joins `rules` makes on `state` beyond those `without` makes (`joinNamesakeHalves`). */
+export const fittedJoinsOf = (
+  state: GcImportState,
+  rules: TidyRules,
+  without: TidyRules,
+  refused: NotThisTeam,
+  near: (a: string | undefined, b: string | undefined) => boolean,
+  sampleSize = 0
+): FittedJoins => {
+  const joinedOn = (rulesRead: TidyRules) =>
+    new Map(
+      joinNamesakeHalves(state, refused, rulesRead)
+        .state.games.filter((game) => game.joinedFrom !== undefined)
+        .map((game) => [game.id, game] as const)
+    );
+  const before = joinedOn(without);
+  const byId = new Map(state.teams.map((team) => [team.id, team]));
+  const out: FittedJoins = { joined: 0, near: 0, sample: [] };
+  joinedOn(rules).forEach((game, id) => {
+    if (before.get(id)?.teamBId === game.teamBId) return;
+    const namer = byId.get(game.teamAId);
+    const club = byId.get(game.teamBId);
+    out.joined += 1;
+    if (namer?.state && club?.state && near(namer.state, club.state)) out.near += 1;
+    if (out.sample.length < sampleSize && hashOf(id) % 3 === 0) {
+      out.sample.push({
+        namer: namer?.name ?? game.teamAId,
+        name: byId.get(game.joinedFrom!)?.name ?? game.joinedFrom!,
+        club: club?.name ?? game.teamBId,
+        states: `${namer?.state ?? "?"}-${club?.state ?? "?"}`,
+        score: `${game.teamAScore}-${game.teamBScore}`,
+      });
+    }
+  });
+  return out;
 };

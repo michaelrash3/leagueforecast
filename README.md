@@ -1457,25 +1457,42 @@ test about as often as those decoys, so of the rows that pass no more than 10.4%
 clubs were neighbours 16.4% of the time, near the decoys' rate, so the rule reads only the row's
 level. The model sweep's `--stand-in-rules` mode reads these again (`src/lib/standInRules.ts`).
 
+On 28 October 2026 the owner asked for fewer stand-ins again ("If you can get to 25%, great"), and
+the model sweep read what each way of getting there does to the boards' forecasts of the games after
+each cut (GitHub runs 40606022999 and 40607594214, 126,563 later decided games). Leaving the
+stand-ins' games out forecast clearly worse (log loss z -6.2 for the names holding one game of the
+year), so they stay. Filing each name onto the one pulled club of it on its page, any state,
+forecast better (z 2.0); spelled near it, or within two levels where none is on its page, no worse
+(z 1.4 and 0.2). So a name is also read as the one pulled club that carries it near the namer,
+though that club's own schedules have no game that day (`oneNamesake`, tidy rules 34): in the
+namer's state or one bordering it, or either of no known state, or further where the two clubs have
+met or shared an opponent by both sides' own schedules, as the resettle reads a club far off
+(`unvouched`); at the row's level, or failing one there, the one whose name reads the same loosely
+(`looseNameKey`), or the one of the name within two levels. Two is a guess and none is read. It
+keeps the in-state rule's guards (never a club with a game of its own at that hour, nor before a
+week ahead of its season), never reads a level two from one typed into the name that the resettle
+would take off (`twoOff`), and where either club's state is unknown or off the map of borders it
+reads only a name with a word in no more than one in 2,000 pulled names: a common name a club of no
+known state wrote had gone onto the one club of it pulled at that level, in another country. The
+refile files the row and the resettle leaves it, asking the same question.
+
+Tidied in memory on the cloud copy of 28 October (GitHub run 40618664016), rules 34 moved 14,108
+rows off stand-ins onto pulled clubs in six passes, and the games leaning on a stand-in or a slot
+fell from 32.1% of the squad year to 28.4%, and of the played games from 28.1% to 25.1%. The tidy
+under rules 33 moved one row, so the copy was at its fixed point before. A sealed sample read right
+almost throughout, its pairings the same name or the same name with a dash or a colour written
+apart. The neighbour test reads nothing here: the in-state rule had already filed every such row
+whose clubs were neighbours, so the rows left are not, right or wrong.
+
 What no reading of a name reaches: of the 58,519 clubs known only by name, 35,437 holding 70,254
-games have no pulled club of the name, or near it, anywhere in the year. They are not clubs nobody
-has pulled: every team on GameChanger has been (the owner, 27 October 2026), so each is a pulled
-club under a name its opponent's coach wrote, which only the game can tie to it. The model sweep's
-`--stand-in-halves` mode asks where the other half of each such game is (`src/lib/standInHalves.ts`):
-another pulled club's own row a day either side with the result mirrored, filed against the namer,
-against a stand-in or slot of its own, or against a third club. Across the whole year that is
-there by chance for nine rows in ten, so the candidates are narrowed a step at a time, the wide
-net first (the owner's way): levels within two (a club plays up in the fall and files the game at
-its own level), the same day, starts within the hour, the same level, and never the state, since a
-Kentucky club plays Michigan's all the time. A row
-stops at the first step that leaves it one, and the weeks either side go through the same steps
-for the rate each settles on one by chance. The same funnel is tried where the answer is known
-(`testKnownPairs`): a game both clubs' own schedules list, one club's row read as if it had named a
-stand-in and the other's put back among the year's rows as that schedule gave it, so how often it
-settles on the wrong club is counted rather than guessed. And since two scorekeepers' books of one
-game can differ by a run or two, it counts the rows with another club's row at the same date and
-start (within the hour, and to the minute), any state, whose result is off by one or two runs in all rather
-than mirrored (`nearScores`), beside the same a week either side.
+games have no pulled club of the name, or near it, anywhere in the year. The owner has pulled every
+club on GameChanger, and 40 of their rows laid out by eye on 28 October 2026 (GitHub run 40613806196) showed about a quarter under another form of a pulled club's name (the season's words
+added, a colour or a coach's name left off, the words in another order, "Mt" for "Mount"), mostly
+with no game that day on the club's own schedule. Filing a name onto the one club whose name's words
+it holds, or that holds its, took the share to 22.2% but forecast no better, and a sample of its
+pairings was right only about half the time (a name of three words onto a club called by one of
+them), so it is not read. The rest wait on a closer reading of the name than that, or on a pull: the
+file of every club worth pulling (`unpulledClubs`), most games first, is where to start.
 
 **Not this team.** The matcher will still be wrong sometimes, and the club's panel is where that
 shows. Beside each game a club has only because a name on another club's schedule was matched to

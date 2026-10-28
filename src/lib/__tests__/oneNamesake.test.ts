@@ -130,7 +130,7 @@ describe("a name read as the one pulled club of it near the namer", () => {
   });
 
   it("reads no common name where a club's state is unknown or off the map", () => {
-    // Ten pulled clubs' names hold "Sharks"; the one called Sharks alone is in Newfoundland.
+    // Ten pulled clubs' names hold "Sharks"; the one called Sharks alone is in another country.
     const sharks = pulled("SHARKS", "Sharks", "NL");
     const others = Array.from({ length: 10 }, (_, n) =>
       pulled(`SH${n}`, `Sharks ${letters(n)}ville`, "TX", "ag13", 13)

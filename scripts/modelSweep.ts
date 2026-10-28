@@ -82,8 +82,8 @@ import { loadPoolFrom, sparedByTidy } from "../src/lib/cloud/cloudRunner.ts";
 import { failureWords } from "../src/lib/cloud/firestoreRest.ts";
 import { todayIsoDay } from "../src/lib/date.ts";
 import {
-  IN_STATE_TIDY_RULES,
   describeTidy,
+  ONE_NAMESAKE_TIDY_RULES,
   SHIPPED_TIDY_RULES,
   tidyPool,
   type GcImportState,
@@ -112,11 +112,14 @@ import {
   type HalfKind,
   type StandInRow,
 } from "../src/lib/standInHalves.ts";
+import { inOneRegion } from "../src/lib/stateBorders.ts";
 import {
   filedByName,
+  fittedJoinsOf,
   leaningOf,
   readingWrongShare,
   readRules,
+  withSlotRowsMoved,
   type Leaning,
   type NearCount,
   type RuleReading,
@@ -527,16 +530,61 @@ const describeStandIns = (report: StandInReport) => {
 /** The readings of the stand-in rule measured, the rules as shipped first. */
 const RULE_READINGS: { key: string; why: string; rules: TidyRules }[] = [
   {
-    key: "rules-33",
-    why: "the tidy as the cloud copy was last tidied: the one club of the name in the namer's state, vouched",
-    rules: IN_STATE_TIDY_RULES,
+    key: "rules-34",
+    why: "the tidy as the cloud copy was last tidied: the one pulled club of the name near the namer",
+    rules: ONE_NAMESAKE_TIDY_RULES,
   },
   {
-    key: "rules-34",
-    why: "and the one pulled club of the name near the namer, spelled near it, or within two levels",
+    key: "rules-35",
+    why: "and the namesake join reading a name that fits a club against its slot, between neighbours",
     rules: SHIPPED_TIDY_RULES,
   },
+  {
+    key: "rules-35-anywhere",
+    why: "and the same wherever the two clubs are",
+    rules: { ...SHIPPED_TIDY_RULES, fitted: { region: false } },
+  },
 ];
+
+/** The days every row against a slot is moved for the fitted join's decoys. */
+const SLOT_SHIFTS = [-14, -7, 7, 14];
+
+/**
+ * The fitted namesake join on the pool as rules 34 left it: the games each reading joins, and the
+ * same with every row against a slot a week or a fortnight either side (`withSlotRowsMoved`).
+ */
+const measureFittedJoins = (settled: GcImportState, refused: ReadonlySet<string>) => {
+  say(`\n  The namesake join reading a name that only fits, on the pool as rules-34 left it:`);
+  const readings: [string, TidyRules][] = [
+    ["near", SHIPPED_TIDY_RULES],
+    ["anywhere", { ...SHIPPED_TIDY_RULES, fitted: { region: false } }],
+  ];
+  for (const [key, rules] of readings) {
+    const real = fittedJoinsOf(settled, rules, ONE_NAMESAKE_TIDY_RULES, refused, inOneRegion, 40);
+    const shifted = SLOT_SHIFTS.map(
+      (days) =>
+        fittedJoinsOf(
+          withSlotRowsMoved(settled, days),
+          rules,
+          ONE_NAMESAKE_TIDY_RULES,
+          refused,
+          inOneRegion
+        ).joined
+    );
+    const chance = shifted.reduce((sum, joined) => sum + joined, 0) / shifted.length;
+    say(
+      `    ${key}: ${real.joined} games joined (${real.near} between neighbours); with the slot` +
+        ` rows ${SLOT_SHIFTS.join("/")} days off: ${shifted.join("/")}, ${chance.toFixed(2)} a shift` +
+        ` (${share(chance, real.joined)} of the day's)`
+    );
+    sayNamed(
+      real.sample.map(
+        (one) => `    ${one.namer} named "${one.name}" -> ${one.club} (${one.states}, ${one.score})`
+      ),
+      `A sample of the games the ${key} reading joined:`
+    );
+  }
+};
 
 const describeLeaning = (label: string, leaning: Leaning) =>
   say(
@@ -596,11 +644,26 @@ const measureStandInRules = (source: Source, year: number) => {
   say(`    between neighbours: ${nearShare(right)} (how often a right reading of a name is)`);
   for (const { key, why, rules } of RULE_READINGS) {
     try {
+      let settled: GcImportState | undefined;
       describeReading(
-        readRules(pool, year, key, rules, tidy, Number(flag("top") || 25), () => performance.now()),
+        readRules(
+          pool,
+          year,
+          key,
+          rules,
+          tidy,
+          Number(flag("top") || 25),
+          () => performance.now(),
+          key === "rules-34"
+            ? (state) => {
+                settled = state;
+              }
+            : undefined
+        ),
         right,
         why
       );
+      if (settled) measureFittedJoins(settled, refused);
     } catch (error) {
       say(`  ${key} stopped: ${failureWords(error)}`);
       process.exitCode = 1;
