@@ -757,3 +757,34 @@ export const filterRankingsByState = (
 
 /** Filter value for "teams I have not given a state to". */
 export const UNKNOWN_STATE = "__unknown__";
+
+/** Words a schedule adds to or drops from a club's name that say nothing about which club it is. */
+const FILLER = new Set([
+  "baseball",
+  "bb",
+  "bsb",
+  "bc",
+  "club",
+  "the",
+  "travel",
+  "team",
+  "org",
+  "organization",
+]);
+
+/**
+ * A name read loosely, for measuring how many stand-ins a looser match would join: `teamNameKey`,
+ * then "Saint" and "St. Louis" as "st" and "stl", full stops, commas, apostrophes and ampersands as
+ * spacing, the filler words out (`FILLER`), and no spaces at all. A colour, a coach or a sponsor
+ * stays, so "KC Crushers Black" is still not "KC Crushers".
+ */
+export const looseNameKey = (name: string): string => looseNameWords(name).join("");
+
+/** The words of a name read loosely, as `looseNameKey` reads them before it joins them. */
+export const looseNameWords = (name: string): string[] =>
+  teamNameKey(name)
+    .replace(/\bsaint\b/g, "st")
+    .replace(/\bst\.?\s*louis\b/g, "stl")
+    .replace(/[.,'&]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word !== "" && !FILLER.has(word));

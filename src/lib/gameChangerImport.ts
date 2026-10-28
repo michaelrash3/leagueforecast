@@ -87,6 +87,7 @@ import {
   squadYearForGcSeason,
   standUpWithdrawn,
   teamNameKey,
+  looseNameKey,
   nameFitsWithin,
   withFiledMark,
   type AgeGroup,
@@ -111,11 +112,10 @@ import { MIN_OPPONENT_AGE_EVIDENCE } from "./opponentAgeBar";
 import { queueWouldAsk } from "./agelessQueue";
 import type { AgeUnknownTeam } from "./ageUnknown";
 import { todayIsoDay } from "./date";
-import { borderingStates, farApart, inOneRegion } from "./stateBorders";
+import { borderingStates, farApart, inOneRegion, onBorderMap } from "./stateBorders";
 import { namedAgeFor, type NamedAges } from "./namedAges";
 import { GC_PAIRING_EVIDENCE_LABEL, type GcPairingEvidence } from "./gcPairingEvidence";
 import { fillMissingStates } from "./clubStates";
-import { looseNameKey } from "./standInReport";
 
 /**
  * The lookups an import does, precomputed.
@@ -7230,6 +7230,13 @@ const bothListedOpponents = (state: GcImportState): Map<string, Set<string>> => 
   return opponents;
 };
 
+/**
+ * How rare a word of a name must be for `oneNamesake` to read it where the clubs' states say
+ * nothing: no more than one in this many pulled names, as the in-state rule's rare reading was
+ * measured (27 October 2026).
+ */
+const NAMESAKE_RARE_AMONG = 2_000;
+
 /** A row a name filed, as `oneNamesake` asks of it: the name read loosely, and a level typed with it. */
 type NamesakeRow = TimedNamedRow & { looseKey: string; typed: number | undefined };
 
@@ -7299,6 +7306,16 @@ export const oneNamesake = (
     if (found.length !== 1) return undefined;
     const club = found[0]!;
     if (isPlaceholderName(club.name) || namesNobody(club.name)) return undefined;
+    // Where either club's state is unknown, or off the map of borders, nothing says the two are
+    // near, and the one club of the name in the pool is the only one: a "Sharks" a club of no
+    // known state named went onto the one Sharks pulled at that level, in Newfoundland. So the name
+    // must hold a word few pulled names do.
+    if (
+      !(onBorderMap(namer?.state) && onBorderMap(club.state)) &&
+      !holdsRareWord(key, pulled, NAMESAKE_RARE_AMONG)
+    ) {
+      return undefined;
+    }
     if (!inItsSeason(pulled, club.id, pool, date)) return undefined;
     const listed = pulled.listed.get(club.id);
     if (
