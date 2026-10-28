@@ -5013,12 +5013,23 @@ const UNWORDED_MARGIN = 10;
  * longer bear out — a score or a start since posted that no longer fits, a second club of the name
  * with a row that does, a copy of the game naming either club itself, the owner's refusal of either
  * name, the other club's row gone — puts each row back as it was (`unjoinedRow`).
+ *
+ * And a stand-in of no pulled club's name is read as each club its name fits (`nameFitsWithin`),
+ * where that club's own row of the hour, the result mirrored, is against a slot (`FittedRule`, tidy
+ * rules 35): the owner's "Both teams have the game" of 28 October 2026, a 4-11 loss to a TBD slot
+ * on one club's schedule and an 11-4 win at the same minute on the other's over the first club's
+ * name with its region and an event's tag around it. Between neighbours, on the cloud copy of that
+ * day, it joined 296 games, and with every row against a slot a week or a fortnight either side
+ * 0.75 a shift (0.3%); read anywhere, 30 more against 3.0 a shift, so the region is asked.
  */
 export const joinNamesakeHalves = (
   state: GcImportState,
   /** The names the owner has said are not a club (`notThisTeam.ts`): never joined onto it. */
-  refused: NotThisTeam = NO_REFUSALS
+  refused: NotThisTeam = NO_REFUSALS,
+  /** The rules still being measured (`TidyRules`): how far a name that only fits is read. */
+  rules: TidyRules = SHIPPED_TIDY_RULES
 ): { state: GcImportState; joined: number } => {
+  const fitted = rules.fitted ?? null;
   const poolKeyOf = buildPoolKeyOf(state.ageGroups);
   const levelOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
   const teamById = new Map(state.teams.map((team) => [team.id, team]));
@@ -5091,8 +5102,34 @@ export const joinNamesakeHalves = (
     nameKeys.set(team.id, made);
     return made;
   };
+  /*
+   * The pulled clubs by every name they are listed under: their own, and each of their GameChanger
+   * teams' as GameChanger has it, which a merged or renamed club keeps beside a name of its own.
+   * Built the first time it is asked, since most passes ask nothing of it.
+   */
+  let listedAs: Map<string, string[]> | undefined;
+  const clubsListedAs = (pool: string, key: string): string[] => {
+    if (!listedAs) {
+      listedAs = new Map();
+      state.teams.forEach((team) =>
+        team.gcTeams?.forEach((link) =>
+          [team.name, link.name].forEach((name) =>
+            push(listedAs!, `${poolKeyOf(link.ageGroupId)}\u0000${teamNameKey(name)}`, team.id)
+          )
+        )
+      );
+    }
+    return listedAs.get(`${pool}\u0000${key}`) ?? [];
+  };
   /** The rows against a stand-in of a pulled club's name, and the clubs of that name. */
   const namers: { half: Half; namesakes: string[] }[] = [];
+  /** The rows against a stand-in of no pulled club's name, read where a name fits (`fitted`). */
+  const fitNamers: Half[] = [];
+  /** Every club's rows against a slot, by squad year, result and hour (`slotKey`). */
+  const onSlots = new Map<string, Half[]>();
+  const slotKey = (pool: string, own: number, theirs: number, hour: number) =>
+    `${pool}\u0000${own}-${theirs}\u0000${hour}`;
+  const hourOf = (half: Half) => Math.floor(startMinuteOf(half.game.startTs)! / 60);
   const read = (game: ScoutGame) => {
     // Rows with no result wait for one, and a row with no start has no hour to be in.
     if (!game.source || !game.startTs || game.withdrawn || !isScored(game) || game.scoreFromB) {
@@ -5113,18 +5150,24 @@ export const joinNamesakeHalves = (
       level: game.ageLevelA ?? levelOf.get(game.ageGroupId),
     };
     push(rowsOf, `${pool}\u0000${club}`, half);
+    if (fitted && isSlot(other) && startMinuteOf(game.startTs) !== undefined) {
+      push(onSlots, slotKey(pool, half.own, half.theirs, hourOf(half)), half);
+    }
     if (!isStandIn(other)) return;
     const namesakes = (clubsByName.get(`${pool}\u0000${nameKeyOf(other)}`) ?? []).filter(
       (id) => id !== club
     );
     if (namesakes.length > 0) namers.push({ half, namesakes });
+    else if (fitted) fitNamers.push(half);
   };
   state.games.forEach((game) => {
     const taken = apart.get(game.id);
     if (!taken) read(game);
     else [taken.row, ...taken.back].forEach(read);
   });
-  if (namers.length === 0 && apart.size === 0) return { state, joined: 0 };
+  if (namers.length === 0 && fitNamers.length === 0 && apart.size === 0) {
+    return { state, joined: 0 };
+  }
 
   /*
    * Every pair that could be one game, each way it can be read: the namer's row, and a row of a
@@ -5132,7 +5175,7 @@ export const joinNamesakeHalves = (
    * neither row is in any other pair, counted before anything else is asked of it, so a second
    * candidate either way, however poor, leaves both rows where they are.
    */
-  type Reading = { a: Half; b: Half };
+  type Reading = { a: Half; b: Half; fit?: true };
   const readingsOf = new Map<string, Reading[]>();
   const pairsOf = new Map<string, Set<string>>();
   const note = (gameId: string, pair: string) => {
@@ -5152,6 +5195,41 @@ export const joinNamesakeHalves = (
       })
     )
   );
+  /*
+   * And a stand-in of nobody's name, read as each club whose name it fits (`nameFitsWithin`) and
+   * whose own row of the hour, the result mirrored, is against a slot: the one club's schedule
+   * could not say whom it played, and the other's coach typed the first club's name with its region
+   * before it and an event's tag after it. Every club the name fits is a reading, wherever it is,
+   * so a second within the hour leaves both rows where they are; the region is asked after
+   * (`holds`).
+   */
+  if (fitNamers.length > 0 && onSlots.size > 0) {
+    const fits = nameFitter();
+    const listedNames = (clubId: string) => {
+      const team = teamById.get(clubId);
+      return team ? [team.name, ...(team.gcTeams ?? []).map((link) => link.name)] : [];
+    };
+    fitNamers.forEach((a) => {
+      const standIn = teamById.get(a.other)!;
+      /*
+       * A name a pulled club is listed under names that club, though its own rows say nothing of the
+       * game, and the namer's own name names nobody else: read for no other club it fits.
+       */
+      const listed = clubsListedAs(a.pool, nameKeyOf(standIn));
+      const hour = hourOf(a);
+      [hour - 1, hour, hour + 1].forEach((at) =>
+        (onSlots.get(slotKey(a.pool, a.theirs, a.own, at)) ?? []).forEach((b) => {
+          if (b.club === a.club || !startsWithinTheHour(a.game.startTs, b.game.startTs)) return;
+          if (listed.some((id) => id !== b.club)) return;
+          if (!listedNames(b.club).some((name) => fits(standIn.name, name))) return;
+          const pair = [a.game.id, b.game.id].sort().join("\u0000");
+          push(readingsOf, pair, { a, b, fit: true });
+          note(a.game.id, pair);
+          note(b.game.id, pair);
+        })
+      );
+    });
+  }
 
   /** A's row as one that can take B in: nothing another club's held in it, nothing of B's lent. */
   const takesIn = ({ game, club }: Half) =>
@@ -5194,25 +5272,6 @@ export const joinNamesakeHalves = (
     }
     if (Math.abs(a.own - a.theirs) >= UNWORDED_MARGIN) return false;
     return !clubsListedAs(a.pool, nameKeyOf(opponent)).some((id) => id !== a.club && id !== b.club);
-  };
-  /*
-   * The pulled clubs by every name they are listed under: their own, and each of their GameChanger
-   * teams' as GameChanger has it, which a merged or renamed club keeps beside a name of its own.
-   * Built the first time a pair asks, since most passes ask nothing of it.
-   */
-  let listedAs: Map<string, string[]> | undefined;
-  const clubsListedAs = (pool: string, key: string): string[] => {
-    if (!listedAs) {
-      listedAs = new Map();
-      state.teams.forEach((team) =>
-        team.gcTeams?.forEach((link) =>
-          [team.name, link.name].forEach((name) =>
-            push(listedAs!, `${poolKeyOf(link.ageGroupId)}\u0000${teamNameKey(name)}`, team.id)
-          )
-        )
-      );
-    }
-    return listedAs.get(`${pool}\u0000${key}`) ?? [];
   };
   /*
    * Whether a club's own schedules have played a stand-in as a team of its own, read off the rows
@@ -5293,10 +5352,26 @@ export const joinNamesakeHalves = (
     });
   }
   const hasPlayed = (clubId: string, teamId: string) => played.has(`${clubId}\u0000${teamId}`);
-  const holds = ({ a, b }: Reading): boolean => {
+  const holds = ({ a, b, fit }: Reading): boolean => {
     if (!takesIn(a) || !goesIn(b)) return false;
     const opponent = teamById.get(b.other);
     const namer = teamById.get(a.club);
+    const named = teamById.get(b.club);
+    if (fit) {
+      // A name that only fits is read between neighbours, where the rule asks it.
+      if (
+        fitted?.region &&
+        !(namer?.state && named?.state && inOneRegion(namer.state, named.state))
+      ) {
+        return false;
+      }
+      /*
+       * The owner's word on a game taken off a club is kept under the club's own name
+       * (`refusalsFor`), which is not the name the row wrote here: either says the name is not
+       * that club.
+       */
+      if (refusesName(refused, a.game.source!.teamId, named?.name, named)) return false;
+    }
     if (
       !isSlot(opponent) &&
       !(
@@ -7025,8 +7100,22 @@ export type NamesakeRule = {
   levelsApart: number;
 };
 
+/**
+ * How the namesake join reads a stand-in whose name is no pulled club's but fits one's
+ * (`nameFitsWithin`), as that club, where the club's own row of the game is against a slot
+ * (`joinNamesakeHalves`); null, or left out, reads only a club's very name.
+ */
+export type FittedRule = {
+  /** Only between clubs of one state or of two that share a border (`inOneRegion`). */
+  region: boolean;
+};
+
 /** The tidy's rules that a measurement reads one way and another, as `tidyPool` takes them. */
-export type TidyRules = { inState: InStateRule | null; namesake?: NamesakeRule | null };
+export type TidyRules = {
+  inState: InStateRule | null;
+  namesake?: NamesakeRule | null;
+  fitted?: FittedRule | null;
+};
 
 /**
  * The tidy as it ships: the one pulled club of a name in the namer's state, any name, at the row's
@@ -7037,6 +7126,7 @@ export type TidyRules = { inState: InStateRule | null; namesake?: NamesakeRule |
 export const SHIPPED_TIDY_RULES: TidyRules = {
   inState: { rareAmong: 1, nearLevel: false, vouched: true },
   namesake: { loose: true, levelsApart: 2 },
+  fitted: { region: true },
 };
 
 /** The tidy before 27 October 2026, which read no name as the one club of it in a state. */
@@ -7046,6 +7136,15 @@ export const DAY_CHECK_TIDY_RULES: TidyRules = { inState: null, namesake: null }
 export const IN_STATE_TIDY_RULES: TidyRules = {
   inState: { rareAmong: 1, nearLevel: false, vouched: true },
   namesake: null,
+};
+
+/**
+ * The tidy of 28 October 2026, before the namesake join read a name holding a club's name with more
+ * around it as that club, against the club's own row of the game on a slot.
+ */
+export const ONE_NAMESAKE_TIDY_RULES: TidyRules = {
+  inState: { rareAmong: 1, nearLevel: false, vouched: true },
+  namesake: { loose: true, levelsApart: 2 },
 };
 
 /** A row a name filed, as `inStateNamesakes` asks of it: the start time too. */
@@ -9004,7 +9103,7 @@ const tidyOnce = (
   // every step that reads a copy as a pulled club's: the game it makes holds the named club's own
   // row, which the reclaim and the step after it read as that club's word that it played.
   starting("namesakeJoined", halves.state);
-  const namesakes = joinNamesakeHalves(halves.state, refused);
+  const namesakes = joinNamesakeHalves(halves.state, refused, rules);
   finished("namesakeJoined", namesakes.joined, namesakes.state);
   starting("reclaimed", namesakes.state);
   const moved = reclaimMisfiled(namesakes.state);
@@ -9329,8 +9428,11 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *  34 — failing that, onto the one pulled club of its name near the namer at its level, or spelled
  *       near it, or within two levels (`oneNamesake`), the owner's "If you can get to 25%, great"
  *       of 28 October 2026, and such a row left on it
+ *  35 — the namesake join reading a stand-in of no pulled club's name as each club its name fits,
+ *       where that club's own row of the game is against a slot, between neighbours: the owner's
+ *       "Both teams have the game" of 28 October 2026
  */
-const TIDY_RULES_VERSION = 34;
+const TIDY_RULES_VERSION = 35;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
