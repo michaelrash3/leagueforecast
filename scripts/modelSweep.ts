@@ -82,7 +82,7 @@ import { loadPoolFrom, sparedByTidy } from "../src/lib/cloud/cloudRunner.ts";
 import { failureWords } from "../src/lib/cloud/firestoreRest.ts";
 import { todayIsoDay } from "../src/lib/date.ts";
 import {
-  DAY_CHECK_TIDY_RULES,
+  IN_STATE_TIDY_RULES,
   describeTidy,
   SHIPPED_TIDY_RULES,
   tidyPool,
@@ -527,20 +527,14 @@ const describeStandIns = (report: StandInReport) => {
 /** The readings of the stand-in rule measured, the rules as shipped first. */
 const RULE_READINGS: { key: string; why: string; rules: TidyRules }[] = [
   {
-    key: "day-check",
-    why: "the tidy before 27 October 2026: a name filed onto a club only on a day of its own",
-    rules: DAY_CHECK_TIDY_RULES,
-  },
-  { key: "shipped", why: "the tidy as it ships", rules: SHIPPED_TIDY_RULES },
-  {
-    key: "in-state",
-    why: "the one pulled club of the name in the namer's state, at the row's level, any name",
-    rules: { inState: { rareAmong: 1, nearLevel: false, vouched: false } },
+    key: "rules-33",
+    why: "the tidy as the cloud copy was last tidied: the one club of the name in the namer's state, vouched",
+    rules: IN_STATE_TIDY_RULES,
   },
   {
-    key: "in-state-rare",
-    why: "the same, only a name with a word in no more than 1 in 2,000 pulled clubs' names",
-    rules: { inState: { rareAmong: 2_000, nearLevel: false, vouched: false } },
+    key: "rules-34",
+    why: "and the one pulled club of the name near the namer, spelled near it, or within two levels",
+    rules: SHIPPED_TIDY_RULES,
   },
 ];
 
