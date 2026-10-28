@@ -55,6 +55,21 @@ const row = (
   ...extra,
 });
 
+/** Letters only, so no name reads as an age: 0 → "a", 26 → "ba". */
+const letters = (n: number): string => {
+  let out = "";
+  let left = n;
+  do {
+    out = String.fromCharCode(97 + (left % 26)) + out;
+    left = Math.floor(left / 26);
+  } while (left > 0);
+  return out;
+};
+/** Two thousand pulled clubs of names of their own, so a word in one name can be rare among them. */
+const nationwide: ScoutTeam[] = Array.from({ length: 2000 }, (_, n) =>
+  pulled(`N${n}`, `${letters(n)}ton Squad`, "TX", "ag13", 13)
+);
+
 const namer = pulled("NAMER", "Louisville Sluggers", "KY");
 const other = pulled("OTHER", "Frankfort Flyers", "KY");
 const bombers = (state: string, page = "ag10", level = 10) =>
@@ -100,14 +115,41 @@ describe("a name read as the one pulled club of it near the namer", () => {
     expect(refileStandIns(pool(), undefined, IN_STATE_TIDY_RULES).refiled).toBe(0);
   });
 
-  it("reads a club across a border, and a puller of no known state", () => {
+  it("reads a club across a border, and a puller of no known state by a rare name", () => {
     expect(onClub(refileStandIns(pool(bombers("OH"))).state)).toBe("BOMB");
-    const stateless = pool(bombers("KY"), {});
-    const unknown = {
-      ...stateless,
-      teams: stateless.teams.map((t) => (t.id === namer.id ? { ...t, state: undefined } : t)),
+    const stateless = (state: GcImportState) => ({
+      ...state,
+      teams: state.teams.map((team) =>
+        team.id === namer.id ? { ...team, state: undefined } : team
+      ),
+    });
+    // "Bluegrass" is in one name of two thousand: the club the name means wherever the namer is.
+    expect(
+      onClub(refileStandIns(stateless(pool(bombers("KY"), { teams: nationwide }))).state)
+    ).toBe("BOMB");
+  });
+
+  it("reads no common name where a club's state is unknown or off the map", () => {
+    // Ten pulled clubs' names hold "Sharks"; the one called Sharks alone is in Newfoundland.
+    const sharks = pulled("SHARKS", "Sharks", "NL");
+    const others = Array.from({ length: 10 }, (_, n) =>
+      pulled(`SH${n}`, `Sharks ${letters(n)}ville`, "TX", "ag13", 13)
+    );
+    const name = standIn("S-SHARKS", "Sharks");
+    const state: GcImportState = {
+      ageGroups: groups,
+      teams: [namer, other, sharks, name, someone, ...others, ...nationwide],
+      games: [row(namer, name.id, "2026-09-15"), row(sharks, someone.id, "2026-09-20")],
     };
-    expect(onClub(refileStandIns(unknown).state)).toBe("BOMB");
+    expect(refileStandIns(state).refiled).toBe(0);
+    // The same club under a name of its own is read.
+    const rare = { ...sharks, name: "Gander Sharks" };
+    const rareName = { ...name, name: "Gander Sharks" };
+    const named = {
+      ...state,
+      teams: [namer, other, rare, rareName, someone, ...others, ...nationwide],
+    };
+    expect(refileStandIns(named).state.games[0]!.teamBId).toBe("SHARKS");
   });
 
   it("reads a club far off only where the two clubs' own schedules meet", () => {
@@ -172,7 +214,7 @@ describe("a name read as the one pulled club of it near the namer", () => {
     const club = bombers("KY");
     const busy: GcImportState = {
       ageGroups: groups,
-      teams: [stateless, other, club, named],
+      teams: [stateless, other, club, named, ...nationwide],
       games: [
         row(stateless, named.id, "2026-09-20"),
         row(club, other.id, "2026-09-20", { startTs: "2026-09-20T14:30:00.000Z" }),

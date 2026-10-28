@@ -147,6 +147,10 @@ export const borderingStates = (state: string): ReadonlySet<string> =>
  * that share a border. A state nobody knows is not a disagreement — nothing says it is far — so
  * either side missing is a yes, which is the rule `stateFits` already keeps for the same question.
  */
+/** Whether a state is one this map holds, so its neighbours are known. */
+export const onBorderMap = (state: string | undefined): boolean =>
+  state !== undefined && NEIGHBOURS.has(state);
+
 export const inOneRegion = (a: string | undefined, b: string | undefined): boolean =>
   !a || !b || a === b || (NEIGHBOURS.get(a)?.has(b) ?? false);
 
