@@ -117,6 +117,24 @@ describe("a row whose opponent its coach renamed after the pull", () => {
 });
 
 describe("a renamed row and a new row of the new name in one pull", () => {
+  it("go against one team of the name, with no age typed in either name (Codex on #480)", () => {
+    // No level moves with the rename, so only the refile itself puts the new team where the rest
+    // of the pull looks a name up.
+    const first = pull(empty, namer("Sharks")).state;
+    const both = schedule("GCNAMER00001", "Comets 9U Ortiz", "OH", [
+      played("n0", "Bears 9U", "2026-10-16T21:30", [22, 8]),
+      played("n1", "Sharks Elite", "2026-10-24T14:15", [17, 10]),
+      played("n2", "Sharks Elite", "2026-10-25T14:15", [9, 2]),
+    ]);
+    const importer = createGcImporter(first, { today: "2026-10-26" });
+    importer.add(both);
+    const against = importer.state.games
+      .filter((game) => game.id === "gc_GCNAMER00001_n1" || game.id === "gc_GCNAMER00001_n2")
+      .map((game) => game.teamBId);
+    expect(against).toHaveLength(2);
+    expect(new Set(against).size).toBe(1);
+  });
+
   it("go against one team of the name", () => {
     const first = pull(empty, rams, namer("Rams")).state;
     const both = schedule("GCNAMER00001", "Comets 9U Ortiz", "OH", [
@@ -164,6 +182,17 @@ describe("a renamed opponent read again only where the name is all the row rests
     expect(the24th(pull(dropped, namer("Rams-Wise 9U")).state)).toEqual([
       "Comets Ortiz 17-10 Rams-Wise (stand-in)",
     ]);
+  });
+
+  it("keeps the picture of the club a renamed row is filed onto by it (Codex on #480)", () => {
+    // Renamed from a name nobody pulled to the Rams, picture and all: the picture names the club,
+    // and a later rename with no picture leaves the row on it.
+    const unnamed = pull(empty, rams, namer("Sharks")).state;
+    expect(the24th(unnamed)).toEqual(["Comets Ortiz 17-10 Sharks (stand-in)"]);
+    const pictured = pull(unnamed, namer("Rams", { opponentAvatarKey: "picture-of-rams" })).state;
+    expect(the24th(pictured)).toEqual(["Comets Ortiz 17-10 Rams"]);
+    expect(pictured.games.find((game) => game.date === "2026-10-24")?.namedByAvatar).toBeDefined();
+    expect(the24th(pull(pictured, namer("Rams Gold")).state)).toEqual(["Comets Ortiz 17-10 Rams"]);
   });
 
   it("leaves a game whose opponent's picture named the club", () => {

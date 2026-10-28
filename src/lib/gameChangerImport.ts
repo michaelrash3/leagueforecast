@@ -2283,21 +2283,32 @@ const withTypedAs = (game: ScoutGame, typedAs: string, renamed: boolean): ScoutG
     : { ...game, typedAs };
 
 /**
- * `game` with its other side, the one its own row named, replaced by `opponent` at `level`: the
- * level read off the name that files it there, or none where that name gives none.
+ * `game` with its other side, the one its own row named, replaced by the side `filed` names: at the
+ * level read off the name that files it there, or none where that name gives none, and named by the
+ * picture that files it there, where one does (`ScoutGame.namedByAvatar`). The picture is the new
+ * club's own, so it goes with the side: kept from the old one, it read the game against the old
+ * club, and a later rename with no picture moved the row off the club its picture had named (Codex
+ * on #480).
  */
-const withOpponent = (
-  game: ScoutGame,
-  ownSideA: boolean,
-  opponent: string,
-  level: number | undefined
-): ScoutGame => {
+const withOpponent = (game: ScoutGame, ownSideA: boolean, filed: ScoutGame): ScoutGame => {
+  const { namedByAvatar: _picture, ...unnamed } = game;
+  const picture = filed.namedByAvatar === undefined ? {} : { namedByAvatar: filed.namedByAvatar };
   if (ownSideA) {
-    const { ageLevelB: _old, ...rest } = game;
-    return { ...rest, teamBId: opponent, ...(level === undefined ? {} : { ageLevelB: level }) };
+    const { ageLevelB: _old, ...rest } = unnamed;
+    return {
+      ...rest,
+      teamBId: filed.teamBId,
+      ...(filed.ageLevelB === undefined ? {} : { ageLevelB: filed.ageLevelB }),
+      ...picture,
+    };
   }
-  const { ageLevelA: _old, ...rest } = game;
-  return { ...rest, teamAId: opponent, ...(level === undefined ? {} : { ageLevelA: level }) };
+  const { ageLevelA: _old, ...rest } = unnamed;
+  return {
+    ...rest,
+    teamAId: filed.teamBId,
+    ...(filed.ageLevelB === undefined ? {} : { ageLevelA: filed.ageLevelB }),
+    ...picture,
+  };
 };
 
 const differs = (existing: ScoutGame, candidate: ScoutGame): boolean => {
@@ -3479,7 +3490,7 @@ const importOne = (
         : { ...kept, joinedFromLevel: candidate.ageLevelB }
       : kept;
     const merged: ScoutGame = {
-      ...(refiled ? withOpponent(base, ownSideA, candidate.teamBId, candidate.ageLevelB) : base),
+      ...(refiled ? withOpponent(base, ownSideA, candidate) : base),
       ...(isScored(candidate) ? { teamAScore: scores.a, teamBScore: scores.b } : {}),
       ...(candidate.season ? { season: candidate.season } : {}),
       ...(displaced ? { note: withNote(existing.note, displaced) } : {}),
@@ -3488,6 +3499,13 @@ const importOne = (
     };
     if (redated || refiled) refileInPlace(existing, merged);
     else writeInPlace(existing, merged);
+    /*
+     * The team a renamed row is filed against now stands on the page at its level for the rest of the
+     * pull, as a new row's would, which is where a later row of the name looks it up. Noted only where
+     * a level moved (`refileInPlace`), a team made for the new name stood nowhere such a row looks,
+     * and the pull made it twice (Codex on #480).
+     */
+    if (refiled) notePlaces(index, merged);
     outcome.gamesUpdated += 1;
   }
 
