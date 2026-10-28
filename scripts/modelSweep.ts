@@ -99,7 +99,10 @@ import {
   type ScoutGame,
   type ScoutTeam,
 } from "../src/lib/teamRankings.ts";
+import { fetchGcTeams } from "../src/lib/gameChangerClient.ts";
+import { nameFitsWithin } from "../src/lib/teamRankings/names.ts";
 import { openStores } from "./cloudPool.ts";
+import { handlerFetch } from "./handlerFetch.ts";
 import { poolFixture } from "./poolFixture.ts";
 import { readSweepFile, sweepTidy } from "./sweepTidy.ts";
 
@@ -553,6 +556,123 @@ const measureStandInRules = (source: Source, year: number) => {
 
 /* -------------------------------------------------------------------------------------- run */
 
+/* ------------------------------------------- whether a GameChanger picture ever names a pulled club */
+
+/**
+ * Before the import stops reading an opponent by its GameChanger picture (`planOpponent`,
+ * `ScoutGame.namedByAvatar`), the owner holding that "there is no such thing as picture matches"
+ * (28 October 2026): what the stored pool carries of it, and on a sample of pulled schedules as
+ * GameChanger has them now, how many opponents' pictures are a pulled club's, and of those how many
+ * name that club. Counts only, and the sealed few that match.
+ */
+const measurePictures = async (source: Source) => {
+  say(`\n${"=".repeat(78)}\nWhether a GameChanger picture names a pulled club\n${"=".repeat(78)}`);
+  let games = 0;
+  let marked = 0;
+  let records = 0;
+  let markedRecords = 0;
+  for (const game of source.allGames()) {
+    games += 1;
+    if (game.namedByAvatar !== undefined) marked += 1;
+    for (const record of game.alsoRows ?? []) {
+      records += 1;
+      if (record.namedByAvatar !== undefined) markedRecords += 1;
+    }
+  }
+  say(
+    `  Stored: ${marked} of ${games} games and ${markedRecords} of ${records} folded rows carry a` +
+      ` club named by picture or by "Same team as" (\`namedByAvatar\`).`
+  );
+  const pulled = source.teams.filter((team) => team.gcTeams?.length);
+  const clubsOf = new Map<string, Set<string>>();
+  const pictured = new Set<string>();
+  for (const team of pulled) {
+    for (const key of [team.avatarKey, ...(team.gcTeams ?? []).map((link) => link.avatarKey)]) {
+      if (!key) continue;
+      pictured.add(team.id);
+      const clubs = clubsOf.get(key) ?? new Set<string>();
+      clubs.add(team.id);
+      clubsOf.set(key, clubs);
+    }
+  }
+  const shared = [...clubsOf.values()].filter((clubs) => clubs.size > 1).length;
+  say(
+    `  Pulled clubs: ${pulled.length}; with a picture kept ${pictured.size}; distinct pictures` +
+      ` ${clubsOf.size}, ${shared} of them on two clubs or more.`
+  );
+
+  const links = pulled.flatMap((team) =>
+    (team.gcTeams ?? []).map((link) => ({ team, gcId: link.teamId }))
+  );
+  const want = Number(flag("sample") || 3000);
+  const step = Math.max(1, Math.floor(links.length / want));
+  const sample = links.filter((_, at) => at % step === 0).slice(0, want);
+  const clubOfGcId = new Map(sample.map(({ team, gcId }) => [gcId, team]));
+  say(`  Asking GameChanger for ${sample.length} pulled schedules, every ${step}th (${since()}).`);
+  const answers = await fetchGcTeams(
+    sample.map(({ gcId }) => gcId),
+    { fetchImpl: handlerFetch() }
+  );
+  let answered = 0;
+  let rows = 0;
+  let withPicture = 0;
+  let onePulled = 0;
+  let severalPulled = 0;
+  let nameFits = 0;
+  let selfPicture = 0;
+  let profilePictures = 0;
+  let profileAsStored = 0;
+  const opponentPictures = new Set<string>();
+  const lines: string[] = [];
+  answers.forEach((answer, gcId) => {
+    if (!answer.ok) return;
+    answered += 1;
+    const own = clubOfGcId.get(gcId);
+    const { profile, games: listed } = answer.schedule;
+    if (profile.avatarKey) {
+      profilePictures += 1;
+      const stored = own?.gcTeams?.find((link) => link.teamId === gcId)?.avatarKey;
+      if (stored === profile.avatarKey) profileAsStored += 1;
+    }
+    for (const game of listed) {
+      rows += 1;
+      const key = game.opponentAvatarKey;
+      if (!key) continue;
+      withPicture += 1;
+      opponentPictures.add(key);
+      const clubs = clubsOf.get(key);
+      if (!clubs) continue;
+      if (own && clubs.has(own.id)) selfPicture += 1;
+      if (clubs.size > 1) {
+        severalPulled += 1;
+        continue;
+      }
+      onePulled += 1;
+      const club = source.teams.find((team) => clubs.has(team.id));
+      const names = club ? [club.name, ...(club.gcTeams ?? []).map((link) => link.name)] : [];
+      const fits = names.some((name) => nameFitsWithin(game.opponentName, name));
+      if (fits) nameFits += 1;
+      if (lines.length < 30) {
+        lines.push(
+          `    ${own?.name ?? gcId} v "${game.opponentName}" ${game.date ?? ""} -> ${club?.name ?? "?"}` +
+            ` (${club?.state ?? "?"})${fits ? "" : " [name does not fit]"}`
+        );
+      }
+    }
+  });
+  say(
+    `  Answered ${answered}; ${profilePictures} with a picture of their own, ${profileAsStored} the` +
+      ` one the pool keeps for them.`
+  );
+  say(
+    `  Their rows: ${rows}; opponents with a picture ${withPicture} (${opponentPictures.size} distinct);` +
+      ` a picture one pulled club has ${onePulled}, of which its name fits ${nameFits};` +
+      ` a picture several pulled clubs have ${severalPulled}; the schedule's own club's picture` +
+      ` ${selfPicture} (${since()}).`
+  );
+  sayNamed(lines, "Rows whose opponent's picture is one pulled club's:");
+};
+
 const main = async (): Promise<void> => {
   const opening = flag("open");
   if (opening) {
@@ -584,6 +704,16 @@ const main = async (): Promise<void> => {
   );
   if (has("stand-in-rules")) {
     measureStandInRules(source, year);
+    finish();
+    return;
+  }
+  if (has("picture-check")) {
+    try {
+      await measurePictures(source);
+    } catch (error) {
+      say(`The picture check stopped: ${failureWords(error)}`);
+      process.exitCode = 1;
+    }
     finish();
     return;
   }

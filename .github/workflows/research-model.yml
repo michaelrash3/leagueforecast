@@ -18,7 +18,7 @@ name: Research model sweep
 
 on:
   push:
-    branches: [rash/raines, rash/hornsby]
+    branches: [rash/raines, rash/hornsby, rash/goslin]
 
 permissions:
   contents: read
@@ -33,7 +33,8 @@ jobs:
   sweep:
     if: >-
       (github.ref == 'refs/heads/rash/raines' && contains(github.event.head_commit.message, '[run-sweep]')) ||
-      (github.ref == 'refs/heads/rash/hornsby' && contains(github.event.head_commit.message, '[run-standins]'))
+      (github.ref == 'refs/heads/rash/hornsby' && contains(github.event.head_commit.message, '[run-standins]')) ||
+      (github.ref == 'refs/heads/rash/goslin' && contains(github.event.head_commit.message, '[run-pictures]'))
     runs-on: ubuntu-latest
     # Four tidies of the whole copy for the stand-in rule, each about as long as the nightly's
     # (its filing and tidy took 34 s on 26 October 2026), come on top of the read.
@@ -50,7 +51,7 @@ jobs:
         run: npm run model:sweep -- --cloud $MODE --seal="$RUNNER_TEMP/model-sweep.sealed.json" --seal-to-key=scripts/researchSeal.pub.pem
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          MODE: ${{ github.ref == 'refs/heads/rash/hornsby' && '--stand-in-rules' || '' }}
+          MODE: ${{ github.ref == 'refs/heads/rash/hornsby' && '--stand-in-rules' || github.ref == 'refs/heads/rash/goslin' && '--picture-check' || '' }}
           # The members' day, which the board of the day is read on, as the nightly reads it.
           TZ: America/New_York
           LANG: en_US.UTF-8
