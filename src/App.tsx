@@ -2605,6 +2605,12 @@ export default function App() {
       captureUndo("Build a round robin");
       setMatchups(built.matchups);
       setLogs(built.logs);
+      // As the one-step builder did: every game made is shown, whatever team the Schedule was
+      // filtered to (a filter can outlive the season it was set on), and no older recap stands.
+      setBracketLogs({});
+      setLastImpact(null);
+      closeTeamData();
+      setScoreboardTeamFilter("ALL");
       showToast(`Made a ${built.matchups.length}-game schedule.`, {
         tone: "undo",
         actionLabel: "Undo",

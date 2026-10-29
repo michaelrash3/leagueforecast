@@ -59,8 +59,13 @@ describe("a season's team list, then its schedule", () => {
     await user.click(within(list).getByRole("button", { name: "Lock team list" }));
     await waitFor(() => expect(loadSettings().teamsLocked).toBe(true));
     expect(screen.getByRole("button", { name: "Unlock" })).toBeInTheDocument();
+    // A filter left on one team would hide the games it is not in.
+    await user.selectOptions(screen.getByLabelText("Scoreboard Filter"), "Aces");
     await user.click(await screen.findByRole("button", { name: "Build a round robin" }));
     await waitFor(() => expect(loadMatchups()).toHaveLength(3));
+    // Every game made is on screen: the filter is back to every team.
+    expect(screen.getByLabelText("Scoreboard Filter")).toHaveValue("ALL");
+    await waitFor(() => expect(document.querySelectorAll('[id^="game-card-"]')).toHaveLength(3));
     const ids = new Set(loadTeams().map((team) => team.id));
     expect(loadMatchups().every((game) => ids.has(game.away) && ids.has(game.home))).toBe(true);
     // With games, the list is set for good: no panel, no Unlock.
