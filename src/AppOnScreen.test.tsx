@@ -4,7 +4,6 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import App from "./App";
 import { prefetchAllViews } from "./components/league/leagueViews";
 import { backtestPredictions } from "./lib/backtest";
-import { scheduleDifficultyForTeam } from "./lib/scheduleDifficulty";
 import { buildSeasonTimeline } from "./lib/seasonTimeline";
 import { calculateTeams } from "./lib/sim";
 import { saveLogs, saveMatchups, saveTeams } from "./lib/storage";
@@ -25,10 +24,6 @@ vi.mock("./lib/sim", async (importOriginal) => {
 vi.mock("./lib/backtest", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./lib/backtest")>();
   return { ...actual, backtestPredictions: vi.fn(actual.backtestPredictions) };
-});
-vi.mock("./lib/scheduleDifficulty", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./lib/scheduleDifficulty")>();
-  return { ...actual, scheduleDifficultyForTeam: vi.fn(actual.scheduleDifficultyForTeam) };
 });
 vi.mock("./lib/seasonTimeline", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./lib/seasonTimeline")>();
@@ -52,8 +47,6 @@ const counted = {
   season: vi.mocked(calculateTeams),
   backtest: vi.mocked(backtestPredictions),
   timeline: vi.mocked(buildSeasonTimeline),
-  /** Each team's schedule strength, which the Forecast's bubble reads for every team. */
-  bubble: vi.mocked(scheduleDifficultyForTeam),
 };
 const forget = () => Object.values(counted).forEach((spy) => spy.mockClear());
 
@@ -133,14 +126,12 @@ describe("League Standings works out only what is on screen (2.2)", () => {
     await settled();
     expect(counted.backtest).not.toHaveBeenCalled();
     expect(counted.timeline).not.toHaveBeenCalled();
-    expect(counted.bubble).not.toHaveBeenCalled();
 
     // Opened, each works out its own once; opened again on the same season, nothing.
     await user.click(screen.getByRole("tab", { name: "Dashboard" }));
     await waitFor(() => expect(counted.backtest).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole("tab", { name: "Forecast" }));
     await waitFor(() => expect(counted.timeline).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(counted.bubble).toHaveBeenCalled());
     await user.click(screen.getByRole("tab", { name: "Schedule" }));
     await user.click(screen.getByRole("tab", { name: "Dashboard" }));
     await user.click(screen.getByRole("tab", { name: "Forecast" }));
