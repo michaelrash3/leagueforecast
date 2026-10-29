@@ -150,7 +150,7 @@ import {
   roundRobinFileName,
 } from "./lib/roundRobin";
 import type { StartPage } from "./lib/leagueStart";
-import { teamListLocked, teamsToAdd } from "./lib/teamList";
+import { nameTaken, teamListLocked, teamsToAdd } from "./lib/teamList";
 import type { TeamListControls } from "./components/league/GamesView";
 import { createAgeGroupId } from "./lib/teamRankings/seasons";
 import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standingsViews";
@@ -2563,16 +2563,14 @@ export default function App() {
     locked: listLocked,
     onAdd: saveTeamList,
     onRename: (teamId, name) => {
-      if (refusedEdit() || listLocked) return;
-      const key = name.trim().toLowerCase();
-      if (
-        teams.some((team) => team.id !== teamId && displayName(team.name).toLowerCase() === key)
-      ) {
+      if (refusedEdit() || listLocked) return false;
+      if (nameTaken(teams, name, teamId)) {
         showToast(`${name} is already on the list.`, { tone: "error" });
-        return;
+        return false;
       }
       captureUndo("Rename team");
       setTeams((prev) => prev.map((team) => (team.id === teamId ? { ...team, name } : team)));
+      return true;
     },
     onRemove: (teamId) => {
       if (refusedEdit() || listLocked) return;

@@ -25,7 +25,8 @@ export function TeamListPanel({
   hasGames: boolean;
   /** True when the names were saved, so the box can be cleared for the next ones. */
   onAdd: (names: string[]) => boolean;
-  onRename: (teamId: string, name: string) => void;
+  /** True when the season took the name; refused, the box shows the saved one again. */
+  onRename: (teamId: string, name: string) => boolean;
   onRemove: (teamId: string) => void;
   onLock: () => void;
   onUnlock: () => void;
@@ -101,14 +102,16 @@ export function TeamListPanel({
                 ) : (
                   <>
                     <input
-                      // Keyed on the name, so a rename the season refused puts the old one back.
+                      // Keyed on the name, so a rename taken elsewhere redraws the box.
                       key={team.name}
                       defaultValue={displayName(team.name)}
                       aria-label={`Name of ${displayName(team.name)}`}
                       onBlur={(event) => {
                         const next = event.target.value.trim();
-                        if (next && next !== displayName(team.name)) onRename(team.id, next);
-                        else event.target.value = displayName(team.name);
+                        // A refused name (blank, or another team's) leaves the saved one showing.
+                        const taken =
+                          next !== "" && next !== displayName(team.name) && onRename(team.id, next);
+                        if (!taken) event.target.value = displayName(team.name);
                       }}
                       className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-sm font-bold text-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                     />

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildRoundRobin, roundRobinFor } from "../roundRobin";
-import { teamListLocked, teamsToAdd } from "../teamList";
+import { nameTaken, teamListLocked, teamsToAdd } from "../teamList";
 import { DEFAULT_SETTINGS, type Matchup } from "../types";
 
 /*
@@ -22,6 +22,18 @@ describe("the teams a save adds", () => {
   it("gives each a new id beside the season's own", () => {
     const added = teamsToAdd([{ id: "COME", name: "Old Comets" }], ["Comets"]);
     expect(added[0]?.id).not.toBe("COME");
+  });
+});
+
+describe("a name another team already goes by", () => {
+  it("reads both names as shown, so a shortened name is still the same team's", () => {
+    const teams = [{ id: "FALC", name: "NKB Falcons" }, ...two];
+    // Shown as "Falcons", so neither the full name nor the short one can be a second team's.
+    expect(nameTaken(teams, "NKB Falcons", "BEAR")).toBe(true);
+    expect(nameTaken(teams, "falcons", "BEAR")).toBe(true);
+    // A team keeps its own name.
+    expect(nameTaken(teams, "Falcons", "FALC")).toBe(false);
+    expect(nameTaken(teams, "Comets", "BEAR")).toBe(false);
   });
 });
 

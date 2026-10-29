@@ -222,7 +222,8 @@ function areScoreRowPropsEqual(previous: ScoreRowProps, next: ScoreRowProps) {
 export type TeamListControls = {
   locked: boolean;
   onAdd: (names: string[]) => boolean;
-  onRename: (teamId: string, name: string) => void;
+  /** True when the season took the name; refused, the box shows the saved one again. */
+  onRename: (teamId: string, name: string) => boolean;
   onRemove: (teamId: string) => void;
   onLock: () => void;
   onUnlock: () => void;

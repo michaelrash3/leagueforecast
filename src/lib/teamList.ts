@@ -28,6 +28,16 @@ export const teamsToAdd = (existing: readonly TeamBase[], names: readonly string
 };
 
 /**
+ * Whether another team of the season already goes by this name, read as `teamsToAdd` reads names:
+ * both sides through `displayName`, so "NKB Falcons" and "Falcons" are one name, as they are on the
+ * schedule paste that matches names to teams.
+ */
+export const nameTaken = (teams: readonly TeamBase[], name: string, exceptId?: string): boolean => {
+  const key = nameKey(name);
+  return teams.some((team) => team.id !== exceptId && nameKey(team.name) === key);
+};
+
+/**
  * Whether the team list is set. A season with a game has one, whatever it says: the list was set
  * when the schedule was made, and a team appearing or going mid-season would throw the standings.
  * Without games, a list is open only where it was started here (`teamsLocked: false`) or has no
