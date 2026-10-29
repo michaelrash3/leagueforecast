@@ -76,7 +76,7 @@ function PredictionLine({
           {game?.date ? formatGameDate(game.date) : "Date TBD"} · {pick}
         </span>
       </span>
-      <span aria-hidden="true" className="shrink-0 text-slate-400">
+      <span aria-hidden="true" className="shrink-0 text-slate-600 dark:text-slate-300">
         ›
       </span>
     </button>

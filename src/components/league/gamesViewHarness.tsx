@@ -1,5 +1,6 @@
 import { render, type RenderResult } from "@testing-library/react";
 import { vi, type Mock } from "vitest";
+import { SeasonEditable } from "./EditLock";
 import { GamesView } from "./GamesView";
 import { blankLog } from "../../lib/util";
 import type { GameLog, Matchup, TeamBase } from "../../lib/types";
@@ -41,7 +42,8 @@ export const matchup = (id: string, away: string, home: string, date = "5/1"): M
 /** A log with whatever the test cares about; everything else blank, as a fresh game is. */
 export const log = (over: Partial<GameLog> = {}): GameLog => ({ ...blankLog(), ...over });
 
-type GamesViewOverrides = Partial<Props>;
+/** `editable: false` draws it as a season this device may only read. */
+type GamesViewOverrides = Partial<Props> & { editable?: boolean };
 
 /** No bracket drawn: what a season that has not finished its schedule has. */
 const EMPTY_BRACKET = { rounds: [], seeds: [] } as unknown as Props["bracketProjection"];
@@ -63,44 +65,46 @@ export const renderGamesView = (over: GamesViewOverrides = {}): GamesHarness => 
   const games = over.scoreboardGames ?? [matchup("g1", "t1", "t2")];
 
   const result = render(
-    <GamesView
-      teams={teams}
-      matchups={over.matchups ?? games}
-      logs={over.logs ?? {}}
-      scoreboardGames={games}
-      scoreboardPredictions={over.scoreboardPredictions ?? new Map()}
-      scoreboardTeamFilter={over.scoreboardTeamFilter ?? "ALL"}
-      pitchMode={over.pitchMode ?? "coach"}
-      trackErrors={over.trackErrors ?? false}
-      runsOnly={over.runsOnly ?? false}
-      setScoreboardTeamFilter={over.setScoreboardTeamFilter ?? spies.setScoreboardTeamFilter}
-      newDate={over.newDate ?? ""}
-      setNewDate={over.setNewDate ?? spies.setNewDate}
-      newAway={over.newAway ?? ""}
-      setNewAway={over.setNewAway ?? vi.fn()}
-      newHome={over.newHome ?? ""}
-      setNewHome={over.setNewHome ?? vi.fn()}
-      addGameValid={over.addGameValid ?? false}
-      addGame={over.addGame ?? spies.addGame}
-      toggleFinal={over.toggleFinal ?? spies.toggleFinal}
-      swapGame={over.swapGame ?? spies.swapGame}
-      removeGame={over.removeGame ?? spies.removeGame}
-      updateLog={over.updateLog ?? spies.updateLog}
-      setMatchups={over.setMatchups ?? spies.setMatchups}
-      gameStatusClasses={over.gameStatusClasses ?? (() => "")}
-      seasonGamesFinalized={over.seasonGamesFinalized ?? false}
-      bracketProjection={over.bracketProjection ?? EMPTY_BRACKET}
-      silverBracketProjection={over.silverBracketProjection ?? EMPTY_BRACKET}
-      updateBracketLog={over.updateBracketLog ?? vi.fn()}
-      toggleBracketFinal={over.toggleBracketFinal ?? vi.fn()}
-      scoreFillPlan={over.scoreFillPlan ?? null}
-      scoreFillAsking={over.scoreFillAsking ?? false}
-      openScoreFill={over.openScoreFill ?? spies.openScoreFill}
-      closeScoreFill={over.closeScoreFill ?? vi.fn()}
-      applyScoreFill={over.applyScoreFill ?? vi.fn()}
-      seasonLabel={over.seasonLabel ?? "Test Season"}
-      {...(over.schedulePaste ? { schedulePaste: over.schedulePaste } : {})}
-    />
+    <SeasonEditable.Provider value={over.editable ?? true}>
+      <GamesView
+        teams={teams}
+        matchups={over.matchups ?? games}
+        logs={over.logs ?? {}}
+        scoreboardGames={games}
+        scoreboardPredictions={over.scoreboardPredictions ?? new Map()}
+        scoreboardTeamFilter={over.scoreboardTeamFilter ?? "ALL"}
+        pitchMode={over.pitchMode ?? "coach"}
+        trackErrors={over.trackErrors ?? false}
+        runsOnly={over.runsOnly ?? false}
+        setScoreboardTeamFilter={over.setScoreboardTeamFilter ?? spies.setScoreboardTeamFilter}
+        newDate={over.newDate ?? ""}
+        setNewDate={over.setNewDate ?? spies.setNewDate}
+        newAway={over.newAway ?? ""}
+        setNewAway={over.setNewAway ?? vi.fn()}
+        newHome={over.newHome ?? ""}
+        setNewHome={over.setNewHome ?? vi.fn()}
+        addGameValid={over.addGameValid ?? false}
+        addGame={over.addGame ?? spies.addGame}
+        toggleFinal={over.toggleFinal ?? spies.toggleFinal}
+        swapGame={over.swapGame ?? spies.swapGame}
+        removeGame={over.removeGame ?? spies.removeGame}
+        updateLog={over.updateLog ?? spies.updateLog}
+        setMatchups={over.setMatchups ?? spies.setMatchups}
+        gameStatusClasses={over.gameStatusClasses ?? (() => "")}
+        seasonGamesFinalized={over.seasonGamesFinalized ?? false}
+        bracketProjection={over.bracketProjection ?? EMPTY_BRACKET}
+        silverBracketProjection={over.silverBracketProjection ?? EMPTY_BRACKET}
+        updateBracketLog={over.updateBracketLog ?? vi.fn()}
+        toggleBracketFinal={over.toggleBracketFinal ?? vi.fn()}
+        scoreFillPlan={over.scoreFillPlan ?? null}
+        scoreFillAsking={over.scoreFillAsking ?? false}
+        openScoreFill={over.openScoreFill ?? spies.openScoreFill}
+        closeScoreFill={over.closeScoreFill ?? vi.fn()}
+        applyScoreFill={over.applyScoreFill ?? vi.fn()}
+        seasonLabel={over.seasonLabel ?? "Test Season"}
+        {...(over.schedulePaste ? { schedulePaste: over.schedulePaste } : {})}
+      />
+    </SeasonEditable.Provider>
   );
 
   return Object.assign(result, { spies });

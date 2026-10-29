@@ -13,6 +13,7 @@ import React, {
   startTransition,
   Suspense,
   useCallback,
+  useContext,
   useEffect,
   useId,
   useMemo,
@@ -34,7 +35,7 @@ import { blankLog, isFinal } from "../../lib/util";
 import type { FillAdditions, LeagueFillPlan } from "../../lib/leagueScoreFill";
 import { card, fieldFocusRing, tab } from "../../styles/tokens";
 import { LoadingPanel } from "../LoadingPanel";
-import { EditLock } from "./EditLock";
+import { EditLock, SeasonEditable } from "./EditLock";
 
 /**
  * Fill scores' review, and the rules it reads, are fetched only once a plan is on screen. Opening
@@ -509,6 +510,9 @@ export function GamesView({
   // On a phone a game still to play is a line too, until it is opened to be scored; and the form
   // for a new game waits behind a button rather than standing above every game of the season.
   const narrow = useNarrowViewport();
+  // A season this device may only read shows every card whole: the Score that opens a line sits in
+  // the edit lock's disabled fieldset, so a line could not be opened to read its entered score.
+  const editable = useContext(SeasonEditable);
   const [openedGames, setOpenedGames] = useState<Record<string, boolean>>({});
   const [addOpen, setAddOpen] = useState(false);
   const toggleExpandedFinal = useCallback((gameId: string) => {
@@ -716,13 +720,13 @@ export function GamesView({
                 narrow && (index === 0 || visibleGames[index - 1]?.date !== game.date) ? (
                   <h3
                     key={`day-${game.id}`}
-                    className="pt-2 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                    className="pt-2 text-xs font-black uppercase tracking-wide text-slate-700 dark:text-slate-300"
                   >
                     {(game.date ?? "").trim() ? formatGameDateLong(game.date) : "No date yet"}
                   </h3>
                 ) : null;
               const row = (() => {
-                if (!final && narrow && !openedGames[game.id]) {
+                if (!final && narrow && editable && !openedGames[game.id]) {
                   return (
                     <OpenGameRow
                       key={game.id}

@@ -377,4 +377,17 @@ describe("the schedule on a phone", () => {
     await user.click(screen.getByRole("button", { name: "Add a game" }));
     expect(screen.getByRole("button", { name: "Add Game" })).toBeInTheDocument();
   });
+
+  it("shows every card whole on a season this device may only read", () => {
+    // The Score that opens a line is in the edit lock's disabled fieldset, so a reader could not
+    // open one to see the score entered on it.
+    renderGamesView({
+      teams,
+      scoreboardGames: [open],
+      logs: { [open.id]: log({ awayRuns: "4", homeRuns: "2" }) },
+      editable: false,
+    });
+    expect(screen.queryByRole("button", { name: "Enter score: Rays at Jays" })).toBeNull();
+    expect(screen.getByLabelText("Rays Runs")).toHaveValue("4");
+  });
 });
