@@ -11,6 +11,7 @@ import type { buildPredictionEngine, LeaguePrediction } from "../../lib/predicti
 import type { backtestPredictions } from "../../lib/backtest";
 import type { ActiveShareView, Matchup, Team } from "../../lib/types";
 import { SEVERITY_LABEL, severityCounts, type Finding } from "../../lib/leagueFindings";
+import { useNarrowViewport } from "../../hooks/useWideViewport";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { DigestPanel } from "./DigestPanel";
 import { EmptyPanel } from "./EmptyPanel";
@@ -39,6 +40,47 @@ type WhyContext = {
 
 function teamNameFor(map: Map<string, Team>, id: string) {
   return map.get(id)?.name ?? id;
+}
+
+/** An upcoming game on a phone, in one line: who plays, when, and the pick, pressed to open. */
+function PredictionLine({
+  prediction,
+  teamsById,
+  matchups,
+  onOpen,
+}: {
+  prediction: LeaguePrediction;
+  teamsById: Map<string, Team>;
+  matchups: Matchup[];
+  onOpen: () => void;
+}) {
+  const game = matchups.find((item) => item.id === prediction.gameId);
+  const a = displayName(teamNameFor(teamsById, prediction.teamAId));
+  const b = displayName(teamNameFor(teamsById, prediction.teamBId));
+  const aPct = Math.round(prediction.winProbability.teamA * 100);
+  const bPct = Math.round(prediction.winProbability.teamB * 100);
+  const pick =
+    aPct === bPct ? "Toss-up" : `Pick: ${aPct > bPct ? a : b} · ${Math.max(aPct, bPct)}%`;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-expanded={false}
+      className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-left shadow-xs dark:border-slate-800 dark:bg-slate-900"
+    >
+      <span className="min-w-0">
+        <span className="block text-sm font-black wrap-break-word">
+          {a} vs {b}
+        </span>
+        <span className="block text-xs font-semibold text-slate-500 dark:text-slate-400">
+          {game?.date ? formatGameDate(game.date) : "Date TBD"} · {pick}
+        </span>
+      </span>
+      <span aria-hidden="true" className="shrink-0 text-slate-400">
+        ›
+      </span>
+    </button>
+  );
 }
 
 function PredictionCard({
@@ -230,6 +272,10 @@ export function DashboardView({
     record: backtestResult,
     hasCutLine,
   };
+  // On a phone each upcoming game is a line until it is opened: three full cards there were the
+  // better part of three screens, with the power ratings below them all.
+  const narrow = useNarrowViewport();
+  const [openPrediction, setOpenPrediction] = useState<string | null>(null);
   const avgConfidence = engine.predictions.length
     ? Math.round(
         engine.predictions.reduce((sum, p) => sum + p.confidence.score, 0) /
@@ -240,7 +286,7 @@ export function DashboardView({
     <div className="space-y-6">
       {digest && <DigestPanel {...digest} />}
       {ourTeam}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {[
           ["Games forecasted", String(engine.predictions.length)],
           // A score of 100 and its tier, as the "Why" panel gives each game: as a percent beside
@@ -259,12 +305,12 @@ export function DashboardView({
         ].map(([label, value]) => (
           <div
             key={label}
-            className="rounded-lg border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900"
+            className="min-w-0 rounded-lg border border-slate-200 bg-white p-3 shadow-xs sm:p-4 dark:border-slate-800 dark:bg-slate-900"
           >
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               {label}
             </p>
-            <p className="mt-2 text-2xl font-black">{value}</p>
+            <p className="mt-1 text-lg font-black wrap-break-word sm:mt-2 sm:text-2xl">{value}</p>
           </div>
         ))}
       </section>
@@ -276,15 +322,27 @@ export function DashboardView({
               Open Schedule
             </button>
           </div>
-          {engine.predictions.slice(0, 3).map((p) => (
-            <PredictionCard
-              key={p.gameId}
-              prediction={p}
-              teamsById={teamsById}
-              matchups={matchups}
-              why={why}
-            />
-          ))}
+          {engine.predictions
+            .slice(0, 3)
+            .map((p) =>
+              narrow && openPrediction !== p.gameId ? (
+                <PredictionLine
+                  key={p.gameId}
+                  prediction={p}
+                  teamsById={teamsById}
+                  matchups={matchups}
+                  onOpen={() => setOpenPrediction(p.gameId)}
+                />
+              ) : (
+                <PredictionCard
+                  key={p.gameId}
+                  prediction={p}
+                  teamsById={teamsById}
+                  matchups={matchups}
+                  why={why}
+                />
+              )
+            )}
           {engine.predictions.length === 0 &&
             (seasonFinal ? (
               <section

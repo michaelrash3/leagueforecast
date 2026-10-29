@@ -345,3 +345,36 @@ describe("filling scores from Team Rankings", () => {
     expect(screen.queryByText(/Asking Team Rankings in the cloud/)).toBeNull();
   });
 });
+
+describe("the schedule on a phone", () => {
+  // jsdom has no `matchMedia`, so the phone's width is said out loud.
+  beforeEach(() => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockReturnValue({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("lists each game on one line under its day, and opens one to be scored", async () => {
+    const user = userEvent.setup();
+    renderGamesView({ teams, scoreboardGames: [open, done], logs: finished });
+
+    // Under its day, as a line with no score boxes until it is opened.
+    expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toHaveLength(2);
+    expect(screen.queryByLabelText("Rays Runs")).toBeNull();
+    // And the new-game form waits behind its button.
+    expect(screen.queryByRole("button", { name: "Add Game" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Enter score: Rays at Jays" }));
+    expect(screen.getByLabelText("Rays Runs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mark game as final" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add a game" }));
+    expect(screen.getByRole("button", { name: "Add Game" })).toBeInTheDocument();
+  });
+});

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { backtestPredictions } from "../../lib/backtest";
 import { CLOSE_GAME_RISK, SMALL_SAMPLE_RISK } from "../../lib/confidenceTier";
@@ -47,6 +47,26 @@ describe("a prediction card's Why button", () => {
         findings={[]}
       />
     );
+
+  it("on a phone shows each upcoming game as a line until it is opened", () => {
+    // jsdom has no `matchMedia`, so the phone's width is said out loud.
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockReturnValue({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })
+    );
+    try {
+      draw();
+      expect(screen.queryByRole("button", { name: /^Why / })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: /^Bears vs Aces/ }));
+      expect(screen.getByRole("button", { name: /^Why / })).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 
   it("names the side it explains, at the chance the card shows", () => {
     const [prediction] = engine.predictions;
