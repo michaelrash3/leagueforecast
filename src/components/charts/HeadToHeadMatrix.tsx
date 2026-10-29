@@ -22,8 +22,9 @@ export function HeadToHeadMatrix({
   recordFor?: (rowId: string, colId: string) => string;
 }) {
   const tone = (c: H2HCell) => {
-    if (c === "win") return "bg-emerald-500";
-    if (c === "loss") return "bg-red-500";
+    // Dark enough for the white record on them (5.5:1 and 6.5:1); the 500s were under 4.5:1.
+    if (c === "win") return "bg-emerald-700";
+    if (c === "loss") return "bg-red-700";
     if (c === "tie") return "bg-amber-400";
     if (c === "self") return "bg-slate-800 dark:bg-slate-700";
     return "bg-slate-100 dark:bg-slate-800";

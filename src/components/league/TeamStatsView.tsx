@@ -124,10 +124,10 @@ export function TeamStatsView({
             </div>
             <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide">
               <span className="flex items-center gap-1 text-slate-600 dark:text-slate-300">
-                <span className="h-3 w-3 rounded-xs bg-emerald-500" /> Ahead
+                <span className="h-3 w-3 rounded-xs bg-emerald-700" /> Ahead
               </span>
               <span className="flex items-center gap-1 text-slate-600 dark:text-slate-300">
-                <span className="h-3 w-3 rounded-xs bg-red-500" /> Behind
+                <span className="h-3 w-3 rounded-xs bg-red-700" /> Behind
               </span>
               <span className="flex items-center gap-1 text-slate-600 dark:text-slate-300">
                 <span className="h-3 w-3 rounded-xs bg-amber-400" /> Even
