@@ -300,7 +300,7 @@ describe("what a game card can do to the schedule", () => {
     });
 
     // Scores are in but nobody has said the game is over, so the button asks for that and no more.
-    await user.click(screen.getByRole("button", { name: "Verify Final" }));
+    await user.click(screen.getByRole("button", { name: "Mark game as final" }));
 
     expect(spies.toggleFinal).toHaveBeenCalledWith("g-open");
   });
@@ -313,6 +313,8 @@ describe("what a game card can do to the schedule", () => {
     expect(screen.getByRole("button", { name: "Mark game as final" })).toHaveTextContent(
       /^Mark final$/
     );
+    // One button marks a game final; the header had a second under another name doing the same.
+    expect(screen.getAllByRole("button", { name: /mark game as final/i })).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: /edit final/i }));
     expect(screen.getByRole("button", { name: "Mark game as scheduled" })).toHaveTextContent(
       /^Reopen$/

@@ -198,6 +198,7 @@ import {
   isSeedingLocked,
   predictGame,
   projectStandings,
+  projectedPlaces,
   rankOptionsFromSettings,
   rankTeams,
   simulationSeed,
@@ -251,6 +252,7 @@ import {
   formatGoldPct as formatGoldPctValue,
   titleRaceBadgeForTeam as titleRaceBadgeForTeamValue,
 } from "./lib/standingsView";
+import { raceBadgeClasses, raceToneForTeam, raceToneWords } from "./styles/raceTone";
 
 type ActiveView = ActiveShareView;
 
@@ -1119,6 +1121,7 @@ export default function App() {
   );
   const {
     odds,
+    places: oddsPlaces,
     iterations: oddsIterations,
     pending: oddsPending,
     swing: ourSwing,
@@ -1196,12 +1199,16 @@ export default function App() {
   // ---------- Dashboard / scenario computations ----------
 
   const dashboardRows: TeamWithProjection[] = useMemo(() => {
+    // The place shown as projected is the simulation's, the same seasons the Gold odds come from;
+    // every favourite winning is kept for the record and run differential, and for the moment
+    // before the simulation has answered.
+    const simulatedPlaces = projectedPlaces(ranked, oddsPlaces);
     return ranked.map((team) => {
       const projectedTeam = projectedById.get(team.id);
       const status = getMathGoldStatus(team, ranked, remainingCounts, goldCutoff, settings);
       return {
         ...team,
-        projectedRank: projectedTeam?.rank ?? team.rank ?? 99,
+        projectedRank: simulatedPlaces?.get(team.id) ?? projectedTeam?.rank ?? team.rank ?? 99,
         projectedRecord: projectedTeam ? recordText(projectedTeam) : recordText(team),
         projectedRunDiff: projectedTeam?.runDiff ?? team.runDiff,
         goldPct: odds[team.id] ?? 0,
@@ -1216,6 +1223,7 @@ export default function App() {
     ranked,
     projectedById,
     odds,
+    oddsPlaces,
     oddsIterations,
     trendMap,
     remainingCounts,
@@ -1736,61 +1744,14 @@ export default function App() {
 
   const formatGoldPct = useCallback((team: TeamWithProjection) => formatGoldPctValue(team), []);
 
+  // The badge says the row's own tone, so the legend over the table names every badge a row shows.
   const statusLabel = useCallback(
-    (team: TeamWithProjection) => {
-      if (team.goldStatus === "Clinched") return "Clinched";
-      if (team.goldStatus === "Eliminated") return "Eliminated";
-
-      const currentSeed = team.rank ?? 99;
-      const projectedSeed = team.projectedRank ?? 99;
-      const cutoffRow = dashboardRows[Math.min(goldCutoff - 1, dashboardRows.length - 1)];
-      // The cut is decided on PCT, in the table and in the Monte Carlo both; points only ever go
-      // up, so reading the cut line off them said a club with twice the games was twice as close.
-      const canStillReachCutLine = team.maxPct >= (cutoffRow?.pct ?? 0);
-
-      if (currentSeed <= goldCutoff) {
-        const outsideThreats = dashboardRows.filter(
-          (other) =>
-            other.id !== team.id && (other.rank ?? 99) > goldCutoff && other.maxPct >= team.minPct
-        ).length;
-        const cushionSlots = Math.max(0, goldCutoff - currentSeed);
-        const exposedToChasers = outsideThreats > cushionSlots;
-
-        if (
-          currentSeed <= goldCutoff - 2 &&
-          projectedSeed <= goldCutoff &&
-          team.goldPct >= 90 &&
-          !exposedToChasers
-        ) {
-          return "Firmly In";
-        }
-        return "In";
-      }
-
-      const seedDistance = currentSeed - goldCutoff;
-      const projectedNearCut = projectedSeed <= goldCutoff + 1;
-
-      if (projectedSeed <= goldCutoff && team.goldPct >= 15) return "Alive";
-      if (team.goldPct >= 25 && seedDistance <= 3) return "Alive";
-      if (projectedNearCut && team.goldPct >= 12) return "Alive";
-      if (canStillReachCutLine) return "Longshot";
-      return "Longshot";
-    },
-    [dashboardRows, goldCutoff]
+    (team: TeamWithProjection) => raceToneWords[raceToneForTeam(team, goldCutoff)],
+    [goldCutoff]
   );
 
-  const statusClass = (team: TeamWithProjection) => {
-    const label = statusLabel(team);
-    if (label === "Clinched") return "bg-slate-950 text-white dark:bg-white dark:text-slate-950";
-    if (label === "Firmly In")
-      return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300";
-    if (label === "In") return "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300";
-    if (label === "Alive")
-      return "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300";
-    if (label === "Longshot")
-      return "bg-orange-100 text-orange-700 dark:bg-orange-950/60 dark:text-orange-300";
-    return "bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300";
-  };
+  const statusClass = (team: TeamWithProjection) =>
+    raceBadgeClasses[raceToneForTeam(team, goldCutoff)];
 
   const titleRaceBadgeForTeam = useCallback(
     (team: TeamWithProjection) =>

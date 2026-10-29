@@ -36,6 +36,31 @@ export const raceToneLabels: Record<RaceTone, string> = {
   out: "Out of the gold bracket",
 };
 
+/**
+ * The tone as one word, for the Playoff status badge and the legend above the table. The badge
+ * once had a reading of its own (Firmly In, In, Alive, Longshot) beside the row colour's six, so
+ * the legend named states no row was labelled with; both now come from this one map.
+ */
+export const raceToneWords: Record<RaceTone, string> = {
+  clinched: "Clinched",
+  safe: "Safe",
+  inside: "In",
+  bubble: "Bubble",
+  chasing: "Chasing",
+  out: "Out",
+};
+
+export const raceToneOrder: RaceTone[] = ["clinched", "safe", "inside", "bubble", "chasing", "out"];
+
+export const raceBadgeClasses: Record<RaceTone, string> = {
+  clinched: "bg-slate-950 text-white dark:bg-white dark:text-slate-950",
+  safe: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300",
+  inside: "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300",
+  bubble: "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300",
+  chasing: "bg-orange-100 text-orange-700 dark:bg-orange-950/60 dark:text-orange-300",
+  out: "bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300",
+};
+
 export const raceRowToneClasses: Record<RaceTone, string> = {
   clinched:
     "bg-linear-to-r from-slate-950/8 via-slate-900/4 to-transparent ring-slate-900/20 dark:from-white/10 dark:via-white/5 dark:ring-white/15",

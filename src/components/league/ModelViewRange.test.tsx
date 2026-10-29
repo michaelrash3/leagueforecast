@@ -166,7 +166,7 @@ describe("the Projected Standings' Range", () => {
     render(<Forecast walk />);
     expect(
       screen.getByText(
-        "Range is the best and worst seed one remaining result can move a team's projection to."
+        "Proj is the place a team finishes on average when the rest of the season is played out many times. Range is the best and worst seed one remaining result can lead to with every other game going to the favourite."
       )
     ).toBeInTheDocument();
     const cells = rangeCells();
@@ -179,12 +179,12 @@ describe("the Projected Standings' Range", () => {
     render(<Forecast walk={false} />);
     expect(
       screen.getByText(
-        "Range, the best and worst seed one remaining result can move a team's projection to, is paused until 60 or fewer games remain to keep this page responsive."
+        "Proj is the place a team finishes on average when the rest of the season is played out many times. Range, the best and worst seed one remaining result can lead to with every other game going to the favourite, is paused until 60 or fewer games remain to keep this page responsive."
       )
     ).toBeInTheDocument();
     expect(
       screen.queryByText(
-        "Range is the best and worst seed one remaining result can move a team's projection to."
+        "Proj is the place a team finishes on average when the rest of the season is played out many times. Range is the best and worst seed one remaining result can lead to with every other game going to the favourite."
       )
     ).toBeNull();
     expect(rangeCells()).toEqual(modelRows.map(() => "—"));

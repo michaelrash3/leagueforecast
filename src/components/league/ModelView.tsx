@@ -494,8 +494,8 @@ export function ModelView(props: {
               </div>
               <p className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400">
                 {seedRangesPausedUntil === null
-                  ? "Range is the best and worst seed one remaining result can move a team's projection to."
-                  : `Range, the best and worst seed one remaining result can move a team's projection to, is paused until ${seedRangesPausedUntil} or fewer games remain to keep this page responsive.`}
+                  ? "Proj is the place a team finishes on average when the rest of the season is played out many times. Range is the best and worst seed one remaining result can lead to with every other game going to the favourite."
+                  : `Proj is the place a team finishes on average when the rest of the season is played out many times. Range, the best and worst seed one remaining result can lead to with every other game going to the favourite, is paused until ${seedRangesPausedUntil} or fewer games remain to keep this page responsive.`}
               </p>
 
               {/* Mobile cards */}

@@ -20,10 +20,13 @@ import { PageHeader } from "../PageHeader";
 import { ProjectionExplanation } from "../ProjectionExplanation";
 import { Sparkline } from "../Sparkline";
 import {
+  raceBadgeClasses,
   raceRowToneClasses,
   raceSeedBadgeClasses,
   raceToneForTeam,
   raceToneLabels,
+  raceToneOrder,
+  raceToneWords,
 } from "../../styles/raceTone";
 import { focusRing, pill } from "../../styles/tokens";
 
@@ -144,6 +147,13 @@ export function StandingsView({
     [dashboardRows, rankOptions]
   );
   const nameOf = (id: string) => dashboardRows.find((team) => team.id === id)?.name ?? id;
+  // The ± was printed under every team's Gold %; said once, for the widest of them, it is the same
+  // promise without eight copies of it.
+  const widestMargin = dashboardRows.reduce<TeamWithProjection | null>(
+    (widest, team) =>
+      widest === null || (team.goldPctMargin ?? 0) > (widest.goldPctMargin ?? 0) ? team : widest,
+    null
+  );
   // The league's strength, by where its teams' clubs stand on Team Rankings (`leagueStrength`).
   const strength = nationalRank
     ? leagueStrength(dashboardRows.map((team) => nationalRank(team.id)))
@@ -286,24 +296,11 @@ export function StandingsView({
         {hasCutLine && (
           <div className="border-b border-slate-200 bg-white/80 px-5 py-3 dark:border-slate-700 dark:bg-slate-900/70">
             <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide">
-              <span className="rounded-full bg-slate-950 px-3 py-1 text-white dark:bg-white dark:text-slate-950">
-                Clinched
-              </span>
-              <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
-                Safe
-              </span>
-              <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">
-                Inside Cut
-              </span>
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
-                Bubble
-              </span>
-              <span className="rounded-full bg-orange-100 px-3 py-1 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300">
-                Chasing
-              </span>
-              <span className="rounded-full bg-red-100 px-3 py-1 text-red-700 dark:bg-red-950/50 dark:text-red-300">
-                Out
-              </span>
+              {raceToneOrder.map((tone) => (
+                <span key={tone} className={`rounded-full px-3 py-1 ${raceBadgeClasses[tone]}`}>
+                  {raceToneWords[tone]}
+                </span>
+              ))}
             </div>
           </div>
         )}
@@ -439,20 +436,7 @@ export function StandingsView({
                           {hasCutLine && (
                             <>
                               <td className="px-4 py-4 text-center">
-                                <span
-                                  className={
-                                    team.goldPct >= 75
-                                      ? pill("emerald")
-                                      : team.goldPct >= 40
-                                        ? pill("blue")
-                                        : pill("neutral")
-                                  }
-                                >
-                                  {formatGoldPct(team)}
-                                </span>
-                                <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
-                                  {formatGoldMargin(team)} sim. error
-                                </div>
+                                <span className={pill("neutral")}>{formatGoldPct(team)}</span>
                               </td>
                               <td className="px-4 py-4 text-center">
                                 <span
@@ -549,20 +533,7 @@ export function StandingsView({
                       </a>
                       {hasCutLine && (
                         <div className="flex shrink-0 flex-col items-end gap-1">
-                          <span
-                            className={
-                              team.goldPct >= 75
-                                ? pill("emerald")
-                                : team.goldPct >= 40
-                                  ? pill("blue")
-                                  : pill("neutral")
-                            }
-                          >
-                            {formatGoldPct(team)}
-                          </span>
-                          <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                            {formatGoldMargin(team)}
-                          </span>
+                          <span className={pill("neutral")}>{formatGoldPct(team)}</span>
                           <span
                             aria-label={`Playoff status: ${statusLabel(team)}`}
                             className={`rounded-full px-2 py-0.5 text-xs font-black ${statusClass(team)}`}
@@ -590,6 +561,12 @@ export function StandingsView({
                 );
               })}
             </ul>
+            {hasCutLine && widestMargin && (
+              <p className="border-t border-slate-200 px-5 py-3 text-xs font-semibold text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                Gold % comes from playing out the rest of the season many times over; each is good
+                to within {formatGoldMargin(widestMargin)}.
+              </p>
+            )}
           </>
         )}
       </section>

@@ -135,7 +135,7 @@ export const clinchingPathForTeam = ({
           notes.push(`Eliminated if ${opponentName} beat them next.`);
         } else {
           notes.push(
-            `Eliminated with ${plural(elimination.opponentLossesNeeded, "loss", "losses")}.`
+            `Out after ${plural(elimination.opponentLossesNeeded, "more loss", "more losses")}.`
           );
         }
       }
