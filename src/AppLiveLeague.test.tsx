@@ -458,7 +458,7 @@ describe("League Standings kept live, on the page", () => {
     expect(await screen.findByRole("button", { name: /take the quick tour/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Blank CSV" })).toBeEnabled();
     expect(screen.getAllByRole("button", { name: "Load Demo" })[0]).toBeDisabled();
-    expect(screen.getAllByRole("button", { name: "Create Schedule" })[0]).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "Save teams" })[0]).toBeDisabled();
     expect(screen.getByLabelText("Import schedule CSV")).toBeDisabled();
   });
 });

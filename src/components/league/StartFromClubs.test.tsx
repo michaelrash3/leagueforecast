@@ -229,7 +229,7 @@ describe("the empty season's ways to start", () => {
     render(
       <EmptyState
         importCSV={() => undefined}
-        createSeasonFromTeamList={() => undefined}
+        saveTeamList={() => undefined}
         downloadRoundRobinCSV={() => undefined}
         seasonBuilderText=""
         setSeasonBuilderText={() => undefined}

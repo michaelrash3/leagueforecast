@@ -36,6 +36,7 @@ import type { FillAdditions, LeagueFillPlan } from "../../lib/leagueScoreFill";
 import { card, fieldFocusRing, tab } from "../../styles/tokens";
 import { LoadingPanel } from "../LoadingPanel";
 import { EditLock, SeasonEditable } from "./EditLock";
+import { TeamListPanel } from "./TeamListPanel";
 
 /**
  * Fill scores' review, and the rules it reads, are fetched only once a plan is on screen. Opening
@@ -217,6 +218,17 @@ function areScoreRowPropsEqual(previous: ScoreRowProps, next: ScoreRowProps) {
   );
 }
 
+/** What the Schedule does with the season's team list before its first game (`TeamListPanel`). */
+export type TeamListControls = {
+  locked: boolean;
+  onAdd: (names: string[]) => boolean;
+  onRename: (teamId: string, name: string) => void;
+  onRemove: (teamId: string) => void;
+  onLock: () => void;
+  onUnlock: () => void;
+  onRoundRobin: () => void;
+};
+
 function FinalGameRow({
   id,
   date,
@@ -360,6 +372,7 @@ export function GamesView({
   applyScoreFill,
   seasonLabel,
   schedulePaste,
+  teamList,
 }: {
   teams: TeamBase[];
   matchups: Matchup[];
@@ -417,6 +430,12 @@ export function GamesView({
    * is no reason to offer it.
    */
   schedulePaste?: (text: string, close: () => void) => ReactNode;
+  /**
+   * The season's team list while it has no games (`TeamListPanel`): open, the schedule's tools wait
+   * for it to be locked; locked, a round robin can be made from it. Absent, the Schedule is as it
+   * was before team lists were kept.
+   */
+  teamList?: TeamListControls;
 }) {
   const dateId = useId();
   const awayId = useId();
@@ -437,7 +456,11 @@ export function GamesView({
    * to go back to, and focus stays where the save left it.
    */
   const [pasting, setPasting] = useState<"never" | "open" | "closed">("never");
-  const pasteOffered = _matchups.length === 0 && schedulePaste !== undefined;
+  const hasGames = _matchups.length > 0;
+  // The schedule's tools wait for the team list to be set, so no game is made from a list still
+  // being written.
+  const scheduleOpen = !teamList || teamList.locked || hasGames;
+  const pasteOffered = !hasGames && scheduleOpen && schedulePaste !== undefined;
 
   const handleToggleFinal = useCallback(
     (gameId: string) => {
@@ -521,189 +544,226 @@ export function GamesView({
 
   return (
     <section className="space-y-6">
-      <EditLock>
-        <div className={`${card} p-5`}>
-          {narrow && !addOpen ? (
+      {teamList && !hasGames && (
+        <TeamListPanel
+          teams={teams}
+          locked={teamList.locked}
+          hasGames={hasGames}
+          onAdd={teamList.onAdd}
+          onRename={teamList.onRename}
+          onRemove={teamList.onRemove}
+          onLock={teamList.onLock}
+          onUnlock={teamList.onUnlock}
+        />
+      )}
+      {teamList?.locked && !hasGames && (
+        <EditLock>
+          <div className={`${card} p-5`}>
+            <h2 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+              Make the schedule
+            </h2>
+            <p className="mt-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
+              Every team playing every other once is {(teams.length * (teams.length - 1)) / 2}{" "}
+              games, dates to fill in after. Or paste the league&apos;s schedule, or add games one
+              at a time below.
+            </p>
             <button
               type="button"
-              onClick={() => setAddOpen(true)}
-              className="w-full rounded-lg bg-slate-950 px-5 py-2 font-black text-white shadow-xs dark:bg-white dark:text-slate-950"
+              onClick={teamList.onRoundRobin}
+              className="mt-3 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-xs hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
             >
-              Add a game
+              Build a round robin
             </button>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-[140px_1fr_1fr_auto]">
-              <div>
-                <label htmlFor={dateId} className="sr-only">
-                  Game date
-                </label>
-                <GameDateInput
-                  value={newDate}
-                  onCommit={(v) => setNewDate(v)}
-                  ariaLabel="New game date (M/D)"
-                />
-                <input id={dateId} type="hidden" value={newDate} readOnly aria-hidden="true" />
-              </div>
-              <label htmlFor={awayId} className="block">
-                <span className="sr-only">Away team</span>
-                <select
-                  id={awayId}
-                  value={newAway}
-                  onChange={(event) => setNewAway(event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold text-slate-950 outline-hidden focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
-                >
-                  <option value="">Away team…</option>
-                  {teams.map((team) => (
-                    <option key={team.id} value={team.id}>
-                      {displayName(team.name)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label htmlFor={homeId} className="block">
-                <span className="sr-only">Home team</span>
-                <select
-                  id={homeId}
-                  value={newHome}
-                  onChange={(event) => setNewHome(event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold text-slate-950 outline-hidden focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
-                >
-                  <option value="">Home team…</option>
-                  {teams.map((team) => (
-                    <option key={team.id} value={team.id}>
-                      {displayName(team.name)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                onClick={addGame}
-                disabled={!addGameValid}
-                className="rounded-lg bg-slate-950 px-5 py-2 font-black text-white shadow-xs hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
-              >
-                Add Game
-              </button>
-            </div>
-          )}
-          {!addGameValid && (newAway || newHome) && (
-            <p className="mt-2 text-xs font-bold text-amber-600">
-              Pick two different teams to add a game.
-            </p>
-          )}
-          {_matchups.length > 0 && !scoreFillPlan && (
-            <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={openScoreFill}
-                disabled={scoreFillAsking}
-                aria-busy={scoreFillAsking}
-                className="text-xs font-bold text-blue-600 hover:underline disabled:cursor-wait disabled:opacity-60 disabled:no-underline dark:text-blue-400"
-              >
-                Fill scores from Team Rankings
-              </button>
-              <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">
-                {scoreFillAsking
-                  ? "Asking Team Rankings in the cloud for this schedule’s results… A score you enter meanwhile is kept as you entered it."
-                  : "Reads results already in the pool — a GameChanger pull, usually — and offers them for this schedule. Nothing is written until you have looked."}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {scoreFillPlan && (
-          <Suspense fallback={<LoadingPanel area="the scores to fill" />}>
-            <LeagueScoreFillPanel
-              plan={scoreFillPlan}
-              seasonLabel={seasonLabel}
-              onApply={applyScoreFill}
-              onClose={closeScoreFill}
-              schedule={_matchups}
-              logs={logs}
-            />
-          </Suspense>
-        )}
-      </EditLock>
-
-      <div className={`${card} p-4`}>
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <label
-            htmlFor={filterId}
-            className="text-sm font-bold text-slate-700 dark:text-slate-200"
-          >
-            Scoreboard Filter
-          </label>
-          <select
-            id={filterId}
-            value={scoreboardTeamFilter}
-            onChange={(event) => setScoreboardTeamFilter(event.target.value)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-950 outline-hidden focus:border-slate-950 md:w-72 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
-          >
-            <option value="ALL">All Teams</option>
-            {teams.map((team) => (
-              <option key={team.id} value={team.id}>
-                {displayName(team.name)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setQuickFilter("all")}
-            className={tab(quickFilter === "all")}
-          >
-            All Games
-          </button>
-          <button
-            type="button"
-            onClick={() => setQuickFilter("open")}
-            className={tab(quickFilter === "open")}
-          >
-            Open Games
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setTodayKey(toMMDD(new Date()));
-              setQuickFilter("today");
-            }}
-            className={tab(quickFilter === "today")}
-          >
-            Today
-          </button>
-          <button
-            type="button"
-            onClick={jumpToNextOpen}
-            disabled={!nextOpenGameId}
-            className="ml-auto rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
-          >
-            Next Unfinalized
-          </button>
-        </div>
-      </div>
-
-      {visibleGames.length === 0 && tournamentGames.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-          {seasonGamesFinalized ? "No games match this filter." : "No games yet."}
-          {pasteOffered && pasting !== "open" && (
-            <EditLock>
-              <p className="mt-3 font-semibold">
+          </div>
+        </EditLock>
+      )}
+      {scheduleOpen && (
+        <>
+          <EditLock>
+            <div className={`${card} p-5`}>
+              {narrow && !addOpen ? (
                 <button
                   type="button"
-                  autoFocus={pasting === "closed"}
-                  onClick={() => setPasting("open")}
-                  className="text-blue-600 hover:underline disabled:cursor-not-allowed disabled:opacity-60 disabled:no-underline dark:text-blue-400"
+                  onClick={() => setAddOpen(true)}
+                  className="w-full rounded-lg bg-slate-950 px-5 py-2 font-black text-white shadow-xs dark:bg-white dark:text-slate-950"
                 >
-                  Paste the league&apos;s schedule
-                </button>{" "}
-                from its website, a spreadsheet or a CSV, and look it over before it is added.
-              </p>
-            </EditLock>
-          )}
-        </div>
-      ) : null}
-      {pasteOffered && pasting === "open" && schedulePaste("", () => setPasting("closed"))}
+                  Add a game
+                </button>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-[140px_1fr_1fr_auto]">
+                  <div>
+                    <label htmlFor={dateId} className="sr-only">
+                      Game date
+                    </label>
+                    <GameDateInput
+                      value={newDate}
+                      onCommit={(v) => setNewDate(v)}
+                      ariaLabel="New game date (M/D)"
+                    />
+                    <input id={dateId} type="hidden" value={newDate} readOnly aria-hidden="true" />
+                  </div>
+                  <label htmlFor={awayId} className="block">
+                    <span className="sr-only">Away team</span>
+                    <select
+                      id={awayId}
+                      value={newAway}
+                      onChange={(event) => setNewAway(event.target.value)}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold text-slate-950 outline-hidden focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+                    >
+                      <option value="">Away team…</option>
+                      {teams.map((team) => (
+                        <option key={team.id} value={team.id}>
+                          {displayName(team.name)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label htmlFor={homeId} className="block">
+                    <span className="sr-only">Home team</span>
+                    <select
+                      id={homeId}
+                      value={newHome}
+                      onChange={(event) => setNewHome(event.target.value)}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold text-slate-950 outline-hidden focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+                    >
+                      <option value="">Home team…</option>
+                      {teams.map((team) => (
+                        <option key={team.id} value={team.id}>
+                          {displayName(team.name)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={addGame}
+                    disabled={!addGameValid}
+                    className="rounded-lg bg-slate-950 px-5 py-2 font-black text-white shadow-xs hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+                  >
+                    Add Game
+                  </button>
+                </div>
+              )}
+              {!addGameValid && (newAway || newHome) && (
+                <p className="mt-2 text-xs font-bold text-amber-600">
+                  Pick two different teams to add a game.
+                </p>
+              )}
+              {_matchups.length > 0 && !scoreFillPlan && (
+                <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={openScoreFill}
+                    disabled={scoreFillAsking}
+                    aria-busy={scoreFillAsking}
+                    className="text-xs font-bold text-blue-600 hover:underline disabled:cursor-wait disabled:opacity-60 disabled:no-underline dark:text-blue-400"
+                  >
+                    Fill scores from Team Rankings
+                  </button>
+                  <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">
+                    {scoreFillAsking
+                      ? "Asking Team Rankings in the cloud for this schedule’s results… A score you enter meanwhile is kept as you entered it."
+                      : "Reads results already in the pool — a GameChanger pull, usually — and offers them for this schedule. Nothing is written until you have looked."}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {scoreFillPlan && (
+              <Suspense fallback={<LoadingPanel area="the scores to fill" />}>
+                <LeagueScoreFillPanel
+                  plan={scoreFillPlan}
+                  seasonLabel={seasonLabel}
+                  onApply={applyScoreFill}
+                  onClose={closeScoreFill}
+                  schedule={_matchups}
+                  logs={logs}
+                />
+              </Suspense>
+            )}
+          </EditLock>
+
+          <div className={`${card} p-4`}>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <label
+                htmlFor={filterId}
+                className="text-sm font-bold text-slate-700 dark:text-slate-200"
+              >
+                Scoreboard Filter
+              </label>
+              <select
+                id={filterId}
+                value={scoreboardTeamFilter}
+                onChange={(event) => setScoreboardTeamFilter(event.target.value)}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-950 outline-hidden focus:border-slate-950 md:w-72 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+              >
+                <option value="ALL">All Teams</option>
+                {teams.map((team) => (
+                  <option key={team.id} value={team.id}>
+                    {displayName(team.name)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setQuickFilter("all")}
+                className={tab(quickFilter === "all")}
+              >
+                All Games
+              </button>
+              <button
+                type="button"
+                onClick={() => setQuickFilter("open")}
+                className={tab(quickFilter === "open")}
+              >
+                Open Games
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTodayKey(toMMDD(new Date()));
+                  setQuickFilter("today");
+                }}
+                className={tab(quickFilter === "today")}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                onClick={jumpToNextOpen}
+                disabled={!nextOpenGameId}
+                className="ml-auto rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                Next Unfinalized
+              </button>
+            </div>
+          </div>
+
+          {visibleGames.length === 0 && tournamentGames.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+              {seasonGamesFinalized ? "No games match this filter." : "No games yet."}
+              {pasteOffered && pasting !== "open" && (
+                <EditLock>
+                  <p className="mt-3 font-semibold">
+                    <button
+                      type="button"
+                      autoFocus={pasting === "closed"}
+                      onClick={() => setPasting("open")}
+                      className="text-blue-600 hover:underline disabled:cursor-not-allowed disabled:opacity-60 disabled:no-underline dark:text-blue-400"
+                    >
+                      Paste the league&apos;s schedule
+                    </button>{" "}
+                    from its website, a spreadsheet or a CSV, and look it over before it is added.
+                  </p>
+                </EditLock>
+              )}
+            </div>
+          ) : null}
+          {pasteOffered && pasting === "open" && schedulePaste("", () => setPasting("closed"))}
+        </>
+      )}
 
       <EditLock>
         {visibleGames.length > 0 && (

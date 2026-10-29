@@ -315,7 +315,7 @@ describe("a season from a GameChanger organization", () => {
     render(
       <EmptyState
         importCSV={() => undefined}
-        createSeasonFromTeamList={() => undefined}
+        saveTeamList={() => undefined}
         downloadRoundRobinCSV={() => undefined}
         seasonBuilderText=""
         setSeasonBuilderText={() => undefined}

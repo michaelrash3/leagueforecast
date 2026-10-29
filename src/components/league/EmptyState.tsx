@@ -10,7 +10,7 @@ import { EditLock } from "./EditLock";
 
 export function EmptyState({
   importCSV,
-  createSeasonFromTeamList,
+  saveTeamList,
   downloadRoundRobinCSV,
   seasonBuilderText,
   setSeasonBuilderText,
@@ -22,7 +22,7 @@ export function EmptyState({
   schedulePaste,
 }: {
   importCSV: (file: File) => void;
-  createSeasonFromTeamList: () => void;
+  saveTeamList: () => void;
   downloadRoundRobinCSV: () => void;
   seasonBuilderText: string;
   setSeasonBuilderText: (v: string) => void;
@@ -73,12 +73,12 @@ export function EmptyState({
     },
     {
       eyebrow: "Build",
-      title: "Create from team names",
-      body: "Paste the clubs once and generate a blank round-robin shell for scorekeeping.",
+      title: "Start with your teams",
+      body: "Add the league's teams and save them; come back to add more. Lock the list, then make the schedule from it.",
       meta: "Great for a clean new season",
       tone: "amber",
       actions: [
-        { label: "Create Schedule", tone: "dark", edits: true, onClick: createSeasonFromTeamList },
+        { label: "Save teams", tone: "dark", edits: true, onClick: saveTeamList },
         { label: "Blank CSV", onClick: downloadRoundRobinCSV },
       ],
     },
@@ -147,7 +147,8 @@ export function EmptyState({
             New Season Builder
           </h2>
           <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
-            One team per line. Step 2 above turns this list into a round-robin schedule.
+            One team per line. Save them now and add more later; once the list is locked, the
+            schedule is made from it.
           </p>
           <label className="sr-only" htmlFor="season-builder-textarea">
             Team list
@@ -166,10 +167,10 @@ export function EmptyState({
           <div className="mt-4 flex flex-wrap gap-3">
             <EditLock>
               <button
-                onClick={createSeasonFromTeamList}
+                onClick={saveTeamList}
                 className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-xs hover:bg-slate-800"
               >
-                Create Schedule
+                Save teams
               </button>
               {schedulePaste && (
                 <button
@@ -186,14 +187,6 @@ export function EmptyState({
               className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 shadow-xs hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
             >
               Download Blank CSV
-            </button>
-            <button
-              onClick={() =>
-                setSeasonBuilderText(teams.map((team) => displayName(team.name)).join("\n"))
-              }
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 shadow-xs hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
-            >
-              Use Current Teams
             </button>
           </div>
           {reading !== null &&
