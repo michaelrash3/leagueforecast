@@ -314,7 +314,9 @@ export function DashboardView({
           </div>
         ))}
       </section>
-      <section className="grid gap-6 lg:grid-cols-[1.25fr_.75fr]">
+      {/* `items-start`: the side card ends where its content does, rather than being stretched into an
+          empty white panel the height of the predictions beside it. */}
+      <section className="grid gap-6 lg:grid-cols-[1.25fr_.75fr] lg:items-start">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-black">Upcoming Game Predictions</h2>

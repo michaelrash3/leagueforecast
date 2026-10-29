@@ -33,6 +33,12 @@ const signedRuns = (value: number) => {
   return `${safe > 0 ? "+" : ""}${safe.toFixed(1)}`;
 };
 
+/**
+ * Teams the Dashboard's ratings show: a league of up to ten whole, since cutting an eight-team
+ * league at six left two teams off with nothing to say so; a larger one its top ten, said.
+ */
+const COMPACT_ROWS = 10;
+
 export function PowerRatingsView({
   engine,
   compact = false,
@@ -64,7 +70,7 @@ export function PowerRatingsView({
        * see on a phone is a column nobody has decided about.
        */}
       <ul className="space-y-2 sm:hidden">
-        {engine.powerRatings.slice(0, compact ? 6 : undefined).map((r) => (
+        {engine.powerRatings.slice(0, compact ? COMPACT_ROWS : undefined).map((r) => (
           <li
             key={r.teamId}
             className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"
@@ -111,7 +117,7 @@ export function PowerRatingsView({
           </tr>
         </thead>
         <tbody>
-          {engine.powerRatings.slice(0, compact ? 6 : undefined).map((r) => (
+          {engine.powerRatings.slice(0, compact ? COMPACT_ROWS : undefined).map((r) => (
             <tr key={r.teamId} className="border-t border-slate-100 dark:border-slate-800">
               <td className="py-3 font-black">#{r.rank}</td>
               <td className="font-black">{r.teamName}</td>
@@ -153,6 +159,12 @@ export function PowerRatingsView({
           <span className={textRole.overline}>Opponent-adjusted</span>
         </div>
         {ratings}
+        {engine.powerRatings.length > COMPACT_ROWS && (
+          <p className="mt-3 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            The top {COMPACT_ROWS} of {engine.powerRatings.length}; the Power Ratings tab lists
+            every team.
+          </p>
+        )}
       </section>
     );
   }
