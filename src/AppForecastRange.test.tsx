@@ -73,7 +73,7 @@ describe("the Forecast tab's Range, too many games out for the walk", () => {
     await user.click(await screen.findByRole("tab", { name: "Forecast" }));
     expect(
       await screen.findByText(
-        "Range, the best and worst seed one remaining result can move a team's projection to, is paused until 60 or fewer games remain to keep this page responsive.",
+        "Proj is the place a team finishes on average when the rest of the season is played out many times. Range, the best and worst seed one remaining result can lead to with every other game going to the favourite, is paused until 60 or fewer games remain to keep this page responsive.",
         undefined,
         { timeout: 20_000 }
       )

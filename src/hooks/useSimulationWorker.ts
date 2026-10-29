@@ -74,10 +74,19 @@ const ratingsKey = (teams: readonly Team[]) =>
   teams.map((team) => [team.id, team.adjustedRating ?? null, team.ratedGames ?? 0]);
 
 /** The odds, and the number of seasons they were counted over. */
-type OddsResult = { odds: Record<string, number>; iterations: number; swing?: GoldSwing };
+type OddsResult = {
+  odds: Record<string, number>;
+  places: Record<string, number>;
+  iterations: number;
+  swing?: GoldSwing;
+};
 
 export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
-  const [result, setResult] = useState<OddsResult>({ odds: EMPTY_ODDS, iterations: 0 });
+  const [result, setResult] = useState<OddsResult>({
+    odds: EMPTY_ODDS,
+    places: EMPTY_ODDS,
+    iterations: 0,
+  });
   const [resultKey, setResultKey] = useState<string | null>(null);
 
   // Stable hash of inputs so we don't re-run on identity changes. The seed text carries every
@@ -133,6 +142,7 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
       data.kind === "odds" && data.id === id
         ? {
             odds: data.odds,
+            places: data.places,
             iterations: data.iterations,
             ...(data.swing ? { swing: data.swing } : {}),
           }
@@ -149,6 +159,7 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
       );
       return {
         odds: run.odds,
+        places: run.places,
         iterations: run.iterations,
         ...(run.swing ? { swing: run.swing } : {}),
       };
@@ -164,6 +175,7 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
   // one render late.
   return {
     odds: idle ? EMPTY_ODDS : result.odds,
+    places: idle ? EMPTY_ODDS : result.places,
     iterations: idle ? 0 : result.iterations,
     // The swing of the team the odds were asked about, and only while it is still the one followed.
     swing: !idle && result.swing?.teamId === input.follow ? result.swing : undefined,

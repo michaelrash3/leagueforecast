@@ -47,6 +47,8 @@ export type OddsResponse = {
   kind: "odds";
   id: number;
   odds: Record<string, number>;
+  /** Average finishing place per team, over the same seasons. */
+  places: Record<string, number>;
   /** Seasons actually played out, for the ± beside the odds. */
   iterations: number;
   /** For the team followed, where one was asked about (`GoldSwing`). */
@@ -75,7 +77,7 @@ ctx.onmessage = (event: MessageEvent<WorkerRequest>) => {
 
   if (req.kind === "odds") {
     const start = performance.now();
-    const { odds, iterations, swing } = simulateGoldOddsRun(
+    const { odds, places, iterations, swing } = simulateGoldOddsRun(
       req.teams,
       req.remaining,
       req.iterations,
@@ -89,6 +91,7 @@ ctx.onmessage = (event: MessageEvent<WorkerRequest>) => {
         kind: "odds",
         id: req.id,
         odds,
+        places,
         iterations,
         ...(swing ? { swing } : {}),
       } satisfies OddsResponse);

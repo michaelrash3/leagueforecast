@@ -8,9 +8,11 @@ import {
   predictGame,
   projectStandings,
   rankTeams,
+  rankOptionsFromSettings,
   simulateBracketOdds,
   simulateGoldOdds,
   simulateGoldOddsRun,
+  projectedPlaces,
   simulationSeed,
   standingsPoints,
   calibrateAwayWinPct,
@@ -769,6 +771,41 @@ describe("how many seasons the odds are counted over", () => {
     // And the odds are counted over the seasons actually played, so they still fill the cut.
     const total = Object.values(run.odds).reduce((sum, value) => sum + value, 0);
     expect(Math.round(total)).toBe(200);
+  });
+});
+
+describe("the projected place", () => {
+  it("is each team's average finishing place over the seasons the odds are counted on", () => {
+    const live = calculateTeams(teams, matchups, {});
+    const run = simulateGoldOddsRun(live, matchups, 1000, "contested", 2, settings);
+    // Every season hands out each place once, so the averages add up to 1 + 2 + … + n.
+    const total = Object.values(run.places).reduce((sum, value) => sum + value, 0);
+    expect(total).toBeCloseTo((live.length * (live.length + 1)) / 2, 9);
+    // And settled seasons put every team at its place in the final table.
+    const settled = calculateTeams(teams, matchups, {
+      g1: finalLog({ awayRuns: "9", homeRuns: "1" }),
+      g2: finalLog({ awayRuns: "8", homeRuns: "2" }),
+      g3: finalLog({ awayRuns: "7", homeRuns: "3" }),
+    });
+    const done = simulateGoldOddsRun(settled, [], 4000, "settled", 2, settings);
+    const table = rankTeams(settled, rankOptionsFromSettings(settings));
+    table.forEach((team, index) => expect(done.places[team.id]).toBe(index + 1));
+  });
+
+  it("orders teams by that average, not by every favourite winning", () => {
+    // A is ahead now and would stay ahead if favourites won, but finishes third on average.
+    const ranked = [
+      { id: "A", rank: 1 },
+      { id: "B", rank: 2 },
+      { id: "C", rank: 3 },
+    ];
+    const order = projectedPlaces(ranked, { A: 2.5, B: 1.4, C: 2.1 });
+    expect(order && Object.fromEntries(order)).toEqual({ B: 1, C: 2, A: 3 });
+    // A tie keeps the current order.
+    const tied = projectedPlaces(ranked, { A: 2, B: 2, C: 2 });
+    expect(tied && Object.fromEntries(tied)).toEqual({ A: 1, B: 2, C: 3 });
+    // Before the simulation has a place for every team, there is none to show.
+    expect(projectedPlaces(ranked, { A: 1, B: 2 })).toBeNull();
   });
 });
 

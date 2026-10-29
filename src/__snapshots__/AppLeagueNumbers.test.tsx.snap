@@ -46,13 +46,13 @@ numbers: 9 4.6 9 1 3 7.02 3 6.03 3 5.74 3 4.7 4.65 3 2.36 3 2.0 1 3 3.72 3 4.33 
 #6Eagles-2.40-3-3.3#5↑ Up
 numbers: 20 +2.0 1 1 +1.5 2 -1 +1.3 1 2 +1.5 2 -0 -1 +2.3 4 3 +1.2 2 -1 +2.7 6 4 +0.1 1 -1 -1 0.0 2 5 -1.9 1 -2 -3.0 3 6 -2.4 0 -3 -3.3 5 1",
   "Standings": "SeedTeamRecordPtsDiffSOSGold %Playoff StatusTrend (Gold %)
-#1 · Comfortably inside the gold bracketACEAces2-0-12.5+7#599%+±1% sim. errorFirmly InGold odds over recent completed games: 81% to 100%. Higher is better.
-#2 · Comfortably inside the gold bracketDUCDucks2-12+4#194%±2% sim. errorFirmly InGold odds over recent completed games: 81% to 94%. Higher is better.
-#3 · Comfortably inside the gold bracketFOXFoxes2-12+8#697%±1% sim. errorInGold odds over recent completed games: 66% to 96%. Higher is better.
-#4 · Comfortably inside the gold bracketCOMComets1-1-11.50#378%±2% sim. errorInGold odds over recent completed games: 55% to 78%. Higher is better.
+#1 · Comfortably inside the gold bracketACEAces2-0-12.5+7#599%+SafeGold odds over recent completed games: 81% to 100%. Higher is better.
+#2 · Comfortably inside the gold bracketDUCDucks2-12+4#194%SafeGold odds over recent completed games: 81% to 94%. Higher is better.
+#3 · Comfortably inside the gold bracketFOXFoxes2-12+8#697%SafeGold odds over recent completed games: 66% to 96%. Higher is better.
+#4 · Comfortably inside the gold bracketCOMComets1-1-11.50#378%SafeGold odds over recent completed games: 55% to 78%. Higher is better.
 Gold Cut Line
-#5 · On the bubble for the gold bracketBEABears1-21-9#229%±2% sim. errorAliveGold odds over recent completed games: 48% to 31%. Higher is better.
-#6 · Chasing a gold bracket placeEAGEagles0-30-10#42%±1% sim. errorLongshotGold odds over recent completed games: 70% to 3%. Higher is better.
-numbers: 4 9 19 1 2 -0 -1 2.5 +7 599% 1% 2 2 -1 2 +4 194% 2% 3 2 -1 2 +8 697% 1% 4 1 -1 -1 1.5 0 378% 2% 5 1 -2 1 -9 229% 2% 6 0 -3 0 -10 42% 1%",
+#5 · On the bubble for the gold bracketBEABears1-21-9#229%BubbleGold odds over recent completed games: 48% to 31%. Higher is better.
+#6 · Chasing a gold bracket placeEAGEagles0-30-10#42%ChasingGold odds over recent completed games: 70% to 3%. Higher is better.
+numbers: 4 9 19 1 2 -0 -1 2.5 +7 599% 2 2 -1 2 +4 194% 3 2 -1 2 +8 697% 4 1 -1 -1 1.5 0 378% 5 1 -2 1 -9 229% 6 0 -3 0 -10 42% 2%",
 }
 `;

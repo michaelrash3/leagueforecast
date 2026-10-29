@@ -121,7 +121,7 @@ describe("League Standings works out only what is on screen (2.2)", () => {
     // Typed into a game still being played: nothing is worked out again.
     await user.type(within(card).getByLabelText("Bears Runs"), "5");
     await user.type(within(card).getByLabelText("Ducks Runs"), "2");
-    await within(card).findByText("Scores entered — verify final");
+    await within(card).findByText("Scores entered — mark it final");
     await settled();
     expect(counted.season).not.toHaveBeenCalled();
     expect(counted.backtest).not.toHaveBeenCalled();

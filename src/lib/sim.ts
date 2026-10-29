@@ -1474,6 +1474,12 @@ const oddsArePrecise = (
 export type GoldOddsRun = {
   /** Per team, the probability (0–100) of finishing inside the cut. */
   odds: Record<string, number>;
+  /**
+   * Per team, its average finishing place (1 = first) over the same seasons. The projected place
+   * is read off this: the place each team takes if every favourite wins put a team needing three
+   * wins at #3 on 64% Gold odds above one at #4 on 89%.
+   */
+  places: Record<string, number>;
   /** For the team followed, how its odds turned on each game left (`GoldSwing`), where asked. */
   swing?: GoldSwing;
   /**
@@ -1518,8 +1524,10 @@ export const simulateGoldOddsRun = (
   follow?: string
 ): GoldOddsRun => {
   const counts: Record<string, number> = {};
+  const placeSums: Record<string, number> = {};
   teams.forEach((team) => {
     counts[team.id] = 0;
+    placeSums[team.id] = 0;
   });
 
   const random = makeRandom(hashSeed(seedText));
@@ -1539,12 +1547,14 @@ export const simulateGoldOddsRun = (
     playOut(season, byId, remaining, settings, draws, results);
 
     let followedIn = false;
-    rankTeams(season, rankOptions)
-      .slice(0, cutoff)
-      .forEach((team) => {
-        counts[team.id] = (counts[team.id] ?? 0) + 1;
-        if (team.id === follow) followedIn = true;
-      });
+    // The same order the cut is read from, so the places are counted with no draw added and the
+    // odds stay the same to the digit.
+    rankTeams(season, rankOptions).forEach((team, place) => {
+      placeSums[team.id] = (placeSums[team.id] ?? 0) + place + 1;
+      if (place >= cutoff) return;
+      counts[team.id] = (counts[team.id] ?? 0) + 1;
+      if (team.id === follow) followedIn = true;
+    });
     if (results) {
       for (let at = 0; at < results.length; at += 1) {
         const result = results[at];
@@ -1570,11 +1580,14 @@ export const simulateGoldOddsRun = (
 
   const denominator = Math.max(1, completedIterations);
   const odds: Record<string, number> = {};
+  const places: Record<string, number> = {};
   teams.forEach((team) => {
     odds[team.id] = ((counts[team.id] ?? 0) / denominator) * 100;
+    places[team.id] = completedIterations > 0 ? (placeSums[team.id] ?? 0) / denominator : 0;
   });
   return {
     odds,
+    places,
     iterations: completedIterations,
     ...(following && follow !== undefined
       ? {
@@ -1590,6 +1603,22 @@ export const simulateGoldOddsRun = (
         }
       : {}),
   };
+};
+
+/**
+ * Each team's projected place: the teams ordered by their average finishing place over the
+ * simulated seasons, a tie kept in the current order. Null when the simulation has no place for
+ * some team (it has not run on this season's teams yet), so the caller keeps its own projection.
+ */
+export const projectedPlaces = (
+  ranked: readonly { id: string; rank?: number }[],
+  places: Readonly<Record<string, number>>
+): Map<string, number> | null => {
+  if (ranked.length === 0 || ranked.some((team) => !((places[team.id] ?? 0) > 0))) return null;
+  const order = [...ranked].sort(
+    (a, b) => (places[a.id] ?? 0) - (places[b.id] ?? 0) || (a.rank ?? 99) - (b.rank ?? 99)
+  );
+  return new Map(order.map((team, index) => [team.id, index + 1]));
 };
 
 /** The odds alone, for callers that have no use for the count. */

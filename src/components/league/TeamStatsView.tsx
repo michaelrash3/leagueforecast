@@ -54,12 +54,14 @@ export function TeamStatsView({
         <div className="grid grid-cols-2 gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-4 dark:border-slate-700 dark:bg-slate-800/40">
           <div className="rounded-lg bg-linear-to-br from-blue-500/12 via-white to-white p-4 shadow-xs ring-1 ring-blue-100 dark:from-blue-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-blue-900/50">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              League Avg Sample
+              Games Played
             </div>
             <div className="mt-1 text-xl font-black text-slate-950 dark:text-slate-100">
               {leagueAverageStats.completedGames}
             </div>
-            <div className="text-xs font-bold text-slate-500 dark:text-slate-400">games played</div>
+            <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+              with a final score
+            </div>
           </div>
           <div className="rounded-lg bg-linear-to-br from-emerald-500/12 via-white to-white p-4 shadow-xs ring-1 ring-emerald-100 dark:from-emerald-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-emerald-900/50">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">

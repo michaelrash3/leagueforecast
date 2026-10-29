@@ -19,7 +19,7 @@ import React, {
   useState,
 } from "react";
 import { buildBracketProjection, type BracketGameProjection } from "../../lib/bracket";
-import { formatGameDate, formatGameDateLong, normalizeDateInput, toMMDD } from "../../lib/date";
+import { formatGameDate, normalizeDateInput, toMMDD } from "../../lib/date";
 import { displayName, teamAbbr } from "../../lib/format";
 import {
   RUN_SCORE_CAP,
@@ -684,20 +684,21 @@ export function GamesView({
                       }
                     />
                     <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.currentTarget.blur();
-                          handleToggleFinal(game.id);
-                        }}
-                        className={`rounded-lg px-3 py-1 text-xs font-black ${
-                          final ? "bg-emerald-700 text-white" : "bg-slate-950 text-white"
-                        }`}
-                        aria-label={final ? "Mark game as scheduled" : "Mark game as final"}
-                      >
-                        {/* The press, not the state: it read "Scheduled" and made the game final. */}
-                        {final ? "Reopen" : "Mark final"}
-                      </button>
+                      {/* Marking final is the one button at the card's foot; up here only its undo,
+                          since the card had two buttons doing the same thing under two names. */}
+                      {final && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.currentTarget.blur();
+                            handleToggleFinal(game.id);
+                          }}
+                          className="rounded-lg bg-emerald-700 px-3 py-1 text-xs font-black text-white"
+                          aria-label="Mark game as scheduled"
+                        >
+                          Reopen
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => swapGame(game.id)}
@@ -762,22 +763,28 @@ export function GamesView({
                       runsOnly={runsOnly}
                     />
                     <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-bold text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                      {/* The date is the box at the card's head; said again here it was the same
+                          date twice. */}
                       <span>
                         {final
                           ? `Final · ${formatGameDate(game.date)}`
                           : hasEnteredScore
-                            ? "Scores entered — verify final"
+                            ? "Scores entered — mark it final"
                             : (game.date ?? "").trim()
-                              ? formatGameDateLong(game.date)
+                              ? ""
                               : "Needs Date"}
                       </span>
                       {!final && (
                         <button
                           type="button"
-                          onClick={() => handleToggleFinal(game.id)}
+                          onClick={(event) => {
+                            event.currentTarget.blur();
+                            handleToggleFinal(game.id);
+                          }}
                           className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white"
+                          aria-label="Mark game as final"
                         >
-                          {hasEnteredScore ? "Verify Final" : "Save + Final"}
+                          Mark final
                         </button>
                       )}
                     </div>
@@ -844,20 +851,16 @@ export function GamesView({
                           {winnerLabel}
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => toggleBracketFinal(game.id)}
-                        className={`rounded-lg px-3 py-1 text-xs font-black ${
-                          final ? "bg-emerald-700 text-white" : "bg-slate-950 text-white"
-                        }`}
-                        aria-label={
-                          final
-                            ? "Mark tournament game as scheduled"
-                            : "Mark tournament game as final"
-                        }
-                      >
-                        {final ? "Reopen" : "Mark final"}
-                      </button>
+                      {final && (
+                        <button
+                          type="button"
+                          onClick={() => toggleBracketFinal(game.id)}
+                          className="rounded-lg bg-emerald-700 px-3 py-1 text-xs font-black text-white"
+                          aria-label="Mark tournament game as scheduled"
+                        >
+                          Reopen
+                        </button>
+                      )}
                     </div>
                     <div className="space-y-4 p-4">
                       {!final && game.prediction && pickPct !== null && (
@@ -893,7 +896,7 @@ export function GamesView({
                           {final
                             ? `Final · ${bracketLabel}`
                             : hasEnteredScore
-                              ? "Scores entered — verify final"
+                              ? "Scores entered — mark it final"
                               : `${game.roundName} score entry`}
                         </span>
                         {!final && (
@@ -901,8 +904,9 @@ export function GamesView({
                             type="button"
                             onClick={() => toggleBracketFinal(game.id)}
                             className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white"
+                            aria-label="Mark tournament game as final"
                           >
-                            {hasEnteredScore ? "Verify Final" : "Save + Final"}
+                            Mark final
                           </button>
                         )}
                       </div>
