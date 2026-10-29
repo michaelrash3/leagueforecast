@@ -3,6 +3,7 @@ import { statesThatPlayed } from "./playedByStates";
 import {
   dedupeLeagueFixtures,
   leagueStandIns,
+  seasonsOf,
   teamPages,
   type AgeGroup,
   type ScoutGame,
@@ -85,7 +86,9 @@ export const clubSearchOptions = (
     ]
       .filter(Boolean)
       .join(", ");
-    const detail = [where, place].filter(Boolean).join(" · ");
+    // And the GameChanger seasons it is set up in: one name can be a fall team and a spring team
+    // of one age, which the rows did not tell apart, and which a fold of one into the other turns on.
+    const detail = [where, place, seasonsOf(team)].filter(Boolean).join(" · ");
     // And who coaches it, which is often how a person knows a club whose name forty others share.
     const coaches = coachesOf(team);
     return [

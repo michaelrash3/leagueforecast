@@ -54,7 +54,7 @@ const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ?
  * common say which one is *this* team, which is the thing a person cannot work out from a name.
  */
 const optionFor = (candidate: ScoutLinkCandidate): TeamSearchOption => {
-  const parts = [placeOf(candidate), levelOf(candidate)].filter(Boolean);
+  const parts = [placeOf(candidate), levelOf(candidate), candidate.seasons ?? ""].filter(Boolean);
   if (candidate.sharedOpponents.length > 0) {
     parts.push(
       `${plural(candidate.sharedOpponents.length, "opponent")} in common: ${candidate.sharedOpponents
