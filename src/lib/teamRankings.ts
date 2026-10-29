@@ -4495,6 +4495,34 @@ export const leagueScoutBridge = (
 };
 
 /** A pool club that could be this league team, and the evidence for it. */
+const SEASON_ORDER = ["winter", "spring", "summer", "fall"];
+
+/**
+ * The GameChanger seasons a club's teams are set up in, oldest first: "Fall 2026, Spring 2027".
+ * One club name can be a fall team and a spring team at the same age, and the rows read the same
+ * without it.
+ */
+export const seasonsOf = (club: {
+  gcTeams?: readonly { season?: string; seasonYear?: number }[];
+}): string => {
+  const seen = new Map<string, { year: number; order: number; label: string }>();
+  for (const link of club.gcTeams ?? []) {
+    const season = link.season?.trim().toLowerCase();
+    if (!season || link.seasonYear === undefined) continue;
+    const label = `${season.charAt(0).toUpperCase()}${season.slice(1)} ${link.seasonYear}`;
+    const order = SEASON_ORDER.indexOf(season);
+    seen.set(label, {
+      year: link.seasonYear,
+      order: order < 0 ? SEASON_ORDER.length : order,
+      label,
+    });
+  }
+  return [...seen.values()]
+    .sort((a, b) => a.year - b.year || a.order - b.order)
+    .map((one) => one.label)
+    .join(", ");
+};
+
 export type ScoutLinkCandidate = {
   scoutTeamId: string;
   name: string;
@@ -4518,6 +4546,8 @@ export type ScoutLinkCandidate = {
   coaches?: string[];
   /** Its GameChanger ids, so a pasted id or link finds it in the picker. */
   gcIds?: string[];
+  /** The GameChanger seasons its teams are set up in (`seasonsOf`), "Fall 2026, Spring 2027". */
+  seasons?: string;
 };
 
 /**
@@ -4592,6 +4622,7 @@ export const scoutLinkCandidates = (
     shared.sort((a, b) => a.localeCompare(b));
     const ageLevel = gcAgeLevels(team, years[0], ageGroups)[0];
     const coaches = coachesOf(team);
+    const seasons = seasonsOf(team);
     candidates.push({
       scoutTeamId,
       name: team.name,
@@ -4600,6 +4631,7 @@ export const scoutLinkCandidates = (
       ...(ageLevel === undefined ? {} : { ageLevel }),
       ...(coaches.length > 0 ? { coaches } : {}),
       ...(team.gcTeams?.length ? { gcIds: team.gcTeams.map((link) => link.teamId) } : {}),
+      ...(seasons ? { seasons } : {}),
       sharedOpponents: shared,
       games: count,
     });

@@ -3,6 +3,7 @@ import {
   clubIsPickable,
   gcAgeLevels,
   levelsForSeason,
+  seasonsOf,
   yearsForSeason,
   type AgeGroup,
   type ScoutTeam,
@@ -61,7 +62,7 @@ export const pickableClubs = (
 
 /** A club as the wide picker lists it. */
 export const clubPickOption = (club: ScoutTeam & { ageLevel?: number }): ClubPickOption => {
-  const detail = [placeOf(club), levelOf(club)].filter(Boolean).join(" · ");
+  const detail = [placeOf(club), levelOf(club), seasonsOf(club)].filter(Boolean).join(" · ");
   const coaches = coachesOf(club);
   return {
     id: club.id,

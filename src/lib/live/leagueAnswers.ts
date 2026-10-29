@@ -81,6 +81,7 @@ const CANDIDATE: Shape = {
     ageLevel: { optional: "count" },
     coaches: { optional: { list: "string" } },
     gcIds: { optional: { list: "string" } },
+    seasons: { optional: "string" },
   },
 };
 

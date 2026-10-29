@@ -12,6 +12,7 @@ import {
   scoreSeenBy,
   startsWithinTheHour,
   teamNameKey,
+  seasonsOf,
   teamRecordInPool,
   type AgeGroup,
   type GcAgeSource,
@@ -235,6 +236,10 @@ export function TeamDetailPanel({
    * from GameChanger holds several clubs of the same name and the name alone cannot choose between
    * them; the picker sorts and filters them itself.
    */
+  const detailOf = (parts: string[]) => {
+    const detail = parts.filter(Boolean).join(" · ");
+    return detail ? { detail } : {};
+  };
   const mergeOptions = useMemo(
     () =>
       mergeCandidates.map((candidate, index) => {
@@ -251,12 +256,10 @@ export function TeamDetailPanel({
           // alphabetical sort, which would otherwise bury the answer among thousands of names.
           ...(candidate.clubHint ? { priority: index } : {}),
           // The club hint when there is one, since it is the reason this name is near the top; the
-          // state otherwise, which is what tells two clubs of the same name apart.
-          ...(candidate.clubHint
-            ? { detail: candidate.clubHint }
-            : candidate.state
-              ? { detail: candidate.state }
-              : {}),
+          // state otherwise, which is what tells two clubs of the same name apart; and either way
+          // the seasons it is set up in, since a fall team and a spring team of one name are the
+          // pair most often folded together.
+          ...detailOf([candidate.clubHint || candidate.state || "", seasonsOf(candidate)]),
         };
       }),
     [mergeCandidates]
@@ -392,9 +395,13 @@ export function TeamDetailPanel({
           >
             {team.name}
           </h2>
-          {(team.city || team.state) && (
+          {(team.city || team.state || seasonsOf(team)) && (
             <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-              {[team.city, team.state].filter(Boolean).join(", ")}
+              {/* The GameChanger seasons it is set up in, so a fall team and a spring team of one
+                  name are told apart before one is folded into the other. */}
+              {[[team.city, team.state].filter(Boolean).join(", "), seasonsOf(team)]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
           )}
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
