@@ -55,8 +55,11 @@ const FORMAT_WITHOUT_EPOCH = 2;
  * rule that read opponents' pictures (`GcTeamLink.ageFrom` "pool"): none ever named a pulled club.
  * An older build would read pictures nobody stores and save nothing new; raised so the shapes this
  * build writes are the ones its schema names.
+ * 8: a League season says its team list is set (`Settings.teamsLocked`); dropped by an older build,
+ * a list locked on one device would read as open on the next save, and its teams could be changed
+ * after the schedule was meant to start from them.
  */
-export const DATA_SCHEMA = 7;
+export const DATA_SCHEMA = 8;
 
 /**
  * Thrown for a manifest this build cannot read, which is never to be taken for no copy at all: the

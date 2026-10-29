@@ -144,11 +144,14 @@ import {
 import {
   builderTeamNames,
   buildRoundRobin,
+  roundRobinFor,
   type BuiltSeason,
   roundRobinCsv,
   roundRobinFileName,
 } from "./lib/roundRobin";
 import type { StartPage } from "./lib/leagueStart";
+import { nameTaken, teamListLocked, teamsToAdd } from "./lib/teamList";
+import type { TeamListControls } from "./components/league/GamesView";
 import { createAgeGroupId } from "./lib/teamRankings/seasons";
 import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standingsViews";
 import { displayName, recordText } from "./lib/format";
@@ -2519,29 +2522,101 @@ export default function App() {
     return built;
   };
 
-  const createSeasonFromTeamList = async () => {
-    const built = builtFromList();
-    if (!built) return;
-    const confirmed = await requestConfirmation({
-      title: "Create blank season?",
-      message: `${built.teams.length} teams · ${built.matchups.length} games.\n\nEach team plays every other team once. This replaces current season data and saves an undo snapshot.`,
-      confirmLabel: "Create season",
-    });
-    if (!confirmed) return;
-    captureUndo("Create blank season");
-    setTeams(built.teams);
-    setMatchups(built.matchups);
-    setLogs(built.logs);
-    setBracketLogs({});
-    setLastImpact(null);
-    closeTeamData();
-    setScoreboardTeamFilter("ALL");
-    setActiveView("games");
-    showToast(`Created ${built.matchups.length}-game schedule.`, {
+  /*
+   * The team list before the schedule: saved as typed, added to on a later visit, renamed or taken
+   * off while open, then locked; the schedule is made only from a locked list, and the list opens
+   * again only while no game exists (`teamListLocked`). Each is an ordinary season edit, as Add
+   * Game is, so a kept-live season sends it as it sends any other.
+   */
+  const listLocked = teamListLocked(settings, matchups, teams);
+  const refusedEdit = () => {
+    const lockedBecause = seasonStore.locked();
+    if (lockedBecause) showToast(lockedBecause, { tone: "error" });
+    return lockedBecause !== null;
+  };
+  const saveTeamList = (names: string[]): boolean => {
+    if (refusedEdit()) return false;
+    if (listLocked) {
+      showToast("The team list is locked. Unlock it to add teams.", { tone: "error" });
+      return false;
+    }
+    const added = teamsToAdd(teams, names);
+    if (added.length === 0) {
+      showToast(
+        names.length ? "Those teams are already on the list." : "Type a team name to save.",
+        { tone: "error" }
+      );
+      return false;
+    }
+    captureUndo("Add teams");
+    setTeams((prev) => [...prev, ...added]);
+    // A list started here stays open until it is locked.
+    if (settings.teamsLocked !== false) setSettings((prev) => ({ ...prev, teamsLocked: false }));
+    showToast(`Saved ${added.length} team${added.length === 1 ? "" : "s"}.`, {
       tone: "undo",
       actionLabel: "Undo",
       onAction: restoreUndo,
     });
+    return true;
+  };
+  const teamListControls: TeamListControls = {
+    locked: listLocked,
+    onAdd: saveTeamList,
+    onRename: (teamId, name) => {
+      if (refusedEdit() || listLocked) return false;
+      if (nameTaken(teams, name, teamId)) {
+        showToast(`${name} is already on the list.`, { tone: "error" });
+        return false;
+      }
+      captureUndo("Rename team");
+      setTeams((prev) => prev.map((team) => (team.id === teamId ? { ...team, name } : team)));
+      return true;
+    },
+    onRemove: (teamId) => {
+      if (refusedEdit() || listLocked) return;
+      captureUndo("Remove team");
+      setTeams((prev) => prev.filter((team) => team.id !== teamId));
+      showToast("Team removed.", { tone: "undo", actionLabel: "Undo", onAction: restoreUndo });
+    },
+    onLock: () => {
+      if (refusedEdit()) return;
+      setSettings((prev) => ({ ...prev, teamsLocked: true }));
+      showToast("Team list locked. Make the schedule next.");
+    },
+    onUnlock: () => {
+      void (async () => {
+        if (refusedEdit() || matchups.length > 0) return;
+        const confirmed = await requestConfirmation({
+          title: "Unlock the team list?",
+          message: "Teams can be added, renamed or removed again until the first game is made.",
+          confirmLabel: "Unlock",
+        });
+        if (!confirmed) return;
+        setSettings((prev) => ({ ...prev, teamsLocked: false }));
+      })();
+    },
+    onRoundRobin: () => {
+      if (refusedEdit()) return;
+      const built = roundRobinFor(teams, settings.defaultGameInnings);
+      if (!built) {
+        showToast("A round robin needs two teams at least.", { tone: "error" });
+        return;
+      }
+      captureUndo("Build a round robin");
+      setMatchups(built.matchups);
+      setLogs(built.logs);
+      // As the one-step builder did: every game made is shown, whatever team the Schedule was
+      // filtered to (a filter can outlive the season it was set on), and no older recap stands.
+      setBracketLogs({});
+      setLastImpact(null);
+      closeTeamData();
+      setScoreboardTeamFilter("ALL");
+      showToast(`Made a ${built.matchups.length}-game schedule.`, {
+        tone: "undo",
+        actionLabel: "Undo",
+        onAction: restoreUndo,
+      });
+    },
   };
 
   /*
@@ -3577,7 +3652,12 @@ export default function App() {
                   {teams.length === 0 ? (
                     <EmptyState
                       importCSV={importCSV}
-                      createSeasonFromTeamList={createSeasonFromTeamList}
+                      saveTeamList={() => {
+                        if (saveTeamList(builderTeamNames(seasonBuilderText))) {
+                          setSeasonBuilderText("");
+                          setActiveView("games");
+                        }
+                      }}
                       downloadRoundRobinCSV={downloadRoundRobinCSV}
                       seasonBuilderText={seasonBuilderText}
                       setSeasonBuilderText={setSeasonBuilderText}
@@ -3901,6 +3981,7 @@ export default function App() {
                       closeScoreFill={() => setScoreFillPlan(null)}
                       applyScoreFill={applyScoreFill}
                       seasonLabel={settings.seasonLabel}
+                      teamList={teamListControls}
                       schedulePaste={schedulePaste}
                     />
                   )}

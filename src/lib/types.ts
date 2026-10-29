@@ -227,6 +227,12 @@ export type Settings = {
    */
   trackErrors: boolean;
   recapGrouping: RecapGrouping;
+  /**
+   * The team list is set (`teamListLocked`): teams are added, renamed and removed until it is, and
+   * the schedule is made only after. Absent on a season from before it was kept, which reads as set
+   * once it has a game; it can be opened again only while no game exists.
+   */
+  teamsLocked?: boolean;
 };
 
 export type RankSnapshot = (Team & {

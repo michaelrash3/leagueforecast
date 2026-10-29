@@ -128,6 +128,7 @@ const SHAPES_NOW = {
       "scoreDetail",
       "trackErrors",
       "recapGrouping",
+      "teamsLocked",
     ]),
     tiebreakers: wordsOf<TiebreakerFactor>()([
       "headToHead",
@@ -333,6 +334,8 @@ const SHAPES: readonly { schema: number; fingerprint: string }[] = [
   { schema: 6, fingerprint: "2bd87304b56459c2626cede98a58b89cac6d1b144b629f1bcd9c7963813f5855" },
   // No GameChanger picture is kept, on a club or a link, nor the age rule that read opponents' ones.
   { schema: 7, fingerprint: "5e30efea7c9b419ddbfc15aa6a8e05ed4e093ab78565a9bae0af66adb14abccc" },
+  // A League season says its team list is set (`Settings.teamsLocked`).
+  { schema: 8, fingerprint: "3a1afc9638ce1c856df0411e5119ec4b0c049e4946b92a383f82c6a2d511678a" },
 ];
 
 /** Order-free, so a list tidied into another order is not taken for a new shape. */

@@ -261,5 +261,6 @@ export const coerceSettings = (raw: unknown): Settings => {
     scoreDetail,
     trackErrors: isBoolean(raw.trackErrors) ? raw.trackErrors : DEFAULT_SETTINGS.trackErrors,
     recapGrouping,
+    ...(isBoolean(raw.teamsLocked) ? { teamsLocked: raw.teamsLocked } : {}),
   };
 };

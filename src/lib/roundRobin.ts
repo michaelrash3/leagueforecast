@@ -56,6 +56,15 @@ export const buildRoundRobin = (names: string[], defaultInnings: number): BuiltS
     id: createTeamId(displayName(name), existingIds),
     name,
   }));
+  return roundRobinFor(teams, defaultInnings);
+};
+
+/**
+ * A single round robin over teams already in the season, their ids kept: the schedule step once a
+ * team list is locked, where the teams were saved before any game was made.
+ */
+export const roundRobinFor = (teams: TeamBase[], defaultInnings: number): BuiltSeason | null => {
+  if (teams.length < 2) return null;
   const matchups: Matchup[] = [];
   const logs: Record<string, GameLog> = {};
   for (let awayIndex = 0; awayIndex < teams.length; awayIndex += 1) {

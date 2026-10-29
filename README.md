@@ -4392,6 +4392,17 @@ nothing in the pool says which other leagues there are: a league is what its sea
 the groups the fit finds by who played whom are not leagues (the Longhorns' league of 8 was a
 group of 60 to the fit). Nothing more is read or published for it.
 
+## A season's team list, then its schedule
+
+A new season starts with its teams, saved before any game exists: typed one a line on the
+empty season's page and saved, then added to on a later visit from the Schedule tab, where each
+can be renamed or taken off. "Lock team list" sets it (`Settings.teamsLocked`, data schema 8),
+and only then does the Schedule offer its tools: a round robin over the saved teams with their
+ids kept (`roundRobinFor`), the league's schedule pasted, or games added one at a time. The list
+opens again only while no game exists; once one does, it is set for good (`teamListLocked`), so
+the standings never meet a team that appears or goes mid-season. A season with teams from before
+lists were kept, or started from its clubs, reads as set. Each step is an ordinary season edit.
+
 ## A league's schedule, pasted
 
 A season with no games yet can take its league's schedule as the league's website, a

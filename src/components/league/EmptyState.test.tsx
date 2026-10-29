@@ -14,7 +14,7 @@ function Season({
   return (
     <EmptyState
       importCSV={() => undefined}
-      createSeasonFromTeamList={() => undefined}
+      saveTeamList={() => undefined}
       downloadRoundRobinCSV={() => undefined}
       seasonBuilderText={text}
       setSeasonBuilderText={setText}
