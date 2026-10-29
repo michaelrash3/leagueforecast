@@ -189,7 +189,6 @@ import { useNarrowViewport } from "./hooks/useWideViewport";
 import { TabNav, type TabNavItem } from "./components/TabNav";
 import { NAV_ICONS } from "./components/navIcons";
 import {
-  applyResult,
   attachAdjustedRatings,
   calculateTeams,
   effectiveGoldCutoff,
@@ -1255,6 +1254,14 @@ export default function App() {
       cellFor(liveById.get(rowId)?.headToHead?.[colId], rowId, colId),
     [liveById]
   );
+  const headToHeadRecord = useCallback(
+    (rowId: string, colId: string): string => {
+      const record = liveById.get(rowId)?.headToHead?.[colId];
+      if (!record || record.wins + record.losses + record.ties === 0) return "";
+      return `${record.wins}-${record.losses}${record.ties ? `-${record.ties}` : ""}`;
+    },
+    [liveById]
+  );
 
   const bracketProjection = useMemo(
     () =>
@@ -1397,79 +1404,6 @@ export default function App() {
         ? rememberedTimeline(teams, matchups, finalLogs, settings, 6)
         : NO_TIMELINE,
     [activeView, teams, matchups, finalLogs, settings]
-  );
-
-  const controlLevelMap = useMemo(() => {
-    const result = new Map<string, string>();
-    if (!dashboardRows.length) return result;
-
-    if (activeView !== "model" || remainingGames.length > PROJECT_STANDINGS_REMAINING_GAME_LIMIT) {
-      dashboardRows.forEach((team) => {
-        if (team.goldStatus === "Clinched" || team.goldStatus === "Eliminated") {
-          result.set(team.id, team.goldStatus);
-        } else if ((team.rank ?? 99) <= goldCutoff) {
-          result.set(team.id, "In Control");
-        } else {
-          result.set(team.id, "Needs Help");
-        }
-      });
-      return result;
-    }
-
-    teams.forEach((team) => {
-      const row = dashboardById.get(team.id);
-      if (!row) return;
-      if (row.goldStatus === "Clinched") {
-        result.set(team.id, "Clinched");
-        return;
-      }
-      if (row.goldStatus === "Eliminated") {
-        result.set(team.id, "Eliminated");
-        return;
-      }
-
-      let winOut = liveTeams.map((item) => ({ ...item }));
-      remainingGames.forEach((game) => {
-        const winner =
-          game.away === team.id || game.home === team.id
-            ? team.id
-            : predictGame(game, liveTeams, settings, liveById).winnerId;
-        winOut = applyResult(winOut, game, winner, liveTeams, settings);
-      });
-
-      const winOutSeed =
-        rankTeams(winOut, rankOptionsFromSettings(settings)).find((item) => item.id === team.id)
-          ?.rank ?? 99;
-      const swings = nextTwoSwingGames(team.id);
-      const lossRisk = swings.some((swing) => swing.lossSeed > goldCutoff);
-
-      if (winOutSeed <= goldCutoff && (row.rank ?? 99) > goldCutoff) {
-        result.set(team.id, "Controls Own Fate");
-      } else if (winOutSeed > goldCutoff) {
-        result.set(team.id, "Needs Help");
-      } else if ((row.rank ?? 99) <= goldCutoff && lossRisk) {
-        result.set(team.id, "At Risk");
-      } else {
-        result.set(team.id, "In Control");
-      }
-    });
-    return result;
-  }, [
-    activeView,
-    teams,
-    dashboardRows,
-    dashboardById,
-    liveTeams,
-    remainingGames,
-    settings,
-    liveById,
-    goldCutoff,
-    nextTwoSwingGames,
-  ]);
-
-  const controlLevelForTeam = useCallback(
-    (team: TeamWithProjection) => controlLevelMap.get(team.id) ?? "In Control",
-    [controlLevelMap]
   );
 
   const bubbleTierForTeam = useCallback(
@@ -1646,64 +1580,6 @@ export default function App() {
     gameStatusForGame,
     gameImportance,
   ]);
-
-  // The Forecast's bubble, each team's schedule strength read off every game (2.2).
-  const bubbleRows = useMemo(() => {
-    if (activeView !== "model") return [];
-    return dashboardRows.map((team) => ({
-      team,
-      tier: bubbleTierForTeam(team),
-      sos: scheduleDifficultyForTeam(team.id),
-      control: controlLevelForTeam(team),
-    }));
-  }, [
-    activeView,
-    dashboardRows,
-    bubbleTierForTeam,
-    scheduleDifficultyForTeam,
-    controlLevelForTeam,
-  ]);
-
-  const bubbleMovementRows = useMemo(() => {
-    const byId = new Map(bubbleRows.map((row) => [row.team.id, row]));
-    const selected = new Map<string, (typeof bubbleRows)[number]>();
-    const add = (row: (typeof bubbleRows)[number] | undefined) => {
-      if (row) selected.set(row.team.id, row);
-    };
-
-    dashboardRows
-      .filter((team) => {
-        const seed = team.rank ?? 99;
-        return seed >= goldCutoff - 1 && seed <= goldCutoff;
-      })
-      .forEach((team) => add(byId.get(team.id)));
-
-    dashboardRows
-      .filter((team) => {
-        const seed = team.rank ?? 99;
-        return seed >= goldCutoff + 1 && seed <= goldCutoff + 3;
-      })
-      .forEach((team) => add(byId.get(team.id)));
-
-    dashboardRows
-      .filter((team) => {
-        const currentInside = (team.rank ?? 99) <= goldCutoff;
-        const projectedInside = (team.projectedRank ?? 99) <= goldCutoff;
-        return currentInside !== projectedInside;
-      })
-      .forEach((team) => add(byId.get(team.id)));
-
-    return [...selected.values()].sort((a, b) => {
-      const aCross =
-        (a.team.rank ?? 99) <= goldCutoff !== (a.team.projectedRank ?? 99) <= goldCutoff;
-      const bCross =
-        (b.team.rank ?? 99) <= goldCutoff !== (b.team.projectedRank ?? 99) <= goldCutoff;
-      if (aCross !== bCross) return aCross ? -1 : 1;
-      return (
-        Math.abs((a.team.rank ?? 99) - goldCutoff) - Math.abs((b.team.rank ?? 99) - goldCutoff)
-      );
-    });
-  }, [bubbleRows, dashboardRows, goldCutoff]);
 
   const clinchScenariosForTeam = useCallback(
     (teamId: string) => {
@@ -3842,6 +3718,7 @@ export default function App() {
                       runsOnly={runsOnly}
                       matrixTeams={headToHeadMatrixTeams}
                       headToHeadCell={headToHeadCell}
+                      headToHeadRecord={headToHeadRecord}
                     />
                   ) : activeView === "model" ? (
                     <ModelView
@@ -3857,7 +3734,6 @@ export default function App() {
                         exactScenarioAnalysisEnabled ? null : EXACT_SCENARIO_REMAINING_GAME_LIMIT
                       }
                       gamesThatMatterMost={gamesThatMatterMost}
-                      bubbleMovementRows={bubbleMovementRows}
                       scheduleDifficultyForTeam={scheduleDifficultyForTeam}
                       formatGoldPct={formatGoldPct}
                       formatGoldMargin={(team) =>

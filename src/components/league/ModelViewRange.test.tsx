@@ -107,12 +107,6 @@ function Forecast({ walk, postseason = false }: { walk: boolean; postseason?: bo
       seedRangeForTeam={seedRangeForTeam}
       seedRangesPausedUntil={walk ? null : 60}
       gamesThatMatterMost={[]}
-      bubbleMovementRows={modelRows.map((team) => ({
-        team,
-        tier: "Bubble",
-        sos: { label: "Medium", opponents: "" },
-        control: "Needs Help",
-      }))}
       scheduleDifficultyForTeam={() => ({ label: "Medium", rating: 0, opponents: "" })}
       formatGoldPct={() => "50%"}
       formatGoldMargin={() => "±5%"}
@@ -188,7 +182,7 @@ describe("the Projected Standings' Range", () => {
       )
     ).toBeNull();
     expect(rangeCells()).toEqual(modelRows.map(() => "—"));
-    // Nor on a phone's rows or in the Bubble Watch, which show the same range.
+    // Nor on a phone's rows, which show the same range.
     expect(document.body.textContent).not.toMatch(SEED_SPAN);
   });
 });

@@ -2,16 +2,29 @@ import { displayName, teamAbbr } from "../../lib/format";
 
 export type H2HCell = "win" | "loss" | "tie" | "none" | "self";
 
+// What a square says in words: one game is not a series, so it is ahead, behind or even.
+const WORDS: Record<H2HCell, string> = {
+  win: "ahead",
+  loss: "behind",
+  tie: "even",
+  none: "not played",
+  self: "same team",
+};
+
 export function HeadToHeadMatrix({
   teams,
   cellFor,
+  recordFor,
 }: {
   teams: { id: string; name: string }[];
   cellFor: (rowId: string, colId: string) => H2HCell;
+  /** The row team's record against the column team ("2-1"), empty where they have not played. */
+  recordFor?: (rowId: string, colId: string) => string;
 }) {
   const tone = (c: H2HCell) => {
-    if (c === "win") return "bg-emerald-500";
-    if (c === "loss") return "bg-red-500";
+    // Dark enough for the white record on them (5.5:1 and 6.5:1); the 500s were under 4.5:1.
+    if (c === "win") return "bg-emerald-700";
+    if (c === "loss") return "bg-red-700";
     if (c === "tie") return "bg-amber-400";
     if (c === "self") return "bg-slate-800 dark:bg-slate-700";
     return "bg-slate-100 dark:bg-slate-800";
@@ -46,13 +59,18 @@ export function HeadToHeadMatrix({
               </th>
               {teams.map((col) => {
                 const c = cellFor(row.id, col.id);
+                const record = c === "self" ? "" : (recordFor?.(row.id, col.id) ?? "");
+                const said = `${displayName(row.name)} vs ${displayName(col.name)}: ${WORDS[c]}${record ? ` ${record}` : ""}`;
                 return (
                   <td
                     key={`c-${row.id}-${col.id}`}
-                    className={`h-6 w-6 rounded-xs ${tone(c)}`}
-                    title={`${displayName(row.name)} vs ${displayName(col.name)}: ${c}`}
-                    aria-label={`${displayName(row.name)} vs ${displayName(col.name)} — ${c}`}
-                  />
+                    // The record in the square: a colour alone said who led, not by how much.
+                    className={`h-7 min-w-7 rounded-xs px-0.5 text-center text-xs font-black tabular-nums normal-case ${tone(c)} ${c === "tie" ? "text-slate-950" : "text-white"}`}
+                    title={said}
+                    aria-label={said}
+                  >
+                    {record}
+                  </td>
                 );
               })}
             </tr>

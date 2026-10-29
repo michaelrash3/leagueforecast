@@ -83,12 +83,6 @@ export function ModelView(props: {
     reason: string;
     date: string;
   }[];
-  bubbleMovementRows: {
-    team: TeamWithProjection;
-    tier: string;
-    sos: { label: string; opponents: string };
-    control: string;
-  }[];
   scheduleDifficultyForTeam: (id: string) => { label: string; rating: number; opponents: string };
   formatGoldPct: (t: TeamWithProjection) => string;
   formatGoldMargin: (t: TeamWithProjection) => string;
@@ -154,7 +148,6 @@ export function ModelView(props: {
     seedRangeForTeam,
     seedRangesPausedUntil,
     gamesThatMatterMost,
-    bubbleMovementRows,
     scheduleDifficultyForTeam,
     formatGoldPct,
     formatGoldMargin,
@@ -617,61 +610,6 @@ export function ModelView(props: {
               ))}
             </div>
           )}
-        </section>
-      )}
-
-      {show("outlook") && hasCutLine && bubbleMovementRows.length > 0 && (
-        <section className={`${card} p-5`}>
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
-              Bubble Watch
-            </h3>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-              Around Top {goldCutoff}
-            </span>
-          </div>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {bubbleMovementRows.map(({ team, tier, sos }) => {
-              const range = seedRangeForTeam(team.id);
-              const confidence = projectionConfidenceForTeam(team);
-              return (
-                <div
-                  key={`bubble-${team.id}`}
-                  className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-black text-slate-950 dark:text-slate-100">
-                        {displayName(team.name)}
-                      </div>
-                      <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
-                        Now #{team.rank} · Projected #{team.projectedRank} · Range{" "}
-                        {rangeText(range)}
-                      </div>
-                    </div>
-                    <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-xs ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
-                      {tier}
-                    </span>
-                  </div>
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-semibold">
-                    <div className="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-                      <div className="text-slate-500 dark:text-slate-400">Gold</div>
-                      <div className="mt-1 text-slate-950 dark:text-slate-100">
-                        {formatGoldPct(team)}
-                      </div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        {formatGoldMargin(team)} · {confidence.label}
-                      </div>
-                    </div>
-                    <div className="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-                      <div className="text-slate-500 dark:text-slate-400">SOS</div>
-                      <div className="mt-1 text-slate-950 dark:text-slate-100">{sos.label}</div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
         </section>
       )}
 

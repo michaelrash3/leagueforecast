@@ -28,6 +28,7 @@ export function TeamStatsView({
   runsOnly,
   matrixTeams,
   headToHeadCell,
+  headToHeadRecord,
 }: {
   leagueAverageStats: LeagueAverageStats;
   statRankings: StatRankings;
@@ -36,6 +37,7 @@ export function TeamStatsView({
   runsOnly: boolean;
   matrixTeams: { id: string; name: string }[];
   headToHeadCell: (rowId: string, colId: string) => H2HCell;
+  headToHeadRecord?: (rowId: string, colId: string) => string;
 }) {
   return (
     <div className="grid grid-cols-1 gap-6">
@@ -117,18 +119,18 @@ export function TeamStatsView({
                 Head-to-Head Matrix
               </h3>
               <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                Each row shows how that team has fared against every opponent this season.
+                Each row shows that team&apos;s record against every opponent this season.
               </p>
             </div>
             <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide">
               <span className="flex items-center gap-1 text-slate-600 dark:text-slate-300">
-                <span className="h-3 w-3 rounded-xs bg-emerald-500" /> Won series
+                <span className="h-3 w-3 rounded-xs bg-emerald-700" /> Ahead
               </span>
               <span className="flex items-center gap-1 text-slate-600 dark:text-slate-300">
-                <span className="h-3 w-3 rounded-xs bg-red-500" /> Lost series
+                <span className="h-3 w-3 rounded-xs bg-red-700" /> Behind
               </span>
               <span className="flex items-center gap-1 text-slate-600 dark:text-slate-300">
-                <span className="h-3 w-3 rounded-xs bg-amber-400" /> Split
+                <span className="h-3 w-3 rounded-xs bg-amber-400" /> Even
               </span>
               <span className="flex items-center gap-1 text-slate-600 dark:text-slate-300">
                 <span className="h-3 w-3 rounded-xs bg-slate-100 dark:bg-slate-800" /> Not played
@@ -136,7 +138,11 @@ export function TeamStatsView({
             </div>
           </div>
           <Suspense fallback={<LoadingPanel area="the matrix" />}>
-            <HeadToHeadMatrix teams={matrixTeams} cellFor={headToHeadCell} />
+            <HeadToHeadMatrix
+              teams={matrixTeams}
+              cellFor={headToHeadCell}
+              {...(headToHeadRecord ? { recordFor: headToHeadRecord } : {})}
+            />
           </Suspense>
         </section>
       )}
