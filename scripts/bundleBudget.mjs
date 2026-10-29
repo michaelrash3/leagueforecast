@@ -124,14 +124,16 @@ const DIST = "dist";
  * rule, the pulled clubs' names read loosely, and the two clubs' shared opponents it reads a club
  * far off by, all in the tidy, which is part of that load. The loose reading of a name moved beside
  * `teamNameKey` rather than bringing the stand-in report into the chunk, which had put it over; the
- * first download, 253.4 KB against 253.3 KB, carries the few lines of it.
+ * first download, 253.4 KB against 253.3 KB, carries the few lines of it. Dashboard to 6.8 KB on
+ * 29 Oct 2026 for the phone's Dashboard, 6.5 KB against 6.2 KB before: each upcoming game as one
+ * line on a phone until it is opened (`PredictionLine`) and the width read that decides it.
  */
 const BUDGET = {
   firstDownload: 255_000,
   entryChunk: 97_500,
   css: 15_200,
   views: {
-    Dashboard: 6_400,
+    Dashboard: 6_800,
     "Power Ratings": 3_800,
     Schedule: 8_200,
     Standings: 8_000,

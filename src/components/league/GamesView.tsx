@@ -7,19 +7,22 @@
  * shared module with one caller.
  */
 import React, {
+  Fragment,
   lazy,
   type ReactNode,
   startTransition,
   Suspense,
   useCallback,
+  useContext,
   useEffect,
   useId,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { useNarrowViewport } from "../../hooks/useWideViewport";
 import { buildBracketProjection, type BracketGameProjection } from "../../lib/bracket";
-import { formatGameDate, normalizeDateInput, toMMDD } from "../../lib/date";
+import { formatGameDate, formatGameDateLong, normalizeDateInput, toMMDD } from "../../lib/date";
 import { displayName, teamAbbr } from "../../lib/format";
 import {
   RUN_SCORE_CAP,
@@ -32,7 +35,7 @@ import { blankLog, isFinal } from "../../lib/util";
 import type { FillAdditions, LeagueFillPlan } from "../../lib/leagueScoreFill";
 import { card, fieldFocusRing, tab } from "../../styles/tokens";
 import { LoadingPanel } from "../LoadingPanel";
-import { EditLock } from "./EditLock";
+import { EditLock, SeasonEditable } from "./EditLock";
 
 /**
  * Fill scores' review, and the rules it reads, are fetched only once a plan is on screen. Opening
@@ -273,6 +276,53 @@ function FinalGameRow({
   );
 }
 
+/**
+ * A game still to play, on a phone, as one line: its sides and the pick, and a press that opens
+ * the full card to score it. The full card was about a screen tall on a phone, so a season of
+ * 28 games was some 7,300 pixels to scroll past to reach the one being scored.
+ */
+function OpenGameRow({
+  id,
+  awayName,
+  homeName,
+  pick,
+  onOpen,
+}: {
+  id: string;
+  awayName: string;
+  homeName: string;
+  pick: string | null;
+  onOpen: () => void;
+}) {
+  return (
+    <article
+      id={id}
+      className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-xs dark:border-slate-700 dark:bg-slate-900"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="font-bold wrap-break-word text-slate-950 dark:text-white">
+          {displayName(awayName)}
+          <span className="font-semibold text-slate-500 dark:text-slate-400"> at </span>
+          {displayName(homeName)}
+        </div>
+        {pick && (
+          <div className="mt-0.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+            {pick}
+          </div>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="shrink-0 rounded-lg bg-slate-950 px-3 py-1.5 text-xs font-black text-white dark:bg-white dark:text-slate-950"
+        aria-label={`Enter score: ${displayName(awayName)} at ${displayName(homeName)}`}
+      >
+        Score
+      </button>
+    </article>
+  );
+}
+
 export function GamesView({
   teams,
   matchups: _matchups,
@@ -457,6 +507,14 @@ export function GamesView({
   // A finished game is a result to read, not a form to fill, so it collapses to
   // one line. Re-opening one puts the full card back for a correction.
   const [expandedFinals, setExpandedFinals] = useState<Record<string, boolean>>({});
+  // On a phone a game still to play is a line too, until it is opened to be scored; and the form
+  // for a new game waits behind a button rather than standing above every game of the season.
+  const narrow = useNarrowViewport();
+  // A season this device may only read shows every card whole: the Score that opens a line sits in
+  // the edit lock's disabled fieldset, so a line could not be opened to read its entered score.
+  const editable = useContext(SeasonEditable);
+  const [openedGames, setOpenedGames] = useState<Record<string, boolean>>({});
+  const [addOpen, setAddOpen] = useState(false);
   const toggleExpandedFinal = useCallback((gameId: string) => {
     setExpandedFinals((prev) => ({ ...prev, [gameId]: !prev[gameId] }));
   }, []);
@@ -465,59 +523,69 @@ export function GamesView({
     <section className="space-y-6">
       <EditLock>
         <div className={`${card} p-5`}>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-[140px_1fr_1fr_auto]">
-            <div>
-              <label htmlFor={dateId} className="sr-only">
-                Game date
-              </label>
-              <GameDateInput
-                value={newDate}
-                onCommit={(v) => setNewDate(v)}
-                ariaLabel="New game date (M/D)"
-              />
-              <input id={dateId} type="hidden" value={newDate} readOnly aria-hidden="true" />
-            </div>
-            <label htmlFor={awayId} className="block">
-              <span className="sr-only">Away team</span>
-              <select
-                id={awayId}
-                value={newAway}
-                onChange={(event) => setNewAway(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold text-slate-950 outline-hidden focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
-              >
-                <option value="">Away team…</option>
-                {teams.map((team) => (
-                  <option key={team.id} value={team.id}>
-                    {displayName(team.name)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label htmlFor={homeId} className="block">
-              <span className="sr-only">Home team</span>
-              <select
-                id={homeId}
-                value={newHome}
-                onChange={(event) => setNewHome(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold text-slate-950 outline-hidden focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
-              >
-                <option value="">Home team…</option>
-                {teams.map((team) => (
-                  <option key={team.id} value={team.id}>
-                    {displayName(team.name)}
-                  </option>
-                ))}
-              </select>
-            </label>
+          {narrow && !addOpen ? (
             <button
               type="button"
-              onClick={addGame}
-              disabled={!addGameValid}
-              className="rounded-lg bg-slate-950 px-5 py-2 font-black text-white shadow-xs hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+              onClick={() => setAddOpen(true)}
+              className="w-full rounded-lg bg-slate-950 px-5 py-2 font-black text-white shadow-xs dark:bg-white dark:text-slate-950"
             >
-              Add Game
+              Add a game
             </button>
-          </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[140px_1fr_1fr_auto]">
+              <div>
+                <label htmlFor={dateId} className="sr-only">
+                  Game date
+                </label>
+                <GameDateInput
+                  value={newDate}
+                  onCommit={(v) => setNewDate(v)}
+                  ariaLabel="New game date (M/D)"
+                />
+                <input id={dateId} type="hidden" value={newDate} readOnly aria-hidden="true" />
+              </div>
+              <label htmlFor={awayId} className="block">
+                <span className="sr-only">Away team</span>
+                <select
+                  id={awayId}
+                  value={newAway}
+                  onChange={(event) => setNewAway(event.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold text-slate-950 outline-hidden focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+                >
+                  <option value="">Away team…</option>
+                  {teams.map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {displayName(team.name)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label htmlFor={homeId} className="block">
+                <span className="sr-only">Home team</span>
+                <select
+                  id={homeId}
+                  value={newHome}
+                  onChange={(event) => setNewHome(event.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold text-slate-950 outline-hidden focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+                >
+                  <option value="">Home team…</option>
+                  {teams.map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {displayName(team.name)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={addGame}
+                disabled={!addGameValid}
+                className="rounded-lg bg-slate-950 px-5 py-2 font-black text-white shadow-xs hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+              >
+                Add Game
+              </button>
+            </div>
+          )}
           {!addGameValid && (newAway || newHome) && (
             <p className="mt-2 text-xs font-bold text-amber-600">
               Pick two different teams to add a game.
@@ -640,156 +708,192 @@ export function GamesView({
       <EditLock>
         {visibleGames.length > 0 && (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {visibleGames.map((game) => {
+            {visibleGames.map((game, index) => {
               const log = logs[game.id] || EMPTY_GAME_LOG;
               const away = teams.find((team) => team.id === game.away);
               const home = teams.find((team) => team.id === game.home);
               const final = isFinal(log);
               const hasEnteredScore = log.awayRuns.trim() !== "" && log.homeRuns.trim() !== "";
               const prediction = scoreboardPredictions.get(game.id);
-              if (final && !expandedFinals[game.id]) {
+              // On a phone the games sit under their day, so a weekend reads as one block.
+              const heading =
+                narrow && (index === 0 || visibleGames[index - 1]?.date !== game.date) ? (
+                  <h3
+                    key={`day-${game.id}`}
+                    className="pt-2 text-xs font-black uppercase tracking-wide text-slate-700 dark:text-slate-300"
+                  >
+                    {(game.date ?? "").trim() ? formatGameDateLong(game.date) : "No date yet"}
+                  </h3>
+                ) : null;
+              const row = (() => {
+                if (!final && narrow && editable && !openedGames[game.id]) {
+                  return (
+                    <OpenGameRow
+                      key={game.id}
+                      id={`game-card-${game.id}`}
+                      awayName={away?.name || game.away}
+                      homeName={home?.name || game.home}
+                      pick={
+                        prediction
+                          ? `Pick: ${displayName(prediction.pickName)} · ${Math.round(prediction.pickPct * 100)}%`
+                          : null
+                      }
+                      onOpen={() => setOpenedGames((prev) => ({ ...prev, [game.id]: true }))}
+                    />
+                  );
+                }
+                if (final && !expandedFinals[game.id]) {
+                  return (
+                    <FinalGameRow
+                      key={game.id}
+                      id={`game-card-${game.id}`}
+                      date={game.date}
+                      awayName={away?.name || game.away}
+                      homeName={home?.name || game.home}
+                      awayRuns={log.awayRuns}
+                      homeRuns={log.homeRuns}
+                      onEdit={() => toggleExpandedFinal(game.id)}
+                    />
+                  );
+                }
                 return (
-                  <FinalGameRow
+                  <article
                     key={game.id}
                     id={`game-card-${game.id}`}
-                    date={game.date}
-                    awayName={away?.name || game.away}
-                    homeName={home?.name || game.home}
-                    awayRuns={log.awayRuns}
-                    homeRuns={log.homeRuns}
-                    onEdit={() => toggleExpandedFinal(game.id)}
-                  />
-                );
-              }
-              return (
-                <article
-                  key={game.id}
-                  id={`game-card-${game.id}`}
-                  className={`overflow-hidden rounded-lg border bg-white shadow-xs dark:border-slate-700 dark:bg-slate-900 ${
-                    final
-                      ? "border-slate-200 opacity-80 dark:border-slate-700"
-                      : "border-slate-200 dark:border-slate-700"
-                  }`}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/50">
-                    <GameDateInput
-                      value={game.date}
-                      ariaLabel={`Date for ${displayName(away?.name || game.away)} vs ${displayName(home?.name || game.home)}`}
-                      onCommit={(nextDate) =>
-                        setMatchups((prev) =>
-                          prev.map((item) =>
-                            item.id === game.id ? { ...item, date: nextDate } : item
+                    className={`overflow-hidden rounded-lg border bg-white shadow-xs dark:border-slate-700 dark:bg-slate-900 ${
+                      final
+                        ? "border-slate-200 opacity-80 dark:border-slate-700"
+                        : "border-slate-200 dark:border-slate-700"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/50">
+                      <GameDateInput
+                        value={game.date}
+                        ariaLabel={`Date for ${displayName(away?.name || game.away)} vs ${displayName(home?.name || game.home)}`}
+                        onCommit={(nextDate) =>
+                          setMatchups((prev) =>
+                            prev.map((item) =>
+                              item.id === game.id ? { ...item, date: nextDate } : item
+                            )
                           )
-                        )
-                      }
-                    />
-                    <div className="flex gap-2">
-                      {/* Marking final is the one button at the card's foot; up here only its undo,
+                        }
+                      />
+                      <div className="flex gap-2">
+                        {/* Marking final is the one button at the card's foot; up here only its undo,
                           since the card had two buttons doing the same thing under two names. */}
-                      {final && (
+                        {final && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.currentTarget.blur();
+                              handleToggleFinal(game.id);
+                            }}
+                            className="rounded-lg bg-emerald-700 px-3 py-1 text-xs font-black text-white"
+                            aria-label="Mark game as scheduled"
+                          >
+                            Reopen
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={(event) => {
-                            event.currentTarget.blur();
-                            handleToggleFinal(game.id);
-                          }}
-                          className="rounded-lg bg-emerald-700 px-3 py-1 text-xs font-black text-white"
-                          aria-label="Mark game as scheduled"
+                          onClick={() => swapGame(game.id)}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                          aria-label="Swap home and away teams"
                         >
-                          Reopen
+                          Swap
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => swapGame(game.id)}
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                        aria-label="Swap home and away teams"
-                      >
-                        Swap
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removeGame(game.id)}
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-red-600 dark:border-slate-600 dark:bg-slate-800 dark:text-red-400"
-                        aria-label="Delete game"
-                      >
-                        Delete
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => removeGame(game.id)}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-red-600 dark:border-slate-600 dark:bg-slate-800 dark:text-red-400"
+                          aria-label="Delete game"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="space-y-4 p-4">
-                    {!final && prediction ? (
-                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold dark:border-slate-700 dark:bg-slate-800/50">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-full bg-white px-3 py-1 text-slate-700 shadow-xs ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
-                            Spread: {prediction.spread}
-                          </span>
-                          {prediction.scenarioBadges.map((badge) => (
-                            <span
-                              key={badge}
-                              className={`rounded-full px-3 py-1 ${gameStatusClasses(badge)}`}
-                            >
-                              {badge}
+                    <div className="space-y-4 p-4">
+                      {!final && prediction ? (
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold dark:border-slate-700 dark:bg-slate-800/50">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-full bg-white px-3 py-1 text-slate-700 shadow-xs ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
+                              Spread: {prediction.spread}
                             </span>
-                          ))}
+                            {prediction.scenarioBadges.map((badge) => (
+                              <span
+                                key={badge}
+                                className={`rounded-full px-3 py-1 ${gameStatusClasses(badge)}`}
+                              >
+                                {badge}
+                              </span>
+                            ))}
+                          </div>
+                          <span className="text-slate-500 dark:text-slate-400">
+                            Pick: {prediction.pickName} · {Math.round(prediction.pickPct * 100)}%
+                          </span>
                         </div>
-                        <span className="text-slate-500 dark:text-slate-400">
-                          Pick: {prediction.pickName} · {Math.round(prediction.pickPct * 100)}%
-                        </span>
-                      </div>
-                    ) : !final ? (
-                      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
-                        Prediction queued in the background — score entry and final verification are
-                        ready now.
-                      </div>
-                    ) : null}
-                    <ScoreRow
-                      teamName={away?.name || game.away}
-                      prefix="away"
-                      log={log}
-                      onChange={(field, value) => updateLog(game.id, field, value)}
-                      pitchMode={pitchMode}
-                      trackErrors={trackErrors}
-                      runsOnly={runsOnly}
-                    />
-                    <ScoreRow
-                      teamName={home?.name || game.home}
-                      prefix="home"
-                      log={log}
-                      onChange={(field, value) => updateLog(game.id, field, value)}
-                      pitchMode={pitchMode}
-                      trackErrors={trackErrors}
-                      runsOnly={runsOnly}
-                    />
-                    <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-bold text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                      {/* The date is the box at the card's head; said again here it was the same
+                      ) : !final ? (
+                        <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
+                          Prediction queued in the background — score entry and final verification
+                          are ready now.
+                        </div>
+                      ) : null}
+                      <ScoreRow
+                        teamName={away?.name || game.away}
+                        prefix="away"
+                        log={log}
+                        onChange={(field, value) => updateLog(game.id, field, value)}
+                        pitchMode={pitchMode}
+                        trackErrors={trackErrors}
+                        runsOnly={runsOnly}
+                      />
+                      <ScoreRow
+                        teamName={home?.name || game.home}
+                        prefix="home"
+                        log={log}
+                        onChange={(field, value) => updateLog(game.id, field, value)}
+                        pitchMode={pitchMode}
+                        trackErrors={trackErrors}
+                        runsOnly={runsOnly}
+                      />
+                      <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-bold text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                        {/* The date is the box at the card's head; said again here it was the same
                           date twice. */}
-                      <span>
-                        {final
-                          ? `Final · ${formatGameDate(game.date)}`
-                          : hasEnteredScore
-                            ? "Scores entered — mark it final"
-                            : (game.date ?? "").trim()
-                              ? ""
-                              : "Needs Date"}
-                      </span>
-                      {!final && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.currentTarget.blur();
-                            handleToggleFinal(game.id);
-                          }}
-                          className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white"
-                          aria-label="Mark game as final"
-                        >
-                          Mark final
-                        </button>
-                      )}
+                        <span>
+                          {final
+                            ? `Final · ${formatGameDate(game.date)}`
+                            : hasEnteredScore
+                              ? "Scores entered — mark it final"
+                              : (game.date ?? "").trim()
+                                ? ""
+                                : "Needs Date"}
+                        </span>
+                        {!final && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.currentTarget.blur();
+                              handleToggleFinal(game.id);
+                            }}
+                            className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white"
+                            aria-label="Mark game as final"
+                          >
+                            Mark final
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </article>
+                  </article>
+                );
+              })();
+              return heading ? (
+                <Fragment key={game.id}>
+                  {heading}
+                  {row}
+                </Fragment>
+              ) : (
+                row
               );
             })}
           </div>
