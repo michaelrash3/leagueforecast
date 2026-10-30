@@ -2,7 +2,7 @@
  * The league's front page: where the season stands, what the model makes of the next games, and
  * what it is still missing to say more.
  */
-import { Suspense, useId, useState, type ComponentProps, type ReactNode } from "react";
+import { Suspense, useId, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import {
   byStart,
   dayAndTime,
@@ -20,6 +20,7 @@ import { SEVERITY_LABEL, severityCounts, type Finding } from "../../lib/leagueFi
 import { useNarrowViewport } from "../../hooks/useWideViewport";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { DigestPanel } from "./DigestPanel";
+import type { LookInput } from "./SinceLastLook";
 import { EmptyPanel } from "./EmptyPanel";
 import { viewChunk } from "./leagueViews";
 import { PowerRatingsView } from "./PowerRatingsView";
@@ -32,6 +33,13 @@ const forecastWhy = viewChunk(
   "ForecastWhy"
 );
 const ForecastWhy = forecastWhy.View;
+
+/** The "Since you last looked" card, fetched as the Dashboard opens, beside it. */
+const sinceLastLook = viewChunk(
+  () => import("./SinceLastLook").then((module) => module.SinceLastLook),
+  "SinceLastLook"
+);
+const SinceLastLook = sinceLastLook.View;
 
 /** What a card's explanation reads beside the prediction itself, worked out once it is opened. */
 type WhyContext = {
@@ -249,6 +257,7 @@ export function DashboardView({
   gameOdds,
   seasonFinal,
   hasCutLine = true,
+  look,
 }: {
   engine: ReturnType<typeof buildPredictionEngine>;
   backtestResult: ReturnType<typeof backtestPredictions>;
@@ -261,6 +270,12 @@ export function DashboardView({
   ourTeam?: ReactNode;
   /** What changed since this device last looked (2.6), above everything else while there is any. */
   digest?: ComponentProps<typeof DigestPanel>;
+  /**
+   * The season as it stands, for the big "Since you last looked" card (`SinceLastLookCard`): the
+   * followed team's place and Gold odds then and now, its results, the upset, who passed whom.
+   * Unlike the digest, it counts what was entered here too. The forecasts come from `engine`.
+   */
+  look?: Omit<LookInput, "predictions">;
   /** The per-game model's chance that the away side wins a game, for a card's explanation. */
   gameOdds?: (game: Matchup) => number;
   /**
@@ -297,6 +312,21 @@ export function DashboardView({
       parseDateValue(a.date, seasonStart) - parseDateValue(b.date, seasonStart) || byStart(a, b)
     );
   });
+
+  const lookPredictions = useMemo(
+    () =>
+      engine.predictions.map((call) => ({
+        gameId: call.gameId,
+        teamAId: call.teamAId,
+        pA: call.winProbability.teamA,
+      })),
+    [engine.predictions]
+  );
+  const lookRows = useMemo(
+    () => look?.rows.map((row) => ({ ...row, name: displayName(row.name) })),
+    [look?.rows]
+  );
+  const [lookShown, setLookShown] = useState(false);
   const avgConfidence = engine.predictions.length
     ? Math.round(
         engine.predictions.reduce((sum, p) => sum + p.confidence.score, 0) /
@@ -305,7 +335,20 @@ export function DashboardView({
     : 0;
   return (
     <div className="space-y-6">
-      {digest && <DigestPanel {...digest} />}
+      {/* The big card first, and the list of what other devices changed while it is not up. Put
+          away, it takes the list's news as seen too, so the list does not follow it. */}
+      {look && lookRows && (
+        <ErrorBoundary area="what changed since you last looked" onReset={sinceLastLook.reset}>
+          <Suspense fallback={null}>
+            <SinceLastLook
+              look={{ ...look, rows: lookRows, predictions: lookPredictions }}
+              onDismiss={() => digest?.onAcknowledge()}
+              onShown={setLookShown}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+      {digest && !lookShown && <DigestPanel {...digest} />}
       {ourTeam}
       <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {[
