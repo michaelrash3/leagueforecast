@@ -9,7 +9,7 @@ import {
   type RatingGame,
 } from "./powerRating";
 import { clamp, isFinal, parseNumber } from "./util";
-import { normalizeDateInput, todayIsoDay } from "./date";
+import { byGameTime, byGameTimeNewest, normalizeDateInput, todayIsoDay } from "./date";
 import { weightsForGames } from "./ratingRecency";
 import { ageLevelFromName } from "./gameChangerApi";
 import { coachesOf } from "./gcStaff";
@@ -86,7 +86,6 @@ import {
   SCOUT_ID_PREFIX,
   teamNameKey,
 } from "./teamRankings/names";
-import { byGameTime, byGameTimeNewest } from "./gameTime";
 
 /**
  * Team Rankings is a separate, age-group-scoped-but-globally-rostered ranking pool: teams are a

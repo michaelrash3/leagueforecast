@@ -1,7 +1,7 @@
 import { coerceScoutTeams } from "../../teamRankingsCompact";
 import type { ClubAge } from "../../teamRankings/clubAge";
 import type { ScoutGame, ScoutTeam } from "../../teamRankings";
-import { startMinutes, startTsOfMinutes } from "../../gameTime";
+import { startMinutes, startTsOfMinutes } from "../../date";
 
 /**
  * What a published club card is, as both its publisher (`clubs.ts`) and a member's device read it:

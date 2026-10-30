@@ -127,6 +127,7 @@ const FILL_ROW: Shape = {
     gcGameId: { optional: "string" },
     currentAwayRuns: { optional: "string" },
     currentHomeRuns: { optional: "string" },
+    startTs: { optional: "string" },
     event: { optional: "string" },
   },
 };
@@ -141,6 +142,7 @@ const FILL_MISSING: Shape = {
     homeName: "string",
     awayRuns: "number",
     homeRuns: "number",
+    startTs: { optional: "string" },
     tournament: { optional: "string" },
   },
 };
@@ -198,6 +200,7 @@ const START_ANSWER: Shape = {
                 date: "string",
                 away: "id",
                 home: "id",
+                startTs: { optional: "string" },
                 awayRuns: { optional: "count" },
                 homeRuns: { optional: "count" },
                 tournament: { optional: "string" },

@@ -118,6 +118,9 @@ export const coerceMatchups = (raw: unknown, teams: TeamBase[] = []): Matchup[] 
       away,
       home,
       date: normalizeDateInput(isString(item.date) ? item.date : ""),
+      ...(isString(item.startTs) && Number.isFinite(Date.parse(item.startTs))
+        ? { startTs: item.startTs }
+        : {}),
     });
   });
   return out;

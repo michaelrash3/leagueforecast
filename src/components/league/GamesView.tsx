@@ -22,7 +22,14 @@ import React, {
 } from "react";
 import { useNarrowViewport } from "../../hooks/useWideViewport";
 import { buildBracketProjection, type BracketGameProjection } from "../../lib/bracket";
-import { formatGameDate, formatGameDateLong, normalizeDateInput, toMMDD } from "../../lib/date";
+import {
+  dayAndTime,
+  formatGameDate,
+  formatGameDateLong,
+  formatStartTime,
+  normalizeDateInput,
+  toMMDD,
+} from "../../lib/date";
 import { displayName, teamAbbr } from "../../lib/format";
 import {
   RUN_SCORE_CAP,
@@ -233,6 +240,7 @@ export type TeamListControls = {
 function FinalGameRow({
   id,
   date,
+  startTs,
   awayName,
   homeName,
   awayRuns,
@@ -241,6 +249,7 @@ function FinalGameRow({
 }: {
   id: string;
   date: string;
+  startTs?: string | undefined;
   awayName: string;
   homeName: string;
   awayRuns: string;
@@ -270,8 +279,9 @@ function FinalGameRow({
       id={id}
       className="flex items-center gap-4 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-xs dark:border-slate-700 dark:bg-slate-900"
     >
-      <span className="w-14 shrink-0 text-xs font-semibold text-slate-500 dark:text-slate-400">
+      <span className="w-16 shrink-0 text-xs font-semibold text-slate-600 dark:text-slate-300">
         {formatGameDate(date)}
+        {formatStartTime(startTs) && <span className="block">{formatStartTime(startTs)}</span>}
       </span>
       <div className="min-w-0 flex-1 space-y-0.5">
         {side(awayName, awayRuns, awayWon)}
@@ -795,9 +805,14 @@ export function GamesView({
                       awayName={away?.name || game.away}
                       homeName={home?.name || game.home}
                       pick={
-                        prediction
-                          ? `Pick: ${displayName(prediction.pickName)} · ${Math.round(prediction.pickPct * 100)}%`
-                          : null
+                        [
+                          formatStartTime(game.startTs),
+                          prediction
+                            ? `Pick: ${displayName(prediction.pickName)} · ${Math.round(prediction.pickPct * 100)}%`
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || null
                       }
                       onOpen={() => setOpenedGames((prev) => ({ ...prev, [game.id]: true }))}
                     />
@@ -809,6 +824,7 @@ export function GamesView({
                       key={game.id}
                       id={`game-card-${game.id}`}
                       date={game.date}
+                      startTs={game.startTs}
                       awayName={away?.name || game.away}
                       homeName={home?.name || game.home}
                       awayRuns={log.awayRuns}
@@ -828,17 +844,25 @@ export function GamesView({
                     }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/50">
-                      <GameDateInput
-                        value={game.date}
-                        ariaLabel={`Date for ${displayName(away?.name || game.away)} vs ${displayName(home?.name || game.home)}`}
-                        onCommit={(nextDate) =>
-                          setMatchups((prev) =>
-                            prev.map((item) =>
-                              item.id === game.id ? { ...item, date: nextDate } : item
+                      {/* Its start beside the day, where GameChanger gave one. */}
+                      <div className="flex items-center gap-2">
+                        <GameDateInput
+                          value={game.date}
+                          ariaLabel={`Date for ${displayName(away?.name || game.away)} vs ${displayName(home?.name || game.home)}`}
+                          onCommit={(nextDate) =>
+                            setMatchups((prev) =>
+                              prev.map((item) =>
+                                item.id === game.id ? { ...item, date: nextDate } : item
+                              )
                             )
-                          )
-                        }
-                      />
+                          }
+                        />
+                        {formatStartTime(game.startTs) && (
+                          <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                            {formatStartTime(game.startTs)}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex gap-2">
                         {/* Marking final is the one button at the card's foot; up here only its undo,
                           since the card had two buttons doing the same thing under two names. */}
@@ -923,7 +947,7 @@ export function GamesView({
                           date twice. */}
                         <span>
                           {final
-                            ? `Final · ${formatGameDate(game.date)}`
+                            ? `Final · ${dayAndTime(formatGameDate(game.date), game.startTs)}`
                             : hasEnteredScore
                               ? "Scores entered — mark it final"
                               : (game.date ?? "").trim()

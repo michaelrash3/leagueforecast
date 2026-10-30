@@ -1,5 +1,5 @@
 import type { ScoutGame } from "../../teamRankings";
-import { startMinutes, startTsOfMinutes } from "../../gameTime";
+import { startMinutes, startTsOfMinutes } from "../../date";
 
 /**
  * What a published Games list is, as both its publisher (`games.ts`) and a member's device read

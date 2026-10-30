@@ -21,7 +21,7 @@ import {
 } from "../../lib/savedScenarios";
 import { scenarioSeason, type ScenarioPick } from "../../lib/scenario";
 import { getMathGoldStatus, getRemainingCounts, predictGame } from "../../lib/sim";
-import { formatGameDate, parseDateValue, seasonStartMonth } from "../../lib/date";
+import { byStart, formatGameDate, parseDateValue, seasonStartMonth } from "../../lib/date";
 import { displayName, recordText } from "../../lib/format";
 import { useSimulationOdds } from "../../hooks/useSimulationWorker";
 import type {
@@ -202,7 +202,7 @@ export function PlayoffMachine({
   const games = useMemo(() => {
     const start = seasonStartMonth(matchups.map((game) => game.date));
     return [...remainingGames].sort(
-      (a, b) => parseDateValue(a.date, start) - parseDateValue(b.date, start)
+      (a, b) => parseDateValue(a.date, start) - parseDateValue(b.date, start) || byStart(a, b)
     );
   }, [remainingGames, matchups]);
   /*

@@ -95,6 +95,8 @@ export type LeagueFillRow = {
   /** What the league already has, so a disagreement can be shown rather than asserted. */
   currentAwayRuns?: string;
   currentHomeRuns?: string;
+  /** When the pool's game started, where GameChanger said: a League game without one takes it. */
+  startTs?: string;
   event?: string;
 };
 
@@ -116,6 +118,8 @@ export type LeagueMissingGame = {
   homeName: string;
   awayRuns: number;
   homeRuns: number;
+  /** When it started, where GameChanger said, kept on the game added. */
+  startTs?: string;
   tournament?: string;
 };
 
@@ -123,6 +127,23 @@ export type LeagueMissingGame = {
  * Games of `LeagueFillPlan.missing` to add to the schedule, and those of them to turn round; and
  * those that are a schedule game played on another day (`movedGames`), to move rather than add.
  */
+/**
+ * The starts Fill can give the league's games: for each game it matched to the pool's, the pool
+ * game's start, where the league's game has none yet. A start orders a day's games and is shown on
+ * the Schedule; it changes no score, so a game takes it whether or not its score was ticked.
+ */
+export const startsFromFill = (
+  plan: LeagueFillPlan,
+  schedule: readonly Matchup[]
+): Record<string, string> => {
+  const untimed = new Set(schedule.filter((game) => !game.startTs).map((game) => game.id));
+  const starts: Record<string, string> = {};
+  for (const row of plan.rows) {
+    if (row.startTs && untimed.has(row.matchupId)) starts[row.matchupId] = row.startTs;
+  }
+  return starts;
+};
+
 export type FillAdditions = { add: string[]; swap: string[]; move?: string[] };
 
 export type LeagueFillPlan = {
@@ -525,6 +546,7 @@ export const planLeagueScoreFill = ({
       ...(game.source ? { gcTeamId: game.source.teamId, gcGameId: game.source.gameId } : {}),
       ...(recorded ? { currentAwayRuns: currentAway, currentHomeRuns: currentHome } : {}),
       ...(game.event ? { event: game.event } : {}),
+      ...(game.startTs ? { startTs: game.startTs } : {}),
     };
   };
 
@@ -797,6 +819,7 @@ export const planLeagueScoreFill = ({
           awayRuns: game.teamAScore ?? 0,
           homeRuns: game.teamBScore ?? 0,
           ...(tournament ? { tournament } : {}),
+          ...(game.startTs ? { startTs: game.startTs } : {}),
           order: `${game.date ?? ""} ${game.startTs ?? ""} ${game.id}`,
         },
       ];
@@ -848,6 +871,7 @@ export const missingGamesToAdd = (
       date: game.date,
       away: swap ? game.homeTeamId : game.awayTeamId,
       home: swap ? game.awayTeamId : game.homeTeamId,
+      ...(game.startTs ? { startTs: game.startTs } : {}),
     });
     logs[id] = {
       ...blankLog(String(innings)),

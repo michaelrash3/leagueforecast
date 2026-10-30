@@ -3,7 +3,13 @@
  * what it is still missing to say more.
  */
 import { Suspense, useId, useState, type ComponentProps, type ReactNode } from "react";
-import { formatGameDate } from "../../lib/date";
+import {
+  byStart,
+  dayAndTime,
+  formatGameDate,
+  parseDateValue,
+  seasonStartMonth,
+} from "../../lib/date";
 import { displayName } from "../../lib/format";
 import type { SeasonFinal } from "../../lib/seasonFinal";
 import { confidenceTier, SMALL_SAMPLE_RISK } from "../../lib/confidenceTier";
@@ -73,7 +79,7 @@ function PredictionLine({
           {a} vs {b}
         </span>
         <span className="block text-xs font-semibold text-slate-500 dark:text-slate-400">
-          {game?.date ? formatGameDate(game.date) : "Date TBD"} · {pick}
+          {game?.date ? dayAndTime(formatGameDate(game.date), game.startTs) : "Date TBD"} · {pick}
         </span>
       </span>
       <span aria-hidden="true" className="shrink-0 text-slate-600 dark:text-slate-300">
@@ -124,7 +130,7 @@ function PredictionCard({
             {a} vs {b}
           </h3>
           <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
-            {game?.date ? formatGameDate(game.date) : "Date TBD"}
+            {game?.date ? dayAndTime(formatGameDate(game.date), game.startTs) : "Date TBD"}
           </p>
         </div>
         <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-semibold uppercase text-white dark:bg-white dark:text-slate-950">
@@ -276,6 +282,21 @@ export function DashboardView({
   // better part of three screens, with the power ratings below them all.
   const narrow = useNarrowViewport();
   const [openPrediction, setOpenPrediction] = useState<string | null>(null);
+  // The games next to be played, in the order they are: by day, then start, undated ones last.
+  // The forecast lists them as the schedule stores them, which need not be either.
+  const gameById = new Map(matchups.map((game) => [game.id, game]));
+  const seasonStart = seasonStartMonth(matchups.map((game) => game.date));
+  const upcoming = [...engine.predictions].sort((x, y) => {
+    const a = gameById.get(x.gameId);
+    const b = gameById.get(y.gameId);
+    if (!a || !b) return 0;
+    const aUndated = !a.date.trim();
+    const bUndated = !b.date.trim();
+    if (aUndated !== bUndated) return aUndated ? 1 : -1;
+    return (
+      parseDateValue(a.date, seasonStart) - parseDateValue(b.date, seasonStart) || byStart(a, b)
+    );
+  });
   const avgConfidence = engine.predictions.length
     ? Math.round(
         engine.predictions.reduce((sum, p) => sum + p.confidence.score, 0) /
@@ -324,7 +345,7 @@ export function DashboardView({
               Open Schedule
             </button>
           </div>
-          {engine.predictions
+          {upcoming
             .slice(0, 3)
             .map((p) =>
               narrow && openPrediction !== p.gameId ? (

@@ -8,7 +8,7 @@ import {
   rankTeams,
   standingsPoints,
 } from "../lib/sim";
-import { parseDateValue } from "../lib/date";
+import { byStart, parseDateValue } from "../lib/date";
 import type { Matchup, Settings, Team, TeamWithProjection } from "../lib/types";
 
 /** What the seed-impact pass worked out about a game; only the one number is read here. */
@@ -71,7 +71,10 @@ export function useClinchScenarios({
   const nextGameByTeam = useMemo(() => {
     const map = new Map<string, Matchup>();
     [...remainingGames]
-      .sort((a, b) => parseDateValue(a.date, seasonStart) - parseDateValue(b.date, seasonStart))
+      .sort(
+        (a, b) =>
+          parseDateValue(a.date, seasonStart) - parseDateValue(b.date, seasonStart) || byStart(a, b)
+      )
       .forEach((game) => {
         if (!map.has(game.away)) map.set(game.away, game);
         if (!map.has(game.home)) map.set(game.home, game);

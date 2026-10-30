@@ -1,5 +1,5 @@
 import { scoreSeenBy, type ScoutGame, type ScoutRankingRow } from "./teamRankings";
-import { byGameTimeNewest } from "./gameTime";
+import { byGameTimeNewest } from "./date";
 
 /** One game from one club's side: who, when, the score as its own schedule gave it. */
 export type ClubResult = {

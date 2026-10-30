@@ -9,7 +9,7 @@ import {
   type ScoutRankingRow,
   type UpcomingMatchup,
 } from "./teamRankings";
-import { byGameTime } from "./gameTime";
+import { byGameTime } from "./date";
 
 /*
  * What the My Team card and a club's panel say of how a club's season has gone beside what its

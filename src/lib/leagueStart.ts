@@ -90,6 +90,8 @@ export type StartGame = {
    */
   away: string;
   home: string;
+  /** When it starts, where GameChanger said (`ScoutGame.startTs`). */
+  startTs?: string;
   /** Its score, in the same order, once it is played. */
   awayRuns?: number;
   homeRuns?: number;
@@ -153,6 +155,7 @@ export const draftStart = ({
       date: day,
       away: game.teamAId,
       home: game.teamBId,
+      ...(game.startTs ? { startTs: game.startTs } : {}),
       ...(played ? { awayRuns: game.teamAScore ?? 0, homeRuns: game.teamBScore ?? 0 } : {}),
       ...(tournament ? { tournament } : {}),
       ...(disagree
@@ -210,7 +213,13 @@ export const seasonFromStart = (
     if (!first || !second) return;
     const [away, home] = choice.swap ? [second, first] : [first, second];
     const id = `game_${String(matchups.length + 1).padStart(3, "0")}_${away.id}_${home.id}`;
-    matchups.push({ id, date: leagueDate(game.date), away: away.id, home: home.id });
+    matchups.push({
+      id,
+      date: leagueDate(game.date),
+      away: away.id,
+      home: home.id,
+      ...(game.startTs ? { startTs: game.startTs } : {}),
+    });
     const log = blankLog(String(defaultInnings));
     if (game.awayRuns !== undefined && game.homeRuns !== undefined) {
       const [awayRuns, homeRuns] = choice.swap
