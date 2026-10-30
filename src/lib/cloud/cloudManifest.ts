@@ -58,8 +58,10 @@ const FORMAT_WITHOUT_EPOCH = 2;
  * 8: a League season says its team list is set (`Settings.teamsLocked`); dropped by an older build,
  * a list locked on one device would read as open on the next save, and its teams could be changed
  * after the schedule was meant to start from them.
+ * 9: a League game keeps its start (`Matchup.startTs`); dropped by an older build, the Schedule
+ * would lose a day's order and its times with that build's next save.
  */
-export const DATA_SCHEMA = 8;
+export const DATA_SCHEMA = 9;
 
 /**
  * Thrown for a manifest this build cannot read, which is never to be taken for no copy at all: the

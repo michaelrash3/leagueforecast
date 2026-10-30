@@ -1,6 +1,6 @@
 import { squadYearWindow } from "./seasons";
 import { isScoutGamePlayed, type ScoutGame, type ScoutTeam } from "./types";
-import { byGameTimeNewest } from "../gameTime";
+import { byGameTimeNewest } from "../date";
 
 /**
  * Which of a page's games the Games tab lists before it is asked for the rest: today's.

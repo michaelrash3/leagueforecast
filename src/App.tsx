@@ -135,6 +135,7 @@ import {
 } from "./hooks/useSimulationWorker";
 import { clinchingPathsForTeams, goldCutLineSnapshot } from "./lib/clinchingPaths";
 import {
+  byStart,
   formatGameDate,
   normalizeDateInput,
   parseDateValue,
@@ -1729,6 +1730,7 @@ export default function App() {
       if (!aFinal && aNoDate !== bNoDate) return aNoDate ? -1 : 1;
       return (
         parseDateValue(a.date, seasonStart) - parseDateValue(b.date, seasonStart) ||
+        byStart(a, b) ||
         a.id.localeCompare(b.id)
       );
     };
@@ -2135,6 +2137,7 @@ export default function App() {
       missingGamesToAdd,
       movedGames,
       movesToApply,
+      startsFromFill,
       summarizeLeagueFill,
     } = code;
     const seen = scoreFillSeen.current;
@@ -2167,7 +2170,20 @@ export default function App() {
         )
       : { matchups: [], logs: {} };
     setScoreFillPlan(null);
+    // Each matched game without a start takes the pool game's, which orders the day's games; it
+    // changes no score, so it is given even where nothing else is filled.
+    const giveStarts = () =>
+      setMatchups((prev) => {
+        const starts = startsFromFill(plan, prev);
+        return Object.keys(starts).length === 0
+          ? prev
+          : prev.map((game) => {
+              const startTs = starts[game.id];
+              return startTs ? { ...game, startTs } : game;
+            });
+      });
     if (result.filled === 0 && added.matchups.length === 0 && movedCount === 0) {
+      giveStarts();
       showToast(
         result.changed === 0
           ? "Nothing was filled in."
@@ -2196,6 +2212,7 @@ export default function App() {
       setMatchups((prev) => [...prev, ...added.matchups]);
       setLogs((prev) => ({ ...prev, ...added.logs }));
     }
+    giveStarts();
     if (movedCount > 0) {
       setMatchups((prev) =>
         prev.map((game) => {

@@ -4396,12 +4396,20 @@ group of 60 to the fit). Nothing more is read or published for it.
 
 Every Team Rankings list of games is in the order the games are played: by day, then by start
 time where GameChanger gave one (`ScoutGame.startTs`), a game with no start after the day's
-timed ones (`gameTime.ts`). Newest-first lists put a day's later game first. The start orders the
+timed ones (the game-time helpers in `date.ts`). Newest-first lists put a day's later game first. The start orders the
 list and is not shown. The lists a phone reads carry it to the minute: a club card's game as `t`,
 a page's Games list as `times` beside its games (so a reader from before them still takes each
 game's seven fields), both in whole minutes since 1970. A card's game is found for an edit by
 everything else it shows (`cardFixture`), so a card from before the start, or one carrying it in
 its own form, still names the stored game.
+
+League Standings keeps each game's start too (`Matchup.startTs`, data schema 9): from a start's
+draft (Team Rankings clubs or a GameChanger organization), on a game Fill adds, and on every game
+Fill matches that has none (`startsFromFill`; a start changes no score, so it is given whether or
+not the score is ticked). The Schedule, the Dashboard's upcoming games, the Playoff machine and
+each team's next game go by day and then start, and the Schedule and the Dashboard show the start
+in the device's own time ("5/3 · 10:30 AM"). The forecast's own order of the games left is not
+changed, so no odds move. A game typed in has no start and is listed after the day's timed games.
 
 ## A season's team list, then its schedule
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byGameTime, byGameTimeNewest, startMinutes, startTsOfMinutes } from "../gameTime";
+import { byGameTime, byGameTimeNewest, startMinutes, startTsOfMinutes } from "../date";
 
 /*
  * Games in the order they are played: by day, then by start time, untimed games after the day's

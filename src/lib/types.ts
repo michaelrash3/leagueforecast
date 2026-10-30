@@ -101,6 +101,12 @@ export type Matchup = {
   date: string;
   away: string;
   home: string;
+  /**
+   * When it starts, where GameChanger said (an instant in UTC, as `ScoutGame.startTs`): a day's
+   * games are listed in that order and the Schedule shows the time. Kept from a start's draft and
+   * from Fill; absent on a game typed in.
+   */
+  startTs?: string;
 };
 
 export type Confidence = "Low" | "Medium" | "High";

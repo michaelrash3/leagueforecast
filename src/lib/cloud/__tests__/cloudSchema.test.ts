@@ -94,7 +94,7 @@ const SHAPES_NOW = {
       "settings",
     ]),
     team: fieldsOf<TeamBase>()(["id", "name", "scoutTeamId"]),
-    matchup: fieldsOf<Matchup>()(["id", "date", "away", "home"]),
+    matchup: fieldsOf<Matchup>()(["id", "date", "away", "home", "startTs"]),
     log: fieldsOf<GameLog>()([
       "awayRuns",
       "awayHits",
@@ -336,6 +336,8 @@ const SHAPES: readonly { schema: number; fingerprint: string }[] = [
   { schema: 7, fingerprint: "5e30efea7c9b419ddbfc15aa6a8e05ed4e093ab78565a9bae0af66adb14abccc" },
   // A League season says its team list is set (`Settings.teamsLocked`).
   { schema: 8, fingerprint: "3a1afc9638ce1c856df0411e5119ec4b0c049e4946b92a383f82c6a2d511678a" },
+  // A League game keeps its start (`Matchup.startTs`).
+  { schema: 9, fingerprint: "f7478cdf292339f5449f49e6e974da17cb1d3d34aebe84a0f7954f698c4c27e0" },
 ];
 
 /** Order-free, so a list tidied into another order is not taken for a new shape. */
