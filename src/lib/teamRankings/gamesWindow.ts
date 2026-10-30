@@ -1,5 +1,6 @@
 import { squadYearWindow } from "./seasons";
 import { isScoutGamePlayed, type ScoutGame, type ScoutTeam } from "./types";
+import { byGameTimeNewest } from "../gameTime";
 
 /**
  * Which of a page's games the Games tab lists before it is asked for the rest: today's.
@@ -17,14 +18,13 @@ import { isScoutGamePlayed, type ScoutGame, type ScoutTeam } from "./types";
  */
 
 /**
- * A page's stored games as the Games tab lists them, newest first: the games filed on `pageId` out
- * of a squad year's stored ones (`loadScoutGamesForYear`), in their stored order within a day.
+ * A page's stored games as the Games tab lists them, newest first by day and start
+ * (`byGameTimeNewest`): the games filed on `pageId` out of a squad year's stored ones
+ * (`loadScoutGamesForYear`).
  * League Standings fixtures are not among them.
  */
 export const loggedGamesOn = (yearGames: readonly ScoutGame[], pageId: string): ScoutGame[] =>
-  yearGames
-    .filter((game) => game.ageGroupId === pageId)
-    .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+  yearGames.filter((game) => game.ageGroupId === pageId).sort(byGameTimeNewest);
 
 /** What a club taken off as plainly made up is called on a Games list. */
 export const REMOVED_ON_LIST = " (removed for you)";

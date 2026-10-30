@@ -1,4 +1,5 @@
 import type { ScoutGame } from "../../teamRankings";
+import { startMinutes, startTsOfMinutes } from "../../gameTime";
 
 /**
  * What a published Games list is, as both its publisher (`games.ts`) and a member's device read
@@ -43,6 +44,12 @@ export type GamesWire = {
   page: string;
   teams: Array<[id: string, name: string] | [id: string]>;
   games: GameWire[];
+  /**
+   * Each game's start in whole minutes since 1970 (`startMinutes`), null where it has none, in the
+   * order of `games`; left out when no game has one. Beside the games rather than in them, so a
+   * reader from before it, which takes a game of exactly seven fields, still reads the list.
+   */
+  times?: Array<number | null>;
 };
 
 /** A list as it is published, each club named once. Every game must be filed on the page. */
@@ -70,7 +77,13 @@ export const encodeGames = (view: GamesView): GamesWire => {
       game.excluded ? 1 : 0,
     ];
   });
-  return { page: view.page, teams, games };
+  const times = view.games.map((game) => startMinutes(game.startTs) ?? null);
+  return {
+    page: view.page,
+    teams,
+    games,
+    ...(times.some((time) => time !== null) ? { times } : {}),
+  };
 };
 
 const isRecord = (raw: unknown): raw is Record<string, unknown> =>
@@ -100,6 +113,16 @@ export const coerceGames = (raw: unknown): GamesView | null => {
     seen.add(id);
     if (typeof name === "string") names.set(id, name);
   }
+  // The starts beside the games, read only where they match the games one for one: a list from
+  // before them has none, and its games are read as they always were.
+  const times =
+    Array.isArray(raw.times) &&
+    raw.times.length === raw.games.length &&
+    raw.times.every(
+      (time) => time === null || (typeof time === "number" && Number.isSafeInteger(time))
+    )
+      ? (raw.times as Array<number | null>)
+      : undefined;
   const games: ScoutGame[] = [];
   for (const [at, entry] of (raw.games as unknown[]).entries()) {
     if (!Array.isArray(entry) || entry.length !== 7) return null;
@@ -118,6 +141,7 @@ export const coerceGames = (raw: unknown): GamesView | null => {
       ...(scoreA === null ? {} : { teamAScore: scoreA }),
       ...(scoreB === null ? {} : { teamBScore: scoreB }),
       ...(date ? { date } : {}),
+      ...(typeof times?.[at] === "number" ? { startTs: startTsOfMinutes(times[at]) } : {}),
       ...(event ? { event } : {}),
       ...(excluded === 1 ? { excluded: true } : {}),
     });

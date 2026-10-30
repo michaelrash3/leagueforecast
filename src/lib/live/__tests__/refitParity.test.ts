@@ -252,6 +252,13 @@ describe("a fixture named by its place on a club's card", () => {
     expect(
       cardFixture([GAMES[0]!, { ...GAMES[1]!, startTs: "2027-04-20T18:00:00Z" }], shown(1))?.id
     ).toBe("g2");
+    // A card carries the start to the minute, in its own form; the game is still the stored one.
+    expect(
+      cardFixture([GAMES[0]!, { ...GAMES[1]!, startTs: "2027-04-20T18:00:00Z" }], {
+        ...shown(1),
+        startTs: "2027-04-20T18:00:00.000Z",
+      })?.id
+    ).toBe("g2");
   });
 
   it("is the one game that reads so anywhere, once the card has moved", () => {
