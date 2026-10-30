@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
+import { Ago, CountUp, Move } from "../SinceParts";
 import type { GameLog, Matchup } from "../../lib/types";
 import {
   changesSince,
@@ -80,57 +81,7 @@ export function useSinceLastLook(input: LookInput | undefined) {
   };
 }
 
-/** Whether to show a number's end at once: motion unwanted, or no frames to run it in. */
-const still = () =>
-  typeof window.matchMedia !== "function" ||
-  typeof requestAnimationFrame !== "function" ||
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-/** A number that runs from `from` to `to` once, or simply shows `to` where motion is unwanted. */
-function CountUp({ from, to, suffix = "" }: { from: number; to: number; suffix?: string }) {
-  const [noMotion] = useState(still);
-  const [value, setValue] = useState(from);
-  useEffect(() => {
-    if (noMotion) return;
-    const start = performance.now();
-    let frame = 0;
-    const step = (time: number) => {
-      const t = Math.min(1, (time - start) / 800);
-      setValue(Math.round(from + (to - from) * (1 - (1 - t) ** 3)));
-      if (t < 1) frame = requestAnimationFrame(step);
-    };
-    frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
-  }, [from, to, noMotion]);
-  return (
-    <span className="tabular-nums">
-      {noMotion ? to : value}
-      {suffix}
-    </span>
-  );
-}
-
 const pct = (chance: number) => `${Math.round(chance * 100)}%`;
-
-/** The arrow and the size of a move, a lower place being better. */
-function Move({ by, better }: { by: number; better: boolean }) {
-  if (by === 0) return <span className="text-slate-600 dark:text-slate-300">no change</span>;
-  return (
-    <span
-      className={`font-black ${better ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300"}`}
-    >
-      {better ? "▲" : "▼"}
-      {Math.abs(by)}
-    </span>
-  );
-}
-
-function ago(since: number) {
-  const hours = Math.round((Date.now() - since) / 3_600_000);
-  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
-  const days = Math.round(hours / 24);
-  return days === 1 ? "yesterday" : `${days} days ago`;
-}
 
 /** The card at the top of the Dashboard: what changed since the last visit, until put away. */
 export function SinceLastLookCard({
@@ -151,7 +102,7 @@ export function SinceLastLookCard({
           Since you last looked
         </h2>
         <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-          {ago(changes.since)}
+          <Ago since={changes.since} />
         </span>
       </div>
 
