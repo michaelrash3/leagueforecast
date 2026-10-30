@@ -1,0 +1,306 @@
+import { useEffect, useLayoutEffect, useState } from "react";
+import type { GameLog, Matchup } from "../../lib/types";
+import {
+  changesSince,
+  lookGames,
+  readLook,
+  saveLook,
+  takeLook,
+  type LookChanges,
+  type LookRow,
+  type LookSnapshot,
+} from "../../lib/sinceLastLook";
+
+/** What the Dashboard hands the card: the season as it stands, and whether its odds are settled. */
+export type LookInput = {
+  seasonId: string;
+  /** False until the Gold odds describe this season: a look taken before would keep wrong odds. */
+  ready: boolean;
+  /** Each team with its name as shown. */
+  rows: readonly LookRow[];
+  matchups: readonly Matchup[];
+  logs: Readonly<Record<string, GameLog>>;
+  predictions: readonly { gameId: string; teamAId: string; pA: number }[];
+  followed: string | null;
+  withGold: boolean;
+};
+
+/** A look older than this is compared with; a newer one is a visit still going on. */
+const VISIT_GAP_MS = 60 * 60 * 1000;
+
+/** What the open season's visit settled on: the changes to tell, and a look to keep, if any. */
+type Held = { seasonId: string; changes: LookChanges | null; keep?: LookSnapshot };
+
+const lookAt = (input: LookInput, at: number) =>
+  takeLook(
+    at,
+    input.rows,
+    lookGames(input.matchups, input.logs),
+    input.predictions,
+    input.withGold
+  );
+
+const decide = (input: LookInput, at: number): Held => {
+  const now = lookAt(input, at);
+  const prev = readLook(input.seasonId);
+  // The first visit has nothing to compare with, so it only keeps where the season stands.
+  if (!prev) return { seasonId: input.seasonId, changes: null, keep: now };
+  if (now.at - prev.at < VISIT_GAP_MS) return { seasonId: input.seasonId, changes: null };
+  const games = lookGames(input.matchups, input.logs);
+  const changes = changesSince(prev, now, input.rows, games, input.followed);
+  return changes
+    ? { seasonId: input.seasonId, changes }
+    : { seasonId: input.seasonId, changes: null, keep: now };
+};
+
+/**
+ * Compares the season with the last look once per season opened, and holds what changed until it
+ * is put away. Nothing is read or written but this device's own storage.
+ */
+export function useSinceLastLook(input: LookInput | undefined) {
+  const [held, setHeld] = useState<Held | null>(null);
+  // When the Dashboard opened: the visit's time, whichever render the season is settled in.
+  const [openedAt] = useState(() => Date.now());
+  // Settled once the forecast describes the season, and only then: a look taken before would keep
+  // odds and chances from before the latest scores.
+  if (input?.ready && held?.seasonId !== input.seasonId) setHeld(decide(input, openedAt));
+
+  useEffect(() => {
+    if (held?.keep) saveLook(held.seasonId, held.keep);
+  }, [held]);
+
+  if (!input || !held?.changes || held.seasonId !== input.seasonId) return null;
+  return {
+    changes: held.changes,
+    /** Keeps the season as it stands now, so the next visit is told only what comes after. */
+    dismiss: () => {
+      saveLook(input.seasonId, lookAt(input, Date.now()));
+      setHeld({ seasonId: input.seasonId, changes: null });
+    },
+  };
+}
+
+/** Whether to show a number's end at once: motion unwanted, or no frames to run it in. */
+const still = () =>
+  typeof window.matchMedia !== "function" ||
+  typeof requestAnimationFrame !== "function" ||
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/** A number that runs from `from` to `to` once, or simply shows `to` where motion is unwanted. */
+function CountUp({ from, to, suffix = "" }: { from: number; to: number; suffix?: string }) {
+  const [noMotion] = useState(still);
+  const [value, setValue] = useState(from);
+  useEffect(() => {
+    if (noMotion) return;
+    const start = performance.now();
+    let frame = 0;
+    const step = (time: number) => {
+      const t = Math.min(1, (time - start) / 800);
+      setValue(Math.round(from + (to - from) * (1 - (1 - t) ** 3)));
+      if (t < 1) frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [from, to, noMotion]);
+  return (
+    <span className="tabular-nums">
+      {noMotion ? to : value}
+      {suffix}
+    </span>
+  );
+}
+
+const pct = (chance: number) => `${Math.round(chance * 100)}%`;
+
+/** The arrow and the size of a move, a lower place being better. */
+function Move({ by, better }: { by: number; better: boolean }) {
+  if (by === 0) return <span className="text-slate-600 dark:text-slate-300">no change</span>;
+  return (
+    <span
+      className={`font-black ${better ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300"}`}
+    >
+      {better ? "▲" : "▼"}
+      {Math.abs(by)}
+    </span>
+  );
+}
+
+function ago(since: number) {
+  const hours = Math.round((Date.now() - since) / 3_600_000);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? "yesterday" : `${days} days ago`;
+}
+
+/** The card at the top of the Dashboard: what changed since the last visit, until put away. */
+export function SinceLastLookCard({
+  changes,
+  onDismiss,
+}: {
+  changes: LookChanges;
+  onDismiss: () => void;
+}) {
+  const { team } = changes;
+  return (
+    <section
+      aria-label="Since you last looked"
+      className="rounded-lg border border-slate-950 bg-white p-5 shadow-xs dark:border-white dark:bg-slate-900"
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-xs font-black uppercase tracking-[0.18em] text-slate-950 dark:text-white">
+          Since you last looked
+        </h2>
+        <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+          {ago(changes.since)}
+        </span>
+      </div>
+
+      {team && (
+        <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
+            <dt className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+              {team.name}
+            </dt>
+            <dd className="mt-1 text-2xl font-black text-slate-950 dark:text-white">
+              <span className="sr-only">
+                Place {team.placeBefore} then, {team.placeNow} now
+              </span>
+              <span aria-hidden="true">
+                #{team.placeBefore} → #<CountUp from={team.placeBefore} to={team.placeNow} />{" "}
+                <span className="text-sm">
+                  <Move
+                    by={team.placeBefore - team.placeNow}
+                    better={team.placeNow < team.placeBefore}
+                  />
+                </span>
+              </span>
+            </dd>
+          </div>
+          {team.goldBefore !== undefined && team.goldNow !== undefined && (
+            <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
+              <dt className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                Gold odds
+              </dt>
+              <dd className="mt-1 text-2xl font-black text-slate-950 dark:text-white">
+                <span className="sr-only">
+                  {Math.round(team.goldBefore)}% then, {Math.round(team.goldNow)}% now
+                </span>
+                <span aria-hidden="true">
+                  {Math.round(team.goldBefore)}% →{" "}
+                  <CountUp
+                    from={Math.round(team.goldBefore)}
+                    to={Math.round(team.goldNow)}
+                    suffix="%"
+                  />{" "}
+                  <span className="text-sm">
+                    <Move
+                      by={Math.round(team.goldNow) - Math.round(team.goldBefore)}
+                      better={team.goldNow > team.goldBefore}
+                    />
+                  </span>
+                </span>
+              </dd>
+            </div>
+          )}
+        </dl>
+      )}
+
+      <ul className="mt-4 space-y-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+        {changes.results.map((result) => (
+          <li key={result.gameId}>
+            <span
+              className={`mr-1 font-black ${result.won === true ? "text-emerald-700 dark:text-emerald-300" : result.won === false ? "text-red-700 dark:text-red-300" : ""}`}
+            >
+              {result.won === true ? "W" : result.won === false ? "L" : "T"} {result.score}
+            </span>{" "}
+            vs {result.opponent}
+            {result.chance !== undefined && (
+              <span className="text-slate-600 dark:text-slate-300">
+                {" "}
+                · you had {pct(result.chance)}
+              </span>
+            )}
+          </li>
+        ))}
+        {changes.results.length === 0 && changes.newFinals > 0 && (
+          <li>
+            {changes.newFinals} new result{changes.newFinals === 1 ? "" : "s"} in the league.
+          </li>
+        )}
+        {changes.upset && (
+          <li>
+            <span className="font-black">Upset:</span> {changes.upset.winner} over{" "}
+            {changes.upset.loser} {changes.upset.score}
+            <span className="text-slate-600 dark:text-slate-300">
+              {" "}
+              · they had {pct(changes.upset.chance)}
+            </span>
+          </li>
+        )}
+        {(changes.passedYou.length > 0 || changes.youPassed.length > 0) && (
+          <li>
+            {changes.youPassed.length > 0 && (
+              <>
+                <span className="font-black">You passed:</span> {changes.youPassed.join(", ")}
+              </>
+            )}
+            {changes.youPassed.length > 0 && changes.passedYou.length > 0 && " · "}
+            {changes.passedYou.length > 0 && (
+              <>
+                <span className="font-black">Passed you:</span> {changes.passedYou.join(", ")}
+              </>
+            )}
+          </li>
+        )}
+        {changes.climber && (
+          <li>
+            <span className="font-black">Biggest climb:</span> {changes.climber.name}, #
+            {changes.climber.from} → #{changes.climber.to}
+          </li>
+        )}
+      </ul>
+
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="mt-4 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+      >
+        Got it
+      </button>
+    </section>
+  );
+}
+
+/**
+ * The card as the Dashboard draws it, fetched with this file as the Dashboard opens. It tells the
+ * Dashboard whether it is up (`onShown`), so the list of other devices' changes stays where it is
+ * and is only hidden meanwhile: drawn in the card's place until this file landed, the list was
+ * drawn afresh once it did, and a Got it pressed on it as first drawn did nothing.
+ */
+export function SinceLastLook({
+  look,
+  onDismiss,
+  onShown,
+}: {
+  look: LookInput;
+  onDismiss: () => void;
+  onShown: (shown: boolean) => void;
+}) {
+  const lastLook = useSinceLastLook(look);
+  const shown = lastLook !== null;
+  // Before the page is painted, so the list and the card are never both on screen.
+  useLayoutEffect(() => {
+    onShown(shown);
+    return () => onShown(false);
+  }, [shown, onShown]);
+  if (!lastLook) return null;
+  return (
+    <SinceLastLookCard
+      changes={lastLook.changes}
+      onDismiss={() => {
+        lastLook.dismiss();
+        onDismiss();
+      }}
+    />
+  );
+}

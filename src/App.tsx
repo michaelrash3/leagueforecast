@@ -2921,6 +2921,10 @@ export default function App() {
         : null,
     [hasCutLine, oddsPending, finalLogs, storedFinalLogs, dashboardRows]
   );
+  // The big "Since you last looked" card reads the season once the forecast describes it as it
+  // stands (`SinceLastLook`).
+  const lookReady =
+    dashboardRows.length > 0 && finalLogs === storedFinalLogs && (!hasCutLine || !oddsPending);
   const digest = useSeasonDigest({
     store: seasonStore,
     race: digestRace,
@@ -3712,6 +3716,15 @@ export default function App() {
                     />
                   ) : activeView === "dashboard" ? (
                     <DashboardView
+                      look={{
+                        seasonId: activeSeasonId,
+                        ready: lookReady,
+                        rows: dashboardRows,
+                        matchups,
+                        logs,
+                        followed: ourTeamId ?? null,
+                        withGold: hasCutLine,
+                      }}
                       seasonFinal={seasonFinal}
                       hasCutLine={hasCutLine}
                       engine={predictionEngine}

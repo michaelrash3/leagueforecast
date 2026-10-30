@@ -63,22 +63,22 @@ starts in its June. A season inside one calendar year is ordered exactly as befo
 
 ## Features
 
-| Area                      | Highlights                                                                                                                                              |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Standings**             | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                                                       |
-| **Games**                 | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull, a league site's schedule pasted in.                              |
-| **Data Quality**          | Findings on the season's games, teams and settings, grouped by severity, with links to each, previewed repairs and undo.                                |
-| **Since you last looked** | What another device changed since this one last looked, on the Dashboard until seen; opt-in notifications while the app is open.                        |
-| **Season Predictor**      | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                                             |
-| **Team drawer**           | Team stats, seed range, magic/elimination numbers, swing games, compare view.                                                                           |
-| **Our team**              | The team this browser follows leads the Dashboard: place, record, Gold % and its last move, next game and seeds, magic number, a jump to enter a score. |
-| **Settings**              | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                                                   |
-| **Power UX**              | Shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                                                                   |
-| **Installable PWA**       | Installable via `vite-plugin-pwa` (basic precache).                                                                                                     |
-| **A11y**                  | Dialog semantics, focus management, keyboard nav, labeled inputs.                                                                                       |
-| **Perf**                  | Worker simulation, debounced updates, memoized lookups/scenarios.                                                                                       |
-| **Team Rankings**         | A page per age level, national top 25 and state top 10, cross-age ratings, scouting report with next-game projections, CSV/paste import, team detail.   |
-| **GameChanger**           | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval.                                                              |
+| Area                      | Highlights                                                                                                                                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Standings**             | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                                                                                                 |
+| **Games**                 | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull, a league site's schedule pasted in.                                                                        |
+| **Data Quality**          | Findings on the season's games, teams and settings, grouped by severity, with links to each, previewed repairs and undo.                                                                          |
+| **Since you last looked** | What another device changed since this one last looked, on the Dashboard until seen; a card of what moved for the followed team since the last visit; opt-in notifications while the app is open. |
+| **Season Predictor**      | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                                                                                       |
+| **Team drawer**           | Team stats, seed range, magic/elimination numbers, swing games, compare view.                                                                                                                     |
+| **Our team**              | The team this browser follows leads the Dashboard: place, record, Gold % and its last move, next game and seeds, magic number, a jump to enter a score.                                           |
+| **Settings**              | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                                                                                             |
+| **Power UX**              | Shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                                                                                                             |
+| **Installable PWA**       | Installable via `vite-plugin-pwa` (basic precache).                                                                                                                                               |
+| **A11y**                  | Dialog semantics, focus management, keyboard nav, labeled inputs.                                                                                                                                 |
+| **Perf**                  | Worker simulation, debounced updates, memoized lookups/scenarios.                                                                                                                                 |
+| **Team Rankings**         | A page per age level, national top 25 and state top 10, cross-age ratings, scouting report with next-game projections, CSV/paste import, team detail.                                             |
+| **GameChanger**           | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval.                                                                                                        |
 
 ## Architecture
 
@@ -4601,6 +4601,27 @@ and 1 clinch"), then listed, the followed team's first, each a link to its game 
   not put its look back when it hears it go, nor when anything is done in it afterwards: a tab
   whose look another tab let go of, by a deletion, a restore, a cloud merge or Start again,
   keeps none of that season until it opens one again.
+
+**The big card.** Opening the Dashboard after an hour or more away starts with a card of what
+moved for the team followed since the last visit, counting what was entered on this device too,
+which the list above never tells (`src/lib/sinceLastLook.ts`, `SinceLastLook.tsx`): its place and
+Gold odds then and now, the numbers running from one to the other (shown at once where motion is
+turned down); each result since, with the chance the team was given while the game was still to
+play; the upset of the stretch, the new final whose winner had been given the least chance, under
+one in two; and who passed the team and whom it passed. With no team followed it gives the new
+results' count, the upset and the biggest climb. The card stands in the list's place while it is
+up, and **Got it** puts both away.
+
+- **A look, one per season, on this device only** (`lf_last_look_v1_<season>`): each team's place
+  and Gold odds, the games final, and the chance each game still to play was given, which nothing
+  else keeps once the game is final. The first visit only keeps one; later, a look an hour old or
+  more is compared with, and kept again at **Got it**, or at once when nothing a person would want
+  told moved (no new final, no place changed, the Gold odds within a point). Left without Got it,
+  the card is there the next time.
+- **Taken once the forecast describes the season:** while the Gold odds are still being worked
+  out after the latest scores, a look would keep the odds from before them.
+- **Fetched as the Dashboard opens**, a file of its own (3.0 KB), so the Dashboard's own load and
+  the first download carry only its place. Nothing is read from or written to the cloud.
 
 **Notifications**, in Settings, are off until turned on, and the browser is asked for permission
 only then. Each kind is a choice of its own: the followed team's finals and corrected scores, its

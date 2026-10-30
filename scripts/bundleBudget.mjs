@@ -127,13 +127,19 @@ const DIST = "dist";
  * first download, 253.4 KB against 253.3 KB, carries the few lines of it. Dashboard to 6.8 KB on
  * 29 Oct 2026 for the phone's Dashboard, 6.5 KB against 6.2 KB before: each upcoming game as one
  * line on a phone until it is opened (`PredictionLine`) and the width read that decides it.
+ * Dashboard to 7.0 KB on 30 Oct 2026 for "Since you last looked", 6.9 KB against 6.7 KB before
+ * (6,894 bytes against 6,688): the load of the card and the boundary around it, the forecasts and
+ * names it is handed, and the digest it stands in for. The card itself is a view of its own below,
+ * fetched as the Dashboard opens, with a limit set as the small views' were, 1.5 KB above what it
+ * measured; it builds the season's games from the records App holds rather than App building them,
+ * which had put the first download at 255.0 KB.
  */
 const BUDGET = {
   firstDownload: 255_000,
   entryChunk: 97_500,
   css: 15_200,
   views: {
-    Dashboard: 6_800,
+    Dashboard: 7_000,
     "Power Ratings": 3_800,
     Schedule: 8_200,
     Standings: 8_000,
@@ -142,6 +148,7 @@ const BUDGET = {
     "Data Quality": 3_500,
     Settings: 13_700,
     "Seasons at a glance": 4_400,
+    "Since you last looked": 4_500,
     "Team Rankings": 166_500,
   },
 };
@@ -161,6 +168,7 @@ const VIEWS = {
     "src/components/league/SettingsView.tsx",
   ],
   "Seasons at a glance": ["src/components/league/SeasonsAtAGlance.tsx"],
+  "Since you last looked": ["src/components/league/SinceLastLook.tsx"],
   "Team Rankings": ["src/components/TeamRankingsView.tsx"],
 };
 
