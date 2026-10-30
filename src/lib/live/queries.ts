@@ -430,7 +430,11 @@ const clearableOn = (today: string) =>
  * published; null when none does, or more than one and none at its place.
  */
 export const cardFixture = (games: readonly ScoutGame[], shown: ScoutGame): ScoutGame | null => {
-  const reads = (game: ScoutGame) => sameValue({ ...panelGame(game), id: shown.id }, shown);
+  // A game's start is on a card only to order a day's games, to the minute (`startMinutes`), and
+  // a card published before it has none: the game is found by everything else a card shows.
+  const lineOf = ({ startTs: _start, ...line }: ScoutGame) => line;
+  const reads = (game: ScoutGame) =>
+    sameValue({ ...lineOf(panelGame(game)), id: shown.id }, lineOf(shown));
   const at = /^\d+$/.test(shown.id) ? Number(shown.id) : -1;
   const there = games[at];
   if (there && reads(there)) return there;

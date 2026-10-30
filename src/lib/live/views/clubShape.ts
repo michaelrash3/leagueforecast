@@ -1,6 +1,7 @@
 import { coerceScoutTeams } from "../../teamRankingsCompact";
 import type { ClubAge } from "../../teamRankings/clubAge";
 import type { ScoutGame, ScoutTeam } from "../../teamRankings";
+import { startMinutes, startTsOfMinutes } from "../../gameTime";
 
 /**
  * What a published club card is, as both its publisher (`clubs.ts`) and a member's device read it:
@@ -72,8 +73,10 @@ export type ClubCard = {
  * A game on the wire, from the club's side: `s` 0 when the club is side A and 1 when it is side
  * B; `o` its opponent's place in the card's `opponents`, or -1 for a game against its own name;
  * `p` the page it is filed on; `a` and `b` the scores; `ra` and `rb` side B's own report of them;
- * `x` set not to count; `c` the margin a person confirmed; `d` and `e` its day and event; `la` and
- * `lb` each side's level; `n` its stored id, for a game the club has by a name alone (`byName`).
+ * `x` set not to count; `c` the margin a person confirmed; `d` and `e` its day and event; `t` its
+ * start in whole minutes since 1970 (`startMinutes`), which only orders a day's games; `la` and `lb`
+ * each side's level; `n` its stored id, for a game the club has by a name alone (`byName`). A
+ * reader from before `t` passes over it.
  */
 type GameWire = {
   s: 0 | 1;
@@ -89,6 +92,7 @@ type GameWire = {
   c?: number;
   d?: string;
   e?: string;
+  t?: number;
   la?: number;
   lb?: number;
   n?: string;
@@ -153,6 +157,7 @@ export const encodeClubCard = (card: ClubCard): CardWire => {
       ...(game.scoreConfirmed === undefined ? {} : { c: game.scoreConfirmed }),
       ...(game.date === undefined ? {} : { d: game.date }),
       ...(game.event === undefined ? {} : { e: game.event }),
+      ...(startMinutes(game.startTs) === undefined ? {} : { t: startMinutes(game.startTs) }),
       ...(game.ageLevelA === undefined ? {} : { la: game.ageLevelA }),
       ...(game.ageLevelB === undefined ? {} : { lb: game.ageLevelB }),
       ...(card.byName?.[game.id] === undefined ? {} : { n: card.byName[game.id] }),
@@ -215,6 +220,7 @@ const gameOf = (
     ["c", isScore],
     ["d", isText],
     ["e", isText],
+    ["t", (value) => typeof value === "number" && Number.isSafeInteger(value)],
     ["la", isLevel],
     ["lb", isLevel],
     ["n", (value) => isText(value) && value !== ""],
@@ -238,6 +244,7 @@ const gameOf = (
     ...(raw.c === undefined ? {} : { scoreConfirmed: raw.c as number }),
     ...(raw.d === undefined ? {} : { date: raw.d as string }),
     ...(raw.e === undefined ? {} : { event: raw.e as string }),
+    ...(raw.t === undefined ? {} : { startTs: startTsOfMinutes(raw.t as number) }),
     ...(raw.la === undefined ? {} : { ageLevelA: raw.la as number }),
     ...(raw.lb === undefined ? {} : { ageLevelB: raw.lb as number }),
   };

@@ -1,9 +1,12 @@
 import { scoreSeenBy, type ScoutGame, type ScoutRankingRow } from "./teamRankings";
+import { byGameTimeNewest } from "./gameTime";
 
 /** One game from one club's side: who, when, the score as its own schedule gave it. */
 export type ClubResult = {
   gameId: string;
   date: string;
+  /** When it started, where GameChanger said: a day's games go in that order. */
+  startTs?: string;
   opponentId: string;
   opponentName: string;
   /** The opponent's place on this board, when it has one. */
@@ -85,7 +88,7 @@ const mean = (values: readonly number[]) =>
  * on the live board reads a club's games off its card, whose ids are only their places
  * (`scoutingFromCards.ts`), in the pool's order.
  */
-const byDateDesc = (x: ClubResult, y: ClubResult) => y.date.localeCompare(x.date);
+const byDateDesc = (x: ClubResult, y: ClubResult) => byGameTimeNewest(x, y);
 const rankOr = (rank: number | undefined, fallback: number) => rank ?? fallback;
 
 /**
@@ -120,6 +123,7 @@ export const compareClubs = (
         {
           gameId: game.id,
           date: game.date ?? "",
+          ...(game.startTs ? { startTs: game.startTs } : {}),
           opponentId,
           opponentName: nameOf(opponentId),
           ...(opponentRank === undefined ? {} : { opponentRank }),

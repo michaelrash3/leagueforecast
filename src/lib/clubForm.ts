@@ -9,6 +9,7 @@ import {
   type ScoutRankingRow,
   type UpcomingMatchup,
 } from "./teamRankings";
+import { byGameTime } from "./gameTime";
 
 /*
  * What the My Team card and a club's panel say of how a club's season has gone beside what its
@@ -83,11 +84,7 @@ const ratedGames = (
       expected: odds.projectedMargin,
     });
   }
-  return out.sort(
-    (a, b) =>
-      (a.game.date ?? "").localeCompare(b.game.date ?? "") ||
-      (a.game.startTs ?? "").localeCompare(b.game.startTs ?? "")
-  );
+  return out.sort((a, b) => byGameTime(a.game, b.game));
 };
 
 /**
@@ -193,7 +190,7 @@ const onWeekend = (date: string): boolean => {
 export const weekendAhead = (upcoming: readonly UpcomingMatchup[]): WeekendAhead | undefined => {
   const dated = upcoming
     .filter((row) => weekEndingSunday(row.date) !== undefined && onWeekend(row.date))
-    .sort((a, b) => a.date.localeCompare(b.date));
+    .sort(byGameTime);
   const first = dated[0];
   if (!first) return undefined;
   const sunday = weekEndingSunday(first.date)!;

@@ -86,6 +86,7 @@ import {
   SCOUT_ID_PREFIX,
   teamNameKey,
 } from "./teamRankings/names";
+import { byGameTime, byGameTimeNewest } from "./gameTime";
 
 /**
  * Team Rankings is a separate, age-group-scoped-but-globally-rostered ranking pool: teams are a
@@ -3821,6 +3822,8 @@ export type UpcomingMatchup = {
   gameId: string;
   /** As the source gave it, "2026-09-20". Empty when the schedule carries no date. */
   date: string;
+  /** When it starts, where GameChanger said (`ScoutGame.startTs`): a day's games go in that order. */
+  startTs?: string;
   event?: string;
   opponentId: string;
   opponentName: string;
@@ -3871,6 +3874,7 @@ export const buildUpcomingSchedule = (
       const base = {
         gameId: game.id,
         date: game.date ?? "",
+        ...(game.startTs ? { startTs: game.startTs } : {}),
         ...(game.event ? { event: game.event } : {}),
         opponentId,
         opponentName: nameById.get(opponentId) ?? "Unknown team",
@@ -3894,7 +3898,7 @@ export const buildUpcomingSchedule = (
     .sort(
       (a, b) =>
         (a.date ? 0 : 1) - (b.date ? 0 : 1) ||
-        a.date.localeCompare(b.date) ||
+        byGameTime(a, b) ||
         a.opponentName.localeCompare(b.opponentName)
     );
 };
@@ -5013,9 +5017,9 @@ export const pulledGcTeamIds = (teams: readonly ScoutTeam[]): Set<string> => {
   return ids;
 };
 
-/** Every game this team has, newest first, across every age group. */
+/** Every game this team has, newest first by day and start (`byGameTimeNewest`), across every age group. */
 export const gamesForTeam = (teamId: string, games: ScoutGame[]): ScoutGame[] =>
   games
     .filter((game) => game.teamAId === teamId || game.teamBId === teamId)
     .slice()
-    .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+    .sort(byGameTimeNewest);

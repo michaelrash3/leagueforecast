@@ -32,6 +32,8 @@ export const panelGame = (game: ScoutGame): ScoutGame => ({
   ...(game.countedElsewhere ? { countedElsewhere: true as const } : {}),
   ...(game.scoreConfirmed === undefined ? {} : { scoreConfirmed: game.scoreConfirmed }),
   ...(game.date === undefined ? {} : { date: game.date }),
+  // Its start, which only orders a day's games (`byGameTime`); no line reads it.
+  ...(game.startTs === undefined ? {} : { startTs: game.startTs }),
   ...(game.event === undefined ? {} : { event: game.event }),
   ...(game.ageLevelA === undefined ? {} : { ageLevelA: game.ageLevelA }),
   ...(game.ageLevelB === undefined ? {} : { ageLevelB: game.ageLevelB }),

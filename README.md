@@ -4392,6 +4392,17 @@ nothing in the pool says which other leagues there are: a league is what its sea
 the groups the fit finds by who played whom are not leagues (the Longhorns' league of 8 was a
 group of 60 to the fit). Nothing more is read or published for it.
 
+## Games in playing order
+
+Every Team Rankings list of games is in the order the games are played: by day, then by start
+time where GameChanger gave one (`ScoutGame.startTs`), a game with no start after the day's
+timed ones (`gameTime.ts`). Newest-first lists put a day's later game first. The start orders the
+list and is not shown. The lists a phone reads carry it to the minute: a club card's game as `t`,
+a page's Games list as `times` beside its games (so a reader from before them still takes each
+game's seven fields), both in whole minutes since 1970. A card's game is found for an edit by
+everything else it shows (`cardFixture`), so a card from before the start, or one carrying it in
+its own form, still names the stored game.
+
 ## A season's team list, then its schedule
 
 A new season starts with its teams, saved before any game exists: typed one a line on the

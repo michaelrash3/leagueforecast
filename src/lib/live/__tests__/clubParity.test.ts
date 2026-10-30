@@ -233,7 +233,7 @@ describe("the club cards a server publishes", { timeout: 60_000 }, () => {
       teamAScore: 3,
       teamBScore: 3,
     };
-    // Everything a panel line reads, and some it does not: a start, a source and a note.
+    // Everything a panel line reads, and some it does not: a source and a note.
     const other: ScoutGame = {
       ...itself,
       id: "other",
@@ -284,11 +284,12 @@ describe("the club cards a server publishes", { timeout: 60_000 }, () => {
       false,
       true,
     ]);
-    // Read back, each game is what the panel reads of it, and nothing it does not.
-    const { startTs: _start, note: _note, source: _source, ...panelled } = other;
+    // Read back, each game is what the panel reads of it, and nothing it does not, but for its
+    // start, carried to the minute so a day's games are listed in the order they are played.
+    const { note: _note, source: _source, ...panelled } = other;
     expect(read?.games).toEqual([
       { ...itself, id: "0" },
-      { ...panelled, id: "1" },
+      { ...panelled, startTs: "2027-03-20T15:00:00.000Z", id: "1" },
     ]);
   });
 
