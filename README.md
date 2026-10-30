@@ -623,6 +623,21 @@ average. Both read the club's games of the board's year and half, as its record 
 off its pool, a member's device off the club's card it already reads, which names its games of
 every year.
 
+**Since you last looked.** Since 30 October 2026 the card opens, an hour or more after the
+last visit, on a line of what moved for the club since then: its place nationally and in its
+state then and now, each running from one to the other (shown at once where motion is turned
+down), its record and its rating, until **Got it** (`myTeamLook.ts`, `MyTeamSince.tsx`). A look
+is kept per club in this browser only (`lf_my_team_look_v1_<club>`): the places, record, rating
+and the half of the season the board is for. The first visit only keeps one; a later one
+compares with a look an hour old or more, and keeps a new one at Got it, or at once when nothing
+moved (the same places and record, the rating within a twentieth of a run). A look from the
+other half of the season is a new start, since the fall and spring boards count different games,
+and none is taken while the board is being refitted to the latest games. Most visits have
+nothing new, so the line's own file is fetched only when there is: with it in the tab, opening
+Team Rankings measured 167.1 KB gzipped against 165.4 KB before, and 166.2 KB without. Nothing is
+read from or written to the cloud. League Standings' Dashboard has the same idea as a card of its
+own ([Since you last looked](#since-you-last-looked)).
+
 ### Scouting report
 
 Pick a team and it answers two questions. **Next up** is the games still on that
@@ -4620,8 +4635,9 @@ up, and **Got it** puts both away.
   the card is there the next time.
 - **Taken once the forecast describes the season:** while the Gold odds are still being worked
   out after the latest scores, a look would keep the odds from before them.
-- **Fetched as the Dashboard opens**, a file of its own (3.0 KB), so the Dashboard's own load and
-  the first download carry only its place. Nothing is read from or written to the cloud.
+- **Fetched as the Dashboard opens**, a file of its own (3.4 KB with the pieces it shares with
+  Team Rankings' My Team card), so the Dashboard's own load and the first download carry only its
+  place. Nothing is read from or written to the cloud.
 
 **Notifications**, in Settings, are off until turned on, and the browser is asked for permission
 only then. Each kind is a choice of its own: the followed team's finals and corrected scores, its

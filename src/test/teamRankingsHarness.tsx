@@ -50,6 +50,8 @@ export type Pool = {
   ageless?: AgeUnknownList;
   /** Clubs taken off as plainly made up, as a nightly sweep left them (`autoRemoved.ts`). */
   autoRemoved?: AutoRemovals;
+  /** What this device kept from an earlier visit, by storage key, as an earlier visit left it. */
+  kept?: Record<string, string>;
   /** Where the live board left off, for a page taking over from it. */
   handover?: RankingsHandover;
   /**
@@ -147,6 +149,8 @@ export const renderTeamRankings = (pool: Pool): Harness => {
   saveScoutGames(pool.games);
   if (pool.ageless) saveAgeUnknown(pool.ageless);
   if (pool.autoRemoved) saveAutoRemoved(pool.autoRemoved);
+  for (const [key, value] of Object.entries(pool.kept ?? {}))
+    window.localStorage.setItem(key, value);
   if (pool.league) {
     saveTeams(pool.league.teams);
     saveMatchups(pool.league.matchups);

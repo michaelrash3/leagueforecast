@@ -285,6 +285,7 @@ export function RankingsSection({
               nextUnread={myTeamNextUnread}
               {...(onScoutNext ? { onScout: onScoutNext } : {})}
               {...(myExpected ? { expected: myExpected } : {})}
+              settled={!rankingsStale}
             />
           )}
           <ThisWeekCard

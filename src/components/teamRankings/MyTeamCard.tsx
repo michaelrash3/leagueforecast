@@ -5,6 +5,7 @@ import { card } from "../../styles/tokens";
 import type { RankHistoryPoint } from "../../hooks/useRankingsWorker";
 import type { ExpectedRecord, WeekendAhead } from "../../lib/clubForm";
 import { standingWords } from "../../lib/standing";
+import { MyTeamSince } from "./MyTeamSince";
 
 type MyTeamCardProps = {
   glance: MyTeamGlance;
@@ -27,6 +28,11 @@ type MyTeamCardProps = {
   onScout?: (opponentId: string) => void;
   /** Its record against the clubs rated here beside the one its ratings expected (`clubForm.ts`). */
   expected?: ExpectedRecord;
+  /**
+   * Whether the board is fitted to the latest games, for "Since you last looked" (`MyTeamSince`):
+   * the line compares only a settled board with the last visit's. Left out, the line is not shown.
+   */
+  settled?: boolean;
 };
 
 /** "1st", "2nd", "3rd", "11th", "22nd". */
@@ -170,6 +176,7 @@ export function MyTeamCard({
   nextUnread = false,
   onScout,
   expected,
+  settled,
 }: MyTeamCardProps) {
   const { schedule, weekend } = glance;
   const { next } = glance;
@@ -192,6 +199,13 @@ export function MyTeamCard({
           </span>
         )}
       </div>
+      {settled !== undefined && (
+        <MyTeamSince
+          glance={glance}
+          {...(segmentName ? { board: segmentName } : {})}
+          settled={settled}
+        />
+      )}
       <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
         <strong>
           #{glance.nationalRank.toLocaleString()} of {glance.nationalOf.toLocaleString()}
