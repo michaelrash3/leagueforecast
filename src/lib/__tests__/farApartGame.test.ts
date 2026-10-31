@@ -354,17 +354,17 @@ const mulberry = (seed: number) => () => {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 };
 const NAMES = ["Aces", "Bears", "Bears Black", "Comets", "Comets Gold", "Dragons", "Eagles"];
-const STATES = ["KY", "OH", "IN", "TX"];
+const FAR = ["KY", "OH", "IN", "TX"];
 const DAYS = ["2026-09-12", "2026-09-13", "2026-09-14"];
 const HOURS = ["13:00", "15:00", "17:00"];
 
 type Fuzzed = { state: GcImportState; rows: string[]; pairs: [string, string][] };
-const fuzzed = (seed: number): Fuzzed => {
+const fuzzed = (seed: number, states: readonly string[]): Fuzzed => {
   const rand = mulberry(seed);
   const pick = <T>(list: readonly T[]): T => list[Math.floor(rand() * list.length)]!;
   const clubs: ScoutTeam[] = [];
   const count = 4 + Math.floor(rand() * 4);
-  for (let n = 0; n < count; n += 1) clubs.push(club(`P${n}`, pick(NAMES), pick(STATES)));
+  for (let n = 0; n < count; n += 1) clubs.push(club(`P${n}`, pick(NAMES), pick(states)));
   const others: ScoutTeam[] = [];
   const standInNamed = (name: string) => {
     const found = others.find((team) => team.nameOnly && team.name === name);
@@ -428,31 +428,45 @@ const fuzzed = (seed: number): Fuzzed => {
   };
 };
 
-describe("small pools of clubs far apart", () => {
-  it("reach a fixed point, keep every row once, and count each game both clubs list once", () => {
-    const unsettled: number[] = [];
-    const misplaced: string[] = [];
-    const twice: string[] = [];
-    let pairs = 0;
-    for (let seed = 1; seed <= 300; seed += 1) {
-      const { state, rows, pairs: listed } = fuzzed(seed);
-      const first = tidyPool(state);
-      // Six passes is the tidy's limit, where a pool whose rules take turns with a row stops.
-      if (first.passes >= 6 || tidyChangedAnything(tidyPool(first.state))) unsettled.push(seed);
-      rows.forEach((rowId) => {
-        if (holdersOf(first.state, rowId).length !== 1) misplaced.push(`${seed}:${rowId}`);
-      });
-      listed.forEach(([mine, theirs]) => {
-        pairs += 1;
-        const [a] = holdersOf(first.state, mine);
-        const [b] = holdersOf(first.state, theirs);
-        if (a && b && a !== b && countsTowardRating(a) && countsTowardRating(b)) {
-          twice.push(`${seed}:${mine}`);
-        }
-      });
-    }
+/** What the tidy does wrong across 300 such pools of `states`, and how many games both clubs list. */
+const fuzzOver = (states: readonly string[]) => {
+  const unsettled: number[] = [];
+  const misplaced: string[] = [];
+  const twice: string[] = [];
+  let pairs = 0;
+  for (let seed = 1; seed <= 300; seed += 1) {
+    const { state, rows, pairs: listed } = fuzzed(seed, states);
+    const first = tidyPool(state);
+    // Six passes is the tidy's limit, where a pool whose rules take turns with a row stops.
+    if (first.passes >= 6 || tidyChangedAnything(tidyPool(first.state))) unsettled.push(seed);
+    rows.forEach((rowId) => {
+      if (holdersOf(first.state, rowId).length !== 1) misplaced.push(`${seed}:${rowId}`);
+    });
+    listed.forEach(([mine, theirs]) => {
+      pairs += 1;
+      const [a] = holdersOf(first.state, mine);
+      const [b] = holdersOf(first.state, theirs);
+      if (a && b && a !== b && countsTowardRating(a) && countsTowardRating(b)) {
+        twice.push(`${seed}:${mine}`);
+      }
+    });
+  }
+  return { pairs, wrong: { unsettled, misplaced, twice } };
+};
+const NONE_WRONG = { unsettled: [], misplaced: [], twice: [] };
+
+describe("small pools of clubs", () => {
+  it("far apart reach a fixed point, keep every row once, and count each game both list once", () => {
+    const { pairs, wrong } = fuzzOver(FAR);
     // The fuzz reaches the shape it is for: hundreds of games both clubs list.
     expect(pairs).toBeGreaterThan(300);
-    expect({ unsettled, misplaced, twice }).toEqual({ unsettled: [], misplaced: [], twice: [] });
+    expect(wrong).toEqual(NONE_WRONG);
+  });
+
+  it("of neighbouring states do so too, two squads of one name that tied each other included", () => {
+    // Under rules 36 one of these pools lost three rows: two Ohio squads of one name tied 3-3, the
+    // tie proved them one squad (`mergeSameSquadIds`), and their games together went as a club
+    // playing itself (`sameSquadIds.test.ts`).
+    expect(fuzzOver(["KY", "OH", "IN"]).wrong).toEqual(NONE_WRONG);
   });
 });

@@ -2507,8 +2507,12 @@ the owner clears on a club's panel stays clear: the club is marked so (`ScoutTea
 the data schema from 3), or the next tidy would fill it back in. A row a
 name filed onto a pulled club whose own schedule has none is taken off it onto
 a stand-in of the name, as **A name is checked against the club's own schedule** sets out; two ids are one
-squad only when their _own_ schedules filed the same fixture, at one level, in
-one state, under one listing name; and two clubs' copies of one game are one game as
+squad only when their _own_ schedules filed the same fixture against a third pulled club, at one level, in
+one state, under one listing name, and never where the owner has said the two are two clubs (tidy rules
+37: a TBD reads as one name wherever it is written, so two squads of one name that each beat a TBD 5-3 on
+one day, hours apart, were folded into one club, the owner's answer unread; a stand-in's name is as many
+teams as wrote it; and the two squads' own tie with each other read the same from either side, and made
+one club that played itself); and two clubs' copies of one game are one game as
 **One game on two clubs' schedules** sets out, kept once with the other side's score
 noted where they disagree — as is every game above that two coaches scored apart at one
 start time (on the stand-in fixtures export of 22 September 2026, 265 games joined, 479

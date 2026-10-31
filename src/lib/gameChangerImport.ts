@@ -6285,15 +6285,29 @@ const ageLevelOfOutcome = (outcome: GcImportOutcome): number | undefined => {
  * have. Two clubs of one name that never met and never shared a result are left alone, which is
  * what keeps this from being the name matching the user threw out.
  *
+ * The same opponent is a pulled third club. A slot is no opponent anyone can share: every plain
+ * "TBD" reads as one name, so two squads of one name, level and state that each beat a TBD 5-3 on
+ * one day, hours apart, were folded into one club and one of them left the board (the sweep of 30
+ * October 2026). A stand-in's name is as many teams as wrote it, and the two squads' own game
+ * against each other names each squad's own name and reads the same from either side, which folded
+ * a tie between them into a club playing itself. A squad pulled twice still folds on a game both its
+ * ids filed against a pulled club, and the owner can fold the rest by hand.
+ *
+ * Nor are two squads the owner has said are two clubs folded, whatever they filed (`apart`, as the
+ * season pairing reads it): the tidy passed that answer to the pairing and not to this.
+ *
  * The survivor is the id with the most games, so the fold is towards whichever copy the pull knows
  * best, and `mergeScoutTeams` carries the games and both ids across.
  */
 export const mergeSameSquadIds = (
-  state: GcImportState
+  state: GcImportState,
+  /** Pairs of GameChanger ids the owner has said are two clubs (`keptApart.ts`). */
+  apart: KeptApart = new Set<string>()
 ): { state: GcImportState; merged: number } => {
   const poolKeyOf = buildPoolKeyOf(state.ageGroups);
   const pulled = state.teams.filter((team) => team.gcTeams?.length);
   if (pulled.length < 2) return { state, merged: 0 };
+  const pulledIds = new Set(pulled.map((team) => team.id));
 
   /** The GameChanger ids each team is known by, so a row can be told to be its own schedule's. */
   const ownIds = new Map(
@@ -6315,7 +6329,9 @@ export const mergeSameSquadIds = (
       if (!ownIds.get(teamId)?.has(game.source!.teamId)) return;
       const otherId = side === 0 ? game.teamBId : game.teamAId;
       const other = nameOf.get(otherId);
-      if (!other) return;
+      // A pulled third club: never a slot or a stand-in, nor a club of the team's own name, which
+      // is the other squad itself wherever the two are compared (`byName`).
+      if (!other || !pulledIds.has(otherId) || other === nameOf.get(teamId)) return;
       const mine = side === 0 ? game.teamAScore : game.teamBScore;
       const theirs = side === 0 ? game.teamBScore : game.teamAScore;
       // Unscored rows say only that a fixture is planned, which two clubs can share.
@@ -6340,6 +6356,10 @@ export const mergeSameSquadIds = (
     if (a.state && b.state && a.state !== b.state) return false;
     return new Set(links.map((link) => squadNameKey(link.name))).size === 1;
   };
+  const keptApart = (a: ScoutTeam, b: ScoutTeam): boolean =>
+    (a.gcTeams ?? []).some((x) =>
+      (b.gcTeams ?? []).some((y) => isKeptApart(apart, x.teamId, y.teamId))
+    );
 
   /** Ids to fold, newest-known first, keyed by the id they fold into. */
   const foldInto = new Map<string, string>();
@@ -6369,7 +6389,7 @@ export const mergeSameSquadIds = (
       if (!mine || mine.size === 0) return;
       for (const other of ranked.slice(0, index)) {
         if (foldInto.has(other.id)) continue;
-        if (!couldBeOneSquad(team, other)) continue;
+        if (!couldBeOneSquad(team, other) || keptApart(team, other)) continue;
         const theirs = fixtureKeys.get(other.id);
         if (!theirs) continue;
         const shared = [...mine].some((key) => theirs.has(key));
@@ -9095,7 +9115,7 @@ const tidyOnce = (
   const claims = claimFiledRows(doubled.state);
   finished("claimed", claims.claimed, claims.state);
   starting("folded", claims.state);
-  const squads = mergeSameSquadIds(claims.state);
+  const squads = mergeSameSquadIds(claims.state, apart);
   finished("folded", squads.merged, squads.state);
   starting("paired", squads.state);
   const seasons = pairSettledSquads(
@@ -9402,8 +9422,11 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *       its own, left on it where the club's own row of that game stands beside it, the result
  *       mirrored within the hour (`ownCopyOf`), so a game two far-apart clubs both list is one game
  *       between them rather than a row passed round every pass and counted twice
+ *  37 — two same-named squads folded into one club only on a game both filed against a pulled
+ *       third club, never a slot, a stand-in or each other, and never where the owner said they are
+ *       two clubs (`mergeSameSquadIds`)
  */
-const TIDY_RULES_VERSION = 36;
+const TIDY_RULES_VERSION = 37;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
