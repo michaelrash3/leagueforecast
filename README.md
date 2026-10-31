@@ -4284,6 +4284,50 @@ last Gold Bracket spot; the tiebreakers decide", or "after 1 more loss, only a w
 tiebreak keeps the team in" — rather than claim either. Once nothing is left to
 play, the table's own rank answers.
 
+**Games a team still owes count as games left.** A league can set games per team
+and enter only part of its schedule, the second half posted later, say. The
+Standings' status column has always counted the games each team owes under that
+setting beyond those scheduled (`getRemainingCounts`), but the magic and
+elimination numbers, the needed results, the Forecast's Gold Bracket paths and the
+Gold and title odds read the schedule alone: once the games entered were played, a
+team 3-0 with nine still owed read "Already clinched" and 100% beside a status of
+In, one 1-2 "Already eliminated" and under 1% beside Alive, and the Forecast listed
+no paths at all. Each owed game is now one more game in the exact search, against
+a stand-in that is never ranked (`owedGames`, `withOwedGames`), so it can go
+either way, as the status column reads it, and a clinch or an elimination the
+search claims is one no result of the owed games can undo. They count toward the
+fifteen games the exact numbers wait for, so a league owing many shows them paused
+in the team panel, in its usual words, and leaves them off the Our team card,
+until few enough are left. A need in them has no opponent or day to name, so the
+team that owes them is named: "Win the 2 games not yet on the schedule", "Bears to
+lose their game not yet on the schedule". Where the one game left in the season is
+owed, it is read at every score it can end with, as the last game on the schedule
+is, and there another team's win can be the result needed, though in the search it
+only ever lifts that team: "Eagles to win their game not yet on the schedule", for
+a team that an Eagles win leaves level with one rival it beat, where a loss would
+leave three level for run differential to settle. Nor has a team whose games left
+are all owed a game to work its Clinch Scenarios from, so its panel says how many
+it has ("Aces have 9 games left that the schedule does not show yet") where it said
+the team had none left.
+
+The Gold odds play the owed games too, after the scheduled ones and drawn as they
+are, each against a side of the league's average strength (`leagueAverageSide`):
+every number the forecast reads off a team, averaged over the league by the games
+behind each, and the league's average rating where its teams carry one, so a
+strong team wins more of its owed games than a weak one does. Nothing is booked
+onto that side and no table ranks it, and the title odds take the bracket's kept
+scores as played only once the owed games are played too, since until then
+nobody's seed is settled. In the league above, the Aces went from 100% to 99%, the
+Bears from 99%+ to 77%, the Comets from under 1% to 20% and the Ducks to 5%. A
+league with no games per team set, or whose schedule has them all, is searched and
+simulated exactly as before, to the digit.
+
+Waiting for the owed games has a cost where games per team counts one that will
+never be played, a rainout taken off the schedule and not made up, say: the title
+odds draw the bracket afresh even once it is played and the Dashboard names its
+champion. Data Quality's finding on the setting says so, and once the setting
+leaves no game owed, the kept scores are read again.
+
 ## Playoff machine
 
 "If we beat the Bears and the Comets lose, where are we?" The Forecast tab has a

@@ -94,8 +94,8 @@ export const effectiveGoldCutoff = (
       : 0;
 
 export const getRemainingCounts = (
-  teams: Team[],
-  remainingGames: Matchup[],
+  teams: readonly Pick<Team, "id" | "games">[],
+  remainingGames: readonly Matchup[],
   regularSeasonGamesPerTeam = 0
 ) => {
   const counts: Record<string, number> = {};
@@ -116,6 +116,116 @@ export const getRemainingCounts = (
   }
 
   return counts;
+};
+
+/**
+ * The opponent in a game a team owes beyond the schedule (`owedGames`). No team can be it: a team's
+ * id is trimmed as it is read in (`coerceTeams`), and this one starts with a space.
+ */
+export const OWED_OPPONENT = " owed";
+
+/**
+ * The games each team still owes under the games-per-team setting beyond those the schedule shows,
+ * the ones `getRemainingCounts` adds for the Standings' status, as games against a stand-in that is
+ * never ranked (`OWED_OPPONENT`). The exact search plays them after the scheduled games, where a
+ * game against nobody can go either way, as the status already reads it. A round at a time, each
+ * team owing one more playing it, at home and away by turns, since nothing says which. None where
+ * the setting is off or the schedule has them all, so such a league is searched exactly as it
+ * always was; and none for games already in `remaining`, so adding them to a list that has them
+ * adds nothing.
+ */
+export const owedGames = (
+  teams: readonly Pick<Team, "id" | "games">[],
+  remaining: readonly Matchup[],
+  settings: Pick<Settings, "regularSeasonGamesPerTeam">
+): Matchup[] => {
+  const perTeam = Math.max(0, Math.round(settings.regularSeasonGamesPerTeam || 0));
+  if (perTeam <= 0) return [];
+  const scheduled = getRemainingCounts(teams, remaining);
+  const owed = teams.map((team) => Math.max(0, perTeam - team.games - (scheduled[team.id] ?? 0)));
+  const games: Matchup[] = [];
+  for (let round = 0; round < Math.max(0, ...owed); round += 1) {
+    teams.forEach((team, at) => {
+      if ((owed[at] ?? 0) <= round) return;
+      const home = round % 2 === 1;
+      games.push({
+        id: `${OWED_OPPONENT} ${team.id} ${round + 1}`,
+        date: "",
+        away: home ? OWED_OPPONENT : team.id,
+        home: home ? team.id : OWED_OPPONENT,
+      });
+    });
+  }
+  return games;
+};
+
+/**
+ * The side a game owed beyond the schedule is played against in a simulated season (`playOwed`):
+ * the league's average team. Every number the forecast reads off a team is the league's average of
+ * it, each team counted by the games behind it, so a team yet to play adds nothing, and a league
+ * whose games are all its own gives a .500 side with no run differential; the forecast then favours
+ * a strong team against it and a weak one not. Its games are the league's average count, so the
+ * forecast trusts it as far as a typical team, and its rating, where the teams carry one, is theirs
+ * averaged by the games behind each. It is nobody's opponent in particular: no head-to-head, nothing
+ * booked onto it, and no place in any table. Exported for its tests.
+ */
+export const leagueAverageSide = (teams: readonly Team[]): Team => {
+  type Read = (team: Team) => number | null | undefined;
+  const byGames = (team: Team) => team.games;
+  const each = () => 1;
+  // A mean over the teams of what each gives, counted by `weight`; one giving nothing is left out.
+  const mean = (read: Read, weight = byGames): number | null => {
+    let sum = 0;
+    let count = 0;
+    teams.forEach((team) => {
+      const value = read(team);
+      if (value === null || value === undefined) return;
+      sum += value * weight(team);
+      count += weight(team);
+    });
+    return count ? sum / count : null;
+  };
+  const perGame = (read: Read) => mean((team) => read(team) ?? 0) ?? 0;
+  // A season's total, and the count of games itself, as the average team's.
+  const perTeam = (read: Read) => mean((team) => read(team) ?? 0, each) ?? 0;
+  const rating = mean(
+    (team) => team.adjustedRating,
+    (team) => team.ratedGames ?? 0
+  );
+  return {
+    ...emptyTeam({ id: OWED_OPPONENT, name: "Not yet scheduled" }),
+    games: perTeam((team) => team.games),
+    pct: perGame((team) => team.pct),
+    rsg: perGame((team) => team.rsg),
+    rag: perGame((team) => team.rag),
+    hpg: perGame((team) => team.hpg),
+    kpg: perGame((team) => team.kpg),
+    oppKpg: perGame((team) => team.oppKpg),
+    errorsPerGame: perGame((team) => team.errorsPerGame),
+    walksAllowedPerGame: perGame((team) => team.walksAllowedPerGame),
+    walksReceivedPerGame: perGame((team) => team.walksReceivedPerGame),
+    runDiff: perTeam((team) => team.runDiff),
+    hitDiff: perTeam((team) => team.hitDiff),
+    errorDiff: perTeam((team) => team.errorDiff),
+    walkDiff: perTeam((team) => team.walkDiff),
+    tpi: perGame((team) => team.tpi),
+    baseTpi: perGame((team) => team.baseTpi),
+    sos: perGame((team) => team.sos),
+    momentum: perGame((team) => team.momentum),
+    contactBonus: perGame((team) => team.contactBonus),
+    machineDifficulty: perGame((team) => team.machineDifficulty),
+    awayK6: mean((team) => team.awayK6),
+    homeK6: mean((team) => team.homeK6),
+    totalK6: mean((team) => team.totalK6),
+    ...(rating === null
+      ? {}
+      : {
+          adjustedRating: rating,
+          // The count the average rated team's rating rests on.
+          ratedGames:
+            mean((team) => (team.adjustedRating === undefined ? null : team.ratedGames), each) ?? 0,
+        }),
+  };
 };
 
 export type MathGoldStatus = {
@@ -1089,10 +1199,38 @@ const settleGame = (
 };
 
 /**
- * One score booked onto two teams the caller owns: the games, the runs, the run differential as
- * capped, head-to-head, the record (a level score is a tie) and the rating the tiebreakers fall back
- * on. Every simulated game is booked here (`settleDrawn`), and the standings solver books the last
- * game of a season here too, so a table it ranks is the one a forecast would.
+ * One side of a score booked onto a team the caller owns: the game, the runs, the run differential
+ * as capped, the record (a level score is a tie) and the rating the tiebreakers fall back on. A
+ * side's numbers move with its own runs alone, so booking the two sides of a game one after the
+ * other is booking the game; a game owed beyond the schedule (`owedGames`) books its team's side
+ * and no other.
+ */
+const bookSide = (team: Team, runsFor: number, runsAgainst: number, runDiffCap: number): void => {
+  team.games += 1;
+  team.rs += runsFor;
+  team.ra += runsAgainst;
+  team.runDiff += cappedRunDiff(runsFor, runsAgainst, runDiffCap);
+  if (runsFor > runsAgainst) team.w += 1;
+  else if (runsFor < runsAgainst) team.l += 1;
+  else team.t += 1;
+  team.pct = team.games ? (team.w + team.t * 0.5) / team.games : 0;
+  // Keep per-game production rates anchored to finalized games only. Projected
+  // results can update standings and run-differential tiebreakers, but they
+  // should not dilute displayed R/G, H/G, K/G, or opponent K/G with model-generated games.
+  const diffPerGame = team.games ? clamp(team.runDiff / team.games, -8, 8) : 0;
+  // The contact term is carried, not recomputed. It is the one piece of `baseTpi` that comes
+  // from strikeout rates, and a model game has none — so recomputing it here does not leave it
+  // undiluted, it deletes it. Before this, booking the first simulated game moved `baseTpi` by
+  // up to 1.25 in either direction on a four-team pin, and `tpi` feeds `predictGame` and the
+  // tiebreakers for every game after it in the same iteration.
+  team.baseTpi = team.games ? diffPerGame + team.pct * 2 + (team.contactBonus ?? 0) : 0;
+  team.tpi = team.baseTpi + team.sos * 0.2;
+};
+
+/**
+ * One score booked onto two teams the caller owns: each side (`bookSide`) and the head-to-head
+ * between them. Every simulated game is booked here (`settleDrawn`), and the standings solver books
+ * the last game of a season here too, so a table it ranks is the one a forecast would.
  */
 const bookScore = (
   away: Team,
@@ -1101,49 +1239,17 @@ const bookScore = (
   homeRuns: number,
   runDiffCap: number
 ): void => {
-  away.games += 1;
-  home.games += 1;
-  away.rs += awayRuns;
-  away.ra += homeRuns;
-  home.rs += homeRuns;
-  home.ra += awayRuns;
-  away.runDiff += cappedRunDiff(awayRuns, homeRuns, runDiffCap);
-  home.runDiff += cappedRunDiff(homeRuns, awayRuns, runDiffCap);
-
+  bookSide(away, awayRuns, homeRuns, runDiffCap);
+  bookSide(home, homeRuns, awayRuns, runDiffCap);
   addHeadToHeadResult(away, home.id, awayRuns - homeRuns);
   addHeadToHeadResult(home, away.id, homeRuns - awayRuns);
-
-  if (awayRuns > homeRuns) {
-    away.w += 1;
-    home.l += 1;
-  } else if (homeRuns > awayRuns) {
-    home.w += 1;
-    away.l += 1;
-  } else {
-    away.t += 1;
-    home.t += 1;
-  }
-
-  [away, home].forEach((team) => {
-    team.pct = team.games ? (team.w + team.t * 0.5) / team.games : 0;
-    // Keep per-game production rates anchored to finalized games only. Projected
-    // results can update standings and run-differential tiebreakers, but they
-    // should not dilute displayed R/G, H/G, K/G, or opponent K/G with model-generated games.
-    const diffPerGame = team.games ? clamp(team.runDiff / team.games, -8, 8) : 0;
-    // The contact term is carried, not recomputed. It is the one piece of `baseTpi` that comes
-    // from strikeout rates, and a model game has none — so recomputing it here does not leave it
-    // undiluted, it deletes it. Before this, booking the first simulated game moved `baseTpi` by
-    // up to 1.25 in either direction on a four-team pin, and `tpi` feeds `predictGame` and the
-    // tiebreakers for every game after it in the same iteration.
-    team.baseTpi = team.games ? diffPerGame + team.pct * 2 + (team.contactBonus ?? 0) : 0;
-    team.tpi = team.baseTpi + team.sos * 0.2;
-  });
 };
 
 /**
  * The teams with the one game left booked at a given score, as new objects where they change; the
  * inputs are untouched. What the standings solver ranks to see where a team finishes on the last
- * day of a season (`neededResults`).
+ * day of a season (`neededResults`). A game owed beyond the schedule (`owedGames`) has one side in
+ * the league, and that side alone is booked.
  */
 export const withScore = (
   teams: Team[],
@@ -1159,7 +1265,10 @@ export const withScore = (
   );
   const away = next.find((team) => team.id === game.away);
   const home = next.find((team) => team.id === game.home);
-  if (away && home) bookScore(away, home, awayRuns, homeRuns, resolveMaxRunDifferential(settings));
+  const cap = resolveMaxRunDifferential(settings);
+  if (away && home) bookScore(away, home, awayRuns, homeRuns, cap);
+  else if (away) bookSide(away, awayRuns, homeRuns, cap);
+  else if (home) bookSide(home, homeRuns, awayRuns, cap);
   return next;
 };
 
@@ -1300,11 +1409,12 @@ export const drawMargin = (
 /**
  * Books a drawn margin onto the two sides, in place: the predicted total kept, split so that the
  * margin is the drawn one, the loser never below nothing. The league's carried totals move by
- * exactly what is booked, so they stay the counted ones.
+ * exactly what is booked, so they stay the counted ones. A side left out is the stand-in of a game
+ * owed beyond the schedule (`playOwed`), so only the team's own side is booked and counted.
  */
 const settleDrawn = (
-  away: Team,
-  home: Team,
+  away: Team | undefined,
+  home: Team | undefined,
   margin: number,
   prediction: Prediction,
   tally: LeagueTally
@@ -1313,9 +1423,19 @@ const settleDrawn = (
   const loser = Math.max(0, Math.round((total - Math.abs(margin)) / 2));
   const awayRuns = margin === 0 ? Math.round(total / 2) : margin > 0 ? loser + margin : loser;
   const homeRuns = margin === 0 ? awayRuns : margin < 0 ? loser - margin : loser;
-  tally.runs += awayRuns + homeRuns;
-  tally.games += 2;
-  bookScore(away, home, awayRuns, homeRuns, tally.runDiffCap);
+  if (away && home) {
+    tally.runs += awayRuns + homeRuns;
+    tally.games += 2;
+    bookScore(away, home, awayRuns, homeRuns, tally.runDiffCap);
+  } else if (away) {
+    tally.runs += awayRuns;
+    tally.games += 1;
+    bookSide(away, awayRuns, homeRuns, tally.runDiffCap);
+  } else if (home) {
+    tally.runs += homeRuns;
+    tally.games += 1;
+    bookSide(home, homeRuns, awayRuns, tally.runDiffCap);
+  }
 };
 
 /** How a game went, as `playOut` writes it down for the team followed (`GoldSwing`). */
@@ -1361,6 +1481,64 @@ const playOut = (
     const home = byId.get(game.home);
     if (away && home) settleDrawn(away, home, margin, prediction, tally);
   }
+};
+
+/** The games owed beyond the schedule (`owedGames`), and the side they are played against. */
+type OwedPlay = { games: Matchup[]; side: Team };
+
+/** What a simulation plays beyond the schedule: undefined where nothing is owed. */
+const owedPlay = (
+  teams: Team[],
+  remaining: Matchup[],
+  settings: Settings
+): OwedPlay | undefined => {
+  const games = owedGames(teams, remaining, settings);
+  return games.length ? { games, side: leagueAverageSide(teams) } : undefined;
+};
+
+/**
+ * Plays the games each team owes beyond the schedule, after the scheduled ones, each against the
+ * league's average side (`leagueAverageSide`) and drawn as a scheduled game is. The side is in the
+ * lookup for these games alone, and booking leaves it as it was (`settleDrawn`), so every owed game
+ * is against the same average, which no table ranks and no other game sees. They come after every
+ * scheduled game and draw nothing where none is owed, so a league owing none draws what it always
+ * did.
+ */
+const playOwed = (
+  season: Team[],
+  byId: Map<string, Team>,
+  owed: OwedPlay,
+  settings: Settings,
+  draws: SeasonDraws,
+  /**
+   * In a paired run, as `playOut` takes it, with each owed game's key at its place: each owed game
+   * draws a stream of its own too. Drawn from the run's one stream, a tie drawn in one point and
+   * not the other (a tie takes one number, a margin three) moved every owed draw after it, in that
+   * season and the ones after, so the step on a league's first tie was two runs' worth of chance.
+   */
+  paired?: { draws: SeasonDraws; seed: number; season: number; games: readonly number[] }
+): void => {
+  // The league's totals as the scheduled games left them, which booking keeps the counted ones.
+  const tally = leagueTallyOf(season, settings);
+  byId.set(OWED_OPPONENT, owed.side);
+  for (const [at, game] of owed.games.entries()) {
+    const prediction = predictGame(game, season, settings, byId, tally);
+    const margin = drawMargin(
+      paired
+        ? {
+            ...paired.draws,
+            random: gameStream(paired.seed, paired.season, paired.games[at] ?? 0),
+          }
+        : draws,
+      prediction.awayWinPct,
+      prediction.awayScore - prediction.homeScore,
+      true
+    );
+    const away = game.away === OWED_OPPONENT ? undefined : byId.get(game.away);
+    const home = game.home === OWED_OPPONENT ? undefined : byId.get(game.home);
+    settleDrawn(away, home, margin, prediction, tally);
+  }
+  byId.delete(OWED_OPPONENT);
 };
 
 export const DEFAULT_SEED_LOCK_REMAINING_GAME_LIMIT = 12;
@@ -1587,6 +1765,8 @@ export const simulateGoldOddsRun = (
   const minIterations = Math.min(iterations, ODDS_MIN_ITERATIONS);
   let completedIterations = 0;
   const rankOptions = rankOptionsFromSettings(settings);
+  // The games owed beyond the schedule, played after it; the swing below is the schedule's alone.
+  const owed = owedPlay(teams, remaining, settings);
   const following = follow !== undefined && teams.some((team) => team.id === follow);
   const results = following ? new Uint8Array(remaining.length) : undefined;
   const awayWins = new Array<number>(following ? remaining.length : 0).fill(0);
@@ -1600,6 +1780,7 @@ export const simulateGoldOddsRun = (
         draws: { ...draws, tieAlwaysDrawn: true as const },
         seed: hashSeed(seedText),
         games: remaining.map((game) => hashSeed(game.id)),
+        owed: owed ? owed.games.map((game) => hashSeed(game.id)) : [],
       }
     : undefined;
 
@@ -1614,6 +1795,15 @@ export const simulateGoldOddsRun = (
       results,
       pairing && { ...pairing, season: i }
     );
+    if (owed)
+      playOwed(
+        season,
+        byId,
+        owed,
+        settings,
+        draws,
+        pairing && { draws: pairing.draws, seed: pairing.seed, season: i, games: pairing.owed }
+      );
 
     let followedIn = false;
     // The same order the cut is read from, so the places are counted with no draw added and the
@@ -1851,8 +2041,9 @@ export const simulateBracketOdds = (
   /**
    * The Gold bracket's scores as kept (`bracketLogs`). A game already played is taken as it ended
    * rather than drawn again, so a team knocked out has no title odds left and the champion has
-   * them all. Read only once the regular season has no games left: the bracket is played on the
-   * final table, so only then is each slot sure to hold the team its score was kept for.
+   * them all. Read only once the regular season has no games left, on the schedule or owed beyond
+   * it: the bracket is played on the final table, so only then is each slot sure to hold the team
+   * its score was kept for.
    */
   bracketLogs: Record<string, GameLog> = {}
 ): BracketOddsResult => {
@@ -1869,12 +2060,14 @@ export const simulateBracketOdds = (
   const random = makeRandom(hashSeed(`${seedText}::bracket`));
   const rankOptions = rankOptionsFromSettings(settings);
   const bracketCutoff = Math.max(0, Math.min(cutoff, teamCount));
-  const played = remaining.length === 0 ? bracketLogs : {};
+  const owed = owedPlay(teams, remaining, settings);
+  const played = remaining.length === 0 && !owed ? bracketLogs : {};
   const draws = seasonDraws(teams, settings, random);
 
   for (let i = 0; i < iterations; i += 1) {
     const { season, byId } = scratchSeason(teams);
     playOut(season, byId, remaining, settings, draws);
+    if (owed) playOwed(season, byId, owed, settings, draws);
 
     const finalRanking = rankTeams(season, rankOptions);
     finalRanking.forEach((team, index) => {

@@ -1,6 +1,7 @@
 import { recordText } from "./format";
 import type { RootFor } from "./goldSwing";
 import type { NeededResult } from "./magic";
+import { OWED_OPPONENT } from "./sim";
 import type { SwingGame, TeamWithProjection } from "./types";
 
 /** What the Dashboard's "Our team" card says about the team this browser follows. */
@@ -38,6 +39,34 @@ export type OurTeamSummary = {
 };
 
 /**
+ * A need in the games a team owes beyond the schedule (`NeededResult.owed`), which have no opponent
+ * or day to name, so the team that owes them is named whichever side of them is needed: the team's
+ * own to win, or another team's to lose or to win. The team losing one never helps it, and another
+ * team winning one only lifts that team on the points and losses the search reads; but the season's
+ * last game is ranked with every tiebreaker (`lastGameNeeds`), and there that win can be the result
+ * needed: clear of a three-way tie, the team that owes the game leaves a two-way one that the
+ * followed team takes on head-to-head.
+ */
+const owedNeed = (teamId: string, need: NeededResult, nameOf: (id: string) => string): string => {
+  const one = need.owed === 1;
+  const games = one ? "game" : `${need.owed} games`;
+  if (need.side === teamId)
+    return need.orTie
+      ? `Don't lose ${one ? "the game" : `any of the ${games}`} not yet on the schedule`
+      : `Win the ${games} not yet on the schedule`;
+  if (need.against === OWED_OPPONENT) {
+    const owing = nameOf(need.side);
+    return need.orTie
+      ? `${owing} not to lose ${one ? "their game" : `any of their ${games}`} not yet on the schedule`
+      : `${owing} to win their ${games} not yet on the schedule`;
+  }
+  const rival = nameOf(need.against);
+  return need.orTie
+    ? `${rival} not to win ${one ? "their game" : `any of their ${games}`} not yet on the schedule`
+    : `${rival} to lose their ${games} not yet on the schedule`;
+};
+
+/**
  * The needed results as the card says them: the team's own games as what it must do, anyone
  * else's as what it needs to happen. "Not lose" where a tie is enough, "beat" where it is not.
  */
@@ -47,6 +76,7 @@ export const needsLines = (
   nameOf: (id: string) => string
 ): string[] =>
   needed.map((need) => {
+    if (need.owed) return owedNeed(teamId, need, nameOf);
     const when = need.date ? ` (${need.date})` : "";
     const against = nameOf(need.against);
     if (need.side === teamId)

@@ -1,5 +1,5 @@
 import { displayName } from "./format";
-import { eliminationNumberForGold, magicForGold } from "./magic";
+import { eliminationNumberForGold, magicForGold, withOwedGames } from "./magic";
 import { standingsPoints } from "./sim";
 import { inPlayingOrder } from "./stillToCome";
 import type { Matchup, Settings, SwingGame, TeamWithProjection } from "./types";
@@ -93,6 +93,13 @@ export const clinchingPathForTeam = ({
   const projectedSeed = team.projectedRank ?? 99;
   const goldPct = Math.round(team.goldPct);
   const teamRemaining = remainingGamesFor(team.id, remaining);
+  /*
+   * The games the exact search walks, those each team owes beyond the schedule among them
+   * (`withOwedGames`): they count toward the limit it is asked within and among a team's games
+   * left. Only a scheduled game has an opponent to name, so the notes name scheduled games alone.
+   */
+  const searched = withOwedGames(teams, remaining, settings);
+  const teamGamesLeft = remainingGamesFor(team.id, searched).length;
   const teamsById = new Map(teams.map((item) => [item.id, item]));
   const insideNow = seed <= cutoff;
   const insideProjected = projectedSeed <= cutoff;
@@ -104,7 +111,7 @@ export const clinchingPathForTeam = ({
     notes.push("Gold spot clinched; remaining games are for seeding and tiebreak cushion.");
   } else if (team.goldStatus === "Eliminated") {
     notes.push("Eliminated from Gold Bracket contention; can only play spoiler.");
-  } else if (remaining.length <= exactLimit) {
+  } else if (searched.length <= exactLimit) {
     const elimination = eliminationNumberForGold(team.id, teams, remaining, cutoff, settings);
 
     // A tie the tiebreakers settle is not an elimination, however it reads on points.
@@ -128,7 +135,7 @@ export const clinchingPathForTeam = ({
             : "Level for the last Gold spot at worst; the tiebreakers decide."
         );
       } else if (magic.type === "magic" && magic.ownWinsNeeded > 0) {
-        if (magic.ownWinsNeeded >= teamRemaining.length) {
+        if (magic.ownWinsNeeded >= teamGamesLeft) {
           notes.push("Controls a Gold spot by winning out.");
         } else {
           notes.push(`Clinches with ${plural(magic.ownWinsNeeded, "win")}.`);
@@ -189,7 +196,7 @@ export const clinchingPathForTeam = ({
 
   if (notes.length === 0) {
     notes.push(
-      teamRemaining.length === 0
+      teamGamesLeft === 0
         ? "No games left; Gold fate depends on other finalized results."
         : "Needs wins plus help from teams above the line."
     );

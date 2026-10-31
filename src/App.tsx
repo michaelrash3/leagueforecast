@@ -159,7 +159,7 @@ import { displayName, recordText } from "./lib/format";
 import { recapToMarkdown, recapToStoryBrief } from "./lib/insights";
 import { buildForecastSummaryRequest, buildLeagueSummaryRequest } from "./lib/leagueSummaryClient";
 import { AiHealthCheck } from "./components/aiHealthCheck";
-import { eliminationNumberForGold, magicForGold, neededResults } from "./lib/magic";
+import { eliminationNumberForGold, magicForGold, neededResults, withOwedGames } from "./lib/magic";
 import { backtestPredictions } from "./lib/backtest";
 import { buildPredictionEngine } from "./lib/predictionEngine";
 import { buildBracketProjection } from "./lib/bracket";
@@ -1090,6 +1090,15 @@ export default function App() {
       ),
     [liveTeams, remainingGames, settings.regularSeasonGamesPerTeam]
   );
+  /*
+   * How many games the exact search walks: the schedule's and those each team owes beyond it under
+   * games per team (`withOwedGames`), which the magic numbers, the needed results and the Gold
+   * Bracket paths play, so they wait on both.
+   */
+  const searchedCount = useMemo(
+    () => withOwedGames(liveTeams, remainingGames, settings).length,
+    [liveTeams, remainingGames, settings]
+  );
   const projectionAnalysisEnabled = remainingGames.length <= PROJECT_STANDINGS_REMAINING_GAME_LIMIT;
   const exactScenarioAnalysisEnabled =
     activeView === "model" && remainingGames.length <= EXACT_SCENARIO_REMAINING_GAME_LIMIT;
@@ -1641,13 +1650,17 @@ export default function App() {
         });
 
       if (!scenarios.length) {
+        // None on the schedule, but games owed under games per team are games left all the same.
+        const owed = remainingCounts[teamId] ?? 0;
         return [
-          `${teamName} have no remaining games; Gold Bracket status depends only on outside results.`,
+          owed > 0
+            ? `${teamName} have ${owed} game${owed === 1 ? "" : "s"} left that the schedule does not show yet.`
+            : `${teamName} have no remaining games; Gold Bracket status depends only on outside results.`,
         ];
       }
       return scenarios;
     },
-    [dashboardById, nextTwoSwingGames, goldCutoff]
+    [dashboardById, nextTwoSwingGames, goldCutoff, remainingCounts]
   );
 
   const formatGoldPct = useCallback((team: TeamWithProjection) => formatGoldPctValue(team), []);
@@ -2847,7 +2860,7 @@ export default function App() {
     const team = ourTeamId ? dashboardById.get(ourTeamId) : undefined;
     if (!team) return null;
     const magic =
-      hasCutLine && remainingGames.length <= EXACT_MAGIC_REMAINING_GAME_LIMIT
+      hasCutLine && searchedCount <= EXACT_MAGIC_REMAINING_GAME_LIMIT
         ? magicForGold(team.id, dashboardRows, remainingGames, goldCutoff, settings).description
         : undefined;
     /*
@@ -2855,7 +2868,7 @@ export default function App() {
      * ties worth half a win, ten games left took 245 ms at worst against 1.5 s at fifteen.
      */
     const needed =
-      hasCutLine && remainingGames.length <= NEEDS_REMAINING_GAME_LIMIT
+      hasCutLine && searchedCount <= NEEDS_REMAINING_GAME_LIMIT
         ? neededResults(team.id, dashboardRows, remainingGames, goldCutoff, settings)
         : null;
     const needs = needed
@@ -2881,6 +2894,7 @@ export default function App() {
     dashboardById,
     dashboardRows,
     hasCutLine,
+    searchedCount,
     remainingGames,
     goldCutoff,
     settings,
@@ -2985,7 +2999,7 @@ export default function App() {
       titleRace: titleRaceBadgeForTeam(selectedTeam),
       clinchScenarios: clinchScenariosForTeam(selectedTeam.id),
       magic:
-        remainingGames.length <= EXACT_MAGIC_REMAINING_GAME_LIMIT
+        searchedCount <= EXACT_MAGIC_REMAINING_GAME_LIMIT
           ? magicForGold(selectedTeam.id, dashboardRows, remainingGames, goldCutoff, settings)
           : {
               type: "magic" as const,
@@ -2994,7 +3008,7 @@ export default function App() {
               description: `Exact magic number is paused until ${EXACT_MAGIC_REMAINING_GAME_LIMIT} or fewer games remain to keep team modals responsive.`,
             },
       elimination:
-        remainingGames.length <= EXACT_MAGIC_REMAINING_GAME_LIMIT
+        searchedCount <= EXACT_MAGIC_REMAINING_GAME_LIMIT
           ? eliminationNumberForGold(
               selectedTeam.id,
               dashboardRows,
@@ -3020,6 +3034,7 @@ export default function App() {
     titleRaceBadgeForTeam,
     clinchScenariosForTeam,
     dashboardRows,
+    searchedCount,
     remainingGames,
     goldCutoff,
     settings,
