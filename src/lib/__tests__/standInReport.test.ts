@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { looseNameKey, standInReport } from "../standInReport";
+import {
+  looseNameKey,
+  share,
+  standInReport,
+  standInShareLines,
+  standInWhyLines,
+} from "../standInReport";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 
 /*
@@ -181,5 +187,60 @@ describe("why each club known only by name was not joined to a pulled club", () 
     expect(looseNameKey("St. Louis Bears - Floyd")).toBe(looseNameKey("STL Bears Floyd"));
     expect(looseNameKey("The Hit Squad BC")).toBe(looseNameKey("Hit Squad"));
     expect(looseNameKey("KC Crushers Black")).not.toBe(looseNameKey("KC Crushers"));
+  });
+});
+
+/*
+ * The report's numbers in words (`standInShareLines`, `standInWhyLines`), as the model sweep says
+ * them and the nightly says them after it: one definition of the share for both, and numbers only,
+ * the clubs the report lists by name left out.
+ */
+describe("the stand-ins' numbers in words", () => {
+  const report = standInReport(
+    teams,
+    [
+      game("g1", "S-A", "S-B"),
+      game("g2", "S-A", "N-B"),
+      game("g3", "S-B", "N-Z"),
+      game("g4", "S-A", "N-Z", false),
+      game("g5", "S-B", "P-1"),
+      game("g8", "S-A", "P-1", false),
+      game("g6", "S-A", "N-C"),
+      game("g7", "S-C", "S-D", true, "ag_11u_2027"),
+    ],
+    groups,
+    2027
+  );
+
+  it("says the share of the year's games and of its played games, and where the names stand", () => {
+    expect(standInShareLines(report)).toEqual([
+      "  The year's games: 8; with a stand-in on a side: 6 (75.0%).",
+      "  Played: 6; with a stand-in: 4 (66.7%).",
+      "  Stand-ins holding a game: 3 known only by name, 1 bracket slots.",
+      "  Of those known only by name: 2 share a name with a club pulled this year (66.7%), 1 have none.",
+      "  The clubs known only by name, by where a pulled club of the same name is:",
+      "    on a page they played on (likely the same club, not joined): 1 clubs, holding 1 games (1 played)",
+      "    only on another page: 1 clubs, holding 1 games (1 played)",
+      "    nowhere (a club nobody has pulled): 1 clubs, holding 2 games (1 played)",
+      "  Played games against a bracket slot nobody resolved: 1.",
+    ]);
+    expect(share(1, 0)).toBe("-");
+  });
+
+  it("says why each was not joined, a bucket a reason, and no club's name", () => {
+    expect(standInWhyLines(report)).toEqual([
+      "  Why each club known only by name was not joined to a pulled club:",
+      "    one pulled club of the name on its page, in the namers' state (should have joined): 1 clubs, holding 1 games (1 played)",
+      "    one on its page, in another state: 0 clubs, holding 0 games (0 played)",
+      "    several of the name on its page: 0 clubs, holding 0 games (0 played)",
+      "    none of the name on its page, one spelled near it: 0 clubs, holding 0 games (0 played)",
+      "    none of the name on its page, several spelled near it: 0 clubs, holding 0 games (0 played)",
+      "    a namesake only on another page: 1 clubs, holding 1 games (1 played)",
+      "    nothing of the name or near it (never pulled): 1 clubs, holding 2 games (1 played)",
+    ]);
+    // The report lists them by name; the words never do.
+    expect(report.top.map((club) => club.name)).toContain("Zebras");
+    const said = [...standInShareLines(report), ...standInWhyLines(report)].join("\n");
+    for (const team of teams) expect(said).not.toContain(team.name);
   });
 });

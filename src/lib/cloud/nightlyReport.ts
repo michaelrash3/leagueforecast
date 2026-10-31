@@ -1,11 +1,20 @@
 import { LOPSIDED_MARGIN } from "../autoRemoved";
 import { describeTidy } from "../gameChangerImport";
+import {
+  standInReport,
+  standInShareLines,
+  standInWhyLines,
+  type StandInReport,
+} from "../standInReport";
+import { segmentOn } from "../teamRankings/seasons";
+import { loadAgeGroups, loadScoutGamesForYear, loadScoutTeams } from "../teamRankingsStorage";
 import type { CloudPullResult } from "./cloudRunner";
 
 /*
  * What the nightly says of its pull beyond its first line (`scripts/nightly.ts`, README "The
- * nightly refresh on GitHub"): what the tidy changed, step by step, and what the sweep deleted
- * under the owner's 40-run rule, took off the boards and put back. Counts only, a line at a time:
+ * nightly refresh on GitHub"): what the tidy changed, step by step, what the sweep deleted under
+ * the owner's 40-run rule, took off the boards and put back, and how much of the squad year leans
+ * on a stand-in once they are done. Counts only, a line at a time:
  * the repository's Actions logs are public, so no club's name or id is said, and the run hands
  * over nothing that holds one (`CloudPullResult.tidy` is the tidy's counts without its pool).
  */
@@ -44,4 +53,30 @@ export const sweptLines = ({
         ]
       : []),
   ];
+};
+
+/**
+ * A squad year's stand-ins (`standInReport`) in the model sweep's own words (`standInShareLines`,
+ * `standInWhyLines`): the share of the year's games, and of its played games, with a club known
+ * only by name or a bracket slot on a side, and the clubs known only by name by where a pulled
+ * club of the name is and by why none was joined. Numbers only: the report's lists of the clubs
+ * holding the most games name them, and are never said.
+ */
+export const standInLines = (report: StandInReport): string[] => [
+  `  Stand-ins of squad year ${report.year}, a club known only by name or a bracket slot on a side:`,
+  ...[...standInShareLines(report), ...standInWhyLines(report)].map((line) => `  ${line}`),
+];
+
+/**
+ * The stand-ins of the squad year being played on the members' day `today` (`segmentOn`), off the
+ * pool the store holds: every game stored for the year, as the stand-in rule's readings counted
+ * them when the share was 28.4% of the year and 25.1% of its played games (README, "Placeholders"),
+ * not the boards' pool the model sweep's own report reads, which adds League Standings' games and
+ * leaves out the clubs taken off. Asked for no lists of names at all.
+ */
+export const storedStandInLines = (today: string): string[] => {
+  const { year } = segmentOn(today);
+  return standInLines(
+    standInReport(loadScoutTeams(), loadScoutGamesForYear(year), loadAgeGroups(), year, 0)
+  );
 };

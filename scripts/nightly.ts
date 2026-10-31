@@ -35,7 +35,7 @@ import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
 import { heldWord, radiusWords } from "../src/lib/cloud/blastRadius.ts";
 import { heardNothing, runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.ts";
 import { ingestWord, ingestWords } from "../src/lib/cloud/ingestCanary.ts";
-import { sweptLines, tidyLines } from "../src/lib/cloud/nightlyReport.ts";
+import { storedStandInLines, sweptLines, tidyLines } from "../src/lib/cloud/nightlyReport.ts";
 import { failureWords } from "../src/lib/cloud/firestoreRest.ts";
 import {
   nightlyEndsTurn,
@@ -289,6 +289,16 @@ const main = async (): Promise<void> => {
   if (result.ingest) {
     console.log(`  Read: ${ingestWords(result.ingest)}.`);
     output("ingest", ingestWord(result.ingest));
+  }
+  // How much of the squad year leans on a stand-in once the tidy and the sweep are done, off the
+  // pool the store holds, and only when it holds a copy (`CloudPullResult.manifest`), as the views
+  // are built. Said and never judged: a number to watch, not the night's work.
+  if (result.manifest) {
+    try {
+      for (const line of storedStandInLines(todayIsoDay())) console.log(line);
+    } catch (error) {
+      console.log(`  The stand-ins were not counted: ${failureWords(error)}`);
+    }
   }
   // Built from the copy the store now holds, and only when it holds one (`CloudPullResult.manifest`).
   let published: CopyPublish | null = null;

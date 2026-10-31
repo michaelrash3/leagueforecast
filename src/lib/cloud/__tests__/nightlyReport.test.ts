@@ -1,10 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GcGame, GcTeamResponse, GcTeamSchedule } from "../../gameChangerApi";
 import { TIDY_STEPS } from "../../gameChangerImport";
+import { standInReport, standInShareLines, standInWhyLines } from "../../standInReport";
+import type { AgeGroup, ScoutGame, ScoutTeam } from "../../teamRankings";
 import {
   cloudPoolKeys,
   flushPoolWrites,
   initTeamRankingsStore,
+  loadAgeGroups,
+  loadScoutGamesForYear,
+  loadScoutTeams,
   readCloudPoolValue,
   resetTeamRankingsStore,
   saveScoutTeams,
@@ -12,7 +17,7 @@ import {
 import { commitChanges, type Change } from "../cloudEngine";
 import { LEAGUE_PART } from "../cloudPlan";
 import { memoryIo, runCloudPull, type CloudPullResult, type TidyCounts } from "../cloudRunner";
-import { sweptLines, tidyLines } from "../nightlyReport";
+import { standInLines, storedStandInLines, sweptLines, tidyLines } from "../nightlyReport";
 import { memoryCloud, type MemoryCloud } from "./memoryCloud";
 
 /*
@@ -112,6 +117,47 @@ describe("the nightly's lines on its sweep", () => {
       "  Clubs removed for you, as plainly made up: 0 GameChanger teams would have been taken off the boards, and 2 put back.",
     ]);
     expect(sweptLines(night({}))).toEqual([]);
+  });
+});
+
+describe("the nightly's lines on the stand-ins", () => {
+  const groups = [{ id: "ag_10u_2027", name: "10U 2027", year: 2027 }] as AgeGroup[];
+  const teams: ScoutTeam[] = [
+    { id: "S-A", name: "Aces" },
+    { id: "S-B", name: "Bears" },
+    { id: "N-Z", name: "Zebras", nameOnly: true },
+    { id: "P-1", name: "TBD 3:00 PM", placeholder: true },
+  ];
+  const played = (id: string, a: string, b: string) =>
+    ({
+      id,
+      ageGroupId: "ag_10u_2027",
+      teamAId: a,
+      teamBId: b,
+      teamAScore: 5,
+      teamBScore: 3,
+    }) as ScoutGame;
+  // With its lists of the clubs holding the most games, which name them.
+  const report = standInReport(
+    teams,
+    [played("g1", "S-A", "S-B"), played("g2", "S-A", "N-Z"), played("g3", "S-B", "P-1")],
+    groups,
+    2027
+  );
+
+  it("says the squad year's share and buckets in the model sweep's own words, naming none", () => {
+    expect(report.top.map((club) => club.name)).toEqual(["Zebras"]);
+    const lines = standInLines(report);
+    expect(lines[0]).toBe(
+      "  Stand-ins of squad year 2027, a club known only by name or a bracket slot on a side:"
+    );
+    expect(lines.slice(1)).toEqual(
+      [...standInShareLines(report), ...standInWhyLines(report)].map((line) => `  ${line}`)
+    );
+    expect(lines[1]).toBe("    The year's games: 3; with a stand-in on a side: 2 (66.7%).");
+    expect(lines[2]).toBe("    Played: 3; with a stand-in: 2 (66.7%).");
+    const log = lines.join("\n");
+    for (const team of teams) expect(log).not.toContain(team.name);
   });
 });
 
@@ -217,7 +263,16 @@ describe("a made-up night's lines", () => {
     expect(lines).toContain(
       "  Clubs removed for you, as plainly made up: 1 GameChanger team taken off the boards, and 0 put back."
     );
-    const log = lines.join("\n");
+    // The squad year of the members' day, 2027 on 29 September 2026, read off the pool as saved:
+    // the Router's two games against clubs nobody pulled, of the year's three.
+    const standIns = storedStandInLines("2026-09-29");
+    expect(standIns).toEqual(
+      standInLines(
+        standInReport(loadScoutTeams(), loadScoutGamesForYear(2027), loadAgeGroups(), 2027)
+      )
+    );
+    expect(standIns[1]).toBe("    The year's games: 3; with a stand-in on a side: 2 (66.7%).");
+    const log = [...lines, ...standIns].join("\n");
     for (const name of NAMED) expect(log).not.toContain(name);
   });
 });

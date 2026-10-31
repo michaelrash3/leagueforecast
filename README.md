@@ -5954,6 +5954,21 @@ counted once, on the deletion's line. The run hands back the tidy's counts, neve
 the pool it tidied, so nothing that names a club can reach the log. A night with
 nothing to pull runs no tidy and says none.
 
+Then, when the store holds a copy, as the views need it to, how much of the squad
+year being played leans on a stand-in (`storedStandInLines`): of every game stored
+for the year, the share with a club known only by name or a bracket slot on a
+side, and the same of its played games, then the clubs known only by name by
+where a pulled club of the name is and by why none was joined. The numbers and
+their words are the model sweep's stand-in report (`standInReport`,
+`standInShareLines`, `standInWhyLines`), which the model sweep now says through
+the same functions, its output the same to the character on the seeded fixture.
+It reads the stored pool, as the stand-in rule's readings of 28 October 2026 did
+(28.4% of the year, 25.1% of its played games, "Placeholders"), not the boards'
+pool the model sweep's own report reads, which adds League Standings' games and
+leaves out the clubs taken off. The report's lists of the clubs holding the most
+games are never asked for, and a count that fails says so on its own line and
+leaves the night's colour alone.
+
 What it replaces it keeps, as an earlier version of the copy: the cloud panel's
 **Earlier versions** lists it, and **Bring back** undoes a bad night on every
 device. Six are kept, for 30 days at most.
