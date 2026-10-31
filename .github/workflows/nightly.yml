@@ -83,6 +83,11 @@ jobs:
           # 1 GB above the loaded pool (the owner's backup of 11 October, not measured here).
           NODE_OPTIONS: --max-old-space-size=12288
           LIMIT: ${{ inputs.limit }}
+          # Whether the pulls run on GitHub: the deploy hands this token to the functions, and with it
+          # no rebuild after a save runs on Google (`rebuildsRun`), the boards' publish on GitHub
+          # taking their place, which the rebuilds' lines then say (`describeRebuilds`). Only
+          # whether the secret is set, never the token itself.
+          PULLS_ON_GITHUB: ${{ secrets.PULL_DISPATCH_TOKEN != '' }}
       # Beside the refresh, whatever became of it: the project's billing, read from Cloud Billing
       # (free to ask, and nothing of the copy), and the end of the token the pulls on GitHub are
       # started with, read from GitHub (`scripts/upkeep.ts`). Each is handed to the alarm as a word;

@@ -16,11 +16,16 @@ import { coerceLedger, type Ledger } from "./rebuildLedger";
  * not. The nightly runs a few hours into a New York day, so that is mostly the day before, and the
  * day before that which had a run is said too (`lastDay`), so a save just after midnight or a day
  * of refusals at a cap does not hide the last day the rebuilds ran.
+ *
+ * `onGithub` is whether the pulls run on GitHub, the dispatch token set (`rebuildsRun`), which the
+ * nightly's workflow tells it: then no rebuild runs on Google, and a deferral is said as such
+ * (`heldBack`).
  */
 export const describeRebuilds = (
   raw: unknown,
   job: unknown = null,
-  now: number = Date.now()
+  now: number = Date.now(),
+  onGithub = false
 ): string[] => {
   if (raw === null || raw === undefined) {
     return ["Rebuilds after saves: there is no ledger in ops/rebuild, so they are off."];
@@ -50,7 +55,7 @@ export const describeRebuilds = (
           `  Edits and questions, ${ledger.month}: ${count(ledger.editMonthGiBs)} of ${count(caps.editMonthGiBs)} GiB-seconds and ${count(ledger.editMonthVcpuS)} of ${count(caps.editMonthVcpuS)} vCPU-seconds.`,
         ]
       : []),
-    ...heldBack(job, now),
+    ...heldBack(job, now, onGithub),
     `  ${
       ledger.pausedDay === null
         ? `${ledger.failures} failed in a row, of the ${caps.failures} that pause them`
@@ -79,15 +84,25 @@ export const rebuildsTrouble = (raw: unknown): "off" | "paused" | "failing" | "n
 
 /**
  * The line saying the rebuild job is deferred (`rebuildJobControl.ts`), why and until when, or
- * none. Without it the nightly said nothing amiss through the second half of October 2026, while
- * every save waited for the first of November. Only a budget's deferral is lifted by a cap raised
- * in ops/rebuild, so only it says so.
+ * none. Without it the nightly said nothing amiss in the middle of October 2026, while every save
+ * waited for the first of November. Only a budget's deferral is lifted by a cap raised in
+ * ops/rebuild, so only it says so.
+ *
+ * Where the pulls run on GitHub no rebuild runs on Google, whatever the deferral: each save's
+ * boards go out by the boards' publish on GitHub, and a rebuild's task deferred publishes through
+ * it when it comes, so no save waits for the date. Said as before, the line had the owner waiting
+ * on 1 November, and looking to raise a cap, from 24 October 2026, when the pulls moved.
  */
-const heldBack = (job: unknown, now: number): string[] => {
+const heldBack = (job: unknown, now: number, onGithub: boolean): string[] => {
   if (!isRecord(job) || typeof job.deferredUntil !== "string") return [];
   const until = Date.parse(job.deferredUntil);
   if (!(until > now)) return [];
   const at = new Date(until).toISOString();
+  if (onGithub) {
+    return [
+      `  Replaced by the boards' publish on GitHub, which publishes each save: none waits for the deferral until ${at}.`,
+    ];
+  }
   switch (deferralReason(job.detail)) {
     case "day-cap":
     case "month-cap":

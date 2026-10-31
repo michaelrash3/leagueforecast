@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import nightlyWorkflow from "../../../../.github/workflows/nightly.yml?raw";
+import nightlyScript from "../../../../scripts/nightly.ts?raw";
 import { deferralDetail } from "../rebuildJobControl";
 import { describeRebuilds, rebuildsTrouble } from "../rebuildReport";
 
@@ -168,6 +170,53 @@ describe("the nightly's lines on the rebuilds", () => {
     );
     expect(lines.join("\n")).not.toContain(OPEN.task);
     expect(lines.join("\n")).not.toContain(OPEN.by);
+  });
+});
+
+/*
+ * Where the pulls run on GitHub (the dispatch token set, `rebuildsRun` false), no rebuild runs on
+ * Google: a save's boards go out by the boards' publish on GitHub within minutes, and a rebuild's
+ * task deferred to a later month publishes through it when it comes. The deferral is then nothing
+ * a save waits for, and through the second half of October 2026 the nightly said "saves wait for
+ * then" of a deferral to 1 November that no save was waiting on.
+ */
+describe("the nightly's line on a deferral, where the pulls run on GitHub", () => {
+  const now = Date.parse("2026-10-30T10:51:00Z");
+  const ledger = { on: true, mode: "live", month: "2026-10" };
+  const deferred = (why: "month-cap" | "busy" | "failing") => {
+    const until = new Date("2026-11-01T04:01:00.000Z");
+    return { deferredUntil: until.toISOString(), detail: deferralDetail(why, until) };
+  };
+
+  it("says the boards' publish on GitHub replaces them, and that no save waits", () => {
+    for (const why of ["month-cap", "busy", "failing"] as const) {
+      const lines = describeRebuilds(ledger, deferred(why), now, true);
+      expect(lines).toContain(
+        "  Replaced by the boards' publish on GitHub, which publishes each save: none waits for the deferral until 2026-11-01T04:01:00.000Z."
+      );
+      expect(lines.join("\n")).not.toMatch(/wait for then|a cap raised|Held back|Waiting until/);
+    }
+  });
+
+  it("says the deferral as before where the pulls are on Google, or nothing where there is none", () => {
+    expect(describeRebuilds(ledger, deferred("month-cap"), now, false)).toContain(
+      "  Held back by their budget until 2026-11-01T04:01:00.000Z: saves wait for then, or for a cap raised in ops/rebuild."
+    );
+    expect(describeRebuilds(ledger, deferred("month-cap"), now)).toEqual(
+      describeRebuilds(ledger, deferred("month-cap"), now, false)
+    );
+    expect(describeRebuilds(ledger, null, now, true).join("\n")).not.toMatch(/Replaced/);
+  });
+
+  it("is told by the workflow whether the dispatch token is set, and hands it on", () => {
+    const refresh = nightlyWorkflow
+      .split(/^(?= {6}- )/m)
+      .find((step) => /id: refresh\b/.test(step));
+    expect(refresh).toMatch(
+      /^ {10}PULLS_ON_GITHUB: \$\{\{ secrets\.PULL_DISPATCH_TOKEN != '' \}\}$/m
+    );
+    expect(nightlyScript).toMatch(/const onGithub = process\.env\.PULLS_ON_GITHUB === "true";/);
+    expect(nightlyScript).toMatch(/describeRebuilds\(ledger, job, Date\.now\(\), onGithub\)/);
   });
 });
 

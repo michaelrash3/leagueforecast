@@ -5840,8 +5840,9 @@ secret, and a deploy, puts them back.
 
 Where the pulls are on GitHub, so are the boards after a save. A save the boards
 read, an edit or a League Standings score, no longer asks for a rebuild on Google
-(`rebuildsRun`): the rebuilds' 8 GiB job (`ranking-rebuild`) was October 2026's
-largest metered use, 113,966 GiB-s and 49,543 vCPU-s. Each save queues its check
+(`rebuildsRun`): the rebuilds' ledger counted October 2026's largest metered use,
+113,966 GiB-s and 49,543 vCPU-s, the 8 GiB job's (`ranking-rebuild`) and, until
+16 October, the edits' and the questions' charged with it. Each save queues its check
 of the boards instead, counting on no rebuild ("Boards published after an edit"),
 and the check starts the boards' publish, which runs on GitHub. So does a save
 that moves nothing a board reads, a Pool health answer or a season renamed: the
@@ -6086,6 +6087,18 @@ not yet settled. A ledger that cannot be read says so on its own line and leaves
 the night's colour alone, as do failed rebuilds: they are not the refresh's
 work. This is what tells whether a week of dry runs went well before `mode` is
 set to `live`.
+
+Where the pulls run on GitHub (the workflow tells it whether the dispatch token is
+set, `PULLS_ON_GITHUB`), no rebuild runs on Google, so a deferral of the rebuild
+job is said as the boards' publish on GitHub having taken their place, which
+publishes each save, and no save waiting for the date. Until 31 October 2026 the
+line said of the deferral to 1 November "saves wait for then, or for a cap raised
+in ops/rebuild", though no rebuild had run on Google since 13 October, and the
+month's totals that deferred it were mostly the edits' and the questions' compute,
+charged to the rebuilds until 16 October: at least 34,964 of the 49,543
+vCPU-seconds, since the ledger's runs stood at 34 from 13 to 15 October while its
+vCPU-seconds went from 14,566 to 49,530. What if and Model check, refused while the
+month reads as spent, come back with the month. The caps are as they were.
 
 ### Boards published when a pull ends
 

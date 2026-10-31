@@ -157,7 +157,10 @@ const tellRebuilds = async (): Promise<void> => {
   try {
     const ledger = await readLedger();
     const job = await (readRebuildJob?.() ?? Promise.resolve(null)).catch(() => null);
-    for (const line of describeRebuilds(ledger, job)) console.log(line);
+    // Whether the pulls run on GitHub, as the workflow tells it: then the boards' publish there
+    // has taken the rebuilds' place, and a deferral of theirs holds no save back.
+    const onGithub = process.env.PULLS_ON_GITHUB === "true";
+    for (const line of describeRebuilds(ledger, job, Date.now(), onGithub)) console.log(line);
     const trouble = rebuildsTrouble(ledger);
     if (trouble) output("rebuilds", trouble);
   } catch (error) {
