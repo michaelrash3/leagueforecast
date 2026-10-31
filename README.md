@@ -4195,6 +4195,24 @@ last Gold Bracket spot; the tiebreakers decide", or "after 1 more loss, only a w
 tiebreak keeps the team in" — rather than claim either. Once nothing is left to
 play, the table's own rank answers.
 
+**Games a team still owes count as games left.** A league can set games per team
+and enter only part of its schedule, the second half posted later, say. The
+Standings' status column has always counted the games each team owes under that
+setting beyond those scheduled (`getRemainingCounts`), but the magic and
+elimination numbers, the needed results and the Forecast's Gold Bracket paths read
+the schedule alone: once the games entered were played, a team 3-0 with nine still
+owed read "Already clinched" beside a status of In, one 1-2 "Already eliminated"
+beside Alive, and the Forecast listed no paths at all. Each owed game is now one
+more game in the exact search, against a stand-in that is never ranked
+(`owedGames`, `withOwedGames`), so it can go either way, as the status column
+reads it, and a clinch or an elimination the search claims is one no result of
+the owed games can undo. They count toward the fifteen games the exact numbers
+wait for, so a league owing many shows them paused in the team panel, in its usual
+words, and leaves them off the Our team card, until few enough are left. A need
+in them has no opponent or day to name: "Win the 2 games not yet on the schedule",
+"Bears to lose their game not yet on the schedule". A league with no games per
+team set, or whose schedule has them all, is searched exactly as before.
+
 ## Playoff machine
 
 "If we beat the Bears and the Comets lose, where are we?" The Forecast tab has a

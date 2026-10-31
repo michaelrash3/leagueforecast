@@ -35,6 +35,24 @@ export type OurTeamSummary = {
 };
 
 /**
+ * A need in the games a team owes beyond the schedule (`NeededResult.owed`), which have no opponent
+ * or day to name. Only two can arise: the team's own to win, and another team's to lose, since
+ * another team winning one only ever puts it higher, and the team losing one never helps it.
+ */
+const owedNeed = (teamId: string, need: NeededResult, nameOf: (id: string) => string): string => {
+  const one = need.owed === 1;
+  const games = one ? "game" : `${need.owed} games`;
+  if (need.side === teamId)
+    return need.orTie
+      ? `Don't lose ${one ? "the game" : `any of the ${games}`} not yet on the schedule`
+      : `Win the ${games} not yet on the schedule`;
+  const rival = nameOf(need.against);
+  return need.orTie
+    ? `${rival} not to win ${one ? "their game" : `any of their ${games}`} not yet on the schedule`
+    : `${rival} to lose their ${games} not yet on the schedule`;
+};
+
+/**
  * The needed results as the card says them: the team's own games as what it must do, anyone
  * else's as what it needs to happen. "Not lose" where a tie is enough, "beat" where it is not.
  */
@@ -44,6 +62,7 @@ export const needsLines = (
   nameOf: (id: string) => string
 ): string[] =>
   needed.map((need) => {
+    if (need.owed) return owedNeed(teamId, need, nameOf);
     const when = need.date ? ` (${need.date})` : "";
     const against = nameOf(need.against);
     if (need.side === teamId)

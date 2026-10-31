@@ -132,6 +132,13 @@ describe("leagues that owe no games beyond the schedule", () => {
     expect(pins(ROUND, 3)).toEqual(pins(ROUND, 0));
     // The Aces and the Bears are scheduled past three; that owes nobody anything either.
     expect(pins(TWICE, 3)).toEqual(pins(TWICE, 0));
+    // Five each, two of them still to play: owed by the setting, but on the schedule already.
+    const full: Matchup[] = [
+      ...TWICE,
+      { id: "g9", date: "5/22", away: "D", home: "C" },
+      { id: "g10", date: "5/29", away: "C", home: "D" },
+    ];
+    expect(pins(full, 5)).toEqual(pins(full, 0));
   });
 
   it("a finished round robin", () => {
@@ -242,8 +249,8 @@ describe("leagues that owe games the schedule does not show yet", () => {
         },
         "exact": [
           "A | M Already clinched. | E Cannot be eliminated from the Gold Bracket this season. | needs null",
-          "B | M Already clinched. | E Cannot be eliminated from the Gold Bracket this season. | needs null",
-          "C | M Cannot mathematically clinch a Gold Bracket spot. | E Already eliminated from the Gold Bracket. | needs null",
+          "B | M 1 more win clinches a Gold Bracket spot. | E Its own losses cannot eliminate it, but other results still can. | needs []",
+          "C | M Cannot mathematically clinch a Gold Bracket spot. | E 1 more loss would eliminate the team from the Gold Bracket. | needs [{"gameId":" owed B 1","date":"","side":" owed","against":"B","orTie":false,"owed":1},{"gameId":" owed C 1","date":"","side":"C","against":" owed","orTie":false,"owed":1}]",
           "D | M Cannot mathematically clinch a Gold Bracket spot. | E Already eliminated from the Gold Bracket. | needs null",
         ],
         "finals": {
@@ -259,7 +266,10 @@ describe("leagues that owe games the schedule does not show yet", () => {
           "C": 0,
           "D": 0,
         },
-        "paths": [],
+        "paths": [
+          "B In: Controls a Gold spot by winning out.",
+          "C Alive: Needs help from teams above the line. Out after 1 more loss.",
+        ],
         "places": {
           "A": 1,
           "B": 2,
@@ -300,7 +310,12 @@ describe("leagues that owe games the schedule does not show yet", () => {
           "C": 0,
           "D": 0,
         },
-        "paths": [],
+        "paths": [
+          "B In: Controls a Gold spot by protecting the current cut-line cushion.",
+          "A In: Controls a Gold spot by protecting the current cut-line cushion.",
+          "C Alive: Needs help from teams above the line.",
+          "D Alive: Needs help from teams above the line.",
+        ],
         "places": {
           "A": 1,
           "B": 2,
@@ -328,10 +343,10 @@ describe("leagues that owe games the schedule does not show yet", () => {
           "D": 0,
         },
         "exact": [
-          "A | M Already clinched. | E Cannot be eliminated from the Gold Bracket this season. | needs null",
-          "B | M Already clinched. | E Cannot be eliminated from the Gold Bracket this season. | needs null",
-          "C | M Cannot mathematically clinch a Gold Bracket spot. | E Already eliminated from the Gold Bracket. | needs null",
-          "D | M Cannot mathematically clinch a Gold Bracket spot. | E Already eliminated from the Gold Bracket. | needs null",
+          "A | M 1 more win clinches a Gold Bracket spot. | E Its own losses cannot eliminate it, but other results still can. | needs []",
+          "B | M 2 more wins clinches a Gold Bracket spot. | E Its own losses cannot eliminate it, but other results still can. | needs []",
+          "C | M Cannot mathematically clinch a Gold Bracket spot. | E 2 more losses would eliminate the team from the Gold Bracket. | needs []",
+          "D | M Cannot mathematically clinch a Gold Bracket spot. | E 1 more loss would eliminate the team from the Gold Bracket. | needs [{"gameId":"g7","date":"5/22","side":"A","against":"B","orTie":false},{"gameId":"g8","date":"5/29","side":"A","against":"B","orTie":false},{"gameId":" owed D 1","date":"","side":"D","against":" owed","orTie":false,"owed":2}]",
         ],
         "finals": {
           "A": 100,
@@ -346,7 +361,12 @@ describe("leagues that owe games the schedule does not show yet", () => {
           "C": 0,
           "D": 0,
         },
-        "paths": [],
+        "paths": [
+          "B In: Controls a Gold spot by winning out.",
+          "A In: Clinches with 1 win.",
+          "C Alive: Comets get help if Bears lose to Aces. Out after 2 more losses.",
+          "D Alive: Ducks get help if Bears lose to Aces. Out after 1 more loss.",
+        ],
         "places": {
           "A": 1.17,
           "B": 1.83,

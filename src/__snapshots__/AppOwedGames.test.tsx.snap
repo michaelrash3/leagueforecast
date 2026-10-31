@@ -2,18 +2,17 @@
 
 exports[`League Standings with games owed beyond the schedule (pin) > nine games owed by every team 1`] = `
 {
-  "Aces' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Already clinched.E (Gold elimination)Cannot be eliminated from the Gold Bracket this season.",
-  "Bears' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Already clinched.E (Gold elimination)Cannot be eliminated from the Gold Bracket this season.",
-  "Comets' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Cannot mathematically clinch a Gold Bracket spot.E (Gold elimination)Already eliminated from the Gold Bracket.",
+  "Aces' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Exact magic number is paused until 15 or fewer games remain to keep team modals responsive.E (Gold elimination)Exact elimination number is paused until 15 or fewer games remain to keep team modals responsive.",
+  "Bears' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Exact magic number is paused until 15 or fewer games remain to keep team modals responsive.E (Gold elimination)Exact elimination number is paused until 15 or fewer games remain to keep team modals responsive.",
+  "Comets' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Exact magic number is paused until 15 or fewer games remain to keep team modals responsive.E (Gold elimination)Exact elimination number is paused until 15 or fewer games remain to keep team modals responsive.",
   "Dashboard": "RankTeamRatingRecordRun Diff/GSOSTrend
 #1Aces+2.73-0+5.0#4– Stable
 #2Bears-0.22-1-0.3#3– Stable
 #3Comets-0.91-2-1.7#2– Stable
 #4Ducks-1.60-3-3.0#1– Stable
-Already clinched.
 1 worth reviewing
 numbers: 1 4 3 -0 100% 0 100% 1 20 +2.0 1 1 +2.7 3 -0 +5.0 4 2 -0.2 2 -1 -0.3 3 3 -0.9 1 -2 -1.7 2 4 -1.6 0 -3 -3.0 1",
-  "Ducks' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Cannot mathematically clinch a Gold Bracket spot.E (Gold elimination)Already eliminated from the Gold Bracket.",
+  "Ducks' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Exact magic number is paused until 15 or fewer games remain to keep team modals responsive.E (Gold elimination)Exact elimination number is paused until 15 or fewer games remain to keep team modals responsive.",
   "Forecast · Brackets": "1234Likely
 ACE1001
 BEA1002
@@ -28,8 +27,9 @@ Aces#1#10#1–#13-099%+±2%Stable+15
 Bears#2#20#2–#22-199%+±2%Stable-1
 Comets#3#30#3–#31-2<1%±2%Stable-5
 Ducks#4#40#4–#40-3<1%±2%Stable-9
-No paths yet.
-numbers: 1 5 0% 25% 50% 75% 100% 1 1 0 1 1 3 -0 +1599% 2% 2 2 0 2 2 2 -1 -199% 2% 3 3 0 3 3 1 -2 -5 1% 2% 4 4 0 4 4 0 -3 -9 1% 2%",
+Needs help from teams above the line.
+Needs help from teams above the line.
+numbers: 1 2 2 100% 1 1 100% 3 3 0% 4 4 0% 5 0% 25% 50% 75% 100% 1 1 0 1 1 3 -0 +1599% 2% 2 2 0 2 2 2 -1 -199% 2% 3 3 0 3 3 1 -2 -5 1% 2% 4 4 0 4 4 0 -3 -9 1% 2%",
   "Forecast · Playoff machine": "Pick the winner of any game left and see where everyone lands. A pick plays out at the model's expected score unless you type one. Picks are kept only when you save them, on this device.
 numbers: ",
   "Forecast · Season": "5/15Bears at Comets · 5-4Winner: BearsGold cut line held after 5/15.
@@ -58,9 +58,9 @@ numbers: 2 5 15 1 3 -0 3 +15 499% 2 2 -1 2 -1 399% 3 1 -2 1 -5 2 1% 4 0 -3 0 -9 
 
 exports[`League Standings with games owed beyond the schedule (pin) > two owed by the Comets and the Ducks 1`] = `
 {
-  "Aces' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Already clinched.E (Gold elimination)Cannot be eliminated from the Gold Bracket this season.",
-  "Bears' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Already clinched.E (Gold elimination)Cannot be eliminated from the Gold Bracket this season.",
-  "Comets' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Cannot mathematically clinch a Gold Bracket spot.E (Gold elimination)Already eliminated from the Gold Bracket.",
+  "Aces' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)1 more win clinches a Gold Bracket spot.E (Gold elimination)Its own losses cannot eliminate it, but other results still can.",
+  "Bears' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)2 more wins clinches a Gold Bracket spot.E (Gold elimination)Its own losses cannot eliminate it, but other results still can.",
+  "Comets' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Cannot mathematically clinch a Gold Bracket spot.E (Gold elimination)2 more losses would eliminate the team from the Gold Bracket.",
   "Dashboard": "RankTeamRatingRecordRun Diff/GSOSTrend
 #1Aces+2.73-0+5.0#4– Stable
 #2Bears-0.22-1-0.3#3– Stable
@@ -73,7 +73,7 @@ Projected Winner
 Win Probability
 1 worth reviewing
 numbers: 3 4 1 -2 0% −41.7 2 51 100 100% 5 22 3.3 6 12 33% 67% 2.5 -5.8 0 9 0 12 +2.7 -0.2 67% 5 29 3.3 6 12 67% 33% 5.8 -2.5 0 12 0 9 +2.7 -0.2 67% 1 1 20 +2.0 1 1 +2.7 3 -0 +5.0 4 2 -0.2 2 -1 -0.3 3 3 -0.9 1 -2 -1.7 2 4 -1.6 0 -3 -3.0 1",
-  "Ducks' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Cannot mathematically clinch a Gold Bracket spot.E (Gold elimination)Already eliminated from the Gold Bracket.",
+  "Ducks' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Cannot mathematically clinch a Gold Bracket spot.E (Gold elimination)1 more loss would eliminate the team from the Gold Bracket.",
   "Forecast · Brackets": "1234Likely
 ACE87131–2
 BEA13871–2
@@ -88,8 +88,17 @@ Aces#1#10#1–#15-099%+±2%Stable+23
 Bears#2#20#2–#22-399%+±2%Stable-9
 Comets#3#30#3–#31-2<1%±2%Stable-5
 Ducks#4#40#4–#40-3<1%±2%Stable-9
-No paths yet.
-numbers: 1 5 0% 25% 50% 75% 100% 1 1 0 1 1 5 -0 +2399% 2% 2 2 0 2 2 2 -3 -999% 2% 3 3 0 3 3 1 -2 -5 1% 2% 4 4 0 4 4 0 -3 -9 1% 2%",
+Controls a Gold spot by winning out.
+At Aces: win protects the path (#2); loss still projects #2.
+Vs Aces: win protects the path (#2); loss still projects #2.
+Clinches with 1 win.
+Vs Bears: win protects the path (#1); loss still projects #1.
+At Bears: win protects the path (#1); loss still projects #1.
+Comets get help if Bears lose to Aces.
+Out after 2 more losses.
+Ducks get help if Bears lose to Aces.
+Out after 1 more loss.
+numbers: 1 2 2 100% 2 2 2 2 1 1 100% 1 1 1 1 1 3 3 0% 2 4 4 0% 1 5 0% 25% 50% 75% 100% 1 1 0 1 1 5 -0 +2399% 2% 2 2 0 2 2 2 -3 -999% 2% 3 3 0 3 3 1 -2 -5 1% 2% 4 4 0 4 4 0 -3 -9 1% 2%",
   "Forecast · Playoff machine": "Pick the winner of any game left and see where everyone lands. A pick plays out at the model's expected score unless you type one. Picks are kept only when you save them, on this device.
 numbers: 5 22 5 29",
   "Forecast · Season": "5/15Bears at Comets · 5-4Winner: BearsGold cut line held after 5/15.

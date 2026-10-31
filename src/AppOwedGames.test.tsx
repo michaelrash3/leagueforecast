@@ -123,52 +123,62 @@ const leagues: Array<{ name: string; games: Matchup[]; gamesPerTeam: number; fol
   { name: "two owed by the Comets and the Ducks", games: TWICE, gamesPerTeam: 5, follow: "C" },
 ];
 
+/** The league stored, with games per team set and a team followed, and the app drawn on it. */
+const open = (games: Matchup[], gamesPerTeam: number, follow: string) => {
+  saveTeams(TEAMS);
+  saveMatchups(games);
+  saveLogs(SCORES);
+  saveSettings({ ...loadSettings(), goldCutoff: 2, regularSeasonGamesPerTeam: gamesPerTeam });
+  writeOurTeam("default", follow);
+  const user = userEvent.setup();
+  render(<App />);
+  return user;
+};
+
+/** A team's panel opened from the tab on screen, its Magic Numbers read, and the panel closed. */
+const panelOf = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+  const [link] = await screen.findAllByRole("link", { name: `View stats for ${name}` });
+  if (!link) throw new Error(`No link to ${name}`);
+  await user.click(link);
+  const read = await settled(`${name}' panel`, magicNumbers);
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  return read;
+};
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-05-18T16:00:00Z"));
+  window.localStorage.clear();
+  window.history.replaceState(null, "", "/");
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockReturnValue({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+    })
+  );
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
 describe("League Standings with games owed beyond the schedule (pin)", () => {
-  beforeEach(() => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-05-18T16:00:00Z"));
-    window.localStorage.clear();
-    window.history.replaceState(null, "", "/");
-    vi.stubGlobal(
-      "matchMedia",
-      vi.fn().mockReturnValue({
-        matches: false,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-      })
-    );
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-  });
-
   it.each(leagues)(
     "$name",
     async ({ games, gamesPerTeam, follow }) => {
-      saveTeams(TEAMS);
-      saveMatchups(games);
-      saveLogs(SCORES);
-      saveSettings({ ...loadSettings(), goldCutoff: 2, regularSeasonGamesPerTeam: gamesPerTeam });
-      writeOurTeam("default", follow);
-      const user = userEvent.setup();
-      render(<App />);
+      const user = open(games, gamesPerTeam, follow);
       const pinned: Record<string, string> = {};
       for (const tab of ["Dashboard", "Standings"]) {
         await user.click(await screen.findByRole("tab", { name: tab }));
         pinned[tab] = await settled(tab);
       }
-      for (const team of TEAMS) {
-        const [link] = await screen.findAllByRole("link", { name: `View stats for ${team.name}` });
-        if (!link) throw new Error(`No link to ${team.name}`);
-        await user.click(link);
-        pinned[`${team.name}' panel`] = await settled(`${team.name}' panel`, magicNumbers);
-        await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
-        await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-      }
+      for (const team of TEAMS) pinned[`${team.name}' panel`] = await panelOf(user, team.name);
       await user.click(await screen.findByRole("tab", { name: "Forecast" }));
       for (const { label } of FORECAST_SECTIONS.filter(({ key }) => key !== "games")) {
         await user.click(await screen.findByRole("button", { name: label }));
@@ -178,4 +188,46 @@ describe("League Standings with games owed beyond the schedule (pin)", () => {
     },
     120_000
   );
+});
+
+/*
+ * The sweep's reproduction as the page showed it: four teams, a cut line of two, twelve games each
+ * and the three entered played. The Aces read "Already clinched" on their card beside a status of
+ * In, the Comets "Already eliminated" beside Alive, and the Forecast had no Gold Bracket paths.
+ */
+describe("a league that owes games the schedule does not show yet, as the page shows it", () => {
+  it("settles nothing the owed games can change, and pauses what is too big to search", async () => {
+    const user = open(ROUND, 12, "A");
+    await user.click(await screen.findByRole("tab", { name: "Dashboard" }));
+    const card = await screen.findByRole("region", { name: "Our team" });
+    await waitFor(() => expect(card).toHaveTextContent("1st of 4 · 3-0"));
+    expect(card).not.toHaveTextContent("Already clinched");
+
+    await user.click(await screen.findByRole("tab", { name: "Standings" }));
+    // Nine games each and nothing scheduled is 36 games, past what the exact search is asked about.
+    expect(await panelOf(user, "Aces")).toContain(
+      "Exact magic number is paused until 15 or fewer games remain"
+    );
+    expect(await panelOf(user, "Comets")).toContain(
+      "Exact elimination number is paused until 15 or fewer games remain"
+    );
+
+    await user.click(await screen.findByRole("tab", { name: "Forecast" }));
+    const heading = await screen.findByRole("heading", { name: "Gold Bracket Paths" });
+    const paths = heading.closest("section");
+    if (!paths) throw new Error("No Gold Bracket Paths panel");
+    expect(paths).not.toHaveTextContent("No paths yet.");
+    for (const team of TEAMS)
+      expect(within(paths).getByRole("button", { name: team.name })).toBeInTheDocument();
+  }, 60_000);
+
+  it("works the owed games into the exact numbers where few enough are left", async () => {
+    // The Comets and the Ducks owe two each; the Aces and the Bears meet twice more.
+    const user = open(TWICE, 5, "C");
+    await user.click(await screen.findByRole("tab", { name: "Standings" }));
+    expect(await panelOf(user, "Bears")).toContain("2 more wins clinches a Gold Bracket spot.");
+    expect(await panelOf(user, "Comets")).toContain(
+      "2 more losses would eliminate the team from the Gold Bracket."
+    );
+  }, 60_000);
 });

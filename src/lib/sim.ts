@@ -94,8 +94,8 @@ export const effectiveGoldCutoff = (
       : 0;
 
 export const getRemainingCounts = (
-  teams: Team[],
-  remainingGames: Matchup[],
+  teams: readonly Pick<Team, "id" | "games">[],
+  remainingGames: readonly Matchup[],
   regularSeasonGamesPerTeam = 0
 ) => {
   const counts: Record<string, number> = {};
@@ -116,6 +116,47 @@ export const getRemainingCounts = (
   }
 
   return counts;
+};
+
+/**
+ * The opponent in a game a team owes beyond the schedule (`owedGames`). No team can be it: a team's
+ * id is trimmed as it is read in (`coerceTeams`), and this one starts with a space.
+ */
+export const OWED_OPPONENT = " owed";
+
+/**
+ * The games each team still owes under the games-per-team setting beyond those the schedule shows,
+ * the ones `getRemainingCounts` adds for the Standings' status, as games against a stand-in that is
+ * never ranked (`OWED_OPPONENT`). The exact search plays them after the scheduled games, where a
+ * game against nobody can go either way, as the status already reads it. A round at a time, each
+ * team owing one more playing it, at home and away by turns, since nothing says which. None where
+ * the setting is off or the schedule has them all, so such a league is searched exactly as it
+ * always was; and none for games already in `remaining`, so adding them to a list that has them
+ * adds nothing.
+ */
+export const owedGames = (
+  teams: readonly Pick<Team, "id" | "games">[],
+  remaining: readonly Matchup[],
+  settings: Pick<Settings, "regularSeasonGamesPerTeam">
+): Matchup[] => {
+  const perTeam = Math.max(0, Math.round(settings.regularSeasonGamesPerTeam || 0));
+  if (perTeam <= 0) return [];
+  const scheduled = getRemainingCounts(teams, remaining);
+  const owed = teams.map((team) => Math.max(0, perTeam - team.games - (scheduled[team.id] ?? 0)));
+  const games: Matchup[] = [];
+  for (let round = 0; round < Math.max(0, ...owed); round += 1) {
+    teams.forEach((team, at) => {
+      if ((owed[at] ?? 0) <= round) return;
+      const home = round % 2 === 1;
+      games.push({
+        id: `${OWED_OPPONENT} ${team.id} ${round + 1}`,
+        date: "",
+        away: home ? OWED_OPPONENT : team.id,
+        home: home ? team.id : OWED_OPPONENT,
+      });
+    });
+  }
+  return games;
 };
 
 export type MathGoldStatus = {
