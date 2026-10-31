@@ -262,6 +262,18 @@ describe("multi-season storage", () => {
     expect(listSeasons()).toHaveLength(1);
   });
 
+  it("says a rename the season list could not take was not made", () => {
+    const first = listSeasons()[0]!;
+    // The list is refused for room: the switcher, told the rename was made, read the list again
+    // to show it, found the old name, and asked again for ever.
+    vi.spyOn(localStorage, "setItem").mockImplementation((key: string, value: string) => {
+      if (key === "league_seasons_v1") throw new DOMException("full", "QuotaExceededError");
+      backing.set(key, value);
+    });
+    expect(renameSeason(first.id, "Spring 10U")).toBe(false);
+    expect(listSeasons()[0]!.name).toBe(first.name);
+  });
+
   it("reassigns the active season after deleting the active one", () => {
     backing.set("league_teams_v1", JSON.stringify([{ id: "A", name: "Aces" }]));
     const first = listSeasons()[0]!;
@@ -754,6 +766,8 @@ describe("a tab another tab has the turn from", () => {
     expect(getActiveSeasonId()).toBe(first.id);
     expect(createSeason("Summer").id).toBeTruthy();
     expect(listSeasons().map((season) => season.name)).not.toContain("Summer");
+    expect(renameSeason(first.id, "Spring 10U")).toBe(false);
+    expect(listSeasons()[0]!.name).toBe(first.name);
 
     adoptTabTurn(null);
     expect(saveTeams([{ id: "B", name: "Bears" }])).toBe(true);

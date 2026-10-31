@@ -485,6 +485,77 @@ describe("a question", () => {
     }
   });
 
+  it("hands on what the server said of the edits' month, answered, refused or given up on", async () => {
+    const MONTH = { month: "2026-10", spent: true };
+    const answered = answering(200, {
+      result: { ok: true, copy: "c0ffee01", version: 9, answer: ANSWER, editMonth: MONTH },
+    });
+    expect(
+      await callQuery({ query: QUESTION }, { ...signedIn, fetchImpl: answered.fetchImpl })
+    ).toEqual({
+      ok: true,
+      value: { ok: true, copy: "c0ffee01", version: 9, answer: ANSWER, editMonth: MONTH },
+    });
+    const refused = answering(200, { result: { ok: false, why: "kept-moving", editMonth: MONTH } });
+    expect(
+      await callQuery({ query: QUESTION }, { ...signedIn, fetchImpl: refused.fetchImpl })
+    ).toEqual({ ok: true, value: { ok: false, why: "kept-moving", editMonth: MONTH } });
+    // Given up on, it is in the error's details, as firebase-functions sends an HttpsError
+    // (`toJSON`: details, message, status), and the question is still not sent again.
+    const gaveUp = answering(409, {
+      error: { details: { editMonth: MONTH }, message: "Not answered.", status: "ABORTED" },
+    });
+    expect(
+      await callQuery(
+        { query: QUESTION },
+        { ...signedIn, fetchImpl: gaveUp.fetchImpl, retry: true, retryDelayMs: () => 0 }
+      )
+    ).toEqual({ ok: false, why: "failed", message: "Not answered.", editMonth: MONTH });
+    expect(gaveUp.sent).toHaveLength(1);
+  });
+
+  it("reads a server that says nothing of the edits' month, or nothing it can read, as not known", async () => {
+    // An older server says none; a month written any other way is none either.
+    for (const editMonth of [
+      undefined,
+      null,
+      "2026-10",
+      { month: "2026-10" },
+      { month: "October", spent: true },
+      { month: "2026-10", spent: "yes" },
+    ]) {
+      const said = editMonth === undefined ? {} : { editMonth };
+      const reply = answering(200, {
+        result: { ok: true, copy: "c0ffee01", version: 9, answer: ANSWER, ...said },
+      });
+      const called = await callQuery(
+        { query: QUESTION },
+        { ...signedIn, fetchImpl: reply.fetchImpl }
+      );
+      expect(called, JSON.stringify(editMonth)).toEqual({
+        ok: true,
+        value: { ok: true, copy: "c0ffee01", version: 9, answer: ANSWER },
+      });
+      const refused = answering(200, { result: { ok: false, why: "kept-moving", ...said } });
+      expect(
+        await callQuery({ query: QUESTION }, { ...signedIn, fetchImpl: refused.fetchImpl })
+      ).toEqual({ ok: true, value: { ok: false, why: "kept-moving" } });
+      const error = answering(409, {
+        error: { details: said, message: "Not answered.", status: "ABORTED" },
+      });
+      expect(
+        await callQuery({ query: QUESTION }, { ...signedIn, fetchImpl: error.fetchImpl })
+      ).toEqual({ ok: false, why: "failed", message: "Not answered." });
+    }
+    // Details that are not a record say nothing either.
+    const odd = answering(409, {
+      error: { details: "spent", message: "Not answered.", status: "ABORTED" },
+    });
+    expect(await callQuery({ query: QUESTION }, { ...signedIn, fetchImpl: odd.fetchImpl })).toEqual(
+      { ok: false, why: "failed", message: "Not answered." }
+    );
+  });
+
   it("takes no answer to another question, or a refusal only an edit gives, and nothing unclear as more than a failure", async () => {
     for (const result of [
       { ok: true, copy: "c0ffee01", version: 9, answer: { ...ANSWER, kind: "merge.preview" } },

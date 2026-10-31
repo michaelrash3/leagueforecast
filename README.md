@@ -4756,15 +4756,28 @@ subscription and sending to it, which the app does not have.
   switch back to an id nor a restore that puts another season under the open one shows what
   was kept of the season before.
 - League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose, and with `GROQ_API_KEY` Groq does when Gemini cannot; see [AI league story](#ai-league-story). No key is required for the app to work.
+- **A score is written half a second after the last keystroke**, and at once if the page moves
+  on first: another season opened, the page hidden or closed, or the turn given to another tab
+  (below). It goes into the season it was typed in, written before a switch moves the season saves
+  go into, and only the games changed are written, over what storage holds then
+  (`mergeHeldScores`). A score typed in that half second was lost with the switch or the page.
 - **One tab writes League Standings** (`tabTurn.ts`, the owner's choice of 26 October 2026).
   Every tab saves whole seasons from what it read when it opened, into the season storage names
   active, so two tabs of one browser, or a tab and the installed app, undid each other's scores,
   and a season switched in one moved where the other saved. The tabs now ask each other on a
   `BroadcastChannel` as each opens: the tab opened later is read-only, says "Open in another tab"
   over League Standings with **Use here**, and storage refuses every League write it makes, a
-  switch of season included (the cloud copy's own arriving is still laid in). Making, copying and
+  switch of season included (the cloud copy's own arriving is still laid in). League kept live
+  runs there too, so the season on screen follows what other devices send, but the tab keeps
+  nothing of the season's document that storage did not take (`leagueSync.ts`): kept regardless,
+  as it was, the base was ahead of storage, and the next tab to open the season read every game
+  and score sent meanwhile as deleted here, and erased them from the cloud. Nor do its refused
+  saves say storage is full, as they did at each arrival: the banner says why. Making, copying and
   deleting a season are refused before they start, with the same words: a delete goes to the
-  cloud's copy first, which storage refusing afterwards could not undo. A tab answers a hello to
+  cloud's copy first, which storage refusing afterwards could not undo. A label another device
+  changed renames the season in the switcher there only once a tab that writes has renamed it:
+  refused, the rename is asked again when a name changes, not each time the list is read again,
+  which had asked for ever (`renameSeason` says whether the list took it). A tab answers a hello to
   the tab that said it alone, so an answer heard by a third tab never makes that one give way.
   Use here first asks the writing tab for the turn: it writes what it still owes storage (a score
   App holds half a second before saving), goes read-only and says so to the tab that asked, which
@@ -4783,7 +4796,8 @@ subscription and sending to it, which the app does not have.
   turn (with several opened together, the turn taken would be the one given way to first). Two
   tabs holding a score for the same game keep the one written last. Storage asks the small registry
   in `tabTurn.ts`. Held by
-  `tabTurn.test.ts`, the storage test and `e2e/tabs.spec.ts`, which opens two real tabs.
+  `tabTurn.test.ts`, the storage test, `leagueSyncStorage.test.ts` and `e2e/tabs.spec.ts`, which
+  opens two real tabs.
 - What the last full restore replaced is kept on this device until the next restore
   (`league_forecast_replaced_backup_v1`, in the pool's IndexedDB store beside the saved board, and
   never read as the pool or sent to the cloud), and Settings' Data card offers it as "Download
@@ -4820,7 +4834,11 @@ IndexedDB is asynchronous and this app reads its pool during render, so the pool
 is read into memory once before anything mounts and the synchronous reads stay
 synchronous; writes go out behind them, coalesced per key. A write is therefore
 reported as _accepted_ rather than as landed, and one that later fails surfaces
-as a toast, which is the only thing left that can still say so.
+as a toast, which is the only thing left that can still say so. The other tabs
+are told of each key as it is accepted and again once it has landed, and read it
+again each time (`poolSync.ts`): told only as it was accepted, a tab read the later
+keys of a save before they had reached the store, kept their old values, and with
+its next save wrote those back over the other tab's work.
 
 A member's device is the exception. It opens on the cloud's board and on League
 Standings kept live, neither of which reads the pool, and a phone that held a pool
@@ -6080,7 +6098,10 @@ of them failed and the GiB-seconds they spent against the day's cap; the same of
 the last day before it that had a run, since the nightly runs a few hours into a
 New York day and a save just after midnight, or a day of refusals at a cap,
 moves the ledger on; the month's runs, failures, GiB-seconds and vCPU-seconds
-against its caps; then the failures in a row, a pause, and a run reserved and
+against its caps; the edits' own month; the questions the server spent compute on
+and left unanswered, on the ledger's day and the last day before it that had any,
+where there were some ("Questions to the cloud are going unanswered" raises its
+alarm past 20 a day); then the failures in a row, a pause, and a run reserved and
 not yet settled. A ledger that cannot be read says so on its own line and leaves
 the night's colour alone, as do failed rebuilds: they are not the refresh's
 work. This is what tells whether a week of dry runs went well before `mode` is
@@ -6343,6 +6364,14 @@ would have done"):
   gives each year's numbers. The copy stays as it was, its views unpublished, for a person to
   look at what GameChanger answered. The next night that saves, or has nothing to save, closes
   it. A pull a person starts saves what it files: the cap is the unattended night's.
+  The games that go with a club the owner's 40-run rule deletes (below, `lopsidedDrops`) do not
+  count toward the games' line, since that is the rule at work and not an answer gone wrong; the
+  clubs themselves still count toward the clubs' line, so a sweep gone wrong is still held. Lists,
+  the miner's hand-offs among them, never sweep, so the nightly meets every year they bring in
+  first: on 31 October 2026 it held its save, night after night, for the 1,646 of 2026's 16,036
+  games the rule's 40 deletions in that year took with them (a research read that day found the
+  tidy alone took nothing, and the rule 53 clubs across every year, all pulled). The night's log
+  says how many clubs the rule deleted and how many games went with them, counts only.
 - **The nightly's answers stopped reading as schedules** (`ingestCanary.ts`): of the games
   GameChanger listed that night, fewer than half could be filed, out of 500 or more. A cancelled
   game, or one with no date, is a few in a hundred; a change in how GameChanger writes a game
@@ -6358,6 +6387,20 @@ The two before them are read by their own step before the alarm (`scripts/upkeep
 whatever became of the refresh, which hands each as a word (`billing=on` or `off`,
 `dispatch=fine`, `refused` or `expires` and a day); it never fails the run, and it
 prints neither the key nor the token.
+
+And one on the cloud's questions, the owner's of 31 October 2026:
+
+- **Questions to the cloud are going unanswered** (`unansweredWord`): the nightly, dry or live,
+  read the ledger it already reads for the rebuilds and found more than 20 questions in a New York
+  day that the server spent compute on and could not answer (`dayUnanswered`, counted in the
+  write that charges each, "Rebuilds after saves" below), on the nightly's day or the day before:
+  the day before is kept as `lastUnanswered`, since a question charged after midnight moves the
+  ledger on before the nightly reads it. A device asks such a question again on its own at most
+  three times a season a day (`useScoutBridge`), so that many is a server that cannot answer, a
+  worker out of memory say, and not one member's bad minute. It says the day and the count, handed
+  over as `unanswered=over` with them, or `fine`. The first nightly to find neither day past 20
+  closes it; a ledger not read, or not one this build reads, leaves it as it is, and a day before
+  the day before was judged by the nightly after it.
 
 An issue is public, as the repository is, so it says when (UTC, to the minute),
 what failed in a word or two, and the run's link, and nothing from the log. The
@@ -7028,7 +7071,20 @@ October 2026 it went into the rebuilds' totals: a Setup question the server gave
 again and again by the device for a day, each try a cold load of the whole pool on an 8 GiB
 instance, and October's vCPU-seconds passed their cap with no rebuild run, so every save waited
 for the first of November. An edit is never refused for its caps; past them only the questions
-that refit a year are (`capsSpent`). October's totals were left as they stood, which keeps the
+that refit a year are (`capsSpent`). Every question's charge already reads the ledger and writes
+it back, and two things ride on that one read and write, with none of their own. Its reply says
+the edits' month as the charge left the ledger, the New York month and whether either of its
+totals is at its cap (`editMonth`, `editMonthOf`), and an unanswered question's error says the
+same in its details: League Standings makes no timer retry of its bridge question while that
+month is spent, until New York's month turns ("What Team Rankings has, asked of the server", in
+"League Standings in the cloud" below), and nothing a person asks is refused for it. A charge the ledger was slow to take (five seconds), or
+could not take, says nothing, which a device reads as not known, as it reads a reply from a
+server before this. And a question the server spent compute on and left unanswered, a worker out
+of memory say, is counted for its New York day (`dayUnanswered`, emptied on a new day as the
+day's totals are, the last day before that had any kept as `lastUnanswered`), for the nightly's
+alarm ("When a run fails"). One turned away before its turn spent nothing, so its charge writes
+nothing, and counting it would be a write of its own: it is not counted, unless it was a new
+instance's first call, which is charged the instance's start-up all the same and so is counted. October's totals were left as they stood, which keeps the
 rebuilds deferred for the rest of that month: raising a cap in `ops/rebuild` lets the next save
 start one, since the launcher lifts a deferral whose budget has room again (`requestRebuildJob`).
 The nightly says the edits' month and, while the job is deferred, why (its budget, a run still going, or failures in a row) and until when; only a budget's deferral is lifted by a raised cap. A field set to
@@ -8128,9 +8184,13 @@ switch is gone, and `lf_live_league_v1` is no longer read.
   holds it, one before it does not, so a value changed and changed back before
   the first write came back is still sent, and nothing of this device's is taken
   for another device's change. The base is kept between visits, always after
-  the season itself is in storage, so a base never holds what storage does not:
-  a game deleted on another device while this one was closed stays deleted,
-  rather than coming back from this device's copy. A base is used only for the
+  the season itself is in storage and only once storage has taken it, so a base
+  never holds what storage does not: a game deleted on another device while this
+  one was closed stays deleted, rather than coming back from this device's copy.
+  A base that will not fit takes the one before it out with it, since that one is
+  older than the season storage has just taken, and a score corrected elsewhere
+  since read against it as one changed back here; with none, the next visit keeps
+  everything either side holds. A base is used only for the
   season it was kept for, one made at the same moment; a season made since under
   a deleted season's id is a season of its own. With no base, the first meeting
   keeps everything either side holds, the cloud's record winning where both hold
@@ -8255,9 +8315,25 @@ functions the device would run, over the cloud's pool):
   out is never thrown away for another about the same teams: a change noted
   meanwhile is asked about once its answer is in, and being shown anew asks
   nothing while one is out. An answer for teams or scores since changed is
-  dropped. A question unanswered is asked again after 5 s, 30 s, 2 minutes and
-  10 minutes, then every half hour until one is answered (every 2 minutes until 16 Oct 2026,
-  when a pool the server could not answer in time made each try a cold 8 GiB load). The last bridge for a season, the bridge alone
+  dropped. A question unanswered is asked again on a timer after 5 s, 30 s and 2
+  minutes, then after 10 minutes and every half hour, but the timer sends at most
+  three a season a New York day on the device (`RETRIES_A_DAY`, the day's count
+  kept under `lf_bridge_retries_v1` with its day, so a reload sends none of the
+  day's again, and held by the page where storage will not keep it); past them the
+  waits go on sending nothing, so the next day's three are made with nothing else
+  asking. A retry that falls due while the page is hidden is not sent then: being
+  shown sends it, in place of what being shown would ask, so the two never ask
+  twice, and a change that asks anew meanwhile drops it. And while the server's
+  replies say the edits' month is spent (`editMonth`, "Rebuilds after saves"),
+  answered or not, the timer sends none until New York's month turns or a reply
+  says it is not spent; a reply that says nothing of it, from a server before
+  this or a charge the ledger was slow to take, is not known and changes nothing.
+  The sign-in, coming online, the page shown anew and every change still ask as
+  they did, whatever the timer has sent. Until 31 October 2026 the half hour
+  repeated with no end, hidden or not: one page left open with a server that
+  could not answer sent 48 cold 8 GiB loads a day, about 23,000 GiB-seconds at a
+  minute each (the sweep's reckoning of 30 October 2026); and every 2 minutes
+  until 16 Oct 2026. The last bridge for a season, the bridge alone
   and never the clubs, about 2,400 characters, with the very question it answered
   as JSON (compared as written, since a reload holds no array of the visit before
   to compare by identity) and the copy, version, moment asked and rules it came
@@ -9477,7 +9553,10 @@ them, and changing the signed-in account discards its saved snapshot.
 Transient status reads and import starts reconnect automatically, with delays capped
 at 30 seconds and at most five tries again (`MAX_RECONNECTS`), after which the card says what
 went wrong and offers to try again. A question or a warm-up the server gave up on (`aborted`,
-or past its time) is not asked again on its own at all: each try is a cold load of the whole
-pool. Sign-in and permission refusals remain actionable. Unkeyed edits are
+or past its time) is not sent again by the call (`GAVE_UP`): each try is a cold load of the whole
+pool, and a card that asked one offers to ask again. League Standings' bridge question alone is
+asked again on its own, on a timer at most three times a season a New York day, never while the
+page is hidden, and never while the server says the edits' month is spent ("What Team Rankings
+has, asked of the server"). Sign-in and permission refusals remain actionable. Unkeyed edits are
 not blindly repeated after an uncertain save, because doing that could duplicate an
 edit. Import starts are safe to retry by their persistent job identity.

@@ -23,7 +23,8 @@ export type AlarmKind =
   | "billing"
   | "dispatchToken"
   | "heldSave"
-  | "ingest";
+  | "ingest"
+  | "unanswered";
 
 /** The title each alarm's issue is found again by, among the issues the workflows opened. */
 export const ALARM_TITLES: Record<AlarmKind, string> = {
@@ -36,6 +37,7 @@ export const ALARM_TITLES: Record<AlarmKind, string> = {
   dispatchToken: "The pull dispatch token is running out",
   heldSave: "The nightly held a save that would have taken too much",
   ingest: "The nightly's answers stopped reading as schedules",
+  unanswered: "Questions to the cloud are going unanswered",
 };
 
 /**
@@ -124,6 +126,24 @@ const heldVerdict = (word: string): Verdict | null => {
 
 const INGEST = /^(fine|drift) (\d+)\/(\d+)$/;
 
+const UNANSWERED = /^over (\d{4}-\d{2}-\d{2}) (\d+)$/;
+
+/**
+ * The nightly's word on the questions the cloud left unanswered (`unansweredWord`), as a verdict:
+ * `over`, a day past 20 and its count, raises the alarm, the two written again in fixed words;
+ * `fine` settles it; anything else, a ledger not read, leaves it as it is.
+ */
+const unansweredVerdict = (word: string): Verdict | null => {
+  if (word === "fine") return { kind: "unanswered", failing: false };
+  const read = UNANSWERED.exec(word);
+  if (!read) return null;
+  return {
+    kind: "unanswered",
+    failing: true,
+    said: `${Number(read[2]).toLocaleString("en-US")} questions went unanswered on ${read[1]}`,
+  };
+};
+
 /**
  * The nightly's word on what it could read of GameChanger's answers (`ingestWord`), as a verdict:
  * `drift` raises the alarm with its numbers, `fine` settles it, anything else leaves it as it is.
@@ -141,9 +161,11 @@ const ingestVerdict = (word: string): Verdict | null => {
 };
 
 /**
- * The alarms a nightly raises or settles: its own from how its refresh step ended, and the
- * rebuilds' from their ledger as it read it (`rebuilds`: `paused` or `failing` raise it, `none` or
- * `off` settle it, and anything else, a ledger not read, leaves it as it is). Its own is settled only by a live run that
+ * The alarms a nightly raises or settles: its own from how its refresh step ended, the rebuilds'
+ * from their ledger as it read it (`rebuilds`: `paused` or `failing` raise it, `none` or `off`
+ * settle it, and anything else, a ledger not read, leaves it as it is), and from the same ledger,
+ * whatever the run, the questions the cloud left unanswered (`unanswered`, `unansweredVerdict`).
+ * Its own is settled only by a live run that
  * succeeded: a dry run saves nothing, so its success says nothing of a night that failed saving,
  * as the night of 10 October did. The starting level's from the Monday re-measure
  * (`closedLevel`, `closedLevelVerdict`), and only a live run's, as only a live run keeps the
@@ -159,6 +181,7 @@ export const nightlyVerdicts = ({
   dispatch = "",
   held = "",
   ingest = "",
+  unanswered = "",
 }: {
   outcome: string;
   event: string;
@@ -173,6 +196,8 @@ export const nightlyVerdicts = ({
   billing?: string;
   /** The pull dispatch token as the nightly read it (`dispatchWord`). */
   dispatch?: string;
+  /** The questions the cloud left unanswered, as the nightly read the ledger (`unansweredWord`). */
+  unanswered?: string;
 }): Verdict[] => {
   const live = mode === "live";
   const how = event === "schedule" ? "scheduled" : live ? "by hand, live" : "by hand, dry run";
@@ -184,6 +209,8 @@ export const nightlyVerdicts = ({
   if (trouble !== undefined) verdicts.push({ kind: "rebuilds", failing: true, said: trouble });
   else if (rebuilds === "none") verdicts.push({ kind: "rebuilds", failing: false });
   else if (rebuilds === "off") verdicts.push({ kind: "rebuilds", failing: false, said: "off" });
+  const asked = unansweredVerdict(unanswered);
+  if (asked) verdicts.push(asked);
   const level = live ? closedLevelVerdict(closedLevel) : null;
   if (level) verdicts.push(level);
   const save = live ? heldVerdict(held) : null;
@@ -368,6 +395,12 @@ const WORDS: Record<
       `the nightly found that only ${said}, under half: GameChanger may have changed how it writes a game (ingestCanary.ts)`,
     fine: () => "The nightly could file at least half of the games GameChanger listed",
     closes: "Each night that finds it so again comments here, and the next that reads as usual",
+  },
+  unanswered: {
+    failed: (said) =>
+      `the nightly found that ${said}, past the 20 a day that open this issue: each a question a member's device asked that the server spent compute on and could not answer, as a worker that runs out of memory cannot (editHandle.ts), counted in the edits' ledger. A device asks one again on its own at most three times a day, so this many is a server that cannot answer, not one member's bad minute. The question function's log (poolQuery, its "edit" lines that end "threw") says why`,
+    fine: () => "The nightly found no day past 20 questions unanswered",
+    closes: "Each nightly that finds a day past 20 again comments here, and the first to find none",
   },
   closedLevel: {
     failed: (said) => `the weekly re-measure found ${said}`,

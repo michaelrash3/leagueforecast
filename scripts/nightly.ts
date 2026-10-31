@@ -33,6 +33,7 @@ import { appendFileSync } from "node:fs";
 import type { CloudStore } from "../src/lib/cloud/cloudEngine.ts";
 import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
 import { heldWord, radiusWords } from "../src/lib/cloud/blastRadius.ts";
+import { LOPSIDED_MARGIN } from "../src/lib/autoRemoved.ts";
 import { heardNothing, runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.ts";
 import { ingestWord, ingestWords } from "../src/lib/cloud/ingestCanary.ts";
 import { failureWords } from "../src/lib/cloud/firestoreRest.ts";
@@ -49,7 +50,11 @@ import {
   publishFailedRun,
   type CopyPublish,
 } from "../src/lib/live/publishCopy.ts";
-import { describeRebuilds, rebuildsTrouble } from "../src/lib/live/rebuildReport.ts";
+import {
+  describeRebuilds,
+  rebuildsTrouble,
+  unansweredWord,
+} from "../src/lib/live/rebuildReport.ts";
 import { remeasureAfterPublish } from "../src/lib/live/closedLevelWeekly.ts";
 import {
   loadAgeGroups,
@@ -138,8 +143,9 @@ const output = (name: string, value: string): void => {
  * since a night that failed is when it is most wanted. Said and never judged: the rebuilds are not
  * this run's work, and a night turned red by them would read as a refresh that failed. Whether
  * they are failing goes to the workflow as a word (`rebuildsTrouble`), for the alarm of their own
- * it raises or settles (`runAlarms.ts`); a ledger not read hands over nothing, which leaves that
- * alarm as it is.
+ * it raises or settles (`runAlarms.ts`), and so does whether a day past or this one has had more
+ * than 20 questions the cloud could not answer (`unansweredWord`), from the same read of the
+ * ledger; a ledger not read hands over nothing, which leaves both alarms as they are.
  */
 const tellRebuilds = async (): Promise<void> => {
   if (!readLedger) return;
@@ -149,6 +155,8 @@ const tellRebuilds = async (): Promise<void> => {
     for (const line of describeRebuilds(ledger, job)) console.log(line);
     const trouble = rebuildsTrouble(ledger);
     if (trouble) output("rebuilds", trouble);
+    const unanswered = unansweredWord(ledger, todayIsoDay());
+    if (unanswered) output("unanswered", unanswered);
   } catch (error) {
     console.log(`The rebuilds' ledger could not be read: ${failureWords(error)}`);
   }
@@ -254,6 +262,12 @@ const main = async (): Promise<void> => {
   console.log(
     `Ended ${result.end} in ${since()}: ${result.asked} teams asked, ${result.answered} answered, ${result.failed} not; ${result.filed} filed, ${result.gamesAdded} games added and ${result.gamesUpdated} updated.`
   );
+  // Counts only: the log is public, and the clubs are in Pool health's own list until they go.
+  if (result.deleted) {
+    console.log(
+      `  ${result.end === "held" ? "Would have deleted" : "Deleted"} for a game won or lost by ${LOPSIDED_MARGIN} or more: ${result.deleted.clubs} clubs, and ${result.deleted.games} games that went with them.`
+    );
+  }
   if (result.changed.length > 0) {
     const what = dry
       ? `would have saved ${result.changed.length} values (${dry.pieces()} new pieces, ${mb(dry.bytes())} gzipped)`
