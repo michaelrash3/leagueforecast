@@ -258,7 +258,7 @@ const main = async (): Promise<void> => {
   // Counts only: the log is public, and the clubs are in Pool health's own list until they go.
   if (result.deleted) {
     console.log(
-      `  ${result.end === "held" ? "Would have deleted" : "Deleted"} for a game won or lost by ${LOPSIDED_MARGIN} or more: ${result.deleted.clubs} clubs, and the ${result.deleted.games} games they were in.`
+      `  ${result.end === "held" ? "Would have deleted" : "Deleted"} for a game won or lost by ${LOPSIDED_MARGIN} or more: ${result.deleted.clubs} clubs, and ${result.deleted.games} games that went with them.`
     );
   }
   if (result.changed.length > 0) {

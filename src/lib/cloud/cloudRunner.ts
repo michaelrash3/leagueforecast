@@ -540,7 +540,11 @@ const sweep = (pool: SweepPool, now: Date, spared: ReadonlySet<string>): Deleted
     clubs.push(teamId);
     for (const game of gamesOf.get(teamId) ?? []) games.add(game);
   }
-  return { clubs, games: [...games] };
+  if (clubs.length === 0) return { clubs, games: [] };
+  // Only the games the pool no longer holds: a game a namesake join put a deleted club into is
+  // stood back up against the stand-in it named, and stays (`club.drop`; Codex on #495).
+  const left = new Set(loadScoutGames().map((game) => game.id));
+  return { clubs, games: [...games].filter((game) => !left.has(game)) };
 };
 
 /**

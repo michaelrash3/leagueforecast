@@ -7,6 +7,7 @@ import {
 } from "../../gameChangerApi";
 import type { FetchGcTeamsOptions } from "../../gameChangerClient";
 import { localDayKey } from "../../gameChangerSchedule";
+import { tidyPool } from "../../gameChangerImport";
 import {
   cloudPoolKeys,
   flushPoolWrites,
@@ -712,6 +713,76 @@ describe("a pull run on the cloud copy", () => {
       expect(night.deleted).toEqual({ clubs: 1, games: 81 });
       await marksInCopy(cloud);
       expect(routerGone()).toEqual({ marked: false, club: false, games: 0, refused: true });
+    });
+
+    it("does not count a game the deletion stood back up against its stand-in (Codex on #495)", async () => {
+      // The namesake join put the Hustle in for the stand-in the Ridge's own row named. Deleting the
+      // Hustle stands that row back up against the stand-in, so the game stays in the pool; only the
+      // Hustle's 45-0 goes. Invented clubs, as in the commands' own test of the join.
+      const groups: AgeGroup[] = [
+        { id: "ag12", name: "12U 2027", ageLevel: 12, year: 2027, seasonIds: [] },
+        { id: "ag13", name: "13U 2027", ageLevel: 13, year: 2027, seasonIds: [] },
+      ];
+      const pulledClub = (id: string, name: string, page: string): ScoutTeam => ({
+        id,
+        name,
+        state: "IN",
+        gcTeams: [{ teamId: `gc${id}`, name, ageGroupId: page, ageLevel: Number(page.slice(2)) }],
+      });
+      const own = (
+        clubId: string,
+        gameId: string,
+        against: string,
+        page: string,
+        score: number[]
+      ) => ({
+        id: `gc_gc${clubId}_${gameId}`,
+        teamAId: clubId,
+        teamBId: against,
+        teamAScore: score[0]!,
+        teamBScore: score[1]!,
+        ageGroupId: page,
+        date: "2026-10-03",
+        ageLevelA: Number(page.slice(2)),
+        season: "Fall 2026",
+        startTs: gameId === "h2" ? "2026-10-03T18:00:00.000Z" : "2026-10-03T14:00:00.000Z",
+        source: { kind: "gamechanger" as const, teamId: `gc${clubId}`, gameId },
+      });
+      const tidied = tidyPool({
+        ageGroups: groups,
+        teams: [
+          pulledClub("RIDGE", "North Ridge Bombers", "ag12"),
+          pulledClub("HUSTLE", "Lakeshore Hustle", "ag13"),
+          { id: "S-HUSTLE", name: "Lakeshore Hustle", nameOnly: true },
+          { id: "S-RIDGE", name: "NR - Ridge Bombers", nameOnly: true },
+          { id: "S-OWLS", name: "Owls", nameOnly: true },
+        ],
+        games: [
+          own("RIDGE", "r1", "S-HUSTLE", "ag12", [4, 11]),
+          own("HUSTLE", "h1", "S-RIDGE", "ag13", [11, 4]),
+          own("HUSTLE", "h2", "S-OWLS", "ag13", [45, 0]),
+        ],
+      });
+      expect(tidied.namesakeJoined).toBe(1);
+      const cloud = memoryCloud();
+      await seed(
+        cloud,
+        () => {
+          saveAgeGroups(groups);
+          saveScoutTeams(tidied.state.teams);
+          saveScoutGames(tidied.state.games);
+        },
+        { seasons: [] }
+      );
+      const night = await runCloudPull(
+        leg([]),
+        deps(cloud, "2026-10-04T07:17:00.000Z", { cap: true })
+      );
+      expect(night.end).toBe("finished");
+      expect(night.deleted).toEqual({ clubs: 1, games: 1 });
+      resetTeamRankingsStore();
+      await loadPoolFrom(cloud.store);
+      expect(loadScoutGames().map((game) => game.id)).toEqual(["gc_gcRIDGE_r1"]);
     });
 
     it("reports no deletion where the save that stood deleted none (Codex on #495)", async () => {
