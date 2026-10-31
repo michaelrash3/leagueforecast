@@ -632,7 +632,11 @@ and the half of the season the board is for. The first visit only keeps one; a l
 compares with a look an hour old or more, and keeps a new one at Got it, or at once when nothing
 moved (the same places and record, the rating within a twentieth of a run). A look from the
 other half of the season is a new start, since the fall and spring boards count different games,
-and none is taken while the board is being refitted to the latest games. Most visits have
+and none is taken while the board is being refitted to the latest games. On the cloud's board,
+which draws the board this account kept before the network's, none is taken until the network has
+vouched for the board on screen (`checked`): decided on the kept one, the line said nothing of an
+overnight climb, kept the old places as seen that day and told the climb a visit late. Offline the
+network never vouches, so the line waits for a visit that reaches it. Most visits have
 nothing new, so the line's own file is fetched only when there is: with it in the tab, opening
 Team Rankings measured 167.1 KB gzipped against 165.4 KB before, and 166.2 KB without. Nothing is
 read from or written to the cloud. League Standings' Dashboard has the same idea as a card of its
