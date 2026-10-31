@@ -8,7 +8,10 @@ import {
   finalScoresKey,
   leagueFixturesOf,
   leagueScoutBridge,
+  teamNameKey,
+  type AgeGroup,
   type ScoutGame,
+  type ScoutTeam,
 } from "../teamRankings";
 
 /**
@@ -18,8 +21,8 @@ import {
  * and the link between the two halves of the app keeps a roster's clubs by id and a game list's
  * rows by page for as long as it holds that roster and that list. Each of the three is pinned here,
  * whole, on the seeded fixture (`scripts/poolFixture.ts`, about 3,000 clubs over eleven pages, with
- * League Standings seasons that link, mint and are claimed by two pages): the digits were taken
- * before anything was remembered, and hold after.
+ * League Standings seasons that link, mint and are claimed by two pages), and so are the keys of
+ * its clubs' names: the digits were taken before anything was remembered, and hold after.
  */
 
 const fixture = poolFixture({ seed: 7, clubsPerPage: 300 });
@@ -88,6 +91,14 @@ describe("the answers remembered names give", () => {
     expect(digests()).toEqual(pins);
   });
 
+  it("are the same name for name as a key worked out afresh", () => {
+    // Every club's name, asked about twice: the second time comes from what the first kept.
+    const names = fixture.teams.map((team) => team.name);
+    const first = names.map(teamNameKey);
+    expect(names.map(teamNameKey)).toEqual(first);
+    expect(fingerprint(first)).toBe("d2236a9c");
+  });
+
   it("are the tidy's", () => {
     const tidied = tidyPool({
       ageGroups: fixture.ageGroups,
@@ -95,5 +106,80 @@ describe("the answers remembered names give", () => {
       games: fixture.games,
     });
     expect(fingerprint(plain(tidied))).toBe("3dd4e0de");
+  });
+});
+
+/*
+ * What the link between the two halves keeps of a roster and a list of games, it keeps against the
+ * array (`clubsById`, `gamesOnPagesOf` in teamRankings.ts): a roster or a list that replaces it is
+ * read afresh, and the games of a season two pages claim come in the order the list holds them.
+ * Placeholder clubs.
+ */
+describe("what the link keeps of a roster and a list of games", () => {
+  const page = (id: string, seasonIds: string[]): AgeGroup => ({
+    id,
+    name: `9U 2027 ${id}`,
+    ageLevel: 9,
+    year: 2027,
+    seasonIds,
+  });
+  const club = (id: string, name: string): ScoutTeam => ({ id, name });
+  const played = (
+    id: string,
+    teamAId: string,
+    teamBId: string,
+    teamAScore: number,
+    ageGroupId = "p"
+  ): ScoutGame => ({
+    id,
+    ageGroupId,
+    teamAId,
+    teamBId,
+    teamAScore,
+    teamBScore: 0,
+    date: "2026-09-12",
+  });
+  const league = [
+    { id: "a", name: "Aces" },
+    { id: "b", name: "Bears" },
+  ];
+  /** The club the Aces are found to be by their name, on the season's one page. */
+  const acesAre = (teams: ScoutTeam[], games: ScoutGame[]) =>
+    leagueScoutBridge("s", [page("p", ["s"]), page("q", [])], teams, games, league, []).rows.find(
+      (row) => row.leagueTeamId === "a"
+    )?.scoutTeamId;
+
+  it("reads a roster that replaces another afresh", () => {
+    const games = [played("g1", "S-1", "S-2", 5)];
+    expect(acesAre([club("S-1", "Aces"), club("S-2", "Bears")], games)).toBe("S-1");
+    // The same games, and a roster in which that club is called something else.
+    expect(acesAre([club("S-1", "Comets"), club("S-2", "Bears")], games)).toBeUndefined();
+  });
+
+  it("reads a list of games that replaces another afresh", () => {
+    const teams = [club("S-1", "Aces"), club("S-2", "Bears")];
+    expect(acesAre(teams, [played("g1", "S-1", "S-2", 5)])).toBe("S-1");
+    // The same roster, and the game on a page that does not claim the season.
+    expect(acesAre(teams, [played("g1", "S-1", "S-2", 5, "q")])).toBeUndefined();
+  });
+
+  it("hands a season two pages claim its games in the order the list holds them", () => {
+    const teams = [club("S-1", "Aces"), club("S-2", "Bears"), club("S-3", "Comets")];
+    // The second page's games before, between and after the first page's.
+    const games = [
+      played("g1", "S-1", "S-3", 1, "q"),
+      played("g2", "S-1", "S-2", 2, "p"),
+      played("g3", "S-2", "S-3", 3, "q"),
+      played("g4", "S-3", "S-1", 4, "p"),
+    ];
+    const { results } = leagueScoutBridge(
+      "s",
+      [page("p", ["s"]), page("q", ["s"])],
+      teams,
+      games,
+      [{ id: "a", name: "Aces", scoutTeamId: "S-1" }],
+      []
+    );
+    expect(results.map((result) => result.homeMargin)).toEqual([1, 2, 3, 4]);
   });
 });

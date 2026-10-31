@@ -9474,6 +9474,36 @@ shared handlers with recorded provider responses and require no deployed credent
 - The collapse of league games and their pulled copies keys only rows between
   clubs a league row names; on the 18:40 pool it went from about 1.1 s to 30 ms
   with no league laid over it, and dropped the same rows with one.
+- **Cleaned names are remembered.** Every pass that compares two clubs' names
+  cleans each to its key first (`teamNameKey`: the age label, the asides and the
+  punctuation off, several regular expressions a name), and the League pass, the
+  bridge to League Standings and the tidy clean the same names on every pass and
+  every open. The key is now remembered by name (`rememberUpTo`), up to half a
+  million names, past which all are let go and it starts again. And the link
+  between the two halves (`linkLeagueTeams`), which runs for every League
+  Standings season, keeps the roster's clubs by id and each page's places in a
+  year's games against the arrays it is handed, where it walked the whole roster
+  and the whole year each time. An array can stand for what it holds because the
+  app replaces a roster or a list of games when it changes and never edits one in
+  place: the import's fold edits only its own copies, and hands them on once it
+  has finished with them.
+  - **Measured** on the seeded full-size pool (`scripts/poolFixture.ts` at 12,000
+    clubs a page: 121,204 clubs, 344,553 games), in Node, the median of three runs
+    each taken in turn with the code before: the League pass over the three squad
+    years (`deriveAllKnown`) went from 2.8 s to 2.1 s the first time and from
+    2.6 s to 1.6 s asked again; the bridge for the three seasons
+    (`leagueScoutBridge`) from 2.7 s to 1.0 s, and from 2.6 s to 1.1 s; the tidy
+    from 8.7 s to 7.1 s at 40,404 clubs and from 28.9 s to 26.1 s at full size. A
+    full-size tidy asks for 2,465,586 keys of 101,384 names, which hold about
+    5 MB; the roster's index holds about 12 MB and a year's games' 2 MB, as long
+    as their arrays are held.
+  - **The answers did not move.** `rememberedNames.test.ts` pins the League pass,
+    the bridge (asked twice) and the tidy on the seeded fixture, and the keys of
+    its 3,034 names, each recorded before the change; every full-size answer
+    above hashed the same before and after.
+  - **Guarded** there too: a roster or a list of games that replaces another is
+    read afresh, and a season two pages claim gets its games in the list's
+    order; `rememberUpTo.test.ts` holds the memo to its bound.
 - The Monte Carlo loop copies the league once per simulated season and writes
   results onto that copy, rather than copying every team per game; on twelve
   teams and sixty games that took 220 seasons from 195 ms to 7 ms. It stops

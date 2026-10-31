@@ -4155,7 +4155,10 @@ export type LeagueScoutBridge = {
 type LeagueTeamLinks = {
   /** The pages that claim this season. */
   linked: Set<string>;
-  scoutById: Map<string, ScoutTeam>;
+  /** The roster's clubs by id, kept for as long as the roster is (`clubsById`): read, never added to. */
+  scoutById: ReadonlyMap<string, ScoutTeam>;
+  /** The games on the pages that claim this season, in the order the list holds them. */
+  seasonGames: ScoutGame[];
   /** One row per league team, in roster order. */
   rows: ScoutLinkRow[];
   /** The league team a person picked each club for. */
@@ -4167,6 +4170,58 @@ type LeagueTeamLinks = {
    * match passes them by, and so must anything that reads a club as its league team by its name.
    */
   movedAway: Set<string>;
+};
+
+/**
+ * A roster's clubs by id, and where each page's games sit in a list of games, each made once for
+ * the array it reads. `linkLeagueTeams` runs for every League Standings season, on every open of
+ * League Standings and every change on Team Rankings, and on the server for every board and every
+ * question, and it is handed the same nationwide roster and the same year's games every time: each
+ * run indexed the whole roster and walked every game of the year twice to find its own pages', and
+ * the bridge walked them twice more. On the seeded full-size pool (121,204 clubs, 344,553 games),
+ * asked again, the bridge for its three seasons took about 0.95 s with these kept against 1.2 s
+ * with the names remembered alone (`teamNameKey`), the same to the digit. Kept, they hold about
+ * 12 MB of the roster and 2 MB of a year's 239,405 games in Node, for as long as their arrays.
+ *
+ * Kept against the array, as the indexes of a roster's names are (`similarIndex`, `idsByName`): a
+ * roster and a list of games are replaced when what they hold changes, never changed in place, and
+ * the storage cache hands out the arrays it decodes on those terms, so an array stands for what it
+ * held when it was indexed. The WeakMap lets go of an index with its array.
+ */
+const clubsByIdOf = new WeakMap<readonly ScoutTeam[], ReadonlyMap<string, ScoutTeam>>();
+const clubsById = (teams: readonly ScoutTeam[]): ReadonlyMap<string, ScoutTeam> => {
+  const held = clubsByIdOf.get(teams);
+  if (held) return held;
+  const made = new Map(teams.map((team) => [team.id, team]));
+  clubsByIdOf.set(teams, made);
+  return made;
+};
+const placesByPageOf = new WeakMap<readonly ScoutGame[], ReadonlyMap<string, readonly number[]>>();
+/** The games of `games` on `pages`, in the order `games` holds them, as a walk of it finds them. */
+const gamesOnPagesOf = (games: readonly ScoutGame[], pages: ReadonlySet<string>): ScoutGame[] => {
+  let places = placesByPageOf.get(games);
+  if (!places) {
+    const made = new Map<string, number[]>();
+    games.forEach((game, at) => {
+      const held = made.get(game.ageGroupId);
+      if (held) held.push(at);
+      else made.set(game.ageGroupId, [at]);
+    });
+    placesByPageOf.set(games, made);
+    places = made;
+  }
+  const found: number[] = [];
+  pages.forEach((page) => {
+    for (const at of places.get(page) ?? []) found.push(at);
+  });
+  // Two pages' games lie mixed in the list, and whatever reads them in order reads the list's.
+  if (pages.size > 1) found.sort((a, b) => a - b);
+  const onPages: ScoutGame[] = [];
+  for (const at of found) {
+    const game = games[at];
+    if (game) onPages.push(game);
+  }
+  return onPages;
 };
 
 /**
@@ -4188,14 +4243,14 @@ const linkLeagueTeams = (
   const linked = new Set(
     ageGroups.filter((group) => group.seasonIds.includes(seasonId)).map((group) => group.id)
   );
-  const scoutById = new Map(teams.map((team) => [team.id, team]));
+  const scoutById = clubsById(teams);
+  const seasonGames = gamesOnPagesOf(games, linked);
 
   // Only clubs with a game on one of this season's pages can ever reach it, so only those are
   // candidates for a name match — which also means two clubs of one name elsewhere in a nationwide
   // pool are not an ambiguity here.
   const inSeason = new Set<string>();
-  games.forEach((game) => {
-    if (!linked.has(game.ageGroupId)) return;
+  seasonGames.forEach((game) => {
     inSeason.add(game.teamAId);
     inSeason.add(game.teamBId);
   });
@@ -4219,8 +4274,7 @@ const linkLeagueTeams = (
    * which club an opponent's name belongs to.
    */
   const playedByScoutId = new Map<string, Set<string>>();
-  games.forEach((game) => {
-    if (!linked.has(game.ageGroupId)) return;
+  seasonGames.forEach((game) => {
     const note = (id: string, otherId: string) => {
       const other = scoutById.get(otherId);
       if (!other || other.placeholder) return;
@@ -4361,7 +4415,15 @@ const linkLeagueTeams = (
     row.suggestedName = scoutById.get(only)?.name;
   });
 
-  return { linked, scoutById, rows, leagueIdByScoutId, leagueIdByName, movedAway };
+  return {
+    linked,
+    scoutById,
+    seasonGames,
+    rows,
+    leagueIdByScoutId,
+    leagueIdByName,
+    movedAway,
+  };
 };
 
 /**
@@ -4399,14 +4461,8 @@ export const leagueScoutBridge = (
    */
   seasonFixtures: LeagueFixture[]
 ): LeagueScoutBridge => {
-  const { linked, scoutById, rows, leagueIdByScoutId, leagueIdByName, movedAway } = linkLeagueTeams(
-    seasonId,
-    ageGroups,
-    teams,
-    games,
-    leagueTeams,
-    seasonFixtures
-  );
+  const { linked, scoutById, seasonGames, rows, leagueIdByScoutId, leagueIdByName, movedAway } =
+    linkLeagueTeams(seasonId, ageGroups, teams, games, leagueTeams, seasonFixtures);
   const seasonLinked = linked.size > 0;
 
   /** A league team's own id where one is behind this club; otherwise an id of this club's own. */
@@ -4553,9 +4609,7 @@ export const leagueScoutBridge = (
       );
     });
     if (finals.length > 0) {
-      const rowsHere = games.filter(
-        (game) => linked.has(game.ageGroupId) && !game.id.startsWith(LEAGUE_GAME_PREFIX)
-      );
+      const rowsHere = seasonGames.filter((game) => !game.id.startsWith(LEAGUE_GAME_PREFIX));
       const both = [...finals, ...rowsHere];
       leagueCopiesFiledAgainstNobody(
         both,
@@ -4586,12 +4640,9 @@ export const leagueScoutBridge = (
   const isLeagueClub = (scoutTeamId: string): boolean =>
     !ratingId(scoutTeamId).startsWith(SCOUT_ID_PREFIX);
 
-  const onLinkedPage = games.filter(
+  const onLinkedPage = seasonGames.filter(
     (game) =>
-      linked.has(game.ageGroupId) &&
-      !game.id.startsWith(LEAGUE_GAME_PREFIX) &&
-      !isSeasonFixture(game) &&
-      countsTowardRating(game)
+      !game.id.startsWith(LEAGUE_GAME_PREFIX) && !isSeasonFixture(game) && countsTowardRating(game)
   );
 
   /**
