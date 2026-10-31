@@ -4,6 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import App from "./App";
 import { prefetchAllViews } from "./components/league/leagueViews";
 import { SectionNav, sectionTabId } from "./components/teamRankings/SectionNav";
+import { loadTeamRankingsView } from "./components/teamRankingsChunk";
 import { loadSettings, saveLogs, saveMatchups, saveSettings, saveTeams } from "./lib/storage";
 import type { GameLog } from "./lib/types";
 
@@ -14,7 +15,11 @@ import type { GameLog } from "./lib/types";
  * under More. A phone is a narrow screen as `matchMedia` reports it. Placeholder names.
  */
 
-beforeAll(() => prefetchAllViews());
+/*
+ * Team Rankings' page too, which loads on demand: a busy machine took 1,171 ms to load it the first
+ * time, past the 1,000 ms findByRole waits, and the switch to it failed with the page still loading.
+ */
+beforeAll(() => Promise.all([prefetchAllViews(), loadTeamRankingsView()]));
 
 const phone = (narrow: boolean) =>
   vi.stubGlobal(

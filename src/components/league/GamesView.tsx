@@ -57,6 +57,18 @@ const LeagueScoreFillPanel = lazy(() =>
 /** A blank log, shared so a row with nothing entered is one object rather than thousands. */
 const EMPTY_GAME_LOG = blankLog();
 
+/**
+ * Game `id` dated `date` ("M/D"), as typed in its field. A start is its day's, so a game moved to
+ * another day lets go of its start: kept, the moved game showed the old day's time and was listed
+ * by it among the new day's games. The same day written another way keeps it.
+ */
+const onDay = (game: Matchup, id: string, date: string): Matchup => {
+  if (game.id !== id) return game;
+  if (normalizeDateInput(game.date) === date) return { ...game, date };
+  const { startTs: _start, ...moved } = game;
+  return { ...moved, date };
+};
+
 function GameDateInput({
   value,
   onCommit,
@@ -851,9 +863,7 @@ export function GamesView({
                           ariaLabel={`Date for ${displayName(away?.name || game.away)} vs ${displayName(home?.name || game.home)}`}
                           onCommit={(nextDate) =>
                             setMatchups((prev) =>
-                              prev.map((item) =>
-                                item.id === game.id ? { ...item, date: nextDate } : item
-                              )
+                              prev.map((item) => onDay(item, game.id, nextDate))
                             )
                           }
                         />

@@ -4,6 +4,7 @@ import {
   chargeRebuild,
   coerceLedger,
   DEFAULT_CAPS,
+  editMonthOf,
   HARD_CAPS,
   reserveRun,
   restLedgerStore,
@@ -49,6 +50,8 @@ const ledger = (more: Partial<Ledger> = {}): Ledger => ({
   monthFailed: 0,
   editMonthGiBs: 0,
   editMonthVcpuS: 0,
+  dayUnanswered: 0,
+  lastUnanswered: null,
   failures: 0,
   pausedDay: null,
   open: null,
@@ -81,6 +84,8 @@ describe("the ledger as the document holds it", () => {
       monthFailed: 0,
       editMonthGiBs: 0,
       editMonthVcpuS: 0,
+      dayUnanswered: 0,
+      lastUnanswered: null,
       failures: 0,
       pausedDay: null,
       open: null,
@@ -103,6 +108,8 @@ describe("the ledger as the document holds it", () => {
       monthFailed: 3,
       editMonthGiBs: 70_000,
       editMonthVcpuS: 20_000,
+      dayUnanswered: 4,
+      lastUnanswered: { day: "2027-04-13", count: 25 },
       failures: 2,
       pausedDay: "2027-04-14",
       open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "T1", by: "h1" },
@@ -176,6 +183,15 @@ describe("the ledger as the document holds it", () => {
       { lastDay: { day: TODAY, runs: 1, failed: -1, gibs: 0 } },
       { lastDay: { day: TODAY, runs: 1, failed: 0, gibs: "0" } },
       { lastDay: { day: TODAY, runs: 1, failed: 0 } },
+      { dayUnanswered: 1.5 },
+      { dayUnanswered: "3" },
+      { dayUnanswered: -1 },
+      { dayUnanswered: null },
+      { lastUnanswered: "2027-04-14" },
+      { lastUnanswered: { day: 5, count: 1 } },
+      { lastUnanswered: { day: TODAY, count: 1.5 } },
+      { lastUnanswered: { day: TODAY, count: -1 } },
+      { lastUnanswered: { day: TODAY } },
       { pausedDay: 5 },
       { open: "yes" },
       { open: { at: NOW, day: TODAY } },
@@ -752,6 +768,98 @@ describe("charging an edit", () => {
 
   it("charges nothing where there is no ledger", () => {
     expect(chargeEdit(null, TODAY, { gibs: 8, vcpuS: 2 })).toBeNull();
+    expect(chargeEdit(null, TODAY, { gibs: 8, vcpuS: 2 }, true)).toBeNull();
+  });
+
+  it("counts a question left unanswered in the write its charge makes, and only one that spent compute", () => {
+    const held = ledger({ dayUnanswered: 2, editMonthGiBs: 100 });
+    expect(chargeEdit(held, TODAY, { gibs: 8, vcpuS: 2 }, true)).toEqual({
+      ...held,
+      editMonthGiBs: 108,
+      editMonthVcpuS: 2,
+      dayUnanswered: 3,
+    });
+    // Answered, or an edit or a warm-up: nothing to count.
+    expect(chargeEdit(held, TODAY, { gibs: 8, vcpuS: 2 })).toMatchObject({ dayUnanswered: 2 });
+    // Turned away before its turn, it spent nothing, so its charge writes nothing; counted, it
+    // would be a write of its own.
+    expect(chargeEdit(held, TODAY, { gibs: 0, vcpuS: 0 }, true)).toEqual(held);
+  });
+
+  it("starts each day's count afresh, keeping the last day before it that had any", () => {
+    const cost = { gibs: 8, vcpuS: 2 };
+    const busy = ledger({ dayUnanswered: 25 });
+    const next = chargeEdit(busy, "2027-04-16", cost, true);
+    expect(next).toMatchObject({
+      day: "2027-04-16",
+      dayUnanswered: 1,
+      lastUnanswered: { day: TODAY, count: 25 },
+    });
+    const quiet = chargeEdit(next, "2027-04-17", cost);
+    expect(quiet).toMatchObject({
+      day: "2027-04-17",
+      dayUnanswered: 0,
+      lastUnanswered: { day: "2027-04-16", count: 1 },
+    });
+    // A day with none keeps the last that had some, as a day with no run keeps the last that ran.
+    expect(chargeEdit(quiet, "2027-04-18", cost)).toMatchObject({
+      day: "2027-04-18",
+      dayUnanswered: 0,
+      lastUnanswered: { day: "2027-04-16", count: 1 },
+    });
+    // A rebuild's reserve moves the day on as a charge does, and keeps the count the same way.
+    expect(reserveRun(busy, "2027-04-16", "2027-04-16T09:00:00.000Z")).toMatchObject({
+      ok: true,
+      next: { dayUnanswered: 0, lastUnanswered: { day: TODAY, count: 25 } },
+    });
+    // None before, none kept.
+    expect(chargeEdit(ledger(), "2027-04-16", cost)?.lastUnanswered).toBeNull();
+  });
+});
+
+describe("the edits' month as a charge leaves it", () => {
+  it("is the month the ledger counts, spent at either of the edits' own caps", () => {
+    expect(editMonthOf(ledger())).toEqual({ month: "2027-04", spent: false });
+    for (const more of [
+      { editMonthGiBs: DEFAULT_CAPS.editMonthGiBs },
+      { editMonthVcpuS: DEFAULT_CAPS.editMonthVcpuS },
+      { editMonthGiBs: DEFAULT_CAPS.editMonthGiBs + 5_000 },
+    ]) {
+      expect(editMonthOf(ledger(more)), JSON.stringify(more)).toEqual({
+        month: "2027-04",
+        spent: true,
+      });
+    }
+    expect(
+      editMonthOf(
+        ledger({
+          editMonthGiBs: DEFAULT_CAPS.editMonthGiBs - 1,
+          editMonthVcpuS: DEFAULT_CAPS.editMonthVcpuS - 1,
+        })
+      )
+    ).toEqual({ month: "2027-04", spent: false });
+    // A cap the owner set is the one read.
+    expect(
+      editMonthOf(ledger({ caps: { ...DEFAULT_CAPS, editMonthGiBs: 500 }, editMonthGiBs: 500 }))
+    ).toEqual({ month: "2027-04", spent: true });
+  });
+
+  it("is not spent for the rebuilds' month or day, which are theirs", () => {
+    expect(
+      editMonthOf(
+        ledger({
+          dayGiBs: DEFAULT_CAPS.dayGiBs,
+          monthGiBs: DEFAULT_CAPS.monthGiBs,
+          monthVcpuS: DEFAULT_CAPS.monthVcpuS,
+        })
+      )
+    ).toEqual({ month: "2027-04", spent: false });
+  });
+
+  it("is the new month's once a charge has moved the ledger on to it", () => {
+    const spent = ledger({ editMonthGiBs: DEFAULT_CAPS.editMonthGiBs });
+    const may = chargeEdit(spent, "2027-05-01", { gibs: 8, vcpuS: 2 });
+    expect(may && editMonthOf(may)).toEqual({ month: "2027-05", spent: false });
   });
 });
 

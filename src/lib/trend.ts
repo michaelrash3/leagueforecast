@@ -4,8 +4,16 @@ import { seasonStartMonth } from "./date";
 import { isFinal } from "./util";
 import type { GameLog, Matchup, Settings, Team, TeamBase } from "./types";
 
-/** One point on the Gold-odds trend: the season as it stood, and the key it is cached under. */
-export type TrendState = { teams: Team[]; remaining: Matchup[]; seedText: string };
+/**
+ * One point on the Gold-odds trend: the season as it stood, and the key it is cached under. The
+ * last two are `paired`: drawn from one seed, game for game (`simulateGoldOddsRun`).
+ */
+export type TrendState = {
+  teams: Team[];
+  remaining: Matchup[];
+  seedText: string;
+  paired?: true;
+};
 
 /**
  * The seasons behind the Gold-odds trend chart, one per point, oldest first.
@@ -29,6 +37,15 @@ export type TrendState = { teams: Team[]; remaining: Matchup[]; seedText: string
  * and 7 points apart with no Team Rankings results at all. A point is rated from its own finals and
  * the outside results played by its last game; the last point takes every outside result, so it is
  * rated exactly as the column is. Past points move with this, which is the fix, not a side effect.
+ *
+ * The last step of the line is what the Our Team card says the last result did ("+5.0 pts on the
+ * last result"), and with each point drawn from its own seed it was two runs' worth of chance.
+ * Measured on 40 synthetic eight-team leagues against 24,000 seasons a point: 1.6 points of error,
+ * where a team not in the game truly moved 0.9 on average; of 235 moves shown, 26 were of 2 points
+ * or more where the true move was under 1, and 26 went the wrong way. So the last two points are
+ * drawn from the last one's seed, paired, and the same leagues came to 0.66 points of error, with
+ * 2 such moves in 209 and 3 the wrong way. One seed alone came to 1.43: the point before has one
+ * more game to play, and on one stream every draw after it moved.
  */
 export const buildTrendStates = (
   teams: TeamBase[],
@@ -104,5 +121,12 @@ export const buildTrendStates = (
       ),
     });
   }
-  return built;
+  const lastPoint = built[built.length - 1];
+  const pointBefore = built[built.length - 2];
+  if (!lastPoint || !pointBefore) return built;
+  return [
+    ...built.slice(0, -2),
+    { ...pointBefore, seedText: lastPoint.seedText, paired: true },
+    { ...lastPoint, paired: true },
+  ];
 };

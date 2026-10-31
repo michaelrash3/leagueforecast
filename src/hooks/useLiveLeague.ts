@@ -71,8 +71,11 @@ export type LiveLeagueOptions = {
   local: LocalSeasons;
   /** Called when seasons made elsewhere have joined this device's list. */
   onSeasonsAdded: () => void;
-  /** Writes a season's data to this device's storage at once (`writeSeasonData`). */
-  persist: (id: string, parts: SeasonParts) => void;
+  /**
+   * Writes a season's data to this device's storage at once (`writeSeasonData`), and says whether
+   * storage took it: what is kept of the season's document is kept only then (`leagueSync.ts`).
+   */
+  persist: (id: string, parts: SeasonParts) => boolean;
   /**
    * Gives a season in the list the cloud's creation time, once it has taken the cloud's season in
    * whole (`adoptSeasonCreatedAt`), and has the list read again.

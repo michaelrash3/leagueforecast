@@ -9488,7 +9488,7 @@ export const poolSignature = (state: GcImportState): string =>
   );
 
 /** One line per thing the tidy did; nothing for a pass that found nothing. */
-export const describeTidy = (tidy: PoolTidy): string[] => {
+export const describeTidy = (tidy: Omit<PoolTidy, "state">): string[] => {
   const plural = (count: number, one: string, many: string) =>
     `${count} ${count === 1 ? one : many}`;
   return [

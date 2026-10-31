@@ -391,14 +391,20 @@ export const createSeason = (name: string): SeasonMeta => {
   return meta;
 };
 
+/**
+ * Renames a season, and says whether the list took the new name: refused in a tab another tab has
+ * the turn from, or for room, the switcher would otherwise read the list again for a name it does
+ * not hold, and ask again (`useSeasons`).
+ */
 export const renameSeason = (id: string, name: string): boolean => {
   ensureInitialized();
   const trimmed = name.trim();
   if (!trimmed) return false;
   const seasons = readSeasons();
   if (!seasons.some((season) => season.id === id)) return false;
-  writeSeasons(seasons.map((season) => (season.id === id ? { ...season, name: trimmed } : season)));
-  return true;
+  return writeSeasons(
+    seasons.map((season) => (season.id === id ? { ...season, name: trimmed } : season))
+  );
 };
 
 /**

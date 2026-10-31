@@ -409,7 +409,7 @@ describe("League Standings asking the server what Team Rankings has", () => {
     });
   });
 
-  it("moves a rained-out game to the day it was played, keeping what was typed against it", async () => {
+  it("moves a rained-out game to the day it was played, at that day's start, keeping what was typed against it", async () => {
     server.plan = {
       rows: [],
       missing: [
@@ -422,12 +422,17 @@ describe("League Standings asking the server what Team Rankings has", () => {
           homeName: "Bears",
           awayRuns: 6,
           homeRuns: 2,
+          startTs: "2026-05-08T17:00:00.000Z",
         },
       ],
       unmatched: 0,
       unusedResults: 0,
       seasonLinked: true,
     };
+    // The rained-out game had a start on its own day, which is not the day it was played.
+    saveMatchups([
+      { id: "g1", date: "5/1", away: "A", home: "B", startTs: "2026-05-01T14:00:00.000Z" },
+    ]);
     // Hits written down for the rained-out game, and no runs: it is still the one moved.
     saveLogs({ g1: { ...blankLog("6"), awayHits: "8", homeK: "5" } });
     render(<App />);
@@ -445,7 +450,9 @@ describe("League Standings asking the server what Team Rankings has", () => {
         isFinal: true,
       })
     );
-    expect(loadMatchups()).toEqual([{ id: "g1", date: "5/8", away: "A", home: "B" }]);
+    expect(loadMatchups()).toEqual([
+      { id: "g1", date: "5/8", away: "A", home: "B", startTs: "2026-05-08T17:00:00.000Z" },
+    ]);
   });
 
   it("says so when the server could not be asked, and opens nothing", async () => {

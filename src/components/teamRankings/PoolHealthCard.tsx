@@ -198,7 +198,7 @@ export function PoolHealthCard({
     // so this is the narrow case of another tidy already going — nothing to say, nothing to do.
     if (!outcome) return;
     onTidied(outcome);
-    setLastTidy(describeTidy({ ...outcome.tidy, state: outcome.state }));
+    setLastTidy(describeTidy(outcome.tidy));
     const found = await inspect(outcome.state, "", leftOutOf(outcome.state), boards);
     if (!found) return;
     show(found);

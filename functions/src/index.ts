@@ -706,7 +706,15 @@ const poolEndpoint = (queriesOnly = false) =>
               ask: { query, ...(typeof copy === "string" ? { copy } : {}) },
             });
             logger.info("edit", handled.line);
-            if ("notAnswered" in handled) throw new HttpsError("aborted", handled.notAnswered);
+            // With the edits' month as its charge left the ledger, as an answer carries it, so the
+            // device makes no timer retry while that month is spent (`useScoutBridge`).
+            if ("notAnswered" in handled) {
+              throw new HttpsError(
+                "aborted",
+                handled.notAnswered,
+                handled.editMonth && { editMonth: handled.editMonth }
+              );
+            }
             return handled.reply;
           }
           if (!command) {

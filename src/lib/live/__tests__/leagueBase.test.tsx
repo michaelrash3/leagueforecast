@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SeasonSnapshot } from "../../storage";
 import { DEFAULT_SETTINGS } from "../../types";
 import { storedBases } from "../leagueBase";
@@ -48,5 +48,17 @@ describe("the bases this browser keeps", () => {
       JSON.stringify({ doc: seasonToDoc(SEASON, 5), landed: [] })
     );
     expect(storedBases.read(DOC_ID)?.rev).toBe(5);
+  });
+
+  it("keeps none rather than the one before when a base will not fit", () => {
+    storedBases.write(DOC_ID, { season: SEASON, rev: 3, landed: [] });
+    const full = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+    });
+    storedBases.write(DOC_ID, { season: SEASON, rev: 4, landed: LANDED });
+    full.mockRestore();
+    // The base at write 3 is older than the season storage holds by now, and read as this
+    // device's knowledge it would take another device's change since for one undone here.
+    expect(storedBases.read(DOC_ID)).toBeNull();
   });
 });

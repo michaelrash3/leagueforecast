@@ -5,6 +5,22 @@ import { createSeason, getActiveSeasonId, listSeasons, setActiveSeason } from ".
 import { adoptTabTurn, TAB_READ_ONLY } from "../lib/tabTurn";
 import { createTabTurn } from "../lib/tabTurnChannel";
 
+/*
+ * How many times the hook asks storage to rename the season. Past a hundred asks the rename is
+ * refused, so a hook that asks for ever ends, and its test fails rather than hanging the run.
+ */
+const renames = vi.hoisted(() => ({ asked: 0 }));
+vi.mock("../lib/storage", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../lib/storage")>();
+  return {
+    ...real,
+    renameSeason: (id: string, name: string) => {
+      renames.asked += 1;
+      return renames.asked > 100 ? false : real.renameSeason(id, name);
+    },
+  };
+});
+
 /**
  * The season index lives in localStorage and is not React state, so every operation here writes it
  * and reads it back rather than keeping a copy in step by hand. What is worth guarding is the part
@@ -16,6 +32,7 @@ const backing = new Map<string, string>();
 
 beforeEach(() => {
   backing.clear();
+  renames.asked = 0;
   vi.stubGlobal("localStorage", {
     getItem: (k: string) => backing.get(k) ?? null,
     setItem: (k: string, v: string) => backing.set(k, v),
@@ -29,12 +46,13 @@ const setup = (
     confirm?: boolean;
     seasonLabel?: string;
     beforeDelete?: (id: string) => Promise<boolean>;
+    beforeSwitch?: () => void;
   } = {}
 ) => {
   const loadActiveSeason = vi.fn();
   const showToast = vi.fn();
   const requestConfirmation = vi.fn().mockResolvedValue(over.confirm ?? true);
-  const { beforeDelete } = over;
+  const { beforeDelete, beforeSwitch } = over;
   const hook = renderHook(
     ({ seasonLabel }: { seasonLabel: string }) =>
       useSeasons({
@@ -43,6 +61,7 @@ const setup = (
         showToast,
         requestConfirmation,
         ...(beforeDelete ? { beforeDelete } : {}),
+        ...(beforeSwitch ? { beforeSwitch } : {}),
       }),
     { initialProps: { seasonLabel: over.seasonLabel ?? "" } }
   );
@@ -62,6 +81,19 @@ describe("switching between seasons", () => {
     expect(getActiveSeasonId()).toBe(other.id);
     expect(loadActiveSeason).toHaveBeenCalledTimes(1);
     expect(toastText(showToast)).toContain("Fall 2026");
+  });
+
+  it("has what the season on screen still holds written while saves still go into it", () => {
+    const other = createSeason("Fall 2026");
+    const from = getActiveSeasonId();
+    const writtenInto: string[] = [];
+    const { result } = setup({ beforeSwitch: () => writtenInto.push(getActiveSeasonId()) });
+
+    act(() => result.current.switchTo(other.id));
+
+    // A save goes into the season storage names active, which the switch moves.
+    expect(writtenInto).toEqual([from]);
+    expect(getActiveSeasonId()).toBe(other.id);
   });
 
   it("does nothing at all when that season is already the one on screen", () => {
@@ -196,5 +228,20 @@ describe("in a tab another tab has the turn from", () => {
     expect(listSeasons().map((season) => season.name)).not.toContain("Summer");
     expect(listSeasons().map((season) => season.name)).not.toContain("Copy");
     expect(toastText(showToast)).toBe(`${TAB_READ_ONLY} | ${TAB_READ_ONLY}`);
+  });
+
+  it("asks once for a rename it may not make, not for ever", () => {
+    const first = listSeasons()[0]!;
+    readOnly();
+    const { result, rerender } = setup({ seasonLabel: "" });
+    // League kept live brings another device's label into the season this tab only reads.
+    rerender({ seasonLabel: "Spring 10U" });
+
+    expect(renames.asked).toBe(1);
+    expect(listSeasons()[0]!.name).toBe(first.name);
+    // Nor again each time the list is read for seasons added from outside: no name changed.
+    act(() => result.current.refresh());
+    act(() => result.current.refresh());
+    expect(renames.asked).toBe(1);
   });
 });

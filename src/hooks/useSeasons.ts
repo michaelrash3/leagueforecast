@@ -37,6 +37,11 @@ export type SeasonsOptions = {
    * is not deleted here alone, to come back on the next visit.
    */
   beforeDelete?: (id: string) => Promise<boolean>;
+  /**
+   * Asked before another season is opened, while saves still go into the one on screen: App writes
+   * a score it holds half a second before saving it, which the switch would otherwise have lost.
+   */
+  beforeSwitch?: () => void;
 };
 
 export type Seasons = {
@@ -68,6 +73,7 @@ export function useSeasons({
   showToast,
   requestConfirmation,
   beforeDelete,
+  beforeSwitch,
 }: SeasonsOptions): Seasons {
   const [all, setAll] = useState<SeasonMeta[]>(() => listSeasons());
   const [activeId, setActiveId] = useState<string>(() => getActiveSeasonId());
@@ -95,6 +101,8 @@ export function useSeasons({
   const switchTo = useCallback(
     (id: string) => {
       if (id === getActiveSeasonId()) return;
+      // Before the pointer moves: a save goes into the season storage names active.
+      beforeSwitch?.();
       if (!setActiveSeason(id)) {
         // Refused while another tab has the turn, which would then save into the season switched to.
         if (tabReadOnly()) showToast(TAB_READ_ONLY, { tone: "error" });
@@ -104,7 +112,7 @@ export function useSeasons({
       const name = listSeasons().find((season) => season.id === id)?.name ?? "season";
       showToast(`Switched to ${name}.`, { tone: "info" });
     },
-    [reload, showToast]
+    [reload, showToast, beforeSwitch]
   );
 
   const create = useCallback(
@@ -157,17 +165,19 @@ export function useSeasons({
 
   // Keeps the index's name for the active season in step with its editable label, so the header
   // switcher and the season manager always show the name that was typed under "Season label".
+  // Asked again when a name changes, not whenever the list is read again into a new array: a
+  // rename refused, in a tab another has the turn from or for room, was asked for ever.
+  const activeName = all.find((season) => season.id === activeId)?.name;
   useEffect(() => {
     const label = seasonLabel.trim();
     if (!label) return;
-    const current = all.find((season) => season.id === activeId);
-    if (current && current.name !== label && renameSeason(activeId, label)) {
+    if (activeName !== undefined && activeName !== label && renameSeason(activeId, label)) {
       // Reflecting localStorage back into React after writing to it. The season index is the
       // source of truth and is not React state, so re-reading it here is the sync, not a cascade.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setAll(listSeasons());
     }
-  }, [seasonLabel, activeId, all]);
+  }, [seasonLabel, activeId, activeName]);
 
   return { all, activeId, reload, refresh, switchTo, create, duplicate, remove };
 }

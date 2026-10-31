@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DigestListed } from "../../hooks/useSeasonDigest";
 import { lookGames, readLook, saveLook, takeLook } from "../../lib/sinceLastLook";
 import { SinceLastLook, type LookInput } from "./SinceLastLook";
 
@@ -45,6 +46,35 @@ const after: LookInput = {
     },
   },
   predictions: [],
+};
+
+/** Twenty minutes after `after`: another device's final, a loss to the Bears, and the table turned. */
+const later: LookInput = {
+  ...after,
+  rows: [
+    { id: "ACES", name: "Aces", rank: 2, goldPct: 45 },
+    { id: "BEAR", name: "Bears", rank: 1, goldPct: 70 },
+  ],
+  matchups: [...after.matchups, { id: "g2", date: "10/27", away: "BEAR", home: "ACES" }],
+  logs: {
+    ...after.logs,
+    g2: {
+      awayRuns: "7",
+      homeRuns: "2",
+      awayHits: "",
+      homeHits: "",
+      awayK: "",
+      homeK: "",
+      innings: "6",
+      isFinal: true,
+    },
+  },
+};
+
+/** What the list of other devices' changes said, as the digest hands it over: a token here. */
+const listedAt = (): DigestListed => {
+  const seen = { games: {}, teams: {}, race: null };
+  return { seasonId: "s1", from: seen, to: seen };
 };
 
 const keepLookAt = (at: number) =>
@@ -96,6 +126,78 @@ describe("Since you last looked", () => {
     expect(screen.queryByRole("region", { name: "Since you last looked" })).toBeNull();
     expect(onShown).toHaveBeenLastCalledWith(false);
     expect(readLook("s1")).toMatchObject({ at: NOW, finals: ["g1"] });
+  });
+
+  it("keeps the look it was worked out from, so a final that came while it was up is told next time", async () => {
+    keepLookAt(NOW - 2 * 24 * HOUR);
+    const onDismiss = vi.fn();
+    const user = userEvent.setup();
+    const listedThen = listedAt();
+    const { rerender, unmount } = render(
+      <SinceLastLook
+        look={{ ...after, listed: listedThen }}
+        onDismiss={onDismiss}
+        onShown={() => {}}
+      />
+    );
+    expect(screen.getByRole("region", { name: "Since you last looked" })).toHaveTextContent(
+      "W 9–4 vs Bears"
+    );
+
+    // Twenty minutes on, with the card still up, another device's final arrives.
+    vi.setSystemTime(NOW + HOUR / 3);
+    rerender(
+      <SinceLastLook
+        look={{ ...later, listed: listedAt() }}
+        onDismiss={onDismiss}
+        onShown={() => {}}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: "Got it" }));
+    // What the card was worked out from, and the list as it was then: never the season at the press.
+    expect(readLook("s1")).toMatchObject({ at: NOW, finals: ["g1"], places: { ACES: 1, BEAR: 2 } });
+    expect(onDismiss).toHaveBeenCalledOnce();
+    expect(onDismiss.mock.calls[0]?.[0]).toBe(listedThen);
+    unmount();
+
+    // The next visit, two hours on, is told of the loss.
+    vi.setSystemTime(NOW + 2 * HOUR);
+    render(<SinceLastLook look={later} onDismiss={() => {}} onShown={() => {}} />);
+    const next = screen.getByRole("region", { name: "Since you last looked" });
+    expect(next).toHaveTextContent("L 2–7 vs Bears");
+    expect(next).toHaveTextContent("Place 1 then, 2 now");
+  });
+
+  /*
+   * Season ids are handed out again, and a look is kept outside the keys `forgetSeasons` clears:
+   * kept of a deleted season, or of this device's before a restore put another under its id, it
+   * was compared with the season now under the id, every final of it told as new.
+   */
+  it("reads a look at another season made under its id as none, and starts afresh", () => {
+    const MADE = "2026-10-01T09:00:00.000Z";
+    saveLook("s1", {
+      ...takeLook(NOW - 2 * 24 * HOUR, before.rows, [], before.predictions, true),
+      createdAt: "2026-03-01T00:00:00.000Z",
+    });
+    render(
+      <SinceLastLook look={{ ...after, createdAt: MADE }} onDismiss={() => {}} onShown={() => {}} />
+    );
+    expect(screen.queryByRole("region", { name: "Since you last looked" })).toBeNull();
+    expect(readLook("s1", MADE)).toMatchObject({ at: NOW, createdAt: MADE, finals: ["g1"] });
+  });
+
+  it("compares with a look kept before looks said when their season was made", () => {
+    keepLookAt(NOW - 2 * 24 * HOUR);
+    render(
+      <SinceLastLook
+        look={{ ...after, createdAt: "2026-10-01T09:00:00.000Z" }}
+        onDismiss={() => {}}
+        onShown={() => {}}
+      />
+    );
+    expect(screen.getByRole("region", { name: "Since you last looked" })).toHaveTextContent(
+      "Place 2 then, 1 now"
+    );
   });
 
   it("says nothing within the hour of the last look, and keeps that look", () => {

@@ -92,6 +92,7 @@ const setup = ({
     persist: (one, data) => {
       events.push(`persist ${one} ${JSON.stringify(data.logs)}`);
       stored.set(one, data);
+      return true;
     },
     adopt: (one, createdAt) => adopted.push([one, createdAt]),
     editing: () => typing.now,
@@ -296,7 +297,7 @@ describe("a season kept live", () => {
       seasons,
       entryOf: () => ENTRY,
       bases: memoryBases(),
-      persist: () => {},
+      persist: () => true,
       editing: () => true,
       onState: () => {},
     });

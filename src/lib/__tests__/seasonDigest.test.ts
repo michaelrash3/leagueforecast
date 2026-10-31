@@ -13,6 +13,7 @@ import {
   keptWith,
   raceOf,
   sameSeen,
+  seenAsListed,
   seenOf,
   worthNotifying,
   type Change,
@@ -237,6 +238,83 @@ describe("foldLocal", () => {
   it("is the same object when the edit changed nothing the digest compares", () => {
     const typed = season({ g1: log("4", "2"), g2: log("3", "", false) });
     expect(foldLocal(seen, start, typed)).toBe(seen);
+  });
+});
+
+describe("what a list told, taken as seen", () => {
+  const was = { ...seenOf(season()), race: { A: { status: "Alive" as const, gold: 50 } } };
+  const renamed = [teams[0]!, { id: "B", name: "Bruins" }, teams[2]!];
+  // The list as drawn: game 2 made final, the Bears renamed and the Aces in, since the look `was`.
+  const listed = {
+    ...seenOf(season({ g1: log("4", "2"), g2: log("1", "0") }, games, renamed)),
+    race: { A: { status: "In" as const, gold: 70 } },
+  };
+
+  it("takes what the list said, and leaves what came after it as news", () => {
+    // After the list was drawn: game 2 corrected, game 3 made final and the Aces clinched.
+    const now = {
+      ...seenOf(
+        season({ g1: log("4", "2"), g2: log("2", "0"), g3: log("6", "1") }, games, renamed)
+      ),
+      race: { A: { status: "Clinched" as const, gold: 100 } },
+    };
+    const taken = seenAsListed(was, was, listed);
+    expect(kinds(changesBetween(taken, now))).toEqual(["corrected", "final", "clinched"]);
+    expect(changesBetween(taken, listed)).toEqual([]);
+  });
+
+  it("leaves a game, a team and the race taken as seen since the list was drawn as they are", () => {
+    // This device corrected game 2 and renamed the Bears again after the list was drawn, each
+    // taken as seen as it was made, and another tab here took a later forecast as seen.
+    const since = {
+      ...was,
+      games: { ...was.games, g2: seenOf(season({ g2: log("3", "0") })).games.g2! },
+      teams: { ...was.teams, B: "Grizzlies" },
+      race: { A: { status: "Clinched" as const, gold: 100 } },
+    };
+    const taken = seenAsListed(since, was, listed);
+    expect(taken.games.g2?.final).toBe("3-0");
+    expect(taken.teams.B).toBe("Grizzlies");
+    expect(taken.race).toBe(since.race);
+  });
+
+  it("takes the race as the list told it: a clinch, and the followed team's odds", () => {
+    // The list as drawn: the Aces clinched and the Comets' chance went from 40% to 65%.
+    const before = {
+      ...was,
+      race: { ...was.race, C: { status: "Alive" as const, gold: 40 } },
+    };
+    const told = {
+      ...listed,
+      race: {
+        A: { status: "Clinched" as const, gold: 100 },
+        C: { status: "Alive" as const, gold: 65 },
+      },
+    };
+    const options = { followed: "C" };
+    expect(kinds(changesBetween(before, told, options))).toEqual([
+      "final",
+      "teamRenamed",
+      "clinched",
+      "odds",
+    ]);
+    const taken = seenAsListed(before, before, told);
+    expect(taken.race).toBe(told.race);
+    expect(changesBetween(taken, told, options)).toEqual([]);
+  });
+
+  it("keeps the race as last seen where the list was drawn with no forecast", () => {
+    // No cut line now, so no forecast: the list told the final and nothing of the race. Taken as
+    // none, the race would start again at the next forecast, and a clinch before it go untold.
+    const unraced = { ...listed, race: null };
+    expect(kinds(changesBetween(was, unraced))).toEqual(["final", "teamRenamed"]);
+    const taken = seenAsListed(was, was, unraced);
+    expect(taken.games.g2?.final).toBe("1-0");
+    expect(taken.race).toBe(was.race);
+  });
+
+  it("is the same object when the list told nothing", () => {
+    expect(seenAsListed(was, was, was)).toBe(was);
   });
 });
 

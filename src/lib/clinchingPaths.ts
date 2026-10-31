@@ -1,7 +1,17 @@
 import { displayName } from "./format";
 import { eliminationNumberForGold, magicForGold } from "./magic";
 import { standingsPoints } from "./sim";
+import { inPlayingOrder } from "./stillToCome";
 import type { Matchup, Settings, SwingGame, TeamWithProjection } from "./types";
+
+/**
+ * Days from today to a date of the season (`seasonDaysFromToday`), which puts a team's next games
+ * in the order they are played (`inPlayingOrder`), as its swing games are. The schedule stores its
+ * games in the order they were made, which need not be that: a round robin its pairings, with the
+ * dates typed in afterwards, and read in that order a team was told it was out if a side it played
+ * two weeks on beat it "next".
+ */
+type DaysFromToday = (date: string) => number | null;
 
 export type ClinchingPathNote = {
   teamId: string;
@@ -22,6 +32,7 @@ export type ClinchingPathInput = {
   settings: Settings;
   swings: SwingGame[];
   exactLimit?: number;
+  daysFromToday: DaysFromToday;
 };
 
 const plural = (count: number, singular: string, pluralText = `${singular}s`) =>
@@ -39,7 +50,8 @@ const firstCutLineHelp = (
   team: TeamWithProjection,
   teams: TeamWithProjection[],
   remaining: Matchup[],
-  cutoff: number
+  cutoff: number,
+  daysFromToday: DaysFromToday
 ) => {
   const teamsById = new Map(teams.map((item) => [item.id, item]));
   const rivals = teams
@@ -49,11 +61,15 @@ const firstCutLineHelp = (
     .sort((a, b) => (b.rank ?? 99) - (a.rank ?? 99));
 
   for (const rival of rivals) {
-    const game = remaining.find(
-      (item) =>
-        (item.away === rival.id || item.home === rival.id) &&
-        item.away !== team.id &&
-        item.home !== team.id
+    // The rival's next game the team is not in.
+    const [game] = inPlayingOrder(
+      remaining.filter(
+        (item) =>
+          (item.away === rival.id || item.home === rival.id) &&
+          item.away !== team.id &&
+          item.home !== team.id
+      ),
+      daysFromToday
     );
     if (!game) continue;
     const opponentName = opponentFor(rival.id, game, teamsById);
@@ -70,6 +86,7 @@ export const clinchingPathForTeam = ({
   settings,
   swings,
   exactLimit = 14,
+  daysFromToday,
 }: ClinchingPathInput): ClinchingPathNote => {
   const teamName = displayName(team.name);
   const seed = team.rank ?? 99;
@@ -119,7 +136,7 @@ export const clinchingPathForTeam = ({
       } else if (insideNow && insideProjected) {
         notes.push("Controls the Gold spot if the current pace holds.");
       } else if (!insideNow) {
-        notes.push(firstCutLineHelp(team, teams, remaining, cutoff));
+        notes.push(firstCutLineHelp(team, teams, remaining, cutoff, daysFromToday));
       }
 
       if (elimination.type === "elimination" && elimination.tiebreak) {
@@ -129,7 +146,7 @@ export const clinchingPathForTeam = ({
             : `After ${plural(elimination.opponentLossesNeeded, "more loss", "more losses")}, only a won tiebreak keeps them in.`
         );
       } else if (elimination.type === "elimination" && elimination.opponentLossesNeeded > 0) {
-        const nextOwnGame = teamRemaining[0];
+        const [nextOwnGame] = inPlayingOrder(teamRemaining, daysFromToday);
         if (elimination.opponentLossesNeeded === 1 && nextOwnGame) {
           const opponentName = opponentFor(team.id, nextOwnGame, teamsById);
           notes.push(`Eliminated if ${opponentName} beat them next.`);
@@ -147,7 +164,7 @@ export const clinchingPathForTeam = ({
       "Projected path reaches Gold, but the team still needs the swing games to break their way."
     );
   } else if (!insideNow) {
-    notes.push(firstCutLineHelp(team, teams, remaining, cutoff));
+    notes.push(firstCutLineHelp(team, teams, remaining, cutoff, daysFromToday));
   } else {
     notes.push("Currently above the line, but the projected path is fragile.");
   }
@@ -205,7 +222,7 @@ export const clinchingPathsForTeams = (
   cutoff: number,
   settings: Settings,
   swingsForTeam: (teamId: string) => SwingGame[],
-  options: { limit?: number; exactLimit?: number } = {}
+  options: { limit?: number; exactLimit?: number; daysFromToday: DaysFromToday }
 ): ClinchingPathNote[] => {
   const limit = options.limit ?? 8;
   const ordered = [...teams].sort((a, b) => {
@@ -225,6 +242,7 @@ export const clinchingPathsForTeams = (
         settings,
         swings: swingsForTeam(team.id),
         exactLimit: options.exactLimit,
+        daysFromToday: options.daysFromToday,
       })
     )
     .filter((path) => path.status !== "Clinched" && path.status !== "Eliminated")

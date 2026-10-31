@@ -662,12 +662,23 @@ export function PoolHealthView({
               value={count(health.nameOnly)}
               note="never pulled; an opponent, never ranked"
             />
-            <Row label="Stand-ins" value={count(health.placeholders)} note="a TBD names nobody" />
+            {/* Slots alone: a stand-in on this card is a slot or a club known only by name. */}
+            <Row label="TBD slots" value={count(health.placeholders)} note="a TBD names nobody" />
             <Row
               label="Results against a stand-in"
               value={count(health.standInPlayed)}
               note={`of ${count(health.standInGames)} such games`}
             />
+            {/* The share the owner tracks, said with what it counts, since it is not the
+                nightly's: this card counts every year of the pool, and a stand-in on one side
+                only (README, "What a pull left behind, and what to check"). */}
+            {health.played > 0 && (
+              <Row
+                label="Played against a stand-in"
+                value={`${((100 * health.standInPlayed) / health.played).toFixed(1)}%`}
+                note={`${count(health.standInPlayed)} of the ${count(health.played)} played games, every squad year: a club on one side, a slot or a club known only by name on the other`}
+              />
+            )}
             {health.undated > 0 && (
               <Row
                 label="No date"
