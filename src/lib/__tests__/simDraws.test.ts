@@ -3,6 +3,7 @@ import {
   calculateTeams,
   drawMargin,
   emptyTeam,
+  gameStream,
   hashSeed,
   makeRandom,
   seasonDraws,
@@ -133,5 +134,72 @@ describe("the Gold odds' counts for the team followed", () => {
     const decided = (swing.awayWins[at] ?? 0) + (swing.homeWins[at] ?? 0);
     expect(decided).toBeLessThan(swing.seasons);
     expect(decided).toBeGreaterThan(swing.seasons * 0.8);
+  });
+});
+
+/*
+ * Two runs whose difference is what is wanted, the Gold trend's last two points (`buildTrendStates`):
+ * the point before the last result has that game still to play. From one stream, its extra game
+ * moved every draw after it, so the two runs drew every other game apart and their difference was
+ * mostly chance. Paired, each game draws from its own stream, keyed to the season and the game.
+ */
+describe("a paired run", () => {
+  const final = (away: string, home: string): GameLog => ({
+    awayRuns: away,
+    homeRuns: home,
+    awayHits: "",
+    homeHits: "",
+    awayK: "",
+    homeK: "",
+    innings: "6",
+    isFinal: true,
+  });
+  const bases = ["A", "B", "C", "D"].map((id) => ({ id, name: id }));
+  const all: Matchup[] = [
+    { id: "p1", date: "5/1", away: "A", home: "C" },
+    { id: "p2", date: "5/2", away: "B", home: "D" },
+    { id: "g1", date: "5/8", away: "A", home: "B" },
+    { id: "g2", date: "5/9", away: "C", home: "D" },
+    { id: "g3", date: "5/15", away: "A", home: "D" },
+    { id: "g4", date: "5/16", away: "B", home: "C" },
+  ];
+  const logs = { p1: final("5", "4"), p2: final("6", "3") };
+  const teams = calculateTeams(bases, all, logs, DEFAULT_SETTINGS);
+  const left = all.filter((one) => !(one.id in logs));
+  // A game first in the list between two sides no league team is: it books nothing, and draws.
+  const ghost: Matchup = { id: "ghost", date: "5/1", away: "X", home: "Y" };
+  const odds = (remaining: Matchup[], paired: boolean) =>
+    simulateGoldOddsRun(teams, remaining, 600, "paired", 2, DEFAULT_SETTINGS, undefined, paired)
+      .odds;
+
+  it("draws every other game alike when one more is played", () => {
+    expect(odds([ghost, ...left], true)).toEqual(odds(left, true));
+    // From one stream, the game moved every draw after it.
+    expect(odds([ghost, ...left], false)).not.toEqual(odds(left, false));
+  });
+
+  it("plays every season asked for, so the two runs pair season for season", () => {
+    // Everybody in: the odds are known at once, and a run on its own stops at the first check.
+    const run = (paired: boolean) =>
+      simulateGoldOddsRun(teams, left, 600, "all in", 4, DEFAULT_SETTINGS, undefined, paired);
+    expect(run(false).iterations).toBe(200);
+    expect(run(true).iterations).toBe(600);
+  });
+
+  it("keys one game's stream apart from the next one's", () => {
+    /*
+     * The key is a hash of the season and the game, and two keys a letter apart hashed to seeds a
+     * fixed step apart, whose first draws stood a fixed distance apart: two games of one season
+     * drew together. Over 200 seasons the distance between two games' first draws took 2 values.
+     */
+    const seed = hashSeed("paired");
+    const apart = new Set(
+      Array.from({ length: 200 }, (_, season) => {
+        const first = gameStream(seed, season, "g10")();
+        const next = gameStream(seed, season, "g11")();
+        return ((first - next + 1) % 1).toFixed(6);
+      })
+    );
+    expect(apart.size).toBeGreaterThan(190);
   });
 });

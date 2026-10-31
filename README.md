@@ -4392,6 +4392,17 @@ settings travel in a shared link, and a parent's team is not the coach's they se
 the standings to. It is not in a backup either, for the same reason. It goes with its season,
 so a season made under a deleted one's id follows no team until one is picked there.
 
+The move is said only where it is two points or more (`GOLD_MOVE_SHOWN`), and the trend's last two
+points are drawn paired (`buildTrendStates`): from the last one's seed, each game from a stream of
+its own keyed to the season and the game (`gameStream`), every season played, so the two runs draw
+alike every game they share and their difference is what the result did. Each point drawn from its
+own seed, the step was two runs' worth of chance: on 40 synthetic eight-team leagues, measured
+against 24,000 seasons a point, it was 1.6 points out where a team not in the game truly moved 0.9,
+and 26 of the 235 moves shown went the wrong way. Paired, it is 0.75 out, and of the moves of two
+points or more none went the wrong way. One seed on one stream was not enough (1.43): the point
+before the result has that game still to play, and every draw after it moved. Only those two points
+moved; the six before them are as they were to the digit.
+
 When the team is linked to a Team Rankings club, the card also gives the club's place
 on its board — "37th of 1,812 nationally (▲3) · top 3% · 4th of 160 in OH · 9U 2027 ·
 Fall 2026, as of 9/27". League Standings cannot rank a club itself, since a board is a fit
