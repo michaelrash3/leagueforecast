@@ -52,6 +52,8 @@ const TEAMS: TeamBase[] = [
   { id: "D", name: "Ducks" },
 ];
 
+const FIVE: TeamBase[] = [...TEAMS, { id: "E", name: "Eagles" }];
+
 /** One round robin, every game of it played: the Aces win all three, the Bears two, the Comets one. */
 const ROUND: Matchup[] = [
   { id: "g1", date: "5/1", away: "A", home: "B" },
@@ -82,9 +84,15 @@ const league = (
   matchups: Matchup[],
   gamesPerTeam: number,
   teams: TeamBase[] = TEAMS,
-  scores: Record<string, GameLog> = SCORES
+  scores: Record<string, GameLog> = SCORES,
+  tiePoints = DEFAULT_SETTINGS.tiePoints
 ) => {
-  const settings = { ...DEFAULT_SETTINGS, goldCutoff: 2, regularSeasonGamesPerTeam: gamesPerTeam };
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    goldCutoff: 2,
+    regularSeasonGamesPerTeam: gamesPerTeam,
+    tiePoints,
+  };
   const live = calculateTeams(teams, matchups, scores, settings);
   const ranked = rankTeams(live, rankOptionsFromSettings(settings));
   const remaining = matchups.filter((game) => !isFinal(scores[game.id]));
@@ -226,7 +234,6 @@ describe("a league where only some teams owe games", () => {
  * end with.
  */
 describe("the season's last game owed beyond the schedule", () => {
-  const FIVE: TeamBase[] = [...TEAMS, { id: "E", name: "Eagles" }];
   // Three games each set. The Aces win all three, the Bears beat the Comets and the Ducks by eight
   // runs each, and the Eagles, with two played, beat the same two by a run each.
   const games: Matchup[] = [
@@ -260,6 +267,53 @@ describe("the season's last game owed beyond the schedule", () => {
     // The Bears get in only level with the Eagles, on the tiebreak they hold.
     expect(last.status("B")).toBe("Alive");
     expect(last.needs("B")).toEqual(["Eagles to lose their game not yet on the schedule"]);
+  });
+});
+
+/*
+ * The season's last game is read with every tiebreaker, so there another team's win can be the
+ * result a team needs, where on the search's points and losses it only ever puts that team higher:
+ * clear of a three-way tie that run differential settles, it leaves a two-way one that head-to-head
+ * does. The card named the stand-in where the team that owes the game goes.
+ */
+describe("the season's last game owed beyond the schedule, needed won", () => {
+  // Three games each set again, and the Eagles, 2-0, owe their third. The Aces beat the Bears and
+  // the Comets by a run each and lost to the Ducks by ten; the Bears won their other two by ten.
+  // An Eagles loss leaves three teams at 2-1, where head-to-head is not read and run differential
+  // puts the Aces third; an Eagles win leaves the Aces level with the Bears alone, and ahead of them
+  // on the game between them.
+  const games: Matchup[] = [
+    { id: "w1", date: "5/1", away: "C", home: "E" },
+    { id: "w2", date: "5/1", away: "D", home: "E" },
+    { id: "w3", date: "5/8", away: "A", home: "B" },
+    { id: "w4", date: "5/8", away: "A", home: "C" },
+    { id: "w5", date: "5/15", away: "D", home: "A" },
+    { id: "w6", date: "5/15", away: "B", home: "C" },
+    { id: "w7", date: "5/22", away: "B", home: "D" },
+  ];
+  const scores: Record<string, GameLog> = {
+    w1: final(0, 5),
+    w2: final(0, 5),
+    w3: final(1, 0),
+    w4: final(1, 0),
+    w5: final(10, 0),
+    w6: final(10, 0),
+    w7: final(10, 0),
+  };
+
+  it("names the team that owes it where its win is what another team needs", () => {
+    const noTies = league(games, 3, FIVE, scores, 0);
+    expect(noTies.status("A")).toBe("In");
+    expect(noTies.needs("A")).toEqual(["Eagles to win their game not yet on the schedule"]);
+    // The same game is the Bears' way in the other way round.
+    expect(noTies.needs("B")).toEqual(["Eagles to lose their game not yet on the schedule"]);
+  });
+
+  it("asks it only not to lose where a tie lifts it clear too", () => {
+    // Ties worth half a win, as by default: an Eagles tie puts them half a point clear.
+    expect(league(games, 3, FIVE, scores).needs("A")).toEqual([
+      "Eagles not to lose their game not yet on the schedule",
+    ]);
   });
 });
 

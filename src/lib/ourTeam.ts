@@ -1,6 +1,7 @@
 import { recordText } from "./format";
 import type { RootFor } from "./goldSwing";
 import type { NeededResult } from "./magic";
+import { OWED_OPPONENT } from "./sim";
 import type { SwingGame, TeamWithProjection } from "./types";
 
 /** What the Dashboard's "Our team" card says about the team this browser follows. */
@@ -36,8 +37,12 @@ export type OurTeamSummary = {
 
 /**
  * A need in the games a team owes beyond the schedule (`NeededResult.owed`), which have no opponent
- * or day to name. Only two can arise: the team's own to win, and another team's to lose, since
- * another team winning one only ever puts it higher, and the team losing one never helps it.
+ * or day to name, so the team that owes them is named whichever side of them is needed: the team's
+ * own to win, or another team's to lose or to win. The team losing one never helps it, and another
+ * team winning one only lifts that team on the points and losses the search reads; but the season's
+ * last game is ranked with every tiebreaker (`lastGameNeeds`), and there that win can be the result
+ * needed: clear of a three-way tie, the team that owes the game leaves a two-way one that the
+ * followed team takes on head-to-head.
  */
 const owedNeed = (teamId: string, need: NeededResult, nameOf: (id: string) => string): string => {
   const one = need.owed === 1;
@@ -46,6 +51,12 @@ const owedNeed = (teamId: string, need: NeededResult, nameOf: (id: string) => st
     return need.orTie
       ? `Don't lose ${one ? "the game" : `any of the ${games}`} not yet on the schedule`
       : `Win the ${games} not yet on the schedule`;
+  if (need.against === OWED_OPPONENT) {
+    const owing = nameOf(need.side);
+    return need.orTie
+      ? `${owing} not to lose ${one ? "their game" : `any of their ${games}`} not yet on the schedule`
+      : `${owing} to win their ${games} not yet on the schedule`;
+  }
   const rival = nameOf(need.against);
   return need.orTie
     ? `${rival} not to win ${one ? "their game" : `any of their ${games}`} not yet on the schedule`

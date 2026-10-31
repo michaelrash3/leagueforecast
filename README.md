@@ -4209,13 +4209,17 @@ either way, as the status column reads it, and a clinch or an elimination the
 search claims is one no result of the owed games can undo. They count toward the
 fifteen games the exact numbers wait for, so a league owing many shows them paused
 in the team panel, in its usual words, and leaves them off the Our team card,
-until few enough are left. A need in them has no opponent or day to name: "Win the
-2 games not yet on the schedule", "Bears to lose their game not yet on the
-schedule"; and where the one game left in the season is owed, it is read at every
-score it can end with, as the last game on the schedule is. Nor has a team whose
-games left are all owed a game to work its Clinch Scenarios from, so its panel says
-how many it has ("Aces have 9 games left that the schedule does not show yet")
-where it said the team had none left.
+until few enough are left. A need in them has no opponent or day to name, so the
+team that owes them is named: "Win the 2 games not yet on the schedule", "Bears to
+lose their game not yet on the schedule". Where the one game left in the season is
+owed, it is read at every score it can end with, as the last game on the schedule
+is, and there another team's win can be the result needed, though in the search it
+only ever lifts that team: "Eagles to win their game not yet on the schedule", for
+a team that an Eagles win leaves level with one rival it beat, where a loss would
+leave three level for run differential to settle. Nor has a team whose games left
+are all owed a game to work its Clinch Scenarios from, so its panel says how many
+it has ("Aces have 9 games left that the schedule does not show yet") where it said
+the team had none left.
 
 The Gold odds play the owed games too, after the scheduled ones and drawn as they
 are, each against a side of the league's average strength (`leagueAverageSide`):

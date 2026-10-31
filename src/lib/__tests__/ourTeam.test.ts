@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { needsLines, ourTeamSummary, rootForLines } from "../ourTeam";
 import { readOurTeam, writeOurTeam } from "../preferences";
+import { OWED_OPPONENT } from "../sim";
 import type { SwingGame, TeamWithProjection } from "../types";
 
 const team = (extra: Partial<TeamWithProjection> = {}) =>
@@ -119,6 +120,38 @@ describe("needsLines", () => {
       "Beat Comets (5/4)",
       "Comets to beat Bears",
       "Bears not to lose to Comets (5/6)",
+    ]);
+  });
+
+  it("names the team that owes games beyond the schedule, whichever side of them is needed", () => {
+    const owed = (side: string, against: string, orTie: boolean, count: number) => ({
+      gameId: `${OWED_OPPONENT} ${side === OWED_OPPONENT ? against : side} 1`,
+      date: "",
+      side,
+      against,
+      orTie,
+      owed: count,
+    });
+    expect(
+      needsLines(
+        "A",
+        [
+          owed("A", OWED_OPPONENT, false, 2),
+          owed("A", OWED_OPPONENT, true, 1),
+          owed(OWED_OPPONENT, "B", false, 2),
+          owed(OWED_OPPONENT, "B", true, 1),
+          owed("C", OWED_OPPONENT, false, 1),
+          owed("C", OWED_OPPONENT, true, 2),
+        ],
+        nameOf
+      )
+    ).toEqual([
+      "Win the 2 games not yet on the schedule",
+      "Don't lose the game not yet on the schedule",
+      "Bears to lose their 2 games not yet on the schedule",
+      "Bears not to win their game not yet on the schedule",
+      "Comets to win their game not yet on the schedule",
+      "Comets not to lose any of their 2 games not yet on the schedule",
     ]);
   });
 });
