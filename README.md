@@ -4421,7 +4421,13 @@ list and is not shown. The lists a phone reads carry it to the minute: a club ca
 a page's Games list as `times` beside its games (so a reader from before them still takes each
 game's seven fields), both in whole minutes since 1970. A card's game is found for an edit by
 everything else it shows (`cardFixture`), so a card from before the start, or one carrying it in
-its own form, still names the stored game.
+its own form, still names the stored game. A League Standings game comes in with the start its
+season keeps (`deriveLeagueScoutGames`), and a league's scored game kept in place of a pulled copy
+of it takes the copy's start where it has none (`dedupeLeagueFixtures`: the copies giving its
+score, read from either seat, all at one minute); both came in untimed, so a league doubleheader
+was listed second game first and the later game named as next. No board reads a start: the
+seeded fixture's boards with every league game timed are its boards with none, to the digit
+(`leagueStartsBoards.test.ts`).
 
 League Standings keeps each game's start too (`Matchup.startTs`, data schema 9): from a start's
 draft (Team Rankings clubs or a GameChanger organization), on a game Fill adds, and on every game

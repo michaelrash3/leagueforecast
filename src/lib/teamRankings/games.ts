@@ -451,6 +451,33 @@ const offFixturesOf = (
 };
 
 /**
+ * The start a league row kept in place of its dropped copies takes from them, where it has none of
+ * its own: the start of the copies giving its score, read from either seat, where they all give the
+ * same minute. A doubleheader the league typed with no starts then keeps each game's from its own
+ * copy, and two games of one score whose copies start apart take none, which is which being no
+ * guess to make. Dropped with the copy, the start left the league's game untimed, and a club's list
+ * read the day's games in stored order.
+ */
+const startOfCopies = (
+  row: ScoutGame,
+  stored: readonly number[],
+  games: readonly ScoutGame[]
+): string | undefined => {
+  if (row.startTs !== undefined) return undefined;
+  // The two scores, lower first, so a copy filed from the other seat reads the same.
+  const score = ({ teamAScore: a, teamBScore: b }: ScoutGame) =>
+    a === undefined || b === undefined ? "" : `${Math.min(a, b)}-${Math.max(a, b)}`;
+  const minutes = new Map<number, string>();
+  stored.forEach((index) => {
+    const copy = games[index]!;
+    const minute = startMinuteOf(copy.startTs);
+    if (minute === undefined || !score(copy) || score(copy) !== score(row)) return;
+    if (!minutes.has(minute)) minutes.set(minute, copy.startTs!);
+  });
+  return minutes.size === 1 ? [...minutes.values()][0] : undefined;
+};
+
+/**
  * Collapses a league-derived game and the stored game that is the same real fixture down to one
  * row.
  *
@@ -541,12 +568,18 @@ export const dedupeLeagueFixtures = (
   });
 
   const dropped = new Set<number>();
+  /** Starts given to league rows kept, by index, from the copies dropped in their place. */
+  const startsGiven = new Map<number, string>();
   byFixture.forEach(({ league, stored }) => {
     // A fixture only one source knows about is not a duplicate of anything.
     if (league.length === 0 || stored.length === 0) return;
 
     if (league.every((index) => isScoutGamePlayed(games[index]!))) {
       stored.forEach((index) => dropped.add(index));
+      league.forEach((index) => {
+        const startTs = startOfCopies(games[index]!, stored, games);
+        if (startTs) startsGiven.set(index, startTs);
+      });
       return;
     }
 
@@ -569,6 +602,8 @@ export const dedupeLeagueFixtures = (
   if (dropped.size === 0) return games;
   return games.flatMap((game, index) => {
     if (dropped.has(index)) return [];
+    const startTs = startsGiven.get(index);
+    if (startTs) return [{ ...game, startTs }];
     const as = standsFor.get(index);
     if (!as) return [game];
     return [
