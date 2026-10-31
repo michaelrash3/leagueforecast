@@ -4776,7 +4776,11 @@ IndexedDB is asynchronous and this app reads its pool during render, so the pool
 is read into memory once before anything mounts and the synchronous reads stay
 synchronous; writes go out behind them, coalesced per key. A write is therefore
 reported as _accepted_ rather than as landed, and one that later fails surfaces
-as a toast, which is the only thing left that can still say so.
+as a toast, which is the only thing left that can still say so. The other tabs
+are told of each key as it is accepted and again once it has landed, and read it
+again each time (`poolSync.ts`): told only as it was accepted, a tab read the later
+keys of a save before they had reached the store, kept their old values, and with
+its next save wrote those back over the other tab's work.
 
 A member's device is the exception. It opens on the cloud's board and on League
 Standings kept live, neither of which reads the pool, and a phone that held a pool
