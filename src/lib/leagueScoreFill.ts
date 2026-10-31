@@ -1,4 +1,4 @@
-import { normalizeDateInput, parseDateValue, seasonStartMonth } from "./date";
+import { normalizeDateInput, parseDateValue, seasonStartMonth, toMMDD } from "./date";
 import {
   ageGroupYear,
   findSimilarTeam,
@@ -129,14 +129,27 @@ export type LeagueMissingGame = {
  */
 /**
  * The starts Fill can give the league's games: for each game it matched to the pool's, the pool
- * game's start, where the league's game has none yet. A start orders a day's games and is shown on
- * the Schedule; it changes no score, so a game takes it whether or not its score was ticked.
+ * game's start, where the league's game has none yet, or has one that falls on another day than
+ * its date (in this device's time). A start orders a day's games and is shown on the Schedule; it
+ * changes no score, so a game takes it whether or not its score was ticked.
+ *
+ * A start on another day is one a game kept when it was moved without it being dropped, by a
+ * version from before starts went with their day or by another device's: never given again, it
+ * showed the old day's time on the new day and listed the game by it there for good.
  */
 export const startsFromFill = (
   plan: LeagueFillPlan,
   schedule: readonly Matchup[]
 ): Record<string, string> => {
-  const untimed = new Set(schedule.filter((game) => !game.startTs).map((game) => game.id));
+  const startDay = (startTs: string) => {
+    const at = Date.parse(startTs);
+    return Number.isFinite(at) ? toMMDD(new Date(at)) : "";
+  };
+  const untimed = new Set(
+    schedule
+      .filter((game) => !game.startTs || startDay(game.startTs) !== normalizeDateInput(game.date))
+      .map((game) => game.id)
+  );
   const starts: Record<string, string> = {};
   for (const row of plan.rows) {
     if (row.startTs && untimed.has(row.matchupId)) starts[row.matchupId] = row.startTs;
@@ -1031,7 +1044,7 @@ export const movedGames = (
 
 /**
  * The moves picked from `movedGames`: each schedule game to its new day, with its score, final,
- * the way round the schedule has the two teams.
+ * the way round the schedule has the two teams, and at the pool game's start (`moved`).
  *
  * Runs and the final flag are all it writes onto the game's log, as `applyLeagueScoreFill` does.
  * Only runs keep a game from moving, so one can move with hits, strikeouts or an innings count of
@@ -1045,11 +1058,22 @@ export const movesToApply = (
   innings: number,
   /** The league's logs as they are, which each moved game's score is written onto. */
   current: Readonly<Record<string, GameLog>>
-): { dates: Record<string, string>; logs: Record<string, GameLog> } => {
+): {
+  dates: Record<string, string>;
+  logs: Record<string, GameLog>;
+  /**
+   * A schedule game as it is once moved: on its new day, at the start the pool's game had, or
+   * with none where that had none. A start is its day's: moved with only its date, the game kept
+   * the old day's time, shown on its make-up day and listed by it there. The same object for a
+   * game not moved.
+   */
+  moved: (matchup: Matchup) => Matchup;
+} => {
   const chosen = new Set(picked);
   const played = new Map((plan.missing ?? []).map((game) => [game.scoutGameId, game]));
   const byId = new Map(schedule.map((game) => [game.id, game]));
   const dates: Record<string, string> = {};
+  const starts: Record<string, string | undefined> = {};
   const logs: Record<string, GameLog> = {};
   moved.forEach((move) => {
     const game = played.get(move.scoutGameId);
@@ -1057,6 +1081,7 @@ export const movesToApply = (
     if (!chosen.has(move.scoutGameId) || !game || !matchup) return;
     const sameWay = matchup.away === game.awayTeamId;
     dates[matchup.id] = move.to;
+    starts[matchup.id] = game.startTs;
     logs[matchup.id] = {
       ...(current[matchup.id] ?? blankLog(String(innings))),
       awayRuns: String(sameWay ? game.awayRuns : game.homeRuns),
@@ -1064,5 +1089,15 @@ export const movesToApply = (
       isFinal: true,
     };
   });
-  return { dates, logs };
+  return {
+    dates,
+    logs,
+    moved: (matchup) => {
+      const date = dates[matchup.id];
+      if (date === undefined) return matchup;
+      const { startTs: _old, ...rest } = matchup;
+      const startTs = starts[matchup.id];
+      return startTs ? { ...rest, date, startTs } : { ...rest, date };
+    },
+  };
 };

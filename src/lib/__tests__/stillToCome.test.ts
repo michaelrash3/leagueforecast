@@ -36,4 +36,25 @@ describe("a team's games still to play", () => {
     const order = inPlayingOrder(late, seasonDaysFromToday(season, today));
     expect(order.map((one) => one.id)).toEqual(["a", "b"]);
   });
+
+  /*
+   * A doubleheader stored late game first, as a pasted schedule can be: the next game was the late
+   * one, though the README has each team's next game go by day and then start.
+   */
+  it("come by start within a day, a game with none after the day's timed ones", () => {
+    const day = [
+      { ...game("late", "10/26"), startTs: "2026-10-26T23:00:00.000Z" },
+      game("untimed", "10/26"),
+      { ...game("early", "10/26"), startTs: "2026-10-26T17:00:00.000Z" },
+      game("next-week", "11/2"),
+    ];
+    const order = inPlayingOrder(day, seasonDaysFromToday(season, today));
+    expect(order.map((one) => one.id)).toEqual(["early", "late", "untimed", "next-week"]);
+    // Games with no start keep the order they came in, as before.
+    const plain = [game("b", "10/26"), game("a", "10/26")];
+    expect(inPlayingOrder(plain, seasonDaysFromToday(season, today)).map((one) => one.id)).toEqual([
+      "b",
+      "a",
+    ]);
+  });
 });

@@ -2214,12 +2214,8 @@ export default function App() {
     }
     giveStarts();
     if (movedCount > 0) {
-      setMatchups((prev) =>
-        prev.map((game) => {
-          const day = moves.dates[game.id];
-          return day ? { ...game, date: day } : game;
-        })
-      );
+      // Each to the day it was played, at the start the pool's game had, never its old day's.
+      setMatchups((prev) => prev.map(moves.moved));
       // Written onto each game's log as it is by then, so nothing typed against it is lost.
       setLogs((prev) => ({
         ...prev,

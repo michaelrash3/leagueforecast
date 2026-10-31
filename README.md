@@ -4425,11 +4425,16 @@ its own form, still names the stored game.
 
 League Standings keeps each game's start too (`Matchup.startTs`, data schema 9): from a start's
 draft (Team Rankings clubs or a GameChanger organization), on a game Fill adds, and on every game
-Fill matches that has none (`startsFromFill`; a start changes no score, so it is given whether or
-not the score is ticked). The Schedule, the Dashboard's upcoming games, the Playoff machine and
-each team's next game go by day and then start, and the Schedule and the Dashboard show the start
-in the device's own time ("5/3 · 10:30 AM"). The forecast's own order of the games left is not
-changed, so no odds move. A game typed in has no start and is listed after the day's timed games.
+Fill matches that has none, or has one on another day than its date in the device's time
+(`startsFromFill`; a start changes no score, so it is given whether or not the score is ticked).
+A start is its day's: a game given another day in the Schedule lets go of its start, and one Fill
+moves to the day it was played takes the pool game's start, or none (`movesToApply`). Kept, the
+moved game showed the old day's time and was listed by it among the new day's games, and Fill
+never gave it another. The Schedule, the Dashboard's upcoming games, the Playoff machine and
+each team's next game go by day and then start (`inPlayingOrder` as well, since 31 October 2026),
+and the Schedule and the Dashboard show the start in the device's own time ("5/3 · 10:30 AM").
+The forecast's own order of the games left is not changed, so no odds move. A game typed in has
+no start and is listed after the day's timed games.
 
 ## A season's team list, then its schedule
 

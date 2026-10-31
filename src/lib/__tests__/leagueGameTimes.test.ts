@@ -71,6 +71,30 @@ describe("a League game's start", () => {
     expect(startsFromFill(plan, schedule)).toEqual({ g1: AT_TEN });
   });
 
+  it("is given by Fill over one that falls on another day than its game", () => {
+    const row = (matchupId: string, startTs: string): LeagueFillRow =>
+      ({
+        matchupId,
+        date: "10/24",
+        awayTeamId: "A",
+        awayName: "Aces",
+        homeTeamId: "B",
+        homeName: "Bears",
+        awayRuns: 3,
+        homeRuns: 2,
+        action: "fill",
+        startTs,
+      }) as LeagueFillRow;
+    const plan = { rows: [row("g1", AT_TEN), row("g2", AT_TWO)] } as LeagueFillPlan;
+    const schedule: Matchup[] = [
+      // Moved to the 24th from the 17th, still at the start it had that day: the pool's replaces it.
+      { id: "g1", date: "10/24", away: "A", home: "B", startTs: "2026-10-17T14:00:00Z" },
+      // A start on its own day: kept, whatever the pool says.
+      { id: "g2", date: "10/24", away: "B", home: "A", startTs: AT_TEN },
+    ];
+    expect(startsFromFill(plan, schedule)).toEqual({ g1: AT_TEN });
+  });
+
   it("comes with a game Fill adds", () => {
     const plan = {
       rows: [],
