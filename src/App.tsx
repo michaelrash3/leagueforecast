@@ -1622,13 +1622,17 @@ export default function App() {
         });
 
       if (!scenarios.length) {
+        // None on the schedule, but games owed under games per team are games left all the same.
+        const owed = remainingCounts[teamId] ?? 0;
         return [
-          `${teamName} have no remaining games; Gold Bracket status depends only on outside results.`,
+          owed > 0
+            ? `${teamName} have ${owed} game${owed === 1 ? "" : "s"} left that the schedule does not show yet.`
+            : `${teamName} have no remaining games; Gold Bracket status depends only on outside results.`,
         ];
       }
       return scenarios;
     },
-    [dashboardById, nextTwoSwingGames, goldCutoff]
+    [dashboardById, nextTwoSwingGames, goldCutoff, remainingCounts]
   );
 
   const formatGoldPct = useCallback((team: TeamWithProjection) => formatGoldPctValue(team), []);

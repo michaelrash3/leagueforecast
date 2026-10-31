@@ -118,6 +118,18 @@ const magicNumbers = (): string => {
   return /M \(Gold clinch\).+\.\s?E \(Gold elimination\).+\.$/.test(text) ? text : "";
 };
 
+/** A team's Clinch Scenarios, read from its panel once they are worked out. */
+const clinchScenarios = (): string => {
+  const panel = screen.queryByRole("dialog");
+  const heading = panel ? within(panel).queryByRole("heading", { name: "Clinch Scenarios" }) : null;
+  const section = heading?.closest("section");
+  if (!section || section.querySelector('[aria-busy="true"]')) return "";
+  return (section.textContent ?? "")
+    .replace(/^Clinch Scenarios/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
 const leagues: Array<{ name: string; games: Matchup[]; gamesPerTeam: number; follow: string }> = [
   { name: "nine games owed by every team", games: ROUND, gamesPerTeam: 12, follow: "A" },
   { name: "two owed by the Comets and the Ducks", games: TWICE, gamesPerTeam: 5, follow: "C" },
@@ -135,12 +147,16 @@ const open = (games: Matchup[], gamesPerTeam: number, follow: string) => {
   return user;
 };
 
-/** A team's panel opened from the tab on screen, its Magic Numbers read, and the panel closed. */
-const panelOf = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+/** A team's panel opened from the tab on screen, a section of it read, and the panel closed. */
+const panelOf = async (
+  user: ReturnType<typeof userEvent.setup>,
+  name: string,
+  section: () => string = magicNumbers
+) => {
   const [link] = await screen.findAllByRole("link", { name: `View stats for ${name}` });
   if (!link) throw new Error(`No link to ${name}`);
   await user.click(link);
-  const read = await settled(`${name}' panel`, magicNumbers);
+  const read = await settled(`${name}' panel`, section);
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   return read;
@@ -257,6 +273,32 @@ describe("a league that owes games the schedule does not show yet, as the page s
     expect(await panelOf(user, "Bears")).toContain("2 more wins clinches a Gold Bracket spot.");
     expect(await panelOf(user, "Comets")).toContain(
       "2 more losses would eliminate the team from the Gold Bracket."
+    );
+  }, 60_000);
+
+  it("tells a team whose games left are all owed how many it has, not that it has none", async () => {
+    const user = open(ROUND, 12, "A");
+    await user.click(await screen.findByRole("tab", { name: "Standings" }));
+    expect(await panelOf(user, "Aces", clinchScenarios)).toBe(
+      "Aces have 9 games left that the schedule does not show yet."
+    );
+  }, 60_000);
+
+  it("still says outside results decide for a team with nothing left to play at all", async () => {
+    // Three teams and a cut line of one: the Aces have won their one game, and the Bears and the
+    // Comets can each still draw level with them in the game between them.
+    saveTeams(TEAMS.slice(0, 3));
+    saveMatchups([
+      { id: "t1", date: "2026-05-01", away: "A", home: "B" },
+      { id: "t2", date: "2026-05-22", away: "B", home: "C" },
+    ]);
+    saveLogs({ t1: final(6, 2) });
+    saveSettings({ ...loadSettings(), goldCutoff: 1, regularSeasonGamesPerTeam: 0 });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: "Standings" }));
+    expect(await panelOf(user, "Aces", clinchScenarios)).toBe(
+      "Aces have no remaining games; Gold Bracket status depends only on outside results."
     );
   }, 60_000);
 });

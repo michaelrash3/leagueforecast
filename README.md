@@ -4212,7 +4212,10 @@ in the team panel, in its usual words, and leaves them off the Our team card,
 until few enough are left. A need in them has no opponent or day to name: "Win the
 2 games not yet on the schedule", "Bears to lose their game not yet on the
 schedule"; and where the one game left in the season is owed, it is read at every
-score it can end with, as the last game on the schedule is.
+score it can end with, as the last game on the schedule is. Nor has a team whose
+games left are all owed a game to work its Clinch Scenarios from, so its panel says
+how many it has ("Aces have 9 games left that the schedule does not show yet")
+where it said the team had none left.
 
 The Gold odds play the owed games too, after the scheduled ones and drawn as they
 are, each against a side of the league's average strength (`leagueAverageSide`):
