@@ -365,6 +365,100 @@ describe("parseLeagueSchedule", () => {
       ["9/12 Comets, Blue @ Wolves"],
       { rows: [{ date: "9/12", away: "Comets, Blue", home: "Wolves" }], skipped: [] },
     ],
+    [
+      "a start with its time zone, at noon, still to be announced, or as a range",
+      [
+        "Sat 4/12 6:30 PM EDT Falcons @ Wolves",
+        "4/12 7 PM (CDT) Comets @ Rockets",
+        "4/13 Noon Bears @ Lions",
+        "4/13 12 Noon Hawks @ Owls",
+        "4/14 TBA Cubs @ Reds",
+        "4/15 9:00-11:00 AM Falcons @ Wolves",
+        "4/15 9-11 AM Comets @ Rockets",
+        "Saturday, April 19",
+        "9-11 AM Bears @ Lions",
+      ],
+      {
+        rows: [
+          { date: "4/12", away: "Falcons", home: "Wolves" },
+          { date: "4/12", away: "Comets", home: "Rockets" },
+          { date: "4/13", away: "Bears", home: "Lions" },
+          { date: "4/13", away: "Hawks", home: "Owls" },
+          { date: "4/14", away: "Cubs", home: "Reds" },
+          { date: "4/15", away: "Falcons", home: "Wolves" },
+          { date: "4/15", away: "Comets", home: "Rockets" },
+          { date: "4/19", away: "Bears", home: "Lions" },
+        ],
+        skipped: [],
+      },
+    ],
+    [
+      "noon under a month's heading, after the day it is on",
+      [
+        "September 2026",
+        "SAT 26 Noon Comets @ Rockets",
+        "Saturday, September 19",
+        "Noon Bears @ Lions",
+        // A cell of its own: the 27th at noon, not a time on the 19th.
+        "27 Noon,Hawks @ Owls",
+      ],
+      {
+        rows: [
+          { date: "9/26", away: "Comets", home: "Rockets" },
+          { date: "9/19", away: "Bears", home: "Lions" },
+          { date: "9/27", away: "Hawks", home: "Owls" },
+        ],
+        skipped: [],
+      },
+    ],
+    [
+      "a score written beside each side, where both end in one and the names left differ",
+      [
+        "4/12 Falcons 7 @ Wolves 5",
+        "4/12 Comets 2 vs Rockets 11 Final",
+        "4/12,Bears 9U 3 @ Lions 9U 4,Field 2",
+        // A number beside two names alike is a squad's, beside one name alone is its name, and one
+        // number on both is written on each, as an age span is: no score.
+        "4/13 Team 1 @ Team 2",
+        "4/13 Hawks 7 @ Owls",
+        "4/13 Cubs 10 @ Reds 10",
+        // Nothing beside each side, still to come: a schedule's placeholder, as "0-0" is.
+        "11/7 Falcons 0 @ Wolves 0",
+      ],
+      {
+        rows: [
+          { date: "4/12", away: "Falcons", home: "Wolves", awayRuns: 7, homeRuns: 5 },
+          { date: "4/12", away: "Rockets", home: "Comets", awayRuns: 11, homeRuns: 2 },
+          { date: "4/12", away: "Bears 9U", home: "Lions 9U", awayRuns: 3, homeRuns: 4 },
+          { date: "4/13", away: "Team 1", home: "Team 2" },
+          { date: "4/13", away: "Hawks 7", home: "Owls" },
+          { date: "4/13", away: "Cubs 10", home: "Reds 10" },
+          { date: "11/7", away: "Falcons", home: "Wolves" },
+        ],
+        skipped: [],
+      },
+    ],
+    [
+      "cells between bars, a place among them, and a name with a bar in it read whole",
+      [
+        "Sat Apr 12 | 9:00 AM | Falcons @ Wolves | Riverside Park - Field 2",
+        "Sun Apr 13 | Comets @ Rockets | Riverside Park",
+        "4/14 Aces | Blue @ Wolves",
+      ],
+      {
+        rows: [
+          { date: "4/12", away: "Falcons", home: "Wolves" },
+          { date: "4/13", away: "Comets", home: "Rockets" },
+          { date: "4/14", away: "Aces | Blue", home: "Wolves" },
+        ],
+        skipped: [],
+      },
+    ],
+    [
+      "a CSV whose cells are its commas, a bar in a team's name kept there",
+      ["Date,Away,Home", "9/12/2026,Aces | Blue,Wolves"],
+      { rows: [{ date: "9/12", away: "Aces | Blue", home: "Wolves" }], skipped: [] },
+    ],
   ])("reads %s", (_, lines, expected) => {
     expect(read(lines)).toEqual(expected);
   });
@@ -394,6 +488,32 @@ describe("parseLeagueSchedule", () => {
     expect(read(["9/12 Marlins 10U @ Mayhem", "9/13 Sun Devils vs June Bugs"]).rows).toEqual([
       { date: "9/12", away: "Marlins 10U", home: "Mayhem" },
       { date: "9/13", away: "June Bugs", home: "Sun Devils" },
+    ]);
+  });
+
+  /*
+   * A time zone is read in capitals, as sites print it. Read in any case, a town's short form after
+   * a start, "Mt" or "Pt", came off the team's name as the zone, and the saved team "Mt Comets" was
+   * met by a new one called "Comets". And a day is passed over before an AM or a PM only where it is
+   * shaped like a range of hours, "9-11 AM": "4/13 Am Comets" is a game on 4/13.
+   */
+  it("does not take a town's short form for a time zone, nor a day before Am for a range", () => {
+    expect(
+      read([
+        "Sat 4/12 6:30 PM Mt Comets @ Wolves",
+        "Sat 4/12 18:30 Pt Rockets @ Mt Comets",
+        "4/12 9 AM Ct Falcons @ Wolves",
+        "4/12 6:30 PM MDT Bears @ Lions",
+        "4/13 Am Comets @ Pm Rockets",
+        "Apr 13 Pm Falcons @ Wolves",
+      ]).rows
+    ).toEqual([
+      { date: "4/12", away: "Mt Comets", home: "Wolves" },
+      { date: "4/12", away: "Pt Rockets", home: "Mt Comets" },
+      { date: "4/12", away: "Ct Falcons", home: "Wolves" },
+      { date: "4/12", away: "Bears", home: "Lions" },
+      { date: "4/13", away: "Am Comets", home: "Pm Rockets" },
+      { date: "4/13", away: "Pm Falcons", home: "Wolves" },
     ]);
   });
 
@@ -465,6 +585,196 @@ describe("parseLeagueSchedule", () => {
       rows: [],
       skipped: ["4/31/2027,9:00 AM,Falcons @ Wolves,6,5"],
     });
+  });
+
+  /*
+   * Lines sites print that the reader took apart wrongly before it knew time zones, Noon and TBA,
+   * time ranges, a score written beside each side, or a bar between cells; and lines beside them it
+   * reads rightly and must go on reading so. Each read on its own, the last under a day's heading.
+   * Pinned before the reader knew them: the zone, "Noon", "12 Noon" and the ranges were on the away
+   * team's name, "TBA" skipped its line, the runs beside each side were on both names, the place
+   * after a bar was on the home team's, and the range under a heading was a game on 9/11 for "AM
+   * Comets". "Team 1 @ Team 2", "Falcons 7 @ Wolves", "9:00 AM - 11:00 AM", a bar line ending in a
+   * field, "Aces | Blue" and "TBD @ Wolves" read as they did, and so do a town's short form after a
+   * time, "Mt Comets", and a name starting "Am" after a day, which the zone and the range had
+   * taken apart once read. Placeholder names.
+   */
+  it("reads the lines sites print around a game", () => {
+    const lines = [
+      "Sat 4/12 6:30 PM EDT Falcons @ Wolves",
+      "Sat 4/12 6:30 PM Mt Comets @ Wolves",
+      "4/12 Am Comets @ Wolves",
+      "4/12 6:30 PM ET Comets @ Rockets",
+      "4/12 7 PM (CDT) Bears @ Lions",
+      "4/12 Noon Falcons @ Wolves",
+      "4/12 12 Noon Comets @ Rockets",
+      "4/12 TBA Bears @ Lions",
+      "4/12 9:00-11:00 AM Falcons @ Wolves",
+      "4/12 9-11 AM Comets @ Rockets",
+      "4/12 9:00 AM - 11:00 AM Bears @ Lions",
+      "4/12 Falcons 7 @ Wolves 5",
+      "4/12 Comets 2 vs Rockets 11 Final",
+      "4/12 Team 1 @ Team 2",
+      "4/12 Falcons 7 @ Wolves",
+      "Sat Apr 12 | 9:00 AM | Falcons @ Wolves | Riverside Park - Field 2",
+      "Sat, Apr 12 | 11:00 AM | Comets @ Rockets | Field 3",
+      "4/12 Aces | Blue @ Wolves",
+      "10/3 TBD @ Wolves",
+    ];
+    const readings = Object.fromEntries(
+      lines.map((line) => {
+        const { rows, skipped } = read([line]);
+        return [line, skipped.length > 0 ? "skipped" : rows];
+      })
+    );
+    const underHeading = read(["Saturday, April 12", "9-11 AM Comets @ Rockets"]);
+    expect({ readings, underHeading }).toMatchInlineSnapshot(`
+      {
+        "readings": {
+          "10/3 TBD @ Wolves": "skipped",
+          "4/12 12 Noon Comets @ Rockets": [
+            {
+              "away": "Comets",
+              "date": "4/12",
+              "home": "Rockets",
+            },
+          ],
+          "4/12 6:30 PM ET Comets @ Rockets": [
+            {
+              "away": "Comets",
+              "date": "4/12",
+              "home": "Rockets",
+            },
+          ],
+          "4/12 7 PM (CDT) Bears @ Lions": [
+            {
+              "away": "Bears",
+              "date": "4/12",
+              "home": "Lions",
+            },
+          ],
+          "4/12 9-11 AM Comets @ Rockets": [
+            {
+              "away": "Comets",
+              "date": "4/12",
+              "home": "Rockets",
+            },
+          ],
+          "4/12 9:00 AM - 11:00 AM Bears @ Lions": [
+            {
+              "away": "Bears",
+              "date": "4/12",
+              "home": "Lions",
+            },
+          ],
+          "4/12 9:00-11:00 AM Falcons @ Wolves": [
+            {
+              "away": "Falcons",
+              "date": "4/12",
+              "home": "Wolves",
+            },
+          ],
+          "4/12 Aces | Blue @ Wolves": [
+            {
+              "away": "Aces | Blue",
+              "date": "4/12",
+              "home": "Wolves",
+            },
+          ],
+          "4/12 Am Comets @ Wolves": [
+            {
+              "away": "Am Comets",
+              "date": "4/12",
+              "home": "Wolves",
+            },
+          ],
+          "4/12 Comets 2 vs Rockets 11 Final": [
+            {
+              "away": "Rockets",
+              "awayRuns": 11,
+              "date": "4/12",
+              "home": "Comets",
+              "homeRuns": 2,
+            },
+          ],
+          "4/12 Falcons 7 @ Wolves": [
+            {
+              "away": "Falcons 7",
+              "date": "4/12",
+              "home": "Wolves",
+            },
+          ],
+          "4/12 Falcons 7 @ Wolves 5": [
+            {
+              "away": "Falcons",
+              "awayRuns": 7,
+              "date": "4/12",
+              "home": "Wolves",
+              "homeRuns": 5,
+            },
+          ],
+          "4/12 Noon Falcons @ Wolves": [
+            {
+              "away": "Falcons",
+              "date": "4/12",
+              "home": "Wolves",
+            },
+          ],
+          "4/12 TBA Bears @ Lions": [
+            {
+              "away": "Bears",
+              "date": "4/12",
+              "home": "Lions",
+            },
+          ],
+          "4/12 Team 1 @ Team 2": [
+            {
+              "away": "Team 1",
+              "date": "4/12",
+              "home": "Team 2",
+            },
+          ],
+          "Sat 4/12 6:30 PM EDT Falcons @ Wolves": [
+            {
+              "away": "Falcons",
+              "date": "4/12",
+              "home": "Wolves",
+            },
+          ],
+          "Sat 4/12 6:30 PM Mt Comets @ Wolves": [
+            {
+              "away": "Mt Comets",
+              "date": "4/12",
+              "home": "Wolves",
+            },
+          ],
+          "Sat Apr 12 | 9:00 AM | Falcons @ Wolves | Riverside Park - Field 2": [
+            {
+              "away": "Falcons",
+              "date": "4/12",
+              "home": "Wolves",
+            },
+          ],
+          "Sat, Apr 12 | 11:00 AM | Comets @ Rockets | Field 3": [
+            {
+              "away": "Comets",
+              "date": "4/12",
+              "home": "Rockets",
+            },
+          ],
+        },
+        "underHeading": {
+          "rows": [
+            {
+              "away": "Comets",
+              "date": "4/12",
+              "home": "Rockets",
+            },
+          ],
+          "skipped": [],
+        },
+      }
+    `);
   });
 
   it("reads a header printed again partway down as a header", () => {

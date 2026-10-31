@@ -4,7 +4,9 @@ import {
   findSimilarTeam,
   isScoutGamePlayed,
   LEAGUE_GAME_PREFIX,
+  pasteNameKey,
   scoreSeenBy,
+  squadNameKey,
   teamNameKey,
   type AgeGroup,
   type ScoutGame,
@@ -61,7 +63,10 @@ export type LeagueFillAction =
   | "overwrite"
   /** The same score is already recorded, so there is nothing to do. */
   | "unchanged"
-  /** More than one result could be this game, and nothing distinguishes them. */
+  /**
+   * More than one result could be this game, and nothing distinguishes them; or its one result
+   * fits it either way round, and nothing says which.
+   */
   | "ambiguous";
 
 export type LeagueFillRow = {
@@ -87,7 +92,10 @@ export type LeagueFillRow = {
   /** What the pool calls each side, given only when it differs from the league's own name. */
   poolAwayName?: string;
   poolHomeName?: string;
-  /** The pool game the runs came from. Absent when nothing could be singled out. */
+  /**
+   * The pool game the row was read off: the runs', or one that fits either way round, which gives
+   * no runs. Absent when nothing could be singled out.
+   */
   scoutGameId?: string;
   /** GameChanger's own ids, when the result came from a pull rather than something typed. */
   gcTeamId?: string;
@@ -104,7 +112,8 @@ export type LeagueFillRow = {
  * A game the pool holds between two of the league's own clubs, the teams linked to them, that no
  * game on the league's schedule is (3.7): played, on a page that claims the season, and not on a
  * day ahead. Offered to be added with its score; one that looks like a tournament meeting
- * (`tournamentReason`) is offered unticked.
+ * (`tournamentReason`), a scrimmage beside a game the schedule has that day or a playoff game is
+ * offered unticked, `tournament` saying why.
  */
 export type LeagueMissingGame = {
   scoutGameId: string;
@@ -220,6 +229,26 @@ const runsText = (log: RecordedRuns | undefined, side: "away" | "home") =>
 const hasRecordedRuns = (log: RecordedRuns | undefined) =>
   runsText(log, "away").trim() !== "" && runsText(log, "home").trim() !== "";
 
+type Runs = { awayRuns: number; homeRuns: number };
+
+/** Whether a league game's log already holds these runs, away and home. */
+const holdsRuns = (log: RecordedRuns | undefined, runs: Runs) =>
+  hasRecordedRuns(log) &&
+  Number(runsText(log, "away")) === runs.awayRuns &&
+  Number(runsText(log, "home")) === runs.homeRuns;
+
+/** What a row says of the pool game it was read off, whichever way round it was read. */
+const poolGameOf = (
+  game: ScoutGame
+): Pick<LeagueFillRow, "scoutGameId" | "gcTeamId" | "gcGameId" | "event" | "startTs"> => ({
+  scoutGameId: game.id,
+  ...(game.source ? { gcTeamId: game.source.teamId, gcGameId: game.source.gameId } : {}),
+  ...(game.event ? { event: game.event } : {}),
+  ...(game.startTs ? { startTs: game.startTs } : {}),
+});
+
+type ClubMatch = "linked" | "exact" | "similar";
+
 /**
  * Whether a league team and a pool team are the same club.
  *
@@ -230,16 +259,41 @@ const hasRecordedRuns = (log: RecordedRuns | undefined) =>
  * about what counts as close — and it is deliberately stricter than it looks, stopping short of
  * "South Lexington Red" against "…Blue".
  */
-const clubMatch = (
-  leagueTeam: TeamBase,
-  poolTeam: ScoutTeam
-): "linked" | "exact" | "similar" | null => {
+const clubMatch = (leagueTeam: TeamBase, poolTeam: ScoutTeam): ClubMatch | null => {
   // The club a person linked this league team to in Settings is that club, whatever either half
   // calls it: the link was made so a league's "513 Force" is the pool's "513 FORCE - BOULEY".
   if (leagueTeam.scoutTeamId === poolTeam.id) return "linked";
   if (teamNameKey(leagueTeam.name) === teamNameKey(poolTeam.name)) return "exact";
   return findSimilarTeam(leagueTeam.name, [poolTeam]) ? "similar" : null;
 };
+
+/**
+ * How well a pool result's clubs fit a league game's two teams one way round, or null where a side
+ * does not fit at all. A side linked in Settings counts for more than both names alike, and a name
+ * alike for more than one only close: more links win, then more names alike.
+ */
+const FIT: Record<ClubMatch, number> = { linked: 3, exact: 1, similar: 0 };
+const fitOf = (away: ClubMatch | null, home: ClubMatch | null): number | null =>
+  away && home ? FIT[away] + FIT[home] : null;
+
+/**
+ * How near a league team's name is to the names a pool club is known by, its GameChanger listings'
+ * written in full (`GcTeamLink.name`) where its own has lost the age and the aside
+ * (`cleanTeamName`): 2 written alike (`pasteNameKey`), 1 alike but for the age label
+ * (`squadNameKey`, which keeps an aside), 0 neither. It is what tells "Heat (Coach A)" from "Heat
+ * (Coach B)", or "Wolves 9U" from "Wolves 10U", once the pool has both clubs as "Heat" or "Wolves".
+ */
+const nameNearness = (leagueName: string, club: ScoutTeam): number => {
+  const names = [club.name, ...(club.gcTeams ?? []).map((link) => link.name)];
+  const whole = pasteNameKey(leagueName);
+  if (names.some((name) => pasteNameKey(name) === whole)) return 2;
+  const ageless = pasteNameKey(squadNameKey(leagueName));
+  return names.some((name) => pasteNameKey(squadNameKey(name)) === ageless) ? 1 : 0;
+};
+
+/** What an unclear row says of a result that fits its game either way round (`align`). */
+const EITHER_WAY =
+  "The pool's result that day fits this game either way round, and nothing there says which club is which team.";
 
 /** "The Generals’" rather than "The Generals's". */
 const possessive = (name: string): string => (/s$/i.test(name) ? `${name}’` : `${name}’s`);
@@ -277,6 +331,12 @@ type Alignment = {
   /** What made it this game, when not the names: the club's own row against a slot. */
   slot?: string;
 };
+
+/**
+ * A pool result that is a league game's whichever way round, with nothing to say which (`align`):
+ * both ways, lined up, the way the pool listed it first.
+ */
+type EitherWay = { either: readonly [Alignment, Alignment] };
 
 /**
  * Works out what could be filled in, and says so for every league game it can speak to. Pure: it
@@ -431,8 +491,11 @@ export const planLeagueScoreFill = ({
     };
   };
 
-  /** Lines a pool result up with a league game, or says it is not that game. */
-  const align = (game: ScoutGame, matchup: Matchup): Alignment | null => {
+  /**
+   * Lines a pool result up with a league game, or says it is not that game (null), or that it is
+   * and nothing says which way round (`EitherWay`).
+   */
+  const align = (game: ScoutGame, matchup: Matchup): Alignment | EitherWay | null => {
     const teamA = scoutTeamById.get(game.teamAId);
     const teamB = scoutTeamById.get(game.teamBId);
     if (!teamA || !teamB) return null;
@@ -443,21 +506,54 @@ export const planLeagueScoreFill = ({
     // sides are decided by who each team is rather than by where it sits.
     const asListed = { away: clubMatch(away, teamA), home: clubMatch(home, teamB) };
     const reversed = { away: clubMatch(away, teamB), home: clubMatch(home, teamA) };
-    const awayIsA = Boolean(asListed.away && asListed.home);
-    const fit = awayIsA ? asListed : reversed;
-    if (!fit.away || !fit.home) return null;
+    const listedFit = fitOf(asListed.away, asListed.home);
+    const reversedFit = fitOf(reversed.away, reversed.home);
+    if (listedFit === null && reversedFit === null) return null;
 
-    return {
-      awayRuns: (awayIsA ? game.teamAScore : game.teamBScore)!,
-      homeRuns: (awayIsA ? game.teamBScore : game.teamAScore)!,
-      strength: fit.away !== "similar" && fit.home !== "similar" ? "exact" : "similar",
-      poolAwayName: (awayIsA ? teamA : teamB).name,
-      poolHomeName: (awayIsA ? teamB : teamA).name,
-      awayLinked: fit.away === "linked",
-      homeLinked: fit.home === "linked",
-      ...versionsOf(game, awayIsA, teamA, teamB),
+    const lineUp = (awayIsA: boolean): Alignment | null => {
+      const fit = awayIsA ? asListed : reversed;
+      if (!fit.away || !fit.home) return null;
+      return {
+        awayRuns: (awayIsA ? game.teamAScore : game.teamBScore)!,
+        homeRuns: (awayIsA ? game.teamBScore : game.teamAScore)!,
+        strength: fit.away !== "similar" && fit.home !== "similar" ? "exact" : "similar",
+        poolAwayName: (awayIsA ? teamA : teamB).name,
+        poolHomeName: (awayIsA ? teamB : teamA).name,
+        awayLinked: fit.away === "linked",
+        homeLinked: fit.home === "linked",
+        ...versionsOf(game, awayIsA, teamA, teamB),
+      };
     };
+    /*
+     * Two league teams the pool reads as one name, "Heat (Coach A)" and "Heat (Coach B)" or
+     * "Wolves 9U" and "Wolves 10U", fit either club, so both ways round fit. The way the pool
+     * listed it was taken whenever it fitted at all, and the pool lists the pulled club first,
+     * which says nothing of who was home: the score went in backwards, ticked, even with both teams
+     * linked to their clubs in Settings and the other way round the one the links named. The way
+     * round that fits better is taken, then the one whose clubs' GameChanger names are nearer the
+     * teams'; with nothing to choose, both ways are handed back rather than one guessed.
+     */
+    if (listedFit !== reversedFit) return lineUp((listedFit ?? -1) > (reversedFit ?? -1));
+    const listedNames = nameNearness(away.name, teamA) + nameNearness(home.name, teamB);
+    const reversedNames = nameNearness(away.name, teamB) + nameNearness(home.name, teamA);
+    if (listedNames !== reversedNames) return lineUp(listedNames > reversedNames);
+    const [listed, turned] = [lineUp(true), lineUp(false)];
+    return listed && turned ? { either: [listed, turned] } : null;
   };
+
+  /** A league game the pool cannot settle, said so: it carries no result, and is never written. */
+  const unclear = (matchup: Matchup, detail: string): LeagueFillRow => ({
+    matchupId: matchup.id,
+    date: matchup.date,
+    awayTeamId: matchup.away,
+    awayName: leagueNameById.get(matchup.away) ?? matchup.away,
+    homeTeamId: matchup.home,
+    homeName: leagueNameById.get(matchup.home) ?? matchup.home,
+    awayRuns: 0,
+    homeRuns: 0,
+    action: "ambiguous",
+    detail,
+  });
 
   /** Turns one aligned result into the row the panel shows. */
   const rowFor = (matchup: Matchup, game: ScoutGame, aligned: Alignment): LeagueFillRow => {
@@ -467,8 +563,7 @@ export const planLeagueScoreFill = ({
     const currentAway = runsText(log, "away");
     const currentHome = runsText(log, "home");
     const recorded = hasRecordedRuns(log);
-    const isRecorded = (runs: { awayRuns: number; homeRuns: number }) =>
-      recorded && Number(currentAway) === runs.awayRuns && Number(currentHome) === runs.homeRuns;
+    const isRecorded = (runs: Runs) => holdsRuns(log, runs);
     /*
      * Where the league already has the other club's version, that is the one the row shows: the
      * league agrees with a club's own schedule, and nothing is to be done.
@@ -567,11 +662,41 @@ export const planLeagueScoreFill = ({
       ...(teamNameKey(fit.poolHomeName) === teamNameKey(homeName)
         ? {}
         : { poolHomeName: fit.poolHomeName }),
-      scoutGameId: game.id,
-      ...(game.source ? { gcTeamId: game.source.teamId, gcGameId: game.source.gameId } : {}),
       ...(recorded ? { currentAwayRuns: currentAway, currentHomeRuns: currentHome } : {}),
-      ...(game.event ? { event: game.event } : {}),
-      ...(game.startTs ? { startTs: game.startTs } : {}),
+      ...poolGameOf(game),
+    };
+  };
+
+  /**
+   * The row for a result lined up with a game. One that fits either way round (`EitherWay`) is the
+   * league's own score where the game already has it one way round, with nothing to do. Otherwise
+   * it cannot be told, and still carries what the pool settles whichever way round: which game it
+   * is, and when it started, which the schedule takes (`startsFromFill`).
+   */
+  const rowOf = (
+    matchup: Matchup,
+    game: ScoutGame,
+    aligned: Alignment | EitherWay
+  ): LeagueFillRow => {
+    if (!("either" in aligned)) return rowFor(matchup, game, aligned);
+    const log = logs[matchup.id];
+    const recordedWay = aligned.either.find(
+      (way) =>
+        holdsRuns(log, way) || (way.alternative !== undefined && holdsRuns(log, way.alternative))
+    );
+    if (recordedWay) return rowFor(matchup, game, recordedWay);
+    const currentAway = runsText(log, "away");
+    const currentHome = runsText(log, "home");
+    const recorded = hasRecordedRuns(log);
+    return {
+      ...unclear(
+        matchup,
+        recorded
+          ? `${EITHER_WAY} Already recorded as ${currentAway}–${currentHome}${isFinal(log) ? " and marked final" : ""}, which it is neither way round. Link the teams to their clubs in Settings and the two are set side by side.`
+          : `${EITHER_WAY} Link the teams to their clubs in Settings and it fills.`
+      ),
+      ...(recorded ? { currentAwayRuns: currentAway, currentHomeRuns: currentHome } : {}),
+      ...poolGameOf(game),
     };
   };
 
@@ -699,21 +824,14 @@ export const planLeagueScoreFill = ({
      */
     if (results.length !== leagueGames.length) {
       leagueGames.forEach((matchup) => {
-        rows.push({
-          matchupId: matchup.id,
-          date: matchup.date,
-          awayTeamId: matchup.away,
-          awayName: leagueNameById.get(matchup.away) ?? matchup.away,
-          homeTeamId: matchup.home,
-          homeName: leagueNameById.get(matchup.home) ?? matchup.home,
-          awayRuns: 0,
-          homeRuns: 0,
-          action: "ambiguous",
-          detail:
+        rows.push(
+          unclear(
+            matchup,
             results.length > leagueGames.length
               ? `${results.length} results for this pairing on this date, but ${leagueGames.length} game${leagueGames.length === 1 ? "" : "s"} on the schedule.`
-              : `${leagueGames.length} games for this pairing on this date, but only ${results.length} result${results.length === 1 ? "" : "s"}.`,
-        });
+              : `${leagueGames.length} games for this pairing on this date, but only ${results.length} result${results.length === 1 ? "" : "s"}.`
+          )
+        );
       });
       return;
     }
@@ -725,8 +843,9 @@ export const planLeagueScoreFill = ({
         leftovers.push(matchup);
         return;
       }
+      // The result is this game's whichever way round, so no other game is offered it.
       claimed.add(result.id);
-      rows.push(rowFor(matchup, result, fit));
+      rows.push(rowOf(matchup, result, fit));
     });
   });
 
@@ -740,15 +859,13 @@ export const planLeagueScoreFill = ({
    */
   leftovers.forEach((matchup) => {
     const date = leagueDates.get(matchup.id);
-    const awayName = leagueNameById.get(matchup.away) ?? matchup.away;
-    const homeName = leagueNameById.get(matchup.home) ?? matchup.home;
     const sameDay = (date ? (poolByDate.get(date) ?? []) : []).filter(
       (game) => !claimed.has(game.id)
     );
 
     const candidates = sameDay
       .map((game) => ({ game, fit: align(game, matchup) }))
-      .filter((candidate): candidate is { game: ScoutGame; fit: Alignment } =>
+      .filter((candidate): candidate is { game: ScoutGame; fit: Alignment | EitherWay } =>
         Boolean(candidate.fit)
       );
 
@@ -759,24 +876,18 @@ export const planLeagueScoreFill = ({
     if (candidates.length > 1) {
       // Two clubs close enough to this game's names played on this day. Naming which is which is
       // the reader's call, and there is nothing here to make it with.
-      rows.push({
-        matchupId: matchup.id,
-        date: matchup.date,
-        awayTeamId: matchup.away,
-        awayName,
-        homeTeamId: matchup.home,
-        homeName,
-        awayRuns: 0,
-        homeRuns: 0,
-        action: "ambiguous",
-        detail: `${candidates.length} results on this date could be this game, under names close to these.`,
-      });
+      rows.push(
+        unclear(
+          matchup,
+          `${candidates.length} results on this date could be this game, under names close to these.`
+        )
+      );
       return;
     }
 
     const only = candidates[0]!;
     claimed.add(only.game.id);
-    rows.push(rowFor(matchup, only.game, only.fit));
+    rows.push(rowOf(matchup, only.game, only.fit));
   });
 
   // Schedule order, so the review reads the way the season does.
@@ -806,6 +917,21 @@ export const planLeagueScoreFill = ({
   const scheduled = scheduledOn(matchups);
   const tournamentOf = tournamentReason(scoutGames, new Set(teamOfClub.keys()));
   /*
+   * Each team the schedule has playing on each day, "ACES@5/1". A day of the league's own clubs
+   * alone is the league's (`tournamentReason`), which suits a start, with no schedule to say which
+   * of them the league played that day. Fill has the schedule: a meeting on a day it has either
+   * team playing another of its games is as likely a scrimmage as a doubleheader's second game, and
+   * starts unticked. Read by the start's rule alone, it started ticked, to go in final at a tap.
+   */
+  const playingOn = new Set(
+    matchups.flatMap((matchup) => {
+      const date = normalizeDateInput(matchup.date ?? "");
+      return [`${matchup.away}@${date}`, `${matchup.home}@${date}`];
+    })
+  );
+  const besideAScheduledGame = (away: string, home: string, date: string) =>
+    playingOn.has(`${away}@${date}`) || playingOn.has(`${home}@${date}`);
+  /*
    * The schedule's last day, on the season's own calendar: a meeting of two of the league's clubs
    * after it passes the tournament checks when a playoff round is played one game a day, and
    * ticked, it went into the standings that seeded the bracket.
@@ -830,9 +956,11 @@ export const planLeagueScoreFill = ({
       if (scheduled.has(`${pairKey(away, home)}@${date}`)) return [];
       const tournament =
         tournamentOf(game) ??
-        (afterTheSchedule(date)
-          ? "Played after the last game on the schedule, so it was likely a playoff game."
-          : undefined);
+        (besideAScheduledGame(away, home, date)
+          ? "One of the two has another game on the schedule that day, so this one was likely a scrimmage."
+          : afterTheSchedule(date)
+            ? "Played after the last game on the schedule, so it was likely a playoff game."
+            : undefined);
       return [
         {
           scoutGameId: game.id,
