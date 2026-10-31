@@ -150,7 +150,7 @@ const read = (path: string): TeamRankingsBackup => {
   };
   const health = poolHealth(before, "");
   const { state, ...counts } = sweepTidy(pool, seasons);
-  const notes = describeTidy({ state, ...counts });
+  const notes = describeTidy(counts);
 
   console.log(
     `Read ${pool.ageGroups.length} pages, ${pool.teams.length} teams, ${pool.games.length} games` +

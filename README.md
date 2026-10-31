@@ -2028,6 +2028,17 @@ GameChanger. **Download the list** writes the lot as a CSV, because a few
 hundred rows is spreadsheet work rather than something to scroll on a phone —
 the panel draws the first two hundred and the file has them all.
 
+**Played against a stand-in.** **Check the pool** in Pool health counts the slots
+and the clubs known only by name, and the results against them (`poolHealth`), and
+says the share the owner tracks with exactly what it counts: of the pool's played
+games, every squad year together, those with a club on one side and a slot or a
+club known only by name on the other. The tile of slots alone is **TBD slots**; it
+said "Stand-ins" until 31 October 2026, though it counted slots only, beside a
+count of results against a stand-in that counted both. The nightly's share is
+not this one: it is the stand-in report's, of one squad year's stored games with a
+stand-in on either side ("The nightly refresh on GitHub"), so a game between two
+stand-ins counts there and not here, and here every year counts.
+
 **One squad on GameChanger twice.** **Check the pool** in Pool health also lists pairs of pulled
 clubs that post the same games: at least two against the same opponent at the same minute with the
 same result, with no game ever against each other and no two different games within the hour of each
@@ -5649,7 +5660,8 @@ two catch-ups sent beside a 9,270-team pull waited behind it, and a leg took 199
 to 379 s. A job's own legs are never at once, since each queues the next as it
 ends; legs of two jobs that save together cost the later one a second filing onto
 the copy as the other left it, never a lost save. Each leg runs in a worker thread capped at 5,120 MB of heap, which
-leaves the rest of the 8 GiB for the bytes a heap does not count. A heap failure is
+leaves the rest of the 8 GiB for the bytes a heap does not count; on GitHub, where
+the legs run now, 12,288 MB of its 16 GB ("Pulls on GitHub", `legHeapMb`). A heap failure is
 reported by the worker; total instance memory still has its own limit. The worker
 has a 29-minute-30-second request budget inside the task's 30 minutes, including
 startup, and the parent waits for it
@@ -5904,6 +5916,15 @@ functions' logs did, the cloud's own words, counts and timings. Those lines are
 in **Actions → Pull in the cloud** rather than Google's logs, so the "Pulls in
 the cloud" status workflow, which reads Google's, sees the jobs but not them.
 
+A run on GitHub has the nightly's 16 GB, and gets the nightly's heap: 12,288 MB
+for the boards' publish, which had 6,144 sized for the 8 GiB of the Cloud Run
+job it replaces, and for a leg's worker, which the workflow says by
+`PULL_LEG_HEAP_MB` (`legHeapMb`); a leg on Cloud Run, which sets none, keeps
+5,120 of its 8 GiB. Each says at its end what it held then and at most, as the
+nightly does (`boards-memory`, `leg-memory`, in megabytes): neither said anything
+of its memory before. The closest measured case, the catch-up's publish of 16
+October 2026, ended at 3,787.5 MB.
+
 It starts within a minute or so of the press, where a task started in seconds.
 Without the token every launch goes to Google as before, but the deploy refuses
 to run unless the `GOOGLE_JOBS` variable is set to `on`. An emptied secret would
@@ -5934,8 +5955,9 @@ secret, and a deploy, puts them back.
 
 Where the pulls are on GitHub, so are the boards after a save. A save the boards
 read, an edit or a League Standings score, no longer asks for a rebuild on Google
-(`rebuildsRun`): the rebuilds' 8 GiB job (`ranking-rebuild`) was October 2026's
-largest metered use, 113,966 GiB-s and 49,543 vCPU-s. Each save queues its check
+(`rebuildsRun`): the rebuilds' ledger counted October 2026's largest metered use,
+113,966 GiB-s and 49,543 vCPU-s, the 8 GiB job's (`ranking-rebuild`) and, until
+16 October, the edits' and the questions' charged with it. Each save queues its check
 of the boards instead, counting on no rebuild ("Boards published after an edit"),
 and the check starts the boards' publish, which runs on GitHub. So does a save
 that moves nothing a board reads, a Pool health answer or a season renamed: the
@@ -6059,6 +6081,39 @@ that finds nothing new writes nothing. A leg of Refresh now sweeps as the nightl
 does; a leg of a pasted list never does, and a pasted list with nothing new to
 pull writes nothing at all, so the night's refresh sweeps what the lists filed.
 
+The log says what the tidy changed, a line for each step that changed anything,
+in the tidy's own words (`describeTidy`), under how many passes it took, or that
+it changed nothing; then the clubs the 40-run rule deleted and the games that went
+with them, and beside that line the marks of clubs plainly made up the sweep put
+on and still stand, and those it lifted, by GameChanger team
+(`nightlyReport.ts`). A club the rule deletes loses its mark with it, so it is
+counted once, on the deletion's line. The run hands back the tidy's counts, never
+the pool it tidied, so nothing that names a club can reach the log. A night with
+nothing to pull runs no tidy and says none.
+
+Then, when the store holds a copy, as the views need it to, how much of the squad
+year being played leans on a stand-in (`storedStandInLines`): of every game stored
+for the year, the share with a club known only by name or a bracket slot on a
+side, and the same of its played games, then the clubs known only by name by
+where a pulled club of the name is and by why none was joined. The numbers and
+their words are the model sweep's stand-in report (`standInReport`,
+`standInShareLines`, `standInWhyLines`), which the model sweep now says through
+the same functions, its output the same to the character on the seeded fixture.
+It reads the stored pool, as the stand-in rule's readings of 28 October 2026 did
+(28.4% of the year, 25.1% of its played games, "Placeholders"), not the boards'
+pool the model sweep's own report reads, which adds League Standings' games and
+leaves out the clubs taken off. The report's lists of the clubs holding the most
+games are never asked for, and a count that fails says so on its own line and
+leaves the night's colour alone.
+
+The memory the run holds is said after each step as the next begins
+(`stageMemory`, `memoryUse.ts`): after loading the copy, asking GameChanger,
+filing, tidying and sweeping, saving, publishing the views and, on the night it
+runs, the week's re-measure, each with the most the process has held so far
+(Node's `maxRSS`), then once more at the end as before. It was said only at the
+end, which held 7,588.7 MB at most on 30 October 2026 against a heap of 12,288,
+and a night that ran out would have said nothing of which step took it there.
+
 What it replaces it keeps, as an earlier version of the copy: the cloud panel's
 **Earlier versions** lists it, and **Bring back** undoes a bad night on every
 device. Six are kept, for 30 days at most.
@@ -6122,10 +6177,16 @@ pages, three halves each) in 5 s, after a 95 s pull. Their first publish would
 have been 30 uploads, 3.2 MB gzipped, and a 13.1 KB meta, and the run, pull and
 boards together, peaked at 4.1 GB of the runner's 16.
 
-It runs every night at 04:17 UTC, which is 12:17 in the morning Eastern in summer
-and 11:17 at night in winter. It used to be set for 07:17, and GitHub started it about
-seven hours late (between 14:09 and 14:33 UTC on 6 to 9 October 2026), so it was moved
-three hours earlier; a scheduled run starts when GitHub gets to it. A run by hand is **Actions → Nightly refresh → Run
+It is set for 04:17 UTC every night, which is 12:17 in the morning Eastern in summer
+and 11:17 at night in winter, but a scheduled run starts when GitHub gets to it, and
+GitHub starts this one four to six and a half hours late: between 08:32 and 10:52 UTC
+on 16 to 30 October 2026, about 4:30 to 6:50 in the morning Eastern, every run of
+them green and none dropped, so last night's games reach the boards around seven in
+the morning. Set for 07:17 it began between 14:09 and 14:33 UTC on 6 to 9 October, so
+moving it three hours earlier moved the start and not the lateness. The schedule is
+left as it is: a run that started on time, before midnight Eastern in winter, would
+miss the late West Coast games the late start catches, and each save's boards go
+out within minutes anyway ("Boards after saves on GitHub"). A run by hand is **Actions → Nightly refresh → Run
 workflow**, with `dry-run` (everything but the save, and what the save would
 have been) or `live`, and a limit of teams for a trial. The log carries counts,
 sizes and timings only, since this repository's Actions logs are public. A night
@@ -6150,6 +6211,18 @@ not yet settled. A ledger that cannot be read says so on its own line and leaves
 the night's colour alone, as do failed rebuilds: they are not the refresh's
 work. This is what tells whether a week of dry runs went well before `mode` is
 set to `live`.
+
+Where the pulls run on GitHub (the workflow tells it whether the dispatch token is
+set, `PULLS_ON_GITHUB`), no rebuild runs on Google, so a deferral of the rebuild
+job is said as the boards' publish on GitHub having taken their place, which
+publishes each save, and no save waiting for the date. Until 31 October 2026 the
+line said of the deferral to 1 November "saves wait for then, or for a cap raised
+in ops/rebuild", though no rebuild had run on Google since 13 October, and the
+month's totals that deferred it were mostly the edits' and the questions' compute,
+charged to the rebuilds until 16 October: at least 34,964 of the 49,543
+vCPU-seconds, since the ledger's runs stood at 34 from 13 to 15 October while its
+vCPU-seconds went from 14,566 to 49,530. What if and Model check, refused while the
+month reads as spent, come back with the month. The caps are as they were.
 
 ### Boards published when a pull ends
 
@@ -6265,11 +6338,13 @@ failing, or deferred to a later month by their budget (as they were from 14
 October 2026, October's spent, until 1 November), a save reached the boards only
 with the nightly, which GitHub starts hours late. A pull's end and an edit's
 check now publish in those times ("Boards published when a pull ends", "Boards
-published after an edit"); a publish that failed still waits for this. So every
-half hour one of
+published after an edit"); a publish that failed still waits for this. So one of
 GitHub's servers looks (`.github/workflows/catch-up.yml`, `scripts/catchUp.ts`,
 `npm run catch-up`), and publishes the boards where they are behind the copy and
-nothing else is about to. Its rules are `catchUp.ts`'s, kept out of the script so
+nothing else is about to. It is set for every half hour, and GitHub runs it four
+to eight times a day, two to eight hours apart (16 to 30 October 2026); on each of
+those days the first run after 04:17 UTC came before the nightly, three hours
+before it on average. Its rules are `catchUp.ts`'s, kept out of the script so
 they are tested.
 
 It reads three things: the copy's manifest, with when Firestore last wrote it;
@@ -6330,8 +6405,8 @@ nightly's group, where a run joining every half hour would cancel a night
 waiting behind one. A publish that fails as the nightly's would
 (`publishFailedRun`) turns the run red, which GitHub emails about; a copy or a
 season saved during the run does not, and the next run publishes. It raises no
-issue of its own ("When a run fails"): the next run tries again within the half
-hour, and a night that fails raises its own. A run by hand is **Actions → Boards
+issue of its own ("When a run fails"): the next run tries again, within hours as
+GitHub runs it, and a night that fails raises its own. A run by hand is **Actions → Boards
 catch-up → Run workflow**.
 
 ### When a run fails
@@ -6909,6 +6984,20 @@ Readers fetch while a server writes, so publishing keeps four rules
   them, so a server must not publish from a copy it has seen replaced; a late
   build of the replaced copy is held all the same while the meta still knows
   that copy.
+
+A publish counts every view it built once, family by family (`FamilyCounts`):
+**sent**, its JSON uploaded by this publish; **reused**, written from an upload
+the meta already names, of the same JSON, under a new version, another copy or
+another key, with nothing sent; **unchanged**, the same JSON from the same copy
+and version, which only a republish at the same version finds; or **refused as
+older**, a late publish's. A night that saves moves the version, so every view
+its save did not change is reused rather than unchanged: the nightly of 30
+October 2026 built 109 views and said 86 uploaded and 0 unchanged, the 23 it
+reused in no count. The log of each server that publishes (`viewsReport.ts`)
+now says the reused beside the uploads, and the four counts by family (boards,
+buckets of club cards, Find a team lists, Games lists), so a night shows which
+kinds of view it changed. Uploads and views differ where two views share one
+JSON: the seeded fixture's 33 boards went up on 29 uploads.
 
 The shape of the views has a number (`LIVE_SCHEMA`): 2 since the rows gained their
 clubs' towns, states and badges, the boards last week's places and their page's

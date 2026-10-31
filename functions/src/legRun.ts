@@ -10,7 +10,11 @@ import { logger } from "firebase-functions";
 import { firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
 import { JOB_ID } from "../../src/lib/cloud/pullJobs";
 import { restJobDocs, type LegTask } from "../../src/lib/cloud/pullJobRunner";
-import { PULL_WORKER_TIMEOUT_MS, waitForPullWorker } from "../../src/lib/cloud/pullWorkerLifetime";
+import {
+  legHeapMb,
+  PULL_WORKER_TIMEOUT_MS,
+  waitForPullWorker,
+} from "../../src/lib/cloud/pullWorkerLifetime";
 import { publishBoardsIfDue } from "./afterPullLaunch";
 import { endDeadPulls } from "./deadPulls";
 import { restAccess, zoneOf } from "./pullAccess";
@@ -20,20 +24,17 @@ import type { LegAnswer, LegRequest } from "./pullLeg";
 export const LEG_TRIES = 3;
 
 /**
- * The most a leg's worker may hold, of the instance's 8 GiB: the rest is for what a heap does not
- * count, the gzipped pieces and the answers' bytes, and for the function itself. The nightly
- * refresh, pulling 15,793 teams into the whole pool, held 3.5 GB at its end on 29 September 2026.
+ * Runs a leg in a worker of its own and hands back its answer. The worker holds at most Cloud Run's
+ * 5,120 MB of the instance's 8 GiB, or what a run on one of GitHub's 16 GB runners sets
+ * (`legHeapMb`, `cloud-pull.yml`).
  */
-const LEG_HEAP_MB = 5_120;
-
-/** Runs a leg in a worker of its own, holding at most `LEG_HEAP_MB`, and hands back its answer. */
 const legInWorker = (request: LegRequest, deadlineMs: number): Promise<LegAnswer> => {
   const remainingMs = deadlineMs - Date.now();
   if (remainingMs <= 0)
     throw new Error("The pull could not start its worker before the request deadline.");
   const worker = new Worker(new URL("./pullLeg.js", import.meta.url), {
     workerData: request,
-    resourceLimits: { maxOldGenerationSizeMb: LEG_HEAP_MB },
+    resourceLimits: { maxOldGenerationSizeMb: legHeapMb(process.env) },
   });
   return waitForPullWorker<LegAnswer>(
     {

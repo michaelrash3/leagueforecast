@@ -368,6 +368,22 @@ export const pieceIdsOf = (uploads: Iterable<{ id: string; c: number }>): Set<st
 const sameMeta = (a: LiveMeta, b: LiveMeta): boolean =>
   JSON.stringify({ ...a, builtAt: "" }) === JSON.stringify({ ...b, builtAt: "" });
 
+/**
+ * What became of one family's views in a publish, each view built counted once: `sent`, its JSON
+ * uploaded by this publish; `reused`, written from an upload the meta already named; `unchanged`
+ * and `refused`, as `PublishResult` says them. Views, not uploads: two views of one JSON share an
+ * upload and are two here.
+ */
+export type FamilyCounts = { sent: number; reused: number; unchanged: number; refused: number };
+
+/**
+ * The family a key is counted under: the prefix of `owns` it falls under, else its text up to its
+ * first colon, which is how every family's keys are written (`board:`, `club:`), or the key whole.
+ */
+const familyOf = (key: string, owns: readonly string[]): string =>
+  owns.find((prefix) => key.startsWith(prefix)) ??
+  (key.includes(":") ? key.slice(0, key.indexOf(":") + 1) : key);
+
 export type PublishResult =
   | {
       ok: true;
@@ -380,10 +396,18 @@ export type PublishResult =
       /** Views already named with this fingerprint, built from this copy at this version. */
       unchanged: number;
       /**
+       * Views written from an upload the meta already names, of the same JSON, that are not
+       * `unchanged`: built again at a new version, from another copy, or under another key. A night
+       * that saves moves the version, so every view its save did not change is one of these.
+       */
+      reused: number;
+      /**
        * Views built and not written, because this publish is late: ones the meta has that it may
        * not replace, and ones the meta lacks, which it may not add.
        */
       refused: number;
+      /** The views built, by family (`familyOf`), each counted once (`FamilyCounts`). */
+      families: Record<string, FamilyCounts>;
       /** Views this publish covers that it did not build, so took out. */
       removed: number;
       /** Uploads newly retired. */
@@ -564,7 +588,15 @@ export const publishViews = async ({
     const next: Record<string, ViewEntry> = {};
     let refused = 0;
     let unchanged = 0;
+    let reused = 0;
     let removed = 0;
+    const byFamily: Record<string, FamilyCounts> = {};
+    const tally = (key: string, what: keyof FamilyCounts) => {
+      const family = familyOf(key, owns);
+      const counts = byFamily[family] ?? { sent: 0, reused: 0, unchanged: 0, refused: 0 };
+      counts[what] += 1;
+      byFamily[family] = counts;
+    };
     for (const [key, entry] of Object.entries(storedViews)) {
       if (!covers(key) && !upgrading) next[key] = entry;
       else if (!builtKeys.has(key)) {
@@ -583,17 +615,23 @@ export const publishViews = async ({
       if (entry && !replaceable(entry)) {
         next[key] = entry;
         refused += 1;
+        tally(key, "refused");
         return [];
       }
       if (!entry && late) {
         refused += 1;
+        tally(key, "refused");
         return [];
-      }
-      if (entry?.h === value.hash && entry.k === copy.id && entry.v === copy.version) {
-        unchanged += 1;
       }
       // The key's own upload while its fingerprint holds, else any upload of the same JSON.
       const source = entry?.h === value.hash ? entry : storedByHash.get(value.hash);
+      if (entry?.h === value.hash && entry.k === copy.id && entry.v === copy.version) {
+        unchanged += 1;
+        tally(key, "unchanged");
+      } else if (source) {
+        reused += 1;
+        tally(key, "reused");
+      } else tally(key, "sent");
       return [{ key, value, source }];
     });
     const missing = new Map(
@@ -684,7 +722,9 @@ export const publishViews = async ({
       pieces: ours.reduce((sum, made) => sum + made.c, 0),
       bytes: ours.reduce((sum, made) => sum + made.bytes, 0),
       unchanged,
+      reused,
       refused,
+      families: byFamily,
       removed,
       retired: newlyRetired,
       deleted: 0,

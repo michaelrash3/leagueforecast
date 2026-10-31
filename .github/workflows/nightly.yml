@@ -19,11 +19,14 @@
 name: Nightly refresh
 
 on:
-  # 04:17 UTC: 12:17 in the morning Eastern in summer, 11:17 at night in winter. Off the hour, since
-  # GitHub starts a run late when every repository's is due at once. Even so it has been starting
-  # this one about seven hours late (set for 07:17 UTC, it began between 14:09 and 14:33 UTC on 6 to
-  # 9 October 2026), so it is set three hours earlier than the 3:17 it used to be. The run works out
-  # its day in Eastern time (TZ below), so a winter run before midnight counts as the day it starts.
+  # Set for 04:17 UTC: 12:17 in the morning Eastern in summer, 11:17 at night in winter. Off the
+  # hour, since GitHub starts a run late when every repository's is due at once. It starts this one
+  # four to six and a half hours late all the same: between 08:32 and 10:52 UTC on 16 to 30
+  # October 2026, about 4:30 to 6:50 in the morning Eastern. Set for 07:17 it began between 14:09
+  # and 14:33 UTC (6 to 9 October), so moving it earlier moved the start and not the lateness. It
+  # is left as it is: a run on time, before midnight Eastern in winter, would miss the late West
+  # Coast games the late start catches. The run works out its day in Eastern time (TZ below), so a
+  # run before midnight counts as the day it starts.
   schedule:
     - cron: "17 4 * * *"
   workflow_dispatch:
@@ -85,6 +88,11 @@ jobs:
           # 1 GB above the loaded pool (the owner's backup of 11 October, not measured here).
           NODE_OPTIONS: --max-old-space-size=12288
           LIMIT: ${{ inputs.limit }}
+          # Whether the pulls run on GitHub: the deploy hands this token to the functions, and with
+          # it no rebuild after a save runs on Google (`rebuildsRun`), the boards' publish on GitHub
+          # taking their place, which the rebuilds' lines then say (`describeRebuilds`). Only
+          # whether the secret is set, never the token itself.
+          PULLS_ON_GITHUB: ${{ secrets.PULL_DISPATCH_TOKEN != '' }}
       # Beside the refresh, whatever became of it: the project's billing, read from Cloud Billing
       # (free to ask, and nothing of the copy), and the end of the token the pulls on GitHub are
       # started with, read from GitHub (`scripts/upkeep.ts`). Each is handed to the alarm as a word;

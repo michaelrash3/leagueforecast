@@ -266,3 +266,54 @@ export const standInReport = (
     ) as Record<StandInWhy, StandInClub[]>,
   };
 };
+
+/** A part of a whole as a percentage to a tenth, or a dash where there is no whole. */
+export const share = (part: number, whole: number): string =>
+  whole === 0 ? "-" : `${((100 * part) / whole).toFixed(1)}%`;
+
+/** Each reason a club known only by name was not joined (`StandInWhy`), in words, in its order. */
+export const STAND_IN_WHYS: ReadonlyArray<readonly [StandInWhy, string]> = [
+  [
+    "oneSameState",
+    "one pulled club of the name on its page, in the namers' state (should have joined)",
+  ],
+  ["oneOtherState", "one on its page, in another state"],
+  ["several", "several of the name on its page"],
+  ["nearOne", "none of the name on its page, one spelled near it"],
+  ["nearSeveral", "none of the name on its page, several spelled near it"],
+  ["elsewhere", "a namesake only on another page"],
+  ["unmatched", "nothing of the name or near it (never pulled)"],
+];
+
+const bucketLine = (label: string, bucket: StandInBucket): string =>
+  `    ${label}: ${bucket.clubs} clubs, holding ${bucket.games} games (${bucket.played} played)`;
+
+/*
+ * The report in words, numbers only, said by the model sweep (`scripts/modelSweep.ts`) and by the
+ * nightly after its pull (`nightlyReport.ts`) alike, so the night's share is the research's to the
+ * digit: one definition of a stand-in game, a club known only by name or a bracket slot on either
+ * side. The clubs the report lists by name (`top`, `topWhy`) are never said here; the model sweep
+ * seals them, and the nightly's log is public.
+ */
+
+/** The share of the year's games and of its played games, and where the names known stand. */
+export const standInShareLines = (report: StandInReport): string[] => [
+  `  The year's games: ${report.games}; with a stand-in on a side: ${report.withStandIn}` +
+    ` (${share(report.withStandIn, report.games)}).`,
+  `  Played: ${report.played}; with a stand-in: ${report.playedWithStandIn}` +
+    ` (${share(report.playedWithStandIn, report.played)}).`,
+  `  Stand-ins holding a game: ${report.nameOnly} known only by name, ${report.placeholders} bracket slots.`,
+  `  Of those known only by name: ${report.withNamesake} share a name with a club pulled this year` +
+    ` (${share(report.withNamesake, report.nameOnly)}), ${report.withoutNamesake} have none.`,
+  "  The clubs known only by name, by where a pulled club of the same name is:",
+  bucketLine("on a page they played on (likely the same club, not joined)", report.onPage),
+  bucketLine("only on another page", report.elsewhere),
+  bucketLine("nowhere (a club nobody has pulled)", report.unmatched),
+  `  Played games against a bracket slot nobody resolved: ${report.slotPlayed}.`,
+];
+
+/** Why each club known only by name was not joined to a pulled club, a bucket a reason. */
+export const standInWhyLines = (report: StandInReport): string[] => [
+  "  Why each club known only by name was not joined to a pulled club:",
+  ...STAND_IN_WHYS.map(([reason, label]) => bucketLine(label, report.why[reason])),
+];

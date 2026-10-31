@@ -104,6 +104,68 @@ describe("publishing views", () => {
     const meta = live.meta();
     expect(meta?.views["board:a"]?.id).toBe(meta?.views["board:b"]?.id);
     expect(live.chunks.size).toBe(2);
+    // Three views went up on two uploads: each family counts its views.
+    expect(result.ok && result.families).toEqual({
+      "board:": { sent: 3, reused: 0, unchanged: 0, refused: 0 },
+    });
+  });
+
+  /*
+   * A night that saves moves the copy's version, so a view it builds again with the same JSON is not
+   * `unchanged`, which is a same-version republish's word: it is reused, its upload named again and
+   * nothing sent. Counted nowhere, the 30 October 2026 nightly built 109 views, said 86 uploaded and
+   * 0 unchanged, and left 23 out of every count.
+   */
+  it("counts a view a save built again with the same JSON as reused, family by family", async () => {
+    const live = memoryLive();
+    const owns = ["board:", "club:", "games:"];
+    const night = (version: number, club: string) =>
+      publish(
+        live,
+        [view("board:p", { rows: [1] }), view("club:b0", club), view("games:p", { days: [] })],
+        version,
+        { owns }
+      );
+    expect(await night(1, "cards")).toMatchObject({ ok: true, uploaded: 3, reused: 0 });
+    const second = await night(2, "cards with a start time");
+    expect(second).toMatchObject({
+      ok: true,
+      wrote: true,
+      uploaded: 1,
+      reused: 2,
+      unchanged: 0,
+      refused: 0,
+      retired: 1,
+    });
+    expect(second.ok && second.families).toEqual({
+      "board:": { sent: 0, reused: 1, unchanged: 0, refused: 0 },
+      "club:": { sent: 1, reused: 0, unchanged: 0, refused: 0 },
+      "games:": { sent: 0, reused: 1, unchanged: 0, refused: 0 },
+    });
+    // The same night again, at the same version, sends nothing and reuses nothing: all unchanged.
+    const again = await night(2, "cards with a start time");
+    expect(again).toMatchObject({ ok: true, wrote: false, uploaded: 0, reused: 0, unchanged: 3 });
+  });
+
+  it("counts every view built once: sent, reused, unchanged or refused as older", async () => {
+    const live = memoryLive();
+    await publish(live, [view("board:a", "A"), view("board:b", "B")], 5);
+    // Late: board:a it may not replace, board:c it may not add; both refused.
+    const late = await publish(live, [view("board:a", "A2"), view("board:c", "C")], 4);
+    expect(late.ok && late.families).toEqual({
+      "board:": { sent: 0, reused: 0, unchanged: 0, refused: 2 },
+    });
+    // A family the publish does not cover is named by its key up to the colon.
+    const mixed = await publish(
+      live,
+      [view("board:a", "A"), view("board:b", "B2"), view("board:d", "B"), view("notes:x", "X")],
+      6
+    );
+    expect(mixed.ok && mixed.families).toEqual({
+      "board:": { sent: 1, reused: 2, unchanged: 0, refused: 0 },
+      "notes:": { sent: 1, reused: 0, unchanged: 0, refused: 0 },
+    });
+    expect(mixed).toMatchObject({ ok: true, uploaded: 2, reused: 2 });
   });
 
   it("refuses to replace a view with one built from an older copy version", async () => {
@@ -178,7 +240,7 @@ describe("publishing views", () => {
     const live = memoryLive();
     await publish(live, [view("board:k", "A")], 5);
     const again = await publish(live, [view("board:k", "A")], 7);
-    expect(again).toMatchObject({ ok: true, wrote: true, uploaded: 0, unchanged: 0 });
+    expect(again).toMatchObject({ ok: true, wrote: true, uploaded: 0, unchanged: 0, reused: 1 });
     expect(live.meta()?.views["board:k"]).toMatchObject({ k: COPY, v: 7 });
     const late = await publish(live, [view("board:k", "B")], 6);
     expect(late).toMatchObject({ ok: true, wrote: false, refused: 1 });
@@ -285,7 +347,7 @@ describe("publishing views", () => {
     await publish(live, [view("board:a", "same")], 1);
     const { writes } = live.costs;
     const result = await publish(live, [view("board:a", "same"), view("board:b", "same")], 1);
-    expect(result).toMatchObject({ ok: true, wrote: true, uploaded: 0 });
+    expect(result).toMatchObject({ ok: true, wrote: true, uploaded: 0, unchanged: 1, reused: 1 });
     expect(live.costs.writes - writes).toBe(1);
     expect(live.meta()?.views["board:b"]?.id).toBe(live.meta()?.views["board:a"]?.id);
   });
@@ -384,7 +446,7 @@ describe("publishing views", () => {
     const fresh = await publish(live, [view("board:k", "same")], 1, {
       copy: { id: "fresh", version: 1 },
     });
-    expect(fresh).toMatchObject({ ok: true, wrote: true, uploaded: 0, unchanged: 0 });
+    expect(fresh).toMatchObject({ ok: true, wrote: true, uploaded: 0, unchanged: 0, reused: 1 });
     expect(live.meta()?.views["board:k"]).toMatchObject({ k: "fresh", v: 1 });
   });
 
@@ -482,7 +544,7 @@ describe("publishing views", () => {
     const live = memoryLive();
     live.beforeCommit(() => publish(live, [view("board:a", "A")], 1).then(() => undefined));
     const result = await publish(live, [view("board:a", "A")], 1);
-    expect(result).toMatchObject({ ok: true, wrote: false, unchanged: 1, tries: 2 });
+    expect(result).toMatchObject({ ok: true, wrote: false, unchanged: 1, reused: 0, tries: 2 });
     expect([...live.chunks.keys()]).toEqual([`${live.meta()?.views["board:a"]?.id}-0`]);
   });
 
@@ -492,7 +554,7 @@ describe("publishing views", () => {
       publish(live, [view("moves:a", "A")], 1, { owns: ["moves:"] }).then(() => undefined)
     );
     const result = await publish(live, [view("board:a", "A")], 1);
-    expect(result).toMatchObject({ ok: true, wrote: true, uploaded: 0, tries: 2 });
+    expect(result).toMatchObject({ ok: true, wrote: true, uploaded: 0, reused: 1, tries: 2 });
     const shared = live.meta()?.views["moves:a"]?.id;
     expect(live.meta()?.views["board:a"]?.id).toBe(shared);
     expect([...live.chunks.keys()]).toEqual([`${shared}-0`]);

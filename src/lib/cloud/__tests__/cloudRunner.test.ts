@@ -7,7 +7,7 @@ import {
 } from "../../gameChangerApi";
 import type { FetchGcTeamsOptions } from "../../gameChangerClient";
 import { localDayKey } from "../../gameChangerSchedule";
-import { tidyPool } from "../../gameChangerImport";
+import { TIDY_STEPS, tidyPool } from "../../gameChangerImport";
 import {
   cloudPoolKeys,
   flushPoolWrites,
@@ -529,6 +529,28 @@ describe("a pull run on the cloud copy", () => {
     expect([...loadRefusedClubs().forGood]).toEqual(["bears-baseball-10u"]);
   });
 
+  it("hands back what its tidy changed, step by step, and none of the pool it tidied", async () => {
+    // A stand-in no game names, as a club deleted by hand leaves one: the tidy takes it out.
+    const cloud = memoryCloud();
+    await seed(cloud, () => saveScoutTeams([{ id: "N-OWLS", name: "Owls", nameOnly: true }]));
+    const result = await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
+    expect(result).toMatchObject({ end: "finished", filed: 2 });
+    expect(result.tidy).toMatchObject({ idle: 1 });
+    expect(result.tidy?.passes).toBeGreaterThan(0);
+    // Every step's count, and the passes: never the pool, which would hold every name in it.
+    expect(Object.keys(result.tidy ?? {}).sort()).toEqual([...TIDY_STEPS, "idle", "passes"].sort());
+    expect(JSON.stringify(result)).not.toMatch(/Owls|Aces|Bears/);
+    resetTeamRankingsStore();
+    await loadPoolFrom(cloud.store);
+    expect(loadScoutTeams().map((team) => team.id)).not.toContain("N-OWLS");
+    // A night with nothing to pull runs no tidy, and says none.
+    const quiet = await runCloudPull(
+      { kind: "rota", walk: { teamIds: [], ageLevels: [], markOn: null, workedAt: new Date() } },
+      deps(cloud, "2026-09-30T07:17:00.000Z")
+    );
+    expect(quiet.tidy).toBeUndefined();
+  });
+
   it("leaves the copy as it was when a pull changes nothing in it", async () => {
     const cloud = memoryCloud();
     await seed(cloud);
@@ -894,6 +916,43 @@ describe("a pull run on the cloud copy", () => {
       expect(night.held?.[0]?.clubsRemoved).toBeGreaterThanOrEqual(25);
       expect(night.deleted).toEqual({ clubs: 25, games: 25 });
       expect(cloud.manifest()?.version).toBe(version);
+    });
+
+    /*
+     * What the nightly says of the sweep's marks (`nightlyReport.ts`): those it put on that still
+     * stand, and those it lifted, by GameChanger team. A club the 40-run rule deletes is in neither,
+     * its mark gone with it: `deleted` counts it, and the log says it once.
+     */
+    it("counts the marks it put on and lifted, and none of a club it deleted", async () => {
+      const cloud = memoryCloud();
+      await seed(cloud);
+      // The copy's League part is one no build reads, so the Router is marked and not deleted.
+      const marked = await runCloudPull(
+        leg([ROUTER]),
+        deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams: routerAnswers })
+      );
+      expect(marked.marks).toEqual({ marked: 1, lifted: 0 });
+      expect(marked.deleted).toBeUndefined();
+      // The owner says it is real: the next night's sweep lifts the mark, with nothing to pull.
+      const saved = await commitChanges({
+        store: cloud.store,
+        base: cloud.manifest()!,
+        changes: [{ key: "league_forecast_gc_real_clubs_v1", value: [ROUTER], at: 2 }],
+        device: "phone",
+        now: "2026-09-29T20:00:00.000Z",
+      });
+      expect(saved.ok).toBe(true);
+      const lifted = await runCloudPull(leg([]), deps(cloud, "2026-09-30T07:17:00.000Z"));
+      expect(lifted.marks).toEqual({ marked: 0, lifted: 1 });
+      // Read, League lets the rule delete the club, whose mark goes with it.
+      const read = memoryCloud();
+      await seed(read, undefined, { seasons: [] });
+      const deleted = await runCloudPull(
+        leg([ROUTER]),
+        deps(read, "2026-09-29T13:00:00.000Z", { fetchTeams: routerAnswers })
+      );
+      expect(deleted.deleted).toEqual({ clubs: 1, games: 2 });
+      expect(deleted.marks).toBeUndefined();
     });
 
     /*
