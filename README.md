@@ -6062,10 +6062,16 @@ pages, three halves each) in 5 s, after a 95 s pull. Their first publish would
 have been 30 uploads, 3.2 MB gzipped, and a 13.1 KB meta, and the run, pull and
 boards together, peaked at 4.1 GB of the runner's 16.
 
-It runs every night at 04:17 UTC, which is 12:17 in the morning Eastern in summer
-and 11:17 at night in winter. It used to be set for 07:17, and GitHub started it about
-seven hours late (between 14:09 and 14:33 UTC on 6 to 9 October 2026), so it was moved
-three hours earlier; a scheduled run starts when GitHub gets to it. A run by hand is **Actions → Nightly refresh → Run
+It is set for 04:17 UTC every night, which is 12:17 in the morning Eastern in summer
+and 11:17 at night in winter, but a scheduled run starts when GitHub gets to it, and
+GitHub starts this one four to six and a half hours late: between 08:32 and 10:52 UTC
+on 16 to 30 October 2026, about 4:30 to 6:50 in the morning Eastern, every run of
+them green and none dropped, so last night's games reach the boards around seven in
+the morning. Set for 07:17 it began between 14:09 and 14:33 UTC on 6 to 9 October, so
+moving it three hours earlier moved the start and not the lateness. The schedule is
+left as it is: a run that started on time, before midnight Eastern in winter, would
+miss the late West Coast games the late start catches, and each save's boards go
+out within minutes anyway ("Boards after saves on GitHub"). A run by hand is **Actions → Nightly refresh → Run
 workflow**, with `dry-run` (everything but the save, and what the save would
 have been) or `live`, and a limit of teams for a trial. The log carries counts,
 sizes and timings only, since this repository's Actions logs are public. A night
@@ -6214,11 +6220,13 @@ failing, or deferred to a later month by their budget (as they were from 14
 October 2026, October's spent, until 1 November), a save reached the boards only
 with the nightly, which GitHub starts hours late. A pull's end and an edit's
 check now publish in those times ("Boards published when a pull ends", "Boards
-published after an edit"); a publish that failed still waits for this. So every
-half hour one of
+published after an edit"); a publish that failed still waits for this. So one of
 GitHub's servers looks (`.github/workflows/catch-up.yml`, `scripts/catchUp.ts`,
 `npm run catch-up`), and publishes the boards where they are behind the copy and
-nothing else is about to. Its rules are `catchUp.ts`'s, kept out of the script so
+nothing else is about to. It is set for every half hour, and GitHub runs it four
+to eight times a day, two to eight hours apart (16 to 30 October 2026); on each of
+those days the first run after 04:17 UTC came before the nightly, three hours
+before it on average. Its rules are `catchUp.ts`'s, kept out of the script so
 they are tested.
 
 It reads three things: the copy's manifest, with when Firestore last wrote it;
@@ -6279,8 +6287,8 @@ nightly's group, where a run joining every half hour would cancel a night
 waiting behind one. A publish that fails as the nightly's would
 (`publishFailedRun`) turns the run red, which GitHub emails about; a copy or a
 season saved during the run does not, and the next run publishes. It raises no
-issue of its own ("When a run fails"): the next run tries again within the half
-hour, and a night that fails raises its own. A run by hand is **Actions → Boards
+issue of its own ("When a run fails"): the next run tries again, within hours as
+GitHub runs it, and a night that fails raises its own. A run by hand is **Actions → Boards
 catch-up → Run workflow**.
 
 ### When a run fails

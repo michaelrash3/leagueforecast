@@ -79,10 +79,10 @@ jobs:
           # pull's own zone itself (`runLeg`).
           TZ: America/New_York
           LANG: en_US.UTF-8
-          # The heap of a leg's worker (`legHeapMb`): this runner has the nightly's 16 GB, and the
-          # nightly's 12,288 MB, where the Cloud Run instance a leg was sized for has 8 GiB and gives
-          # its worker 5,120, which a leg left unset keeps. The nightly, pulling into the same pool,
-          # peaked at 7,588.7 MB on 30 October 2026.
+          # The heap of a leg's worker (`legHeapMb`): this runner has the nightly's 16 GB, and
+          # gets the nightly's 12,288 MB, where the Cloud Run instance a leg was sized for has 8
+          # GiB and gives its worker 5,120, which a leg left unset keeps. The nightly, pulling into
+          # the same pool, peaked at 7,588.7 MB on 30 October 2026.
           PULL_LEG_HEAP_MB: "12288"
         run: |
           if [ -z "$KEY" ] || [ -z "$GOOGLE_CLOUD_PROJECT" ]; then
