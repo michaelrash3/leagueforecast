@@ -1389,10 +1389,19 @@ export default function App() {
             {
               limit: 8,
               exactLimit: EXACT_MAGIC_REMAINING_GAME_LIMIT,
+              daysFromToday,
             }
           )
         : [],
-    [activeView, dashboardRows, remainingGames, goldCutoff, settings, nextTwoSwingGames]
+    [
+      activeView,
+      dashboardRows,
+      remainingGames,
+      goldCutoff,
+      settings,
+      nextTwoSwingGames,
+      daysFromToday,
+    ]
   );
 
   const cutLineSnapshot = useMemo(
