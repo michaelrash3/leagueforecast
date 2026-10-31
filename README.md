@@ -4709,7 +4709,12 @@ subscription and sending to it, which the app does not have.
   and a season switched in one moved where the other saved. The tabs now ask each other on a
   `BroadcastChannel` as each opens: the tab opened later is read-only, says "Open in another tab"
   over League Standings with **Use here**, and storage refuses every League write it makes, a
-  switch of season included (the cloud copy's own arriving is still laid in). Making, copying and
+  switch of season included (the cloud copy's own arriving is still laid in). League kept live
+  runs there too, so the season on screen follows what other devices send, but the tab keeps
+  nothing of the season's document that storage did not take (`leagueSync.ts`): kept regardless,
+  as it was, the base was ahead of storage, and the next tab to open the season read every game
+  and score sent meanwhile as deleted here, and erased them from the cloud. Nor do its refused
+  saves say storage is full, as they did at each arrival: the banner says why. Making, copying and
   deleting a season are refused before they start, with the same words: a delete goes to the
   cloud's copy first, which storage refusing afterwards could not undo. A tab answers a hello to
   the tab that said it alone, so an answer heard by a third tab never makes that one give way.
@@ -4730,7 +4735,8 @@ subscription and sending to it, which the app does not have.
   turn (with several opened together, the turn taken would be the one given way to first). Two
   tabs holding a score for the same game keep the one written last. Storage asks the small registry
   in `tabTurn.ts`. Held by
-  `tabTurn.test.ts`, the storage test and `e2e/tabs.spec.ts`, which opens two real tabs.
+  `tabTurn.test.ts`, the storage test, `leagueSyncStorage.test.ts` and `e2e/tabs.spec.ts`, which
+  opens two real tabs.
 - What the last full restore replaced is kept on this device until the next restore
   (`league_forecast_replaced_backup_v1`, in the pool's IndexedDB store beside the saved board, and
   never read as the pool or sent to the cloud), and Settings' Data card offers it as "Download
@@ -8075,9 +8081,13 @@ switch is gone, and `lf_live_league_v1` is no longer read.
   holds it, one before it does not, so a value changed and changed back before
   the first write came back is still sent, and nothing of this device's is taken
   for another device's change. The base is kept between visits, always after
-  the season itself is in storage, so a base never holds what storage does not:
-  a game deleted on another device while this one was closed stays deleted,
-  rather than coming back from this device's copy. A base is used only for the
+  the season itself is in storage and only once storage has taken it, so a base
+  never holds what storage does not: a game deleted on another device while this
+  one was closed stays deleted, rather than coming back from this device's copy.
+  A base that will not fit takes the one before it out with it, since that one is
+  older than the season storage has just taken, and a score corrected elsewhere
+  since read against it as one changed back here; with none, the next visit keeps
+  everything either side holds. A base is used only for the
   season it was kept for, one made at the same moment; a season made since under
   a deleted season's id is a season of its own. With no base, the first meeting
   keeps everything either side holds, the cloud's record winning where both hold

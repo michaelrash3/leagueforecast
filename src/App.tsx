@@ -575,7 +575,10 @@ export default function App() {
   }, [showToast, poolFilledHere]);
   const recordSaveResult = useCallback(
     (ok: boolean, _label: string, errorMessage: string) => {
-      if (!ok) showToast(errorMessage, { tone: "error" });
+      // Nothing said of a save refused for the turn another window has (`tabTurn.ts`): the banner
+      // says so. League kept live lays other devices' changes over the season there, and the save
+      // of each one was said to have found storage full.
+      if (!ok && !tabTurn()?.readOnly()) showToast(errorMessage, { tone: "error" });
     },
     [showToast]
   );
