@@ -102,6 +102,10 @@ import {
 import { openStores } from "./cloudPool.ts";
 import { poolFixture } from "./poolFixture.ts";
 import { readSweepFile, sweepTidy } from "./sweepTidy.ts";
+import { sweepStored } from "../src/lib/sweepStored.ts";
+import { lopsidedDrops } from "../src/lib/lopsidedDrops.ts";
+import { LOPSIDED_MARGIN } from "../src/lib/autoRemoved.ts";
+import { blastRadius, poolYears, radiusWords } from "../src/lib/cloud/blastRadius.ts";
 
 declare const process: {
   argv: string[];
@@ -551,6 +555,163 @@ const measureStandInRules = (source: Source, year: number) => {
   }
 };
 
+/* ------------------------------------------------------------------- the lopsided deletions */
+
+/**
+ * What the nightly's sweep would delete for a game won or lost by `LOPSIDED_MARGIN` or more
+ * (`lopsidedDrops`), on the copy as read: by squad year, the clubs and every game they are in, how
+ * lopsided each one's worst game is, and whether the other club's own schedule lists that game and
+ * with what score. Asked after the nightly of 31 October 2026 held its save for taking 1,646 of
+ * 2026's 16,036 games and 40 of its 10,626 clubs. Nothing is written.
+ */
+const measureLopsided = (source: Source) => {
+  say(`\n${"=".repeat(78)}\nWhat the 40-run sweep would delete\n${"=".repeat(78)}`);
+  const pool: GcImportState = {
+    ageGroups: source.ageGroups,
+    teams: source.teams,
+    games: source.allGames(),
+  };
+  const [before, after] = sweepStored(pool, source.today);
+  const hundred = (marks: AutoRemovals) =>
+    [...marks.values()].filter((mark) => mark.signs.includes("hundred")).length;
+  say(
+    `  League Standings ${source.leagueRead ? "read" : "NOT read, so every club is spared and none deleted"}.`
+  );
+  say(
+    `  GameChanger teams marked for a ${LOPSIDED_MARGIN}+ game: ${hundred(before)} before, ${hundred(after)} after the sweep.`
+  );
+  const spared = source.tidyAnswers().spared(pool);
+  const drops = new Set(lopsidedDrops(after, pool.teams, spared));
+  const unspared = new Set(lopsidedDrops(after, pool.teams, new Set()));
+  say(
+    `  Clubs it would delete: ${drops.size} (${unspared.size - drops.size} more spared: real, or linked by League).`
+  );
+  const yearOf = new Map(pool.ageGroups.map((group) => [group.id, ageGroupYear(group)]));
+  const byId = new Map(pool.teams.map((team) => [team.id, team]));
+  type Year = {
+    games: number;
+    removed: number;
+    clubs: Set<string>;
+    dropped: Set<string>;
+    pages: Set<string>;
+  };
+  const years = new Map<number, Year>();
+  for (const game of pool.games) {
+    const year = yearOf.get(game.ageGroupId);
+    if (year === undefined) continue;
+    let held = years.get(year);
+    if (!held) {
+      held = { games: 0, removed: 0, clubs: new Set(), dropped: new Set(), pages: new Set() };
+      years.set(year, held);
+    }
+    held.games += 1;
+    held.pages.add(game.ageGroupId);
+    held.clubs.add(game.teamAId);
+    held.clubs.add(game.teamBId);
+    const a = drops.has(game.teamAId);
+    const b = drops.has(game.teamBId);
+    if (a || b) held.removed += 1;
+    if (a) held.dropped.add(game.teamAId);
+    if (b) held.dropped.add(game.teamBId);
+  }
+  const share = (part: number, whole: number) =>
+    whole === 0 ? "0%" : `${((100 * part) / whole).toFixed(1)}%`;
+  for (const [year, held] of [...years.entries()].sort(([x], [y]) => x - y)) {
+    say(
+      `  ${year}: ${held.pages.size} pages, ${held.games} games, ${held.clubs.size} clubs in games; ` +
+        `would delete ${held.dropped.size} clubs and ${held.removed} games (${share(held.removed, held.games)}).`
+    );
+  }
+  // Each deleted club: its games, its worst own-schedule game, and what the other side says.
+  const gamesOf = new Map<string, ScoutGame[]>();
+  for (const game of pool.games) {
+    for (const club of [game.teamAId, game.teamBId]) {
+      if (!drops.has(club)) continue;
+      const list = gamesOf.get(club);
+      if (list) list.push(game);
+      else gamesOf.set(club, [game]);
+    }
+  }
+  const sizes = { "1-5": 0, "6-20": 0, "21-40": 0, "41+": 0 };
+  const worst = { "40-49": 0, "50-74": 0, "75-99": 0, "100+": 0, "none on its own schedule": 0 };
+  const other = { "lists it, same score": 0, "lists it, other score": 0, "does not list it": 0 };
+  let pulled = 0;
+  const named: string[] = [];
+  for (const club of drops) {
+    const games = gamesOf.get(club) ?? [];
+    const n = games.length;
+    sizes[n <= 5 ? "1-5" : n <= 20 ? "6-20" : n <= 40 ? "21-40" : "41+"] += 1;
+    const team = byId.get(club);
+    if (team?.gcTeams?.length) pulled += 1;
+    const own = games
+      .filter(
+        (game) =>
+          game.teamAId === club &&
+          game.teamAScore !== undefined &&
+          game.teamBScore !== undefined &&
+          Math.abs(game.teamAScore - game.teamBScore) >= LOPSIDED_MARGIN
+      )
+      .sort(
+        (x, y) => Math.abs(y.teamAScore! - y.teamBScore!) - Math.abs(x.teamAScore! - x.teamBScore!)
+      );
+    const top = own[0];
+    if (!top) {
+      worst["none on its own schedule"] += 1;
+      named.push(
+        `${team?.name ?? club} [${club}]: ${n} games; no ${LOPSIDED_MARGIN}+ game on its own schedule here`
+      );
+      continue;
+    }
+    const margin = Math.abs(top.teamAScore! - top.teamBScore!);
+    worst[margin < 50 ? "40-49" : margin < 75 ? "50-74" : margin < 100 ? "75-99" : "100+"] += 1;
+    const theirs = top.reportedByB;
+    const said = !theirs
+      ? "does not list it"
+      : theirs.teamAScore === top.teamAScore && theirs.teamBScore === top.teamBScore
+        ? "lists it, same score"
+        : "lists it, other score";
+    other[said] += 1;
+    named.push(
+      `${team?.name ?? club} [${club}] (${yearOf.get(top.ageGroupId) ?? "?"}, ${top.ageGroupId}): ${n} games; ` +
+        `worst ${top.date ?? "undated"} ${top.teamAScore}-${top.teamBScore} v ${byId.get(top.teamBId)?.name ?? top.teamBId}` +
+        `; the other side ${said}${theirs ? ` (${theirs.teamAScore}-${theirs.teamBScore})` : ""}`
+    );
+  }
+  say(
+    `  Of the ${drops.size}: ${pulled} pulled from GameChanger, ${drops.size - pulled} known only by name.`
+  );
+  say(
+    `  Games each: ${Object.entries(sizes)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(", ")}.`
+  );
+  say(
+    `  Worst game on its own schedule: ${Object.entries(worst)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(", ")}.`
+  );
+  say(
+    `  That game, on the other club's schedule: ${Object.entries(other)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(", ")}.`
+  );
+  sayNamed(named, "The clubs the sweep would delete, each with its worst game:");
+
+  // And the tidy the nightly runs after its filing, alone, on the pool as read: what it would take
+  // away by year, as the nightly's cap counts it (`blastRadius`), so the two causes can be told apart.
+  const { apart, refused } = source.tidyAnswers();
+  const tidied = tidyPool(pool, undefined, apart, refused, spared);
+  const radius = blastRadius(poolYears(pool), {
+    games: new Set(tidied.state.games.map((game) => game.id)),
+    clubs: new Set(tidied.state.teams.map((team) => team.id)),
+  });
+  say(
+    `  The tidy alone: folded ${tidied.folded}, paired ${tidied.paired}, collapsed ${tidied.collapsed}, pruned ${tidied.pruned}.`
+  );
+  for (const year of radius) say(`  The tidy alone, ${radiusWords(year)}.`);
+  say(`  (the tidy done at ${since()})`);
+};
+
 /* -------------------------------------------------------------------------------------- run */
 
 const main = async (): Promise<void> => {
@@ -584,6 +745,11 @@ const main = async (): Promise<void> => {
   );
   if (has("stand-in-rules")) {
     measureStandInRules(source, year);
+    finish();
+    return;
+  }
+  if (has("lopsided")) {
+    measureLopsided(source);
     finish();
     return;
   }
