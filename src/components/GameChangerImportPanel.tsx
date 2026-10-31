@@ -137,7 +137,7 @@ import {
   loadRetiredIds,
 } from "../lib/teamRankingsStorage";
 import { apartKey } from "../lib/keptApart";
-import { leagueLinkedClubsOf } from "../lib/live/allKnown";
+import { leagueLinkedClubsOf, retiredWithPicks } from "../lib/live/allKnown";
 import { readStoredSeason } from "../lib/storage";
 import { runPoolCommand } from "../lib/live/runPoolCommand";
 import { settleRunLists } from "../lib/pullLists";
@@ -1081,8 +1081,9 @@ export function GameChangerImportPanel({
         ]),
         // The run's own seasons, not the panel's: a resumed run files what it was started for.
         ...(progress.seasonYears ? { seasonYears: new Set(progress.seasonYears) } : {}),
-        // And the ids the pool let go of, which no club the pull makes is minted as.
-        retired: loadRetiredIds(),
+        // And the ids the pool let go of, which no club the pull makes is minted as, with those
+        // of the clubs League Standings picks that the pool no longer holds.
+        retired: retiredWithPicks(loadRetiredIds(), readStoredSeason, heldRef.current.state.teams),
       });
       progressRef.current = progress;
       // The summary is the whole run's, so a section adds to what the sections before it found.

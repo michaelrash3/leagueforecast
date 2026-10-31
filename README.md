@@ -817,19 +817,34 @@ picked (`TeamBase.scoutGcTeamId`, League layout 2, data schema 10): set by the
 link panel on a device holding the pool, on a member's phone from the clubs the
 server's answer already lists with their GameChanger ids, and by a season started
 from Team Rankings clubs or from an organization's schedule. Every club the panel
-offers has one, since it offers only clubs GameChanger knows. A club's id is the
+offers has one, since it offers only clubs GameChanger knows. The one kept is the
+club's team of the season itself: one filed on a page that claims the season, the
+last pulled first, else one in the season's squad year, else the last pulled
+(`gcIdsForSeason`, the order every list hands a club's ids in). A club carries a
+team for every season it was pulled in, and the first of them is the one pulled
+longest ago: kept with a pick, last year deleted, that team taken off the club, or
+Team Rankings started again with only this season's teams pulled back would each
+leave a pick of a club still the league's reading as moved. A club's id is the
 pool's own, and Start again mints every one afresh; GameChanger's is never another
-team's. So where the club under a pick's id no longer carries that GameChanger id,
-the pick has moved: it is followed to the one club that carries it now, whatever
-that club's id is (`readPick`), in the forecast, Fill scores and the league's games
-carried into Team Rankings alike; and where no one club does, the club under the id
-is not used at all, the team falls back to a guess from its name as a pick of a club
-gone does, and Settings marks the row **Moved** and Data Quality says so
-(`link-moved`). A pick made before the id was kept reads as it always has, and the
-ids never handed out twice (see "Where the Team Rankings pool lives") keep it to its
-club through every fold and deletion; only Team Rankings started again can hand its
-id to another club, and picking the club again keeps the GameChanger id from then
-on.
+team's.
+So where the club under a pick's id no longer carries that GameChanger id, the pick
+has moved: it is followed to the one club that carries it now, whatever that club's
+id is (`readPick`), in the forecast, Fill scores and the league's games carried into
+Team Rankings alike; and where no one club does, the club under the id is not used
+at all, in none of the three, its name included, so a club of the team's very name
+in its place takes neither the league's games nor a Fill score; the team falls back
+to a guess from its name as a pick of a club gone does, and Settings marks the row
+**Moved** and Data Quality says so (`link-moved`). A pick made before the id was
+kept reads as it always has, and no club is minted under its id: not after a fold
+or a deletion (see "Where the Team Rankings pool lives"), nor under an id let go of
+before that was kept, nor after Team Rankings started again, since every mint that
+reads League Standings holds as taken every club a League team picks that the
+roster no longer holds (`retiredWithPicks`). Such a pick reads as a club gone,
+**Gone** in Settings, until its club is picked again, which keeps the GameChanger
+id from then on. Two teams of a season whose picks are of two clubs later folded
+into one both name the one club, the folded pick followed into it, and so clash
+(**Clash**, `link-shared`): the fold says the two are one club, and which team is
+it is for a person to say.
 
 A pick is by id, so a club the league reaches only through picks can be renamed on
 Team Rankings and keeps the league's games. A club any season reaches by its name
@@ -4552,8 +4567,8 @@ the forecast is affected; the **Data Quality** tab lists them in three groups:
   date that cannot be read, a final over 40 runs a side or won by 40 or more, fewer games
   scheduled than the games-per-team setting (which holds clinching back), teams without a final
   once the league has played about three games each, two teams of one name, a link to a club
-  Team Rankings no longer has, a link whose club's place another club has now and whose
-  GameChanger team no one club carries.
+  Team Rankings no longer has, a link whose club no longer carries the GameChanger team it was
+  picked as, which no one club carries.
 - **Information**: an undated game, a schedule giving teams two or more games apart, teams
   without a final early on, a link guessed from a name more than one club carries, two finals of
   one pair on one day with different scores.
@@ -4894,9 +4909,17 @@ clubs let go of it is 8,610 bytes of the 889,717-byte gzipped copy (0.97%) where
 be 27,627 (3.11%), and with a tenth of the stand-ins and slots and 1% of the pulled clubs, 2,306
 (0.24%) where the ids would be 3,900. A pool that has let none go is written as it was. The
 data schema went to 10 for it, since an older build would drop it with the next save of the
-roster. Start again empties the roster and the high-water with it (see "Team Rankings started
-again"); every pick made from this build on is kept to its club across that by its GameChanger
-id.
+roster. The high-water covers the ids let go of from the build that keeps it on, and Start again
+empties the roster and the high-water with it (see "Team Rankings started again"). So every mint
+that reads League Standings also holds, as the high-water does, the id of every club a League
+team picks that the roster no longer holds (`retiredWithPicks`): an id let go of before the
+high-water was kept, or across a start. Those are the pull and the tidy after it, on the server
+and on a device, a game added by name on either page, a stand-in made on a device's own page,
+and the clubs League Standings' teams are carried onto, and each reads the seasons already, so
+it costs no read and no write, and it is never stored: worked out afresh by each run. The one
+mint that reads no League Standings is the live page's stand-in for a game taken off a club,
+which carries random letters no other mint makes. A pick of such an id reads as a club gone
+until its club is picked again, never as another club.
 
 An archived table keeps the numbers it was frozen with, since its games are gone and nothing
 can fit it again. Tables frozen before the cap moved from eight to twelve, at the end of
@@ -8652,18 +8675,16 @@ emptied and published again, and a save landing between.
 
 **What a start does to League Standings' links.** A start takes the roster, every club's id and
 the high-water of the ids let go of with it (`CompactTeams.h`), so the pulls after it mint ids
-afresh in whatever order their teams come, and a League Standings team's pick names whichever
-club is minted under its id next. Each pick is read through its club's GameChanger id
-(`readPick`): until the club is pulled again, the pick names a club gone, or one in its place
-that does not carry the id, which is used for nothing and said to have moved; once it is, the
-pick is that club's under its new id, with nothing written to League Standings
-(`clubIdsOnce.test.ts` holds both on the server's own start and pulls). Every pick made from the
-build that keeps the id on carries one. A pick made before it carries none, and the club minted
-under its id after a start is read as the one it picked: keeping the high-water across a start
-would mean reading the roster the start replaces, which a start never downloads, or keeping it
-as a value of its own, written with every save that lets an id go, and neither is free, so a
-pick of that age is made safe by picking its club again. Bringing an earlier version back
-brings back its roster with the high-water it had then, and the same holds of it.
+afresh in whatever order their teams come. League Standings is not touched, and every pull, tidy
+and game added by name after the start reads it, as each did before, and holds as taken the id
+of every club a League team picks that the roster no longer holds (`retiredWithPicks`), so no
+club is minted under a pick's old id. Each pick is read through its club's GameChanger id
+(`readPick`): until the club is pulled again, the pick names a club gone; once it is, the pick is
+that club's under its new id, with nothing written to League Standings. A pick made before the id
+was kept carries none, and reads as a club gone, **Gone** in Settings and `link-gone` in Data
+Quality, until its club is picked again (`clubIdsOnce.test.ts` holds both on the server's own
+start, pulls, tidy and a game added by name). Bringing an earlier version back brings back its
+roster with the high-water it had then, and the same holds of it.
 
 **A start is not undone by work already under way.** The start keeps the copy's id, so until
 16 October 2026 a nightly, a Refresh now leg or a staged import that had read the pool before it

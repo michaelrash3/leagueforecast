@@ -215,3 +215,30 @@ describe("a pasted export that names the club", () => {
     expect(await pullItAgain(user, saved)).toBe(true);
   });
 });
+
+/*
+ * A League Standings pick of a club the pool no longer holds names an id let go of before the pool
+ * kept a high-water of them, or across a start of Team Rankings: a club the pull made under it
+ * would be the club the pick names, its games the league team's. The panel reads League Standings
+ * where it is kept, on this device, and holds the id as taken.
+ */
+describe("a pull in the browser, with a League pick of a club the pool no longer holds", () => {
+  it("makes no club under the pick's id", async () => {
+    saveRealClubs(new Set([WEX]));
+    const season = createSeason("Spring 2026");
+    writeSeasonData(season.id, {
+      teams: [{ id: "lt-cubs", name: "Cubs", scoutTeamId: "S-COPP" }],
+      matchups: [],
+      logs: {},
+      bracketLogs: {},
+      settings: loadSettingsForSeason(season.id),
+    });
+    const saved: GcImportState[] = [];
+    const user = userEvent.setup();
+    panel(held, saved);
+    await user.type(screen.getByLabelText("Teams"), WEX);
+    expect(await pullItAgain(user, saved)).toBe(true);
+    const cubs = saved[saved.length - 1]?.teams.find((team) => team.name === "Copperfield Cubs");
+    expect(cubs?.id).toBe("S-COPP2");
+  });
+});

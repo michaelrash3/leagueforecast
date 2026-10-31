@@ -5,6 +5,7 @@ import {
   buildScoutTeam,
   leagueScoutBridge,
   mergeScoutTeams,
+  NO_SCOUT_TEAM,
   resolveOrCreateTeam,
   type AgeGroup,
   type ScoutGame,
@@ -28,7 +29,14 @@ import {
   teamRankingsJson,
   writeTeamRankingsBackup,
 } from "../teamRankingsBackup";
-import { deriveAllKnown, type LeagueSeasonData } from "../live/allKnown";
+import {
+  deriveAllKnown,
+  retiredWithPicks,
+  seasonsReader,
+  type LeagueSeasonData,
+} from "../live/allKnown";
+import { readStoredSeason, replaceLeagueSnapshot } from "../storage";
+import { DEFAULT_SETTINGS } from "../types";
 import {
   loadAgeGroups,
   loadRetiredIds,
@@ -406,5 +414,97 @@ describe("a club League Standings makes for a team on the page", () => {
     expect(clubOf(read, "season-x", "RV")).toBe("S-RIVE3");
     expect(clubOf(read, "season-y", "RG")).not.toBe("S-RIVE3");
     expect(read.teams.find((team) => team.id === "S-RIVE2")).toBeUndefined();
+    // With no high-water at all, as a fold before the roster kept one left it, a reader of every
+    // season says what League Standings picks, and the pick of the club gone holds its id the same.
+    const unwritten = deriveAllKnown({
+      ageGroups: [{ ...AGE, seasonIds: ["season-x", "season-y"] }],
+      teams: roster,
+      yearGames: [],
+      readSeason: seasonsReader(new Map(Object.entries(seasons))),
+      autoRemoved: new Map(),
+    });
+    expect(clubOf(unwritten, "season-x", "RV")).toBe("S-RIVE3");
+    expect(clubOf(unwritten, "season-y", "RG")).not.toBe("S-RIVE3");
+  });
+});
+
+describe("a League Standings pick of a club the roster no longer holds", () => {
+  const roster: ScoutTeam[] = [
+    { id: "S-RIVE", name: "Riverside Rays" },
+    { id: "S-OAKH", name: "Oak Hill Owls" },
+  ];
+  const season = (teams: LeagueSeasonData["teams"]): LeagueSeasonData => ({
+    teams,
+    matchups: [],
+    logs: {},
+  });
+
+  it("is held as let go of by a mint that reads League Standings, and nothing else is", () => {
+    const reader = seasonsReader(
+      new Map([
+        // A season on no page: a start of Team Rankings leaves every page without one.
+        [
+          "season-old",
+          season([
+            { id: "RG", name: "Rays Gold", scoutTeamId: "S-RIVE2" },
+            { id: "OW", name: "Oak Hill Owls", scoutTeamId: "S-OAKH" },
+          ]),
+        ],
+        [
+          "season-new",
+          season([
+            { id: "OF", name: "Elsewhere", scoutTeamId: NO_SCOUT_TEAM },
+            { id: "ME", name: "Made", scoutTeamId: "S-off-made" },
+            { id: "RV", name: "Riverview Rockets" },
+          ]),
+        ],
+      ])
+    );
+    expect(reader.picks?.()).toEqual(["S-RIVE2", "S-OAKH", NO_SCOUT_TEAM, "S-off-made"]);
+    const held = retiredWithPicks(NO_RETIRED, reader, roster);
+    expect(held).toEqual(retired([["RIVE", 2]]));
+    expect(buildScoutTeam("Riverbend Robins", mintedIds(["S-RIVE"], held)).id).toBe("S-RIVE3");
+    // Over the roster's own, each family the higher of the two.
+    expect(retiredWithPicks(retired([["RIVE", 4]]), reader, roster)).toEqual(
+      retired([["RIVE", 4]])
+    );
+    // The very map where no pick names a club gone, and where the reader cannot say.
+    const own = retired([["OAKH", 1]]);
+    expect(retiredWithPicks(own, reader, [...roster, { id: "S-RIVE2", name: "Gold" }])).toBe(own);
+    expect(retiredWithPicks(own, (id) => reader(id), [])).toBe(own);
+    expect(retiredWithPicks(own, null, [])).toBe(own);
+  });
+
+  it("is said by a browser's reader of its stored seasons, every season and not just a page's", () => {
+    replaceLeagueSnapshot({
+      activeSeasonId: "season-a",
+      seasons: [
+        {
+          id: "season-a",
+          name: "Fall",
+          createdAt: "2026-08-01T12:00:00.000Z",
+          teams: [{ id: "RG", name: "Rays Gold", scoutTeamId: "S-RIVE2" }],
+          matchups: [],
+          logs: {},
+          bracketLogs: {},
+          settings: DEFAULT_SETTINGS,
+        },
+        {
+          id: "season-b",
+          name: "Spring",
+          createdAt: "2027-02-01T12:00:00.000Z",
+          teams: [
+            { id: "OW", name: "Oak Hill Owls", scoutTeamId: "S-OAKH" },
+            { id: "BE", name: "Bears" },
+          ],
+          matchups: [],
+          logs: {},
+          bracketLogs: {},
+          settings: DEFAULT_SETTINGS,
+        },
+      ],
+    });
+    expect(readStoredSeason.picks?.()).toEqual(["S-RIVE2", "S-OAKH"]);
+    expect(retiredWithPicks(NO_RETIRED, readStoredSeason, roster)).toEqual(retired([["RIVE", 2]]));
   });
 });

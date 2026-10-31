@@ -98,7 +98,7 @@ const noteFor = (
     return {
       tone: "red",
       label: "Moved",
-      body: "Another club has the place in Team Rankings of the club you picked, and no one club carries the GameChanger team you picked, so nothing of that other club's counts. Pick it again.",
+      body: "The club linked here no longer carries the GameChanger team you picked it as, and no one club does now: that team was taken off it or its year deleted, or another club has its place. Nothing of it counts. Pick it again.",
     };
   }
   if (row.ambiguousCount) {

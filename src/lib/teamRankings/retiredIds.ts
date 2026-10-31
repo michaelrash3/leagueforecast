@@ -20,9 +20,10 @@
  *
  * Kept inside the roster's own stored value (`CompactTeams.h`), so it is written exactly when the
  * roster is, and worked out there, from the roster the store held before the save
- * (`saveScoutTeams`), so no fold or deletion has to remember to say so. Team Rankings started
- * again empties the roster, and the high-water with it: from then on a League pick is kept to its
- * club by the GameChanger id beside it (`readPick`), not by this.
+ * (`saveScoutTeams`), so no fold or deletion has to remember to say so. It covers the ids let go
+ * of from the build that keeps it on, and Team Rankings started again empties it with the roster:
+ * a League pick of an id let go of before, or across a start, is held by every mint that reads
+ * League Standings (`retiredWithPicks`), and followed by the GameChanger id beside it (`readPick`).
  */
 
 /** The highest counter retired in each family of minted ids, by the family's letters. */

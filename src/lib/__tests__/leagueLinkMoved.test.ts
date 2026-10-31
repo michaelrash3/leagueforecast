@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
+import { deleteSquadYear } from "../deleteSquadYear";
 import { auditLeague } from "../leagueFindings";
+import { clubPickOption, pickableClubs } from "../leagueLinkOptions";
 import { leagueBridgeOf } from "../live/leagueAnswers";
 import { planLeagueScoreFill } from "../leagueScoreFill";
-import { seasonFromStart } from "../leagueStart";
+import { seasonFromStart, startClubs } from "../leagueStart";
 import {
   buildScoutTeam,
+  deriveLeagueScoutGames,
   leagueScoutBridge,
   mergeScoutTeams,
   NO_SCOUT_TEAM,
+  scoutLinkCandidates,
+  unlinkGcTeam,
   type AgeGroup,
   type LeagueTeamLink,
   type ScoutGame,
@@ -157,6 +162,70 @@ describe("a League pick whose club's id now names another club", () => {
     });
   });
 
+  it("carries neither the league's games nor Fill's scores onto that namesake either", () => {
+    // The namesake in the Rays' place again, with a 12-1 of its own on the season's page.
+    const inPlace = roster(["Rays", "Other Opponent"]).map((team) =>
+      team.name === "Rays" ? { ...team, id: "S-RIVE" } : team
+    );
+    const opponent = idOf(inPlace, "Other Opponent");
+    const pool = [game("p1", "S-RIVE", opponent, [12, 1])];
+    const leagueTeams: TeamBase[] = [
+      { id: "RAYS", name: "Rays", scoutTeamId: "S-RIVE", scoutGcTeamId: gcOf("Riverside Rays") },
+      { id: "OTHE", name: "Other Opponent" },
+    ];
+    const matchups = [{ id: "m1", date: "9/12", away: "RAYS", home: "OTHE" }];
+    // The league's games carried into Team Rankings go onto a club of the Rays' own.
+    const derived = deriveLeagueScoutGames(
+      AGE.id,
+      [{ seasonId: "season-x", teams: leagueTeams, matchups, logs: {} }],
+      inPlace,
+      2027,
+      { games: pool, ageGroups: [AGE] }
+    );
+    const carried = derived.clubByLeagueTeam.get("season-x")?.get("RAYS");
+    expect(carried).toBeDefined();
+    expect(carried).not.toBe("S-RIVE");
+    expect(derived.games.map((one) => one.teamAId)).toEqual([carried]);
+    expect(derived.teams.find((team) => team.id === carried)?.name).toBe("Rays");
+    // And Fill offers the namesake's 12-1 for no game of the Rays'.
+    const plan = planLeagueScoreFill({
+      seasonId: "season-x",
+      teams: leagueTeams,
+      matchups,
+      logs: { m1: blankLog() },
+      ageGroups: [AGE],
+      scoutTeams: inPlace,
+      scoutGames: pool,
+      today: "2026-10-01",
+    });
+    expect(plan.rows.find((row) => row.matchupId === "m1")).toBeUndefined();
+    // Where the pick is of the namesake, as one made before the id was kept, both take it as ever.
+    const older = leagueTeams.map(({ scoutGcTeamId: _gc, ...team }) => team);
+    expect(
+      planLeagueScoreFill({
+        seasonId: "season-x",
+        teams: older,
+        matchups,
+        logs: { m1: blankLog() },
+        ageGroups: [AGE],
+        scoutTeams: inPlace,
+        scoutGames: pool,
+        today: "2026-10-01",
+      }).rows.find((row) => row.matchupId === "m1")
+    ).toMatchObject({ awayRuns: 12, homeRuns: 1 });
+    expect(
+      deriveLeagueScoutGames(
+        AGE.id,
+        [{ seasonId: "season-x", teams: older, matchups, logs: {} }],
+        inPlace,
+        2027,
+        { games: pool, ageGroups: [AGE] }
+      )
+        .clubByLeagueTeam.get("season-x")
+        ?.get("RAYS")
+    ).toBe("S-RIVE");
+  });
+
   it("follows a club folded into another, which carries its GameChanger ids on", () => {
     // The sweep's reproduction: Gold picked, then folded into the Rays.
     const before = roster(["Riverside Rays", "Riverside Rays Gold", "Oak Hill Owls"]);
@@ -211,6 +280,100 @@ describe("a League pick whose club's id now names another club", () => {
     const unpulled = roster(["Riverbend Robins", "Other Opponent"]);
     const moved = fill(unpulled, games.slice(0, 1)).rows.find((row) => row.matchupId === "m1");
     expect(moved?.awayRuns).not.toBe(12);
+  });
+});
+
+describe("a pick of a club that carries more than one season's GameChanger teams", () => {
+  // The Comets pulled as last year's 9U team and again as this year's 10U team: one club, two
+  // GameChanger teams, last year's first in its links, as a pull leaves the one it pulled last.
+  const LAST_YEAR: AgeGroup = {
+    id: "ag9",
+    name: "9U 2026",
+    ageLevel: 9,
+    year: 2026,
+    seasonIds: [],
+  };
+  const pages = [LAST_YEAR, AGE];
+  const comets: ScoutTeam = {
+    id: "S-COME",
+    name: "Comets",
+    gcTeams: [
+      { teamId: "gcCOMETS26", name: "Comets 9U", ageGroupId: LAST_YEAR.id },
+      { teamId: "gcCOMETS27", name: "Comets 10U", ageGroupId: AGE.id },
+    ],
+  };
+  const bears: ScoutTeam = {
+    id: "S-BEAR",
+    name: "Bears",
+    gcTeams: [{ teamId: "gcBEARS27", name: "Bears 10U", ageGroupId: AGE.id }],
+  };
+  const played: ScoutGame[] = [
+    { ...game("g-old", "S-COME", "S-BEAR", [1, 2]), ageGroupId: LAST_YEAR.id, date: "2026-05-01" },
+    game("g-new", "S-COME", "S-BEAR", [7, 3]),
+  ];
+  /** The pick the link panel makes of the Comets: the first GameChanger id its option lists. */
+  const pick = (): LeagueTeamLink => {
+    const offered = scoutLinkCandidates("Comets", "season-x", pages, [comets, bears], played, []);
+    const gc = offered.find((club) => club.scoutTeamId === "S-COME")?.gcIds?.[0];
+    return {
+      id: "COME",
+      name: "Comets",
+      scoutTeamId: "S-COME",
+      ...(gc ? { scoutGcTeamId: gc } : {}),
+    };
+  };
+  const bridgeAfter = (state: { ageGroups: AgeGroup[]; teams: ScoutTeam[]; games: ScoutGame[] }) =>
+    leagueScoutBridge("season-x", state.ageGroups, state.teams, state.games, [pick()], []);
+
+  it("keeps the GameChanger team on the season's own page, listed first in every list", () => {
+    expect(pick().scoutGcTeamId).toBe("gcCOMETS27");
+    // The wide list, as a member's phone has it from the server too, and a season's start.
+    const wide = pickableClubs("season-x", pages, [comets, bears]).map(clubPickOption);
+    expect(wide.find((club) => club.id === "S-COME")?.gcIds).toEqual(["gcCOMETS27", "gcCOMETS26"]);
+    const page = { id: AGE.id, name: AGE.name, ageLevel: 10, year: 2027 };
+    expect(startClubs(page, pages, [comets, bears]).find((club) => club.id === "S-COME")).toEqual(
+      expect.objectContaining({ gcIds: ["gcCOMETS27", "gcCOMETS26"] })
+    );
+  });
+
+  it("stays its club's when last year is deleted, its GameChanger team with it", () => {
+    const deleted = deleteSquadYear(
+      2026,
+      { ageGroups: pages, teams: [comets, bears], games: played },
+      []
+    );
+    const bridge = bridgeAfter(deleted.state);
+    expect(bridge.rows[0]).toMatchObject({ how: "picked", scoutTeamId: "S-COME" });
+    expect(bridge.results).toHaveLength(1);
+  });
+
+  it("stays its club's when last year's GameChanger team is taken off it, and never follows it", () => {
+    const unlinked = unlinkGcTeam("S-COME", "gcCOMETS26", [comets, bears]);
+    expect(bridgeAfter({ ageGroups: pages, teams: unlinked, games: played }).rows[0]).toMatchObject(
+      { how: "picked", scoutTeamId: "S-COME" }
+    );
+    // Last year's team pulled later as a club of its own is not the league's team.
+    const ownClub = buildScoutTeam("Comets 9U", new Set(unlinked.map((team) => team.id)), {
+      gcTeams: [{ teamId: "gcCOMETS26", name: "Comets 9U", ageGroupId: LAST_YEAR.id }],
+    });
+    expect(
+      bridgeAfter({ ageGroups: pages, teams: [...unlinked, ownClub], games: played }).rows[0]
+    ).toMatchObject({ how: "picked", scoutTeamId: "S-COME" });
+  });
+
+  it("is its club's after Team Rankings started again pulls back only this season's teams", () => {
+    // The Comets pulled back under their old id, with this season's team alone.
+    const thisSeason: ScoutTeam = { ...comets, gcTeams: comets.gcTeams!.slice(1) };
+    const again = { ageGroups: [AGE], teams: [thisSeason, bears], games: played.slice(1) };
+    expect(bridgeAfter(again).rows[0]).toMatchObject({ how: "picked", scoutTeamId: "S-COME" });
+    // And under another, a club of the same letters minted first: followed there.
+    const first: ScoutTeam = {
+      id: "S-COME",
+      name: "Comets Gold",
+      gcTeams: [{ teamId: "gcGOLD27", name: "Comets Gold 10U", ageGroupId: AGE.id }],
+    };
+    const moved = { ...again, teams: [first, { ...thisSeason, id: "S-COME2" }, bears] };
+    expect(bridgeAfter(moved).rows[0]).toMatchObject({ how: "picked", scoutTeamId: "S-COME2" });
   });
 });
 

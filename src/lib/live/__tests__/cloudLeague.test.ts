@@ -48,6 +48,20 @@ describe("the seasons a server builds the boards with", () => {
     expect(league.readSeason("not-a-season")).toEqual(EMPTY);
   });
 
+  it("say every club their teams pick, every season's, from the documents as from the copy's part", async () => {
+    // Two picks, one in each of two seasons; every other team picks nothing.
+    const picked = SEASONS.map((season, at) => ({
+      ...season,
+      teams: season.teams.map(({ scoutTeamId: _pick, ...team }, place) =>
+        place === 0 && at < 2 ? { ...team, scoutTeamId: at === 0 ? "S-ACES2" : "S-BEAR" } : team
+      ),
+    }));
+    const league = await read(docsOf(picked));
+    expect(league.readSeason.picks?.()).toEqual(["S-ACES2", "S-BEAR"]);
+    const fromPart = seasonReaderOf(JSON.parse(JSON.stringify({ seasons: picked })));
+    expect(fromPart?.picks?.()).toEqual(["S-ACES2", "S-BEAR"]);
+  });
+
   it("leave a season deleted from the documents out, though the copy's part still holds it", async () => {
     const [gone, ...kept] = SEASONS;
     if (!gone) throw new Error("no seasons");

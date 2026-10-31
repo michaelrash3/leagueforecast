@@ -7,6 +7,7 @@ import {
   ageGroupYear,
   clubIsPickable,
   gcAgeLevels,
+  gcIdsForSeason,
   isScoutGamePlayed,
   type AgeGroup,
   type ScoutGame,
@@ -55,16 +56,32 @@ export const startClubs = (
   page: StartPage,
   ageGroups: AgeGroup[],
   teams: readonly ScoutTeam[]
-): ClubPickOption[] =>
-  teams
+): ClubPickOption[] => {
+  const startClub = startClubOf(page, ageGroups);
+  return teams
     .filter((team) => clubIsPickable(team, [page.ageLevel], [page.year], ageGroups))
-    .map((team) => startClub(team, page, ageGroups))
+    .map(startClub)
     .sort(byLabel);
+};
 
-/** A club as a start offers it on `page`: at the level it is filed at in the page's year. */
-const startClub = (team: ScoutTeam, page: StartPage, ageGroups: AgeGroup[]): ClubPickOption => {
-  const ageLevel = gcAgeLevels(team, page.year, ageGroups)[0];
-  return clubPickOption(ageLevel === undefined ? team : { ...team, ageLevel });
+/**
+ * A club as a start offers it on `page`: at the level it is filed at in the page's year, with its
+ * GameChanger team on the page first, the one the season's team keeps beside its link
+ * (`gcIdsForSeason`), since the season is made on that page.
+ */
+const startClubOf = (
+  page: StartPage,
+  ageGroups: AgeGroup[]
+): ((team: ScoutTeam) => ClubPickOption) => {
+  const gcIdsOf = gcIdsForSeason(new Set([page.id]), [page.year], ageGroups);
+  return (team) => {
+    const ageLevel = gcAgeLevels(team, page.year, ageGroups)[0];
+    return clubPickOption({
+      ...team,
+      ...(ageLevel === undefined ? {} : { ageLevel }),
+      gcIds: gcIdsOf(team),
+    });
+  };
 };
 
 const byLabel = (a: ClubPickOption, b: ClubPickOption) =>
@@ -363,9 +380,7 @@ const answerOrgStart = (
   const offered = new Set(options.map((club) => club.id));
   // A club of the organization the page's picker would not offer (filed a level off in its year)
   // is offered too, since the organization says it is in the league.
-  const extra = mine
-    .filter((team) => !offered.has(team.id))
-    .map((team) => startClub(team, page, ageGroups));
+  const extra = mine.filter((team) => !offered.has(team.id)).map(startClubOf(page, ageGroups));
   const window =
     ask.from !== undefined && ask.to !== undefined
       ? { from: ask.from, to: ask.to }

@@ -282,6 +282,101 @@ describe("a club's id let go of on the cloud copy", () => {
   });
 });
 
+describe("a League pick made before the GameChanger id was kept, after Team Rankings is started again", () => {
+  /** League Standings, kept in the copy, with one season whose Rays were picked as `S-RIVE`. */
+  const keepLeague = async (
+    cloud: MemoryCloud,
+    teams: { id: string; name: string; scoutTeamId?: string }[] = [
+      { id: "RAYS", name: "Rays", scoutTeamId: "S-RIVE" },
+      { id: "OW", name: "Oak Hill Owls" },
+    ]
+  ) => {
+    const league = {
+      seasons: [
+        {
+          id: "season-x",
+          name: "Fall league",
+          createdAt: "2026-08-01T12:00:00.000Z",
+          teams,
+          matchups: [],
+          logs: {},
+          bracketLogs: {},
+          settings: DEFAULT_SETTINGS,
+        },
+      ],
+    };
+    const kept = await commitChanges({
+      store: cloud.store,
+      base: cloud.manifest(),
+      changes: [{ key: LEAGUE_PART, value: league, at: 2 }],
+      device: "phone",
+      now: "2026-09-29T12:30:00.000Z",
+    });
+    if (!kept.ok) throw new Error("not saved");
+  };
+
+  it("names no other club: the pull, its tidy and a game added by name each hold its id", async () => {
+    const cloud = await emptyCopy();
+    await pull(cloud, [FIRST[0]!, FIRST[2]!], "2026-09-29T12:00:00.000Z");
+    await keepLeague(cloud);
+    // Start again, which empties Team Rankings, every id it minted and its high-water with it.
+    await edit(cloud, { kind: "copy.reset" });
+    // The Robins pulled first: with the roster empty, they would be S-RIVE, the pick's id.
+    const robins = schedule(ROBINS, "Riverbend Robins", [game("b1", "Comets", "15", 12, 1)]);
+    await pull(cloud, [robins, FIRST[2]!], "2026-09-30T12:00:00.000Z");
+    await reopen(cloud);
+    expect(clubNamed("Riverbend Robins").id).toBe("S-RIVE2");
+    expect(loadScoutTeams().some((team) => team.id === "S-RIVE")).toBe(false);
+    // The pick names a club gone, and is told so; the Robins' 12-1 is theirs alone.
+    const gone = bridgeOf({ id: "RAYS", name: "Rays", scoutTeamId: "S-RIVE" });
+    expect(gone.rows[0]).toMatchObject({ how: "none", staleScoutTeamId: "S-RIVE" });
+    expect(ofRays(gone.results)).toEqual([]);
+    // Nor does a club typed in on the live page take it.
+    const page = loadAgeGroups()[0]?.id ?? "";
+    await edit(cloud, {
+      kind: "game.import",
+      year: 2027,
+      page,
+      games: [{ id: "t1", teamA: "Riverview Rockets", teamB: "Oak Hill Owls" }],
+    });
+    await reopen(cloud);
+    expect(clubNamed("Riverview Rockets").id).toBe("S-RIVE3");
+  });
+
+  it("is held by the pull's tidy, which keeps a page that is no team's games on slots", async () => {
+    const cloud = await emptyCopy();
+    await pull(cloud, [FIRST[2]!], "2026-09-29T12:00:00.000Z");
+    // The Hornets picked as `S-HOLL2`, a club the roster no longer holds.
+    await keepLeague(cloud, [{ id: "HH", name: "Hornets", scoutTeamId: "S-HOLL2" }]);
+    // Two of the Owls' games against an old page of the Hornets marked do not use, on the copy.
+    await reopen(cloud);
+    const page = loadAgeGroups()[0]?.id ?? "";
+    const oldPage: ScoutTeam = { id: "S-HOLL", name: "Hollowmere Hornets DNU", nameOnly: true };
+    const row = (id: string, day: string) => ({
+      id,
+      ageGroupId: page,
+      teamAId: "S-OAKH",
+      teamBId: oldPage.id,
+      teamAScore: 6,
+      teamBScore: 2,
+      date: `2026-09-${day}`,
+      source: { kind: "gamechanger" as const, teamId: OWLS, gameId: id },
+    });
+    await edit(cloud, {
+      kind: "game.add",
+      year: 2027,
+      games: [row("h1", "16"), row("h2", "23")],
+      adopt: [oldPage],
+    });
+    // The next pull's tidy takes the page off, and keeps each game against a slot of its name.
+    await pull(cloud, [FIRST[0]!], "2026-09-30T12:00:00.000Z");
+    await reopen(cloud);
+    const hornets = loadScoutTeams().filter((team) => team.id.startsWith("S-HOLL"));
+    expect(hornets.filter((team) => team.placeholder)).toHaveLength(2);
+    expect(hornets.map((team) => team.id)).not.toContain("S-HOLL2");
+  });
+});
+
 describe("a League pick kept with its club's GameChanger id, after Team Rankings is started again", () => {
   /** The Rays' League team, picked as the Rays while the pool called them S-RIVE. */
   const PICK: LeagueTeamLink = {

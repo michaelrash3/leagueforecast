@@ -32,7 +32,7 @@ import { persistPool } from "../poolPersist";
 import { settleRunLists } from "../pullLists";
 import { refreshNow, storedRota, type RefreshNow } from "../storedRota";
 import { pulledGcTeamIds } from "../teamRankings";
-import { leagueLinkedClubsOf, type SeasonReader } from "../live/allKnown";
+import { leagueLinkedClubsOf, retiredWithPicks, type SeasonReader } from "../live/allKnown";
 import { leagueSeasonsOf, NO_LEAGUE_DOCS, type LeagueDocsList } from "../live/cloudLeague";
 import type { SweepPool } from "../obviousFakes";
 import { sweepStored } from "../sweepStored";
@@ -649,8 +649,9 @@ const fileScheduleSource = async (
           seasonYearsFor: new Set(loadAgeUnknown().map((entry) => entry.teamId)),
         }
       : {}),
-    // The ids the copy's pool let go of, which no club the pull makes is minted as.
-    retired: loadRetiredIds(),
+    // The ids the copy's pool let go of, which no club the pull makes is minted as, and those of
+    // the clubs League Standings picks that the pool no longer holds (`retiredWithPicks`).
+    retired: retiredWithPicks(loadRetiredIds(), seasons, pool.teams),
   });
   const claimed = new Map(
     job.kind === "list" ? job.entries.map((entry) => [entry.teamId, entry]) : []
@@ -718,7 +719,7 @@ const fileScheduleSource = async (
     refused,
     spared,
     SHIPPED_TIDY_RULES,
-    loadRetiredIds()
+    retiredWithPicks(loadRetiredIds(), seasons, importer.state.teams)
   );
   saveTidyStamp(poolSignature(tidy.state));
   const filed = tidyChangedAnything(tidy) ? tidy.state : importer.state;

@@ -292,12 +292,14 @@ const nameKeyOf = (team: ScoutTeam): string => {
  * caller minting into a stored pool hands in its ids let go of with them (`mintedIds`).
  *
  * A club made for a league team said not to be in Team Rankings (`offClubIdFor`) carries that
- * team's name and is never found by it: it is that team's alone.
+ * team's name and is never found by it: it is that team's alone. Nor is `not`, the club in the
+ * place of a league team's pick that moved (`readPick`), which is another club of the name.
  */
 export const resolveOrCreateTeam = (
   name: string,
   teams: ScoutTeam[],
-  ids?: MintedIds
+  ids?: MintedIds,
+  not?: string
 ): { teams: ScoutTeam[]; teamId: string } => {
   const display = cleanTeamName(name);
   const key = normalizeName(name);
@@ -317,7 +319,8 @@ export const resolveOrCreateTeam = (
     };
   }
   const existingIndex = teams.findIndex(
-    (team) => !team.placeholder && !isOffClubId(team.id) && nameKeyOf(team) === key
+    (team) =>
+      !team.placeholder && !isOffClubId(team.id) && team.id !== not && nameKeyOf(team) === key
   );
 
   if (existingIndex >= 0) {

@@ -9,8 +9,8 @@ import { TEAM_SEARCH_LIMIT } from "./TeamSearchSelect";
 
 /**
  * Two clubs of one name in one town, which is the ordinary case on a nationwide pool and the one
- * the picker used to be unable to show a difference between: the rows read "Cincy Stix Navy ·
- * Harrison, OH" twice over, and the only way to choose was to guess.
+ * the picker used to be unable to show a difference between: the rows read "Aces · Harrison, OH"
+ * twice over, and the only way to choose was to guess.
  */
 const candidate = (
   scoutTeamId: string,
@@ -18,7 +18,7 @@ const candidate = (
   sharedOpponents: string[] = []
 ): ScoutLinkCandidate => ({
   scoutTeamId,
-  name: "Stix Navy",
+  name: "Aces",
   city: "Harrison",
   state: "OH",
   sharedOpponents,
@@ -29,14 +29,14 @@ const candidate = (
 const bridge: LeagueScoutBridge = {
   results: [],
   seasonLinked: true,
-  rows: [{ leagueTeamId: "L-A", leagueTeamName: "Stix Navy", how: "none" }],
+  rows: [{ leagueTeamId: "L-A", leagueTeamName: "Aces", how: "none" }],
   linkedCount: 0,
   countedResults: 0,
 };
 
 const wideClub = (id: string, ageLevel: number): ScoutTeam & { ageLevel?: number } => ({
   id,
-  name: "Stix Navy",
+  name: "Aces",
   city: "Harrison",
   state: "OH",
   ageLevel,
@@ -94,9 +94,7 @@ describe("picking which club a league team is", () => {
           wideClub("S-9", 9),
           {
             ...wideClub("S-10", 10),
-            gcTeams: [
-              { teamId: "gc10", name: "Stix Navy", ageGroupId: "ag10", staff: ["Sam Sample"] },
-            ],
+            gcTeams: [{ teamId: "gc10", name: "Aces", ageGroupId: "ag10", staff: ["Sam Sample"] }],
           },
         ].map(clubPickOption),
     });
@@ -151,7 +149,7 @@ describe("picking which club a league team is", () => {
             wideClub("S-9", 9),
             {
               ...wideClub("S-10", 10),
-              gcTeams: [{ teamId: "gc10wide", name: "Stix Navy", ageGroupId: "ag10" }],
+              gcTeams: [{ teamId: "gc10wide", name: "Aces", ageGroupId: "ag10" }],
             },
           ].map(clubPickOption),
       });
@@ -172,14 +170,14 @@ describe("picking which club a league team is", () => {
     expect(await picked("10U", true)).toEqual([["L-A", "S-10", "gc10wide"]]);
   });
 
-  it("says a pick whose place another club has now has moved, and to pick again", () => {
+  it("says a pick whose club no longer carries its GameChanger team has moved, and to pick again", () => {
     renderPanel({
       bridge: {
         ...bridge,
         rows: [
           {
             leagueTeamId: "L-A",
-            leagueTeamName: "Stix Navy",
+            leagueTeamName: "Aces",
             how: "none",
             movedScoutTeamId: "S-9",
           },
@@ -187,9 +185,12 @@ describe("picking which club a league team is", () => {
       },
     });
     expect(screen.getByText("Moved")).toBeInTheDocument();
+    // Neither cause is told as the only one: the club itself can have lost the team it was
+    // picked as (a year deleted, the team taken off it) as well as given its place to another.
     expect(
-      screen.getByText(/no one club carries the GameChanger team you picked/)
+      screen.getByText(/no longer carries the GameChanger team you picked it as/)
     ).toBeInTheDocument();
+    expect(screen.getByText(/taken off it or its year deleted/)).toBeInTheDocument();
   });
 
   it("says what it is and is not offering, rather than leaving it to be inferred", () => {

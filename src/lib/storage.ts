@@ -266,13 +266,25 @@ export const loadSettingsForSeason = (seasonId: string): Settings => loadSetting
 /**
  * League Standings seasons as this browser stores them, as `deriveAllKnown` and the tidy read them
  * (`SeasonReader`): one reader for both, so the clubs the boards keep for a League link are the
- * clubs the tidy is told to keep.
+ * clubs the tidy is told to keep. It holds every season, so it can say every club their teams pick,
+ * a season no page claims included, which a mint here holds as taken (`retiredWithPicks`).
  */
-export const readStoredSeason: SeasonReader = (seasonId) => ({
-  teams: loadTeamsForSeason(seasonId),
-  matchups: loadMatchupsForSeason(seasonId),
-  logs: loadLogsForSeason(seasonId),
-});
+export const readStoredSeason: SeasonReader = Object.assign(
+  (seasonId: string) => ({
+    teams: loadTeamsForSeason(seasonId),
+    matchups: loadMatchupsForSeason(seasonId),
+    logs: loadLogsForSeason(seasonId),
+  }),
+  {
+    picks: () => [
+      ...new Set(
+        readSeasons().flatMap(({ id }) =>
+          loadTeamsFor(id).flatMap((team) => (team.scoutTeamId ? [team.scoutTeamId] : []))
+        )
+      ),
+    ],
+  }
+);
 export const loadBracketLogsForSeason = (seasonId: string): Record<string, GameLog> =>
   coerceLogs(parseJson(safeGet(seasonKey(seasonId, "bracketLogs"))), []);
 

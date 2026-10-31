@@ -69,7 +69,13 @@ import {
   latestImportedAt,
 } from "../lib/gameChangerImport";
 import { remainingIds } from "../lib/gameChangerPull";
-import { archivedFrom, deriveAllKnown, gamesOnPages, leagueTeamIdsOn } from "../lib/live/allKnown";
+import {
+  archivedFrom,
+  deriveAllKnown,
+  gamesOnPages,
+  leagueTeamIdsOn,
+  retiredWithPicks,
+} from "../lib/live/allKnown";
 import { countedByHalf, segmentWorthShowing } from "../lib/teamRankings/halves";
 import {
   placesOf,
@@ -1362,6 +1368,13 @@ export function TeamRankingsView({
   };
 
   /**
+   * The ids a club made on this page is minted under none of: those the pool let go of, and those
+   * of the clubs League Standings picks that the pool no longer holds (`retiredWithPicks`), which
+   * this device reads where it keeps League Standings.
+   */
+  const mintRetired = () => retiredWithPicks(loadRetiredIds(), readStoredSeason, scoutTeams);
+
+  /**
    * "Not this team": a game a club has only because a name on another club's schedule was matched
    * to it, taken off the club onto the stand-in of the name (`game.notThisTeam`), in the year its
    * page is in, as storage files it, and with it every other game that club's schedules filed onto
@@ -1379,7 +1392,7 @@ export function TeamRankingsView({
       teamId,
       standInId: mintStandInId(
         club.name,
-        withRetired(new Set(scoutTeams.map((team) => team.id)), loadRetiredIds())
+        withRetired(new Set(scoutTeams.map((team) => team.id)), mintRetired())
       ),
     });
     if (!run.ok || run.writes.length === 0) return;
@@ -2115,10 +2128,10 @@ export function TeamRankingsView({
     }
     let teams = allKnown.teams;
     // Against the clubs here and every id the pool let go of, so neither name takes a folded
-    // club's id (`retiredIds.ts`).
+    // club's id (`retiredIds.ts`), nor one a League Standings pick names (`mintRetired`).
     const ids = mintedIds(
       teams.map((team) => team.id),
-      loadRetiredIds()
+      mintRetired()
     );
     const a = resolveOrCreateTeam(gameDraft.teamAName, teams, ids);
     teams = a.teams;
@@ -2184,7 +2197,7 @@ export function TeamRankingsView({
       named,
       known: allKnown.teams,
       roster: scoutTeams,
-      retired: loadRetiredIds(),
+      retired: mintRetired(),
     });
     const run = runCommand(add);
     if (!run.ok) return;

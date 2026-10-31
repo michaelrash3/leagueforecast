@@ -369,19 +369,32 @@ export const deriveLeagueScoutGames = (
       const leagueNameById = new Map(leagueTeams.map((team) => [team.id, team.name]));
       const clubByLeagueId = new Map<string, string>();
       const pickedLeagueIds = new Set<string>();
+      /*
+       * The club under each pick that moved (`readPick`), which the team is carried onto by
+       * nothing, its name included, as the bridge uses it for nothing: a club of the team's very
+       * name under the old id was found by the name the bridge keeps off it, and the league's
+       * games went onto its record.
+       */
+      const movedByLeagueId = new Map<string, string>();
       if (pool && leagueTeams.length > 0) {
         const fixtures = leagueMatchups.map((matchup) => ({
           away: leagueNameById.get(matchup.away) ?? "",
           home: leagueNameById.get(matchup.home) ?? "",
           date: matchup.date,
         }));
-        linkLeagueTeams(seasonId, pool.ageGroups, teams, pool.games, leagueTeams, fixtures)
-          .rows.filter((row) => row.how === "picked" || row.how === "guessed")
-          .forEach((row) => {
-            if (!row.scoutTeamId) return;
-            clubByLeagueId.set(row.leagueTeamId, row.scoutTeamId);
-            if (row.how === "picked") pickedLeagueIds.add(row.leagueTeamId);
-          });
+        linkLeagueTeams(
+          seasonId,
+          pool.ageGroups,
+          teams,
+          pool.games,
+          leagueTeams,
+          fixtures
+        ).rows.forEach((row) => {
+          if (row.movedScoutTeamId) movedByLeagueId.set(row.leagueTeamId, row.movedScoutTeamId);
+          if ((row.how !== "picked" && row.how !== "guessed") || !row.scoutTeamId) return;
+          clubByLeagueId.set(row.leagueTeamId, row.scoutTeamId);
+          if (row.how === "picked") pickedLeagueIds.add(row.leagueTeamId);
+        });
       }
       /*
        * A person said these are not in Team Rankings. Their games still count, on a club of their
@@ -432,7 +445,7 @@ export const deriveLeagueScoutGames = (
           resolvedIdByLeagueId.set(leagueId, own);
           return own;
         }
-        const result = resolveOrCreateTeam(name, teams, teamIds);
+        const result = resolveOrCreateTeam(name, teams, teamIds, movedByLeagueId.get(leagueId));
         teams = result.teams;
         resolvedIdByLeagueId.set(leagueId, result.teamId);
         return result.teamId;
@@ -3976,23 +3989,32 @@ export const gcCarriersOf = (
 };
 
 /**
+ * A league team with its pick as it now reads (`withPicksRead`), and, where the pick moved and
+ * cannot be followed, the club under its id (`movedScoutTeamId`), which a reader matches the team
+ * onto by nothing, its name included, as the bridge uses it for nothing.
+ */
+export type PickRead = LeagueTeamLink & { movedScoutTeamId?: string };
+
+/**
  * `leagueTeams` with each pick as it now reads (`readPick`): followed where it moved and can be,
- * dropped where it moved and cannot, so whatever reads the picks after reads none that names the
- * wrong club. The same array where no pick moved.
+ * dropped where it moved and cannot, with the club in its place named, so whatever reads the picks
+ * after reads none that names the wrong club, nor guesses the team back onto it by its name. The
+ * same array where no pick moved.
  */
 export const withPicksRead = (
   leagueTeams: readonly LeagueTeamLink[],
   teams: readonly ScoutTeam[]
-): readonly LeagueTeamLink[] => {
+): readonly PickRead[] => {
   if (!leagueTeams.some((team) => team.scoutGcTeamId)) return leagueTeams;
   const byId = new Map(teams.map((team) => [team.id, team]));
   const carriersOf = gcCarriersOf(teams);
   let changed = false;
-  const read = leagueTeams.map((team): LeagueTeamLink => {
-    const { pick } = readPick(team, byId, carriersOf);
+  const read = leagueTeams.map((team): PickRead => {
+    const { pick, moved } = readPick(team, byId, carriersOf);
     if (pick === team.scoutTeamId) return team;
     changed = true;
     const { id, name, scoutGcTeamId } = team;
+    if (moved) return { id, name, movedScoutTeamId: moved };
     return pick
       ? { id, name, scoutTeamId: pick, ...(scoutGcTeamId ? { scoutGcTeamId } : {}) }
       : { id, name };
@@ -4659,10 +4681,45 @@ export type ScoutLinkCandidate = {
   ageLevel?: number;
   /** Who coaches it (`coachesOf`), which a person linking their own league's team usually knows. */
   coaches?: string[];
-  /** Its GameChanger ids, so a pasted id or link finds it in the picker. */
+  /**
+   * Its GameChanger ids, so a pasted id or link finds it in the picker, the season's own first: the
+   * one a pick of it keeps (`gcIdsForSeason`).
+   */
   gcIds?: string[];
   /** The GameChanger seasons its teams are set up in (`seasonsOf`), "Fall 2026, Spring 2027". */
   seasons?: string;
+};
+
+/**
+ * A club's GameChanger ids as a League pick is offered them, the one the pick keeps beside it first
+ * (`TeamBase.scoutGcTeamId`): the teams filed on a page that claims the season (`pages`), then those
+ * in a squad year it sits in (`years`), then the rest, and in each the last pulled first, since a
+ * pull puts the team it pulled at the end of the club's list (`withLink`).
+ *
+ * The season's own team, because it is the one that stays the club's longest. A club carries a
+ * team for every season it was pulled in, and the first listed is the one pulled longest ago: kept
+ * with a pick, last year's squad deleted, that team taken off the club, or Team Rankings started
+ * again and only this season's teams pulled back, each took it off a club that was still the
+ * league's, and the pick read as moved, its outside results gone from the forecast.
+ */
+export const gcIdsForSeason = (
+  pages: ReadonlySet<string>,
+  years: Iterable<number | undefined>,
+  ageGroups: AgeGroup[]
+): ((club: { gcTeams?: readonly GcTeamLink[] }) => string[]) => {
+  const yearOf = gcLinkSquadYearIn(ageGroups);
+  const inYears = new Set(years);
+  inYears.delete(undefined);
+  const placeOf = (link: GcTeamLink): number => {
+    if (pages.has(link.ageGroupId)) return 0;
+    const year = yearOf(link);
+    return year !== undefined && inYears.has(year) ? 1 : 2;
+  };
+  return (club) =>
+    (club.gcTeams ?? [])
+      .map((link, at) => ({ id: link.teamId, place: placeOf(link), at }))
+      .sort((a, b) => a.place - b.place || b.at - a.at)
+      .map((link) => link.id);
 };
 
 /**
@@ -4723,6 +4780,7 @@ export const scoutLinkCandidates = (
    */
   const levels = levelsForSeason(seasonId, ageGroups);
   const years = yearsForSeason(seasonId, ageGroups);
+  const gcIdsOf = gcIdsForSeason(pages, years, ageGroups);
 
   const candidates: ScoutLinkCandidate[] = [];
   gameCount.forEach((count, scoutTeamId) => {
@@ -4745,7 +4803,7 @@ export const scoutLinkCandidates = (
       ...(team.state ? { state: team.state } : {}),
       ...(ageLevel === undefined ? {} : { ageLevel }),
       ...(coaches.length > 0 ? { coaches } : {}),
-      ...(team.gcTeams?.length ? { gcIds: team.gcTeams.map((link) => link.teamId) } : {}),
+      ...(team.gcTeams?.length ? { gcIds: gcIdsOf(team) } : {}),
       ...(seasons ? { seasons } : {}),
       sharedOpponents: shared,
       games: count,

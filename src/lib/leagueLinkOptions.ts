@@ -2,6 +2,7 @@ import { coachesOf } from "./gcStaff";
 import {
   clubIsPickable,
   gcAgeLevels,
+  gcIdsForSeason,
   levelsForSeason,
   seasonsOf,
   yearsForSeason,
@@ -36,6 +37,13 @@ export const levelOf = (club: { ageLevel?: number }): string =>
   club.ageLevel === undefined ? "" : `${club.ageLevel}U`;
 
 /**
+ * A club as a picker is handed it: with the age GameChanger has it at when it says, and its
+ * GameChanger ids in the order a pick keeps the first of (`gcIdsForSeason`), where a list knows
+ * which season it is for.
+ */
+export type PickableClub = ScoutTeam & { ageLevel?: number; gcIds?: readonly string[] };
+
+/**
  * Every club that could be picked by hand for a team of season `seasonId`, with the age
  * GameChanger has it at when it says: the two conditions the narrow list applies, over the whole
  * pool rather than over this season's pages, of a club GameChanger knows, at this board's level or
@@ -49,26 +57,32 @@ export const pickableClubs = (
   seasonId: string,
   ageGroups: AgeGroup[],
   teams: readonly ScoutTeam[]
-): Array<ScoutTeam & { ageLevel?: number }> => {
+): PickableClub[] => {
   const levels = levelsForSeason(seasonId, ageGroups);
   const years = yearsForSeason(seasonId, ageGroups);
+  const gcIdsOf = gcIdsForSeason(
+    new Set(ageGroups.filter((group) => group.seasonIds.includes(seasonId)).map(({ id }) => id)),
+    years,
+    ageGroups
+  );
   return teams
     .filter((team) => clubIsPickable(team, levels, years, ageGroups))
     .map((team) => {
       const ageLevel = gcAgeLevels(team, years[0], ageGroups)[0];
-      return ageLevel === undefined ? team : { ...team, ageLevel };
+      return { ...team, ...(ageLevel === undefined ? {} : { ageLevel }), gcIds: gcIdsOf(team) };
     });
 };
 
 /** A club as the wide picker lists it. */
-export const clubPickOption = (club: ScoutTeam & { ageLevel?: number }): ClubPickOption => {
+export const clubPickOption = (club: PickableClub): ClubPickOption => {
   const detail = [placeOf(club), levelOf(club), seasonsOf(club)].filter(Boolean).join(" · ");
   const coaches = coachesOf(club);
+  const gcIds = club.gcIds ?? (club.gcTeams ?? []).map((link) => link.teamId);
   return {
     id: club.id,
     label: club.name,
     ...(detail ? { detail } : {}),
     ...(coaches.length > 0 ? { coaches } : {}),
-    ...(club.gcTeams?.length ? { gcIds: club.gcTeams.map((link) => link.teamId) } : {}),
+    ...(gcIds.length > 0 ? { gcIds } : {}),
   };
 };
