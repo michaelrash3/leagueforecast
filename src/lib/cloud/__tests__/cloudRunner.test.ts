@@ -674,6 +674,78 @@ describe("a pull run on the cloud copy", () => {
     });
 
     /*
+     * The nightly's cap and the owner's 40-run rule together (31 October 2026): a squad year a list
+     * brought in meets the sweep first at the nightly, which held its save for the 1,646 games the
+     * rule's 40 deletions took with them. What the rule deletes is the rule at work, not an answer
+     * gone wrong, so its clubs' games do not count toward the 5% line; the clubs themselves still
+     * count toward the 2% one, so a sweep gone wrong is held as before.
+     */
+    const listOf = (teamIds: string[]): CloudPullJob => ({
+      kind: "list",
+      entries: teamIds.map((teamId) => ({ teamId })),
+      seasonYears: [2027],
+    });
+
+    it("saves a capped night whose only big loss is a club the 40-run rule deletes, and says so", async () => {
+      const long = schedule(ROUTER, "Router", [
+        game("r0", "Owls", 41, 0),
+        ...Array.from({ length: 80 }, (_, at) => ({
+          ...game(`r${at + 1}`, `Opponent ${at}`, 5, 3),
+          id: `r${at + 1}`,
+        })),
+      ]);
+      const answers = async (ids: string[]) =>
+        new Map(ids.map((id) => [id, { ok: true, schedule: long } as GcTeamResponse]));
+      const cloud = memoryCloud();
+      await seed(cloud, undefined, { seasons: [] });
+      // The long season comes in by a list, which never sweeps; the nightly meets it first.
+      const listed = await runCloudPull(
+        listOf([ROUTER]),
+        deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams: answers })
+      );
+      expect(listed).toMatchObject({ end: "finished", filed: 1 });
+      const night = await runCloudPull(
+        leg([]),
+        deps(cloud, "2026-09-30T07:17:00.000Z", { cap: true })
+      );
+      expect(night.end).toBe("finished");
+      expect(night.deleted).toEqual({ clubs: 1, games: 81 });
+      await marksInCopy(cloud);
+      expect(routerGone()).toEqual({ marked: false, club: false, games: 0, refused: true });
+    });
+
+    it("still holds a capped night whose 40-run deletions take more than 2% of a year's clubs", async () => {
+      const ids = Array.from({ length: 25 }, (_, at) => `gcROUT${String(at).padStart(6, "0")}`);
+      const answers = async (asked: string[]) =>
+        new Map(
+          asked.map((id) => [
+            id,
+            {
+              ok: true,
+              schedule: schedule(id, `Router ${id.slice(-3)}`, [
+                game(`${id}-r`, `Owls ${id.slice(-3)}`, 41, 0),
+              ]),
+            } as GcTeamResponse,
+          ])
+        );
+      const cloud = memoryCloud();
+      await seed(cloud, undefined, { seasons: [] });
+      await runCloudPull(
+        listOf(ids),
+        deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams: answers })
+      );
+      const version = cloud.manifest()?.version;
+      const night = await runCloudPull(
+        leg([]),
+        deps(cloud, "2026-09-30T07:17:00.000Z", { cap: true })
+      );
+      expect(night.end).toBe("held");
+      expect(night.held?.[0]?.clubsRemoved).toBeGreaterThanOrEqual(25);
+      expect(night.deleted).toEqual({ clubs: 25, games: 25 });
+      expect(cloud.manifest()?.version).toBe(version);
+    });
+
+    /*
      * Both kinds of list leg the page sends: a paste, and a catch-up (`refresh`) such as "Ask again
      * about teams nobody could age" or "Check short rosters again", which asks about every team on
      * it and still is a list, not a refresh of the pool.
