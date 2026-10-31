@@ -74,7 +74,7 @@ const mount = (over: Partial<LiveLeagueOptions> = {}) => {
     entryKey: 0,
     local: localOf(),
     onSeasonsAdded: () => added.push(1),
-    persist: () => {},
+    persist: () => true,
     adopt: () => {},
     open: async () => cloud.store,
     bases: memoryBases(),

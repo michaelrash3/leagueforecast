@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  legHeapMb,
   PULL_WORKER_TIMEOUT_MS,
   waitForPullWorker,
   type PullWorkerPort,
@@ -128,5 +129,29 @@ describe("a pull worker's lifetime", () => {
     const answer = waitForPullWorker(w.port);
     w.message("filed");
     await expect(answer).rejects.toThrow("termination failed");
+  });
+});
+
+/*
+ * The heap a leg's worker may hold (`legHeapMb`): Cloud Run's 5,120 MB of its instance's 8 GiB,
+ * unless the run says otherwise, as a run on one of GitHub's 16 GB runners does (`cloud-pull.yml`,
+ * the nightly's 12,288). A value that is not a whole number of megabytes a runner could hold is
+ * no value, and the leg keeps Cloud Run's.
+ */
+describe("the heap a leg's worker may hold", () => {
+  it("is Cloud Run's 5,120 MB unless the run says otherwise", () => {
+    expect(legHeapMb({})).toBe(5_120);
+    expect(legHeapMb({ PULL_LEG_HEAP_MB: "" })).toBe(5_120);
+  });
+
+  it("is what a run on GitHub says", () => {
+    expect(legHeapMb({ PULL_LEG_HEAP_MB: "12288" })).toBe(12_288);
+    expect(legHeapMb({ PULL_LEG_HEAP_MB: " 12288\n" })).toBe(12_288);
+  });
+
+  it("keeps Cloud Run's for a value no runner could hold", () => {
+    for (const said of ["12GB", "twelve", "-1", "0", "1.5", "511", "16385", "1e4", "0x3000"]) {
+      expect(legHeapMb({ PULL_LEG_HEAP_MB: said })).toBe(5_120);
+    }
   });
 });

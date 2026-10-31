@@ -436,6 +436,10 @@ const flushWrites = async (): Promise<void> => {
         }
         if (ok) {
           refusedKeys.delete(key);
+          // Said again now it is there. A tab told as it was accepted (`writeValue`) read it at
+          // once, before this write had reached the store if an earlier key's was still on its
+          // way, kept the value it replaced, and wrote that back over it with its next save.
+          broadcast.post(key);
           continue;
         }
         landed = false;
@@ -646,8 +650,9 @@ const writeValue = (key: string, value: unknown, quiet = false): boolean => {
   pendingWrites.delete(key);
   pendingWrites.set(key, value);
   void flushWrites();
-  // Announced on acceptance rather than after the flush. A tab told a moment early re-reads and
-  // finds either the new value or the old one; a tab told late can have written over it by then.
+  // Announced on acceptance, and again once it has landed (`flushWrites`). A tab told a moment
+  // early re-reads and finds either the new value or the old one, and the second word has it read
+  // the new; a tab told only late can have written over it by then.
   broadcast.post(key);
   if (!quiet) noteCloudWrite(key);
   return true;

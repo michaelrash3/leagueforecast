@@ -50,6 +50,28 @@ describe("what a save would take away", () => {
     expect(pastTheLine([radius(50)])).toHaveLength(0);
   });
 
+  it("does not count the games of a club the owner's 40-run rule deleted, but counts the club", () => {
+    const pool = games(1000, "9u");
+    // Every game of club c0 and c1 goes with them: 20 games, past the 5% line of this year were it
+    // 200 games, so a year of 1,000 shows the games are left out and the clubs are not.
+    const gone = new Set(
+      pool.filter((game) => ["gc0", "gc1"].includes(game.teamAId)).map((game) => game.id)
+    );
+    const radius = blastRadius(
+      before,
+      after({ games: pool.filter((g) => !gone.has(g.id)), teams: [] }),
+      gone
+    ).find((year) => year.year === 2027)!;
+    expect(radius.gamesRemoved).toBe(0);
+    const counted = blastRadius(
+      before,
+      after({ games: pool.filter((g) => !gone.has(g.id)), teams: [] })
+    ).find((year) => year.year === 2027)!;
+    expect(counted.gamesRemoved).toBe(gone.size);
+    // The clubs whose every game went are still counted as taken away, excused or not.
+    expect(radius.clubsRemoved).toBe(counted.clubsRemoved);
+  });
+
   it("holds a save that takes more than 2% of a year's clubs", () => {
     const year = { year: 2027, games: 50_000, gamesRemoved: 0, clubs: 2000, clubsRemoved: 41 };
     expect(pastTheLine([year])).toHaveLength(1);

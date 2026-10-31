@@ -1,7 +1,7 @@
 # The boards caught up with the cloud copy between nights (README, "Boards caught up on GitHub"):
-# every half hour, one of GitHub's servers reads the copy's manifest, the published meta and the
-# League Standings seasons, and where the boards are behind the copy and nothing is at work that a
-# publish now would run beside, publishes them as the republish after a deploy does
+# set for every half hour, one of GitHub's servers reads the copy's manifest, the published meta
+# and the League Standings seasons, and where the boards are behind the copy and nothing is at work
+# that a publish now would run beside, publishes them as the republish after a deploy does
 # (`scripts/catchUp.ts`, `catchUp.ts`). It is for the time a save's own rebuild does not come
 # (rebuilds off, paused, deferred by their budget, or failing), when an import or an edit otherwise
 # reached the boards only with the nightly, which GitHub starts hours late. It pulls nothing from
@@ -10,12 +10,13 @@
 #
 # A run that finds nothing behind is done in the time it takes to read those few documents. A
 # publish that fails turns the run red, which GitHub emails whoever last changed the schedule
-# about; it raises no issue of its own, since the next run tries again within the half hour.
+# about; it raises no issue of its own, since the next run tries again within hours.
 name: Boards catch-up
 
 on:
   # At 11 and 41 minutes past each hour, off the hour and the half, since GitHub starts a run late
-  # when every repository's is due at once.
+  # when every repository's is due at once. It runs far fewer: four to eight a day, two to eight
+  # hours apart, on 16 to 30 October 2026, the first after 04:17 UTC each day before the nightly.
   schedule:
     - cron: "11,41 * * * *"
   workflow_dispatch:

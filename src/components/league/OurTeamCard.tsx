@@ -98,7 +98,7 @@ export function OurTeamCard({ summary, teams, onPick, onEnterScore, clubRank }: 
           <>
             {" · "}
             <strong>{Math.round(summary.goldPct)}% Gold</strong>
-            {summary.goldChange !== undefined && Math.abs(summary.goldChange) >= 0.05 && (
+            {summary.goldChange !== undefined && (
               <span className="text-slate-500 dark:text-slate-400">
                 {" "}
                 ({points(summary.goldChange)} on the last result)

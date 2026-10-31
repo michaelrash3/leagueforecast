@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type { StartChoice, StartDraft } from "../../lib/leagueStart";
 import { button, focusRing, textRole } from "../../styles/tokens";
 import { EditLock } from "./EditLock";
@@ -10,6 +11,9 @@ const scoreText = (away: number | undefined, home: number | undefined) =>
  * turned round where the home side is the other one, and the button that makes the season. Shared
  * by a start from Team Rankings clubs (`StartFromClubs`) and one from a GameChanger organization
  * (`StartFromGcOrg`), which say in `lead` where the games came from and what to check.
+ *
+ * With games found and none of them ticked, the button asks before it starts: a draft whose every
+ * game looked like a tournament's started unticked, and one tap made a season of teams alone.
  */
 export function StartDraftReview({
   draft,
@@ -31,6 +35,17 @@ export function StartDraftReview({
   onStart: () => void;
 }) {
   const kept = choices.filter((choice) => choice.keep).length;
+  const [asking, setAsking] = useState(false);
+  // Asked only while it is so: a game ticked since puts the question away.
+  const empty = kept === 0 && draft.games.length > 0;
+  const confirm = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (asking && empty) confirm.current?.focus();
+  }, [asking, empty]);
+  const choose = (gameId: string, change: Partial<StartChoice>) => {
+    setAsking(false);
+    onChoose(gameId, change);
+  };
   return (
     <div className="grid gap-3">
       <p className={textRole.body}>{lead}</p>
@@ -72,7 +87,7 @@ export function StartDraftReview({
                       <input
                         type="checkbox"
                         checked={choice?.keep ?? false}
-                        onChange={(event) => onChoose(game.gameId, { keep: event.target.checked })}
+                        onChange={(event) => choose(game.gameId, { keep: event.target.checked })}
                         aria-label={`Keep ${label}`}
                       />
                     </td>
@@ -83,7 +98,7 @@ export function StartDraftReview({
                       </span>
                       <button
                         type="button"
-                        onClick={() => onChoose(game.gameId, { swap: !swap })}
+                        onClick={() => choose(game.gameId, { swap: !swap })}
                         aria-label={`Swap home and away for ${label}`}
                         className={`ml-2 rounded text-xs font-bold text-blue-700 underline dark:text-blue-300 ${focusRing}`}
                       >
@@ -115,11 +130,34 @@ export function StartDraftReview({
       )}
       <div>
         <EditLock>
-          <button type="button" onClick={onStart} className={button.primary}>
+          <button
+            type="button"
+            onClick={() => (empty ? setAsking(true) : onStart())}
+            className={button.primary}
+          >
             Start the season: {teams} teams, {kept} game{kept === 1 ? "" : "s"}
           </button>
         </EditLock>
       </div>
+      {asking && empty && (
+        <div className="grid gap-2">
+          <p role="status" className={textRole.body}>
+            Start with 0 of {draft.games.length} game{draft.games.length === 1 ? "" : "s"}? None is
+            ticked, so the season starts with its {teams} teams alone, and games can be added on the
+            Schedule.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <EditLock>
+              <button ref={confirm} type="button" onClick={onStart} className={button.dark}>
+                Start with no games
+              </button>
+            </EditLock>
+            <button type="button" onClick={() => setAsking(false)} className={button.ghost}>
+              Back to the games
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

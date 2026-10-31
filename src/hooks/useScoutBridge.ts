@@ -14,6 +14,7 @@ import {
 } from "../lib/live/leagueAnswers";
 import type { CopyAt, LeagueAsker } from "../lib/live/leagueAsk";
 import type { QueryOf } from "../lib/live/queries";
+import type { EditMonth } from "../lib/live/rebuildLedger";
 import { BRIDGE_KEY } from "../lib/preferences";
 import { loadAgeGroups, loadScoutGamesForSeason, loadScoutTeams } from "../lib/teamRankingsStorage";
 import { poolFilled } from "../lib/poolFill";
@@ -181,15 +182,66 @@ const stampOf = (value: unknown): Stamp | null => {
 };
 
 /**
- * How long after a question goes unanswered it is asked again, the last wait repeated until one is
- * answered: a device offline, a sign-in not loaded yet, a server waking up. Each wait is a
- * question asked again, and a member's device offline or signed out fails it without reaching the
- * server at all. The waits lengthen to half an hour: a question the server cannot answer in its
- * time costs a cold load of the whole pool at 8 GiB each try, and every two minutes for as long as
- * the page stayed open was what an unanswerable pool cost in October 2026. Coming back online,
- * signing in, and the page shown anew still ask at once, on League Standings.
+ * How long after a question goes unanswered it is asked again on a timer: a device offline, a
+ * sign-in not loaded yet, a server waking up, each of which the first few waits see through, and
+ * a device offline or signed out fails the question without reaching the server at all. A question
+ * the server cannot answer, a worker out of memory say, is a cold load of the whole pool at 8 GiB
+ * each try, so the timer sends at most `RETRIES_A_DAY` a season a New York day, none while the
+ * page is hidden (one falling due then waits to be shown, and goes in place of what being shown
+ * would ask), and none while the server says the edits' month is spent (`EditMonth`), until New
+ * York's month turns. With the half hour repeated and no end, as until 31 October 2026, a page
+ * left open, hidden or not, sent 48 a day, 28 in its first twelve hours as the tests counted the
+ * code before: about 23,000 GiB-seconds a day at a minute's load each, the sweep of 30 October
+ * 2026 reckoned. Every two minutes was what an unanswerable pool cost in October 2026. Past the
+ * day's few the waits go on, sending nothing, so the next day's are made with nothing else to ask
+ * them. Coming back online, signing in, and the page shown anew still ask at once, on League
+ * Standings, however many have been sent.
  */
 const RETRY_AFTER_MS = [5_000, 30_000, 120_000, 600_000, 1_800_000] as const;
+
+/**
+ * How many timer retries a season's question gets a New York day on this device, the day's count
+ * kept with its day in storage (`RETRIES_KEY`) so a reload starts none afresh, and today's alone.
+ */
+const RETRIES_A_DAY = 3;
+const RETRIES_KEY = "lf_bridge_retries_v1";
+
+/** The timer retries sent on `day`, by season (`seasonKey`). */
+type Tries = { day: string; tries: Record<string, number> };
+
+/**
+ * The timer retries sent on `day` by season, the more of what storage kept and what this page
+ * counted (`held`): a store that will not take the count, or read it back, still holds the day's
+ * few until the page is reloaded. A record of another day counts nothing.
+ */
+const triesOn = (day: string, held: Tries): Record<string, number> => {
+  const tries: Record<string, number> = {};
+  const add = (record: unknown) => {
+    const { day: on, tries: by } = (record ?? {}) as { day?: unknown; tries?: unknown };
+    if (on !== day || !by || typeof by !== "object") return;
+    for (const [season, sent] of Object.entries(by))
+      if (typeof sent === "number") tries[season] = Math.max(tries[season] ?? 0, sent);
+  };
+  try {
+    add(JSON.parse(localStorage.getItem(RETRIES_KEY) ?? "null"));
+  } catch {
+    /* read as none: what this page counted stands */
+  }
+  add(held);
+  return tries;
+};
+
+/** `held` with a timer retry of `season`'s counted on `day`, kept for a reload where it can be. */
+const countTry = (day: string, season: string, held: Tries): Tries => {
+  const tries = triesOn(day, held);
+  const next = { day, tries: { ...tries, [season]: (tries[season] ?? 0) + 1 } };
+  try {
+    localStorage.setItem(RETRIES_KEY, JSON.stringify(next));
+  } catch {
+    /* not kept: this page's count holds the day's few until it is reloaded */
+  }
+  return next;
+};
 
 /**
  * The least time between a question and one asked because the page was shown anew. Looking away
@@ -295,8 +347,10 @@ type WideList = { season: string; options: readonly ClubPickOption[] | null };
  * page is looked at anew, at most once every few minutes; while Team Rankings is on screen, only
  * where the bridge on hand does not answer the season as it stands; and the same question this
  * visit has an answer to, only where the copy has moved since (`copyNow`). A question unanswered is
- * asked again, and one already out is never thrown away for another about the same teams. The
- * last bridge kept for the season stands until an answer comes.
+ * asked again on a timer, at most three times a season a New York day, never while the page is
+ * hidden or the server says the edits' month is spent (`RETRY_AFTER_MS`), and one already out is
+ * never thrown away for another about the same teams. The last bridge kept for the season stands
+ * until an answer comes.
  */
 export function useScoutBridge({
   activeSeasonId,
@@ -326,6 +380,12 @@ export function useScoutBridge({
   const again = useRef(false);
   /** When the last question went out, so being shown anew asks at most once every few minutes. */
   const askedAt = useRef(Number.NEGATIVE_INFINITY);
+  /** The timer retries this page sent today, which hold where storage will not (`triesOn`). */
+  const counted = useRef<Tries>({ day: "", tries: {} });
+  /** The New York month the server last said the edits' caps are spent in, or null. */
+  const spentIn = useRef<string | null>(null);
+  /** A timer retry that fell due while the page was hidden, to go once it is shown. */
+  const waiting = useRef<(() => void) | null>(null);
 
   const noteChange = useCallback(() => {
     if (out.current) again.current = true;
@@ -394,7 +454,13 @@ export function useScoutBridge({
   useEffect(() => {
     if (!asker) return;
     const onShow = () => {
-      if (document.visibilityState === "visible" && onScreen.current) askIfIdle(SHOWN_GAP_MS);
+      if (document.visibilityState !== "visible") return;
+      // A retry that fell due while hidden goes first, and being shown asks nothing beside it: the
+      // question it sends, or the copy it reads, is out, which holds that back (`askIfIdle`).
+      const retry = waiting.current;
+      waiting.current = null;
+      retry?.();
+      if (onScreen.current) askIfIdle(SHOWN_GAP_MS);
     };
     const onOnline = () => askIfIdle(0);
     document.addEventListener("visibilitychange", onShow);
@@ -453,8 +519,9 @@ export function useScoutBridge({
        * until coming back, which asks again in any case. One for teams or final scores since
        * changed, which another device's can be, or none at all, is asked for even here, retries
        * included: the forecast, the digest and its notifications read it while Team Rankings is on
-       * screen, notifications while the page is hidden. Read from the ref as each question falls
-       * due, not as a dependency, so going to Team Rankings leaves one already out to be answered.
+       * screen, notifications while the page is hidden, though a timer retry waits for a hidden
+       * page to be shown (`retry`). Read from the ref as each question falls due, not as a
+       * dependency, so going to Team Rankings leaves one already out to be answered.
        */
       if (!onScreen.current && hand?.asked === asked) return;
       /*
@@ -488,11 +555,22 @@ export function useScoutBridge({
           } else send(failures);
         });
     };
+    /*
+     * What the reply said of the edits' month, the server's whatever became of the question it came
+     * with: held until a reply says otherwise. One that says nothing, from a server before this or
+     * a charge the ledger was slow to take, is not known, and changes nothing.
+     */
+    const noteMonth = (month: EditMonth) => {
+      spentIn.current = month.spent ? month.month : null;
+    };
     const send = (failures: number) => {
       const sent = Date.now();
       out.current = true;
       askedAt.current = sent;
-      void asker(question).then((reply) => {
+      // A timer retry, counted against the day's few as it goes.
+      if (failures > 0)
+        counted.current = countTry(SERVER_DAY.format(sent), seasonKey, counted.current);
+      void asker(question, noteMonth).then((reply) => {
         // An answer for teams or scores since changed is not this season's as it stands.
         if (!current) return;
         out.current = false;
@@ -506,11 +584,36 @@ export function useScoutBridge({
           }));
         } else {
           setFailedFor(seasonKey);
-          const wait = RETRY_AFTER_MS[Math.min(failures, RETRY_AFTER_MS.length - 1)];
-          timer = setTimeout(() => ask(failures + 1), wait);
+          retryAfter(failures);
         }
         carryOn();
       });
+    };
+    /** The next timer retry, after the wait that follows the `failures`th (`RETRY_AFTER_MS`). */
+    const retryAfter = (failures: number) => {
+      const wait = RETRY_AFTER_MS[Math.min(failures, RETRY_AFTER_MS.length - 1)];
+      timer = setTimeout(() => retry(failures + 1), wait);
+    };
+    /**
+     * A timer retry fallen due: left for the page to be shown where it is hidden; not sent past the
+     * day's few for the season, or while the server says the edits' month is spent, and tried
+     * again after the next wait, which sends once New York's day or month has turned; otherwise
+     * asked as any question is.
+     */
+    const retry = (failures: number) => {
+      if (document.visibilityState === "hidden") {
+        waiting.current = () => retry(failures);
+        return;
+      }
+      const day = SERVER_DAY.format(Date.now());
+      if (
+        (triesOn(day, counted.current)[seasonKey] ?? 0) >= RETRIES_A_DAY ||
+        spentIn.current === day.slice(0, 7)
+      ) {
+        retryAfter(failures);
+        return;
+      }
+      ask(failures);
     };
     timer = setTimeout(() => ask(0), ASK_AFTER_MS);
     return () => {
@@ -518,6 +621,7 @@ export function useScoutBridge({
       current = false;
       out.current = false;
       again.current = false;
+      waiting.current = null;
       clearTimeout(timer);
     };
   }, [asker, activeSeasonId, seasonKey, kept, teams, seasonFixtures, revision, held, copyNow]);

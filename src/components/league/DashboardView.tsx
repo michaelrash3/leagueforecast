@@ -19,6 +19,7 @@ import type { ActiveShareView, Matchup, Team } from "../../lib/types";
 import { SEVERITY_LABEL, severityCounts, type Finding } from "../../lib/leagueFindings";
 import { useNarrowViewport } from "../../hooks/useWideViewport";
 import { ErrorBoundary } from "../ErrorBoundary";
+import type { DigestListed } from "../../hooks/useSeasonDigest";
 import { DigestPanel } from "./DigestPanel";
 import type { LookInput } from "./SinceLastLook";
 import { EmptyPanel } from "./EmptyPanel";
@@ -268,8 +269,14 @@ export function DashboardView({
   findings: readonly Finding[];
   /** The team this browser follows, which leads the page (`OurTeamCard`). */
   ourTeam?: ReactNode;
-  /** What changed since this device last looked (2.6), above everything else while there is any. */
-  digest?: ComponentProps<typeof DigestPanel>;
+  /**
+   * What changed since this device last looked (2.6), above everything else while there is any;
+   * and what the list says as drawn, for the big card standing in its place to take as seen.
+   */
+  digest?: ComponentProps<typeof DigestPanel> & {
+    listed: DigestListed | null;
+    onAcknowledgeListed: (listed: DigestListed) => void;
+  };
   /**
    * The season as it stands, for the big "Since you last looked" card (`SinceLastLookCard`): the
    * followed team's place and Gold odds then and now, its results, the upset, who passed whom.
@@ -336,13 +343,21 @@ export function DashboardView({
   return (
     <div className="space-y-6">
       {/* The big card first, and the list of what other devices changed while it is not up. Put
-          away, it takes the list's news as seen too, so the list does not follow it. */}
+          away, it takes as seen the list's news as it stood when the card came up, which the card
+          stood for, so the list does not follow it with that; what came since is the list's. */}
       {look && lookRows && (
         <ErrorBoundary area="what changed since you last looked" onReset={sinceLastLook.reset}>
           <Suspense fallback={null}>
             <SinceLastLook
-              look={{ ...look, rows: lookRows, predictions: lookPredictions }}
-              onDismiss={() => digest?.onAcknowledge()}
+              look={{
+                ...look,
+                rows: lookRows,
+                predictions: lookPredictions,
+                listed: digest?.listed ?? null,
+              }}
+              onDismiss={(listed) => {
+                if (listed) digest?.onAcknowledgeListed(listed);
+              }}
               onShown={setLookShown}
             />
           </Suspense>

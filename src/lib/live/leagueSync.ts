@@ -48,9 +48,10 @@ import type { LeagueRemote, LeagueStore } from "./leagueStore";
  *   up to it. So a write of this device's is never taken for another device's change, and a value
  *   changed back to what it was is a change like any other.
  * - **The base and the landed writes** are kept between visits (`leagueBase.ts`), always after the
- *   season itself has been written to this device's storage (`persist`), so what is kept is never
- *   ahead of what storage holds. A base is this season's only if it was made at the same moment: a
- *   season made since under a deleted season's id is a season of its own.
+ *   season itself has been written to this device's storage (`persist`), and only when storage took
+ *   it, so what is kept is never ahead of what storage holds. A base is this season's only if it
+ *   was made at the same moment: a season made since under a deleted season's id is a season of
+ *   its own.
  * - **Undo** puts back only what no other device has changed since the step (`guardUndo`).
  *
  * Nothing is written before the cloud's version has been heard, nothing over a document a later
@@ -100,11 +101,13 @@ export type LeagueSyncOptions = {
   entryOf: (id: string) => SeasonEntry | undefined;
   bases: BaseKeeper;
   /**
-   * Writes a season's data to this device's storage, at once. Called before any base is kept, so
-   * a base never holds more than storage does: a page closed between the two would otherwise open
-   * on a season missing what the base has, and read that as deleted here.
+   * Writes a season's data to this device's storage, at once, and says whether storage holds it
+   * now. Called before any base is kept, and a base is kept only when it does, so a base never
+   * holds more than storage does: the next opening would otherwise find a season missing what the
+   * base has, and read that as deleted here. Storage refuses it in a window another has the turn
+   * from (`tabTurn.ts`), which League kept live still lays arrivals over, and when it is full.
    */
-  persist: (id: string, parts: SeasonParts) => void;
+  persist: (id: string, parts: SeasonParts) => boolean;
   /**
    * Gives a season in this device's list the creation time of the cloud's season it took in whole,
    * held nothing itself (`adoptSeasonCreatedAt`): from then on it is that season.
@@ -285,15 +288,21 @@ export const startLeagueSync = ({
   /** Whether storage's League was replaced whole since `watch` began (`replaced`). */
   const stale = (watch: Watch): boolean => replaced() !== watch.replaced;
 
-  /** Writes the season to storage, then keeps what this device knows of its document. */
+  /**
+   * Writes the season to storage, then keeps what this device knows of its document, once storage
+   * holds the season. Refused, the base kept before stays, which storage holds all of, and the next
+   * opening takes in from the cloud what moved since. Kept regardless, in a window another had the
+   * turn from, the base was ahead of storage, and the next window to open the season erased from
+   * the cloud every game and score other devices had sent meanwhile, as deleted here.
+   */
   const keep = (watch: Watch) => {
     if (stale(watch)) return;
     const open = seasons.get();
-    persist(
+    const stored = persist(
       watch.id,
       watch === current && open.id === watch.id ? open.season : partsOf(watch.local)
     );
-    if (watch.base)
+    if (stored && watch.base)
       bases.write(watch.docId, { season: watch.base, rev: watch.baseRev, landed: watch.landed });
   };
 

@@ -475,6 +475,9 @@ export const deriveLeagueScoutGames = (
           ageGroupId,
           ...(played ? { teamAScore: awayScore, teamBScore: homeScore } : {}),
           date: dateInSquadYear(matchup.date, squadYear),
+          // Its start, which orders a day's games in every list here and moves no number. Left
+          // off, a league doubleheader listed its second game first and named it as next.
+          ...(matchup.startTs ? { startTs: matchup.startTs } : {}),
         });
       });
 

@@ -6,6 +6,7 @@ import type { EditReply, WarmResult } from "./editHandle";
 import type { EditRefusal, QueryRefusal } from "./editRun";
 import type { AnswerOf, QueryKind, QueryOf } from "./queries";
 import { coerceQueryAnswer } from "./queryAnswers";
+import type { EditMonth } from "./rebuildLedger";
 
 /**
  * A member's device asking the edit function (`edit`, `functions/src/index.ts`) to make an edit or
@@ -87,11 +88,34 @@ export const MAX_RECONNECTS = 5;
  */
 const GAVE_UP = ["ABORTED", "DEADLINE_EXCEEDED"] as const;
 
-/** A call's outcome: the server's answer, or why there is none, said for a person. */
-export type Called<T> = { ok: true; value: T } | { ok: false; why: CallFailure; message: string };
+/**
+ * A call's outcome: the server's answer, or why there is none, said for a person; and with a
+ * question the server gave up on, the edits' month as its charge left the ledger, where the error
+ * said it (`handleQuery`).
+ */
+export type Called<T> =
+  { ok: true; value: T } | { ok: false; why: CallFailure; message: string; editMonth?: EditMonth };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * The edits' month as a reply or an error says it (`EditMonth`), or null where it says none this
+ * build reads: an older server says none, and a device reads that as not known.
+ */
+export const coerceEditMonth = (raw: unknown): EditMonth | null =>
+  isRecord(raw) &&
+  typeof raw.month === "string" &&
+  /^\d{4}-\d{2}$/.test(raw.month) &&
+  typeof raw.spent === "boolean"
+    ? { month: raw.month, spent: raw.spent }
+    : null;
+
+/** The edits' month for an outcome, where it was said. */
+const monthOf = (raw: unknown): { editMonth?: EditMonth } => {
+  const month = coerceEditMonth(raw);
+  return month ? { editMonth: month } : {};
+};
 
 const isCount = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -108,7 +132,11 @@ const FAILURE_OF: ReadonlyMap<string, CallFailure> = new Map([
   ["ABORTED", "failed"],
 ]);
 
-const failed = (why: CallFailure, message: string): Called<never> => ({ ok: false, why, message });
+const failed = (
+  why: CallFailure,
+  message: string,
+  said: { editMonth?: EditMonth } = {}
+): Called<never> => ({ ok: false, why, message, ...said });
 
 const LOST =
   "The connection was interrupted. Checking the cloud copy will confirm whether the change was saved.";
@@ -224,15 +252,17 @@ const callOnce = async <T>(
       typeof error?.message === "string" && error.message
         ? error.message
         : `The server answered HTTP ${response.status}.`;
+    // An unanswered question's error carries the edits' month in its details, as a reply does.
+    const said = monthOf(isRecord(error?.details) ? error.details.editMonth : null);
     if (
       !finalStatuses?.includes(status) &&
       (["UNAVAILABLE", "INTERNAL", "ABORTED", "UNKNOWN", "DEADLINE_EXCEEDED"].includes(status) ||
         retryStatuses?.includes(status) ||
         (!status && (response.status >= 500 || response.status === 429 || response.status === 408)))
     ) {
-      throw new RetryableCall(failed(failures.get(status) ?? unclear, message));
+      throw new RetryableCall(failed(failures.get(status) ?? unclear, message, said));
     }
-    return failed(failures.get(status) ?? unclear, message);
+    return failed(failures.get(status) ?? unclear, message, said);
   }
   const value = isRecord(body) ? read(body.result) : null;
   return value === null
@@ -346,10 +376,13 @@ export const coerceEditReply = (raw: unknown): EditReply | null => {
   };
 };
 
-/** What a question of kind `K` is answered: its answer, of which copy and version, or why none. */
+/**
+ * What a question of kind `K` is answered: its answer, of which copy and version, or why none; and
+ * the edits' month as its charge left the ledger, where the reply said it (`QueryReply`).
+ */
 export type QueryReplyOf<K extends QueryKind> =
-  | { ok: true; copy: string; version: number; answer: AnswerOf<K> }
-  | { ok: false; why: QueryRefusal };
+  | { ok: true; copy: string; version: number; answer: AnswerOf<K>; editMonth?: EditMonth }
+  | { ok: false; why: QueryRefusal; editMonth?: EditMonth };
 
 /** A question's reply as the function makes one, for a question of kind `kind`, or null. */
 export const coerceQueryReply = <K extends QueryKind>(
@@ -357,13 +390,14 @@ export const coerceQueryReply = <K extends QueryKind>(
   kind: K
 ): QueryReplyOf<K> | null => {
   if (!isRecord(raw)) return null;
+  const said = monthOf(raw.editMonth);
   if (raw.ok === false)
-    return isOneOf(QUERY_REFUSALS, raw.why) ? { ok: false, why: raw.why } : null;
+    return isOneOf(QUERY_REFUSALS, raw.why) ? { ok: false, why: raw.why, ...said } : null;
   if (raw.ok !== true) return null;
   const { copy, version } = raw;
   const answer = coerceQueryAnswer(raw.answer, kind);
   return typeof copy === "string" && isCount(version) && Number.isInteger(version) && answer
-    ? { ok: true, copy, version, answer }
+    ? { ok: true, copy, version, answer, ...said }
     : null;
 };
 

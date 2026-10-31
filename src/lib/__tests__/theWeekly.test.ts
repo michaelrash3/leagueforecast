@@ -173,6 +173,22 @@ describe("The Weekly", () => {
     expect(theWeekly(PAGE, ROWS, [...run, won], TODAY).streaks).toEqual([{ teamId: "C", wins: 6 }]);
   });
 
+  /*
+   * The order a club's form line reads a day in (`byGameTime`): read untimed first, as the Weekly's
+   * own sort had it, a day's second game listed with no time came before the first, and the run
+   * after it was counted one short.
+   */
+  it("reads a day's games in playing order, a game with no start after the timed ones", () => {
+    // The Cs lost the day's first game, at 3 PM UTC, won the second, listed with no time, then won
+    // four more: a run of five.
+    const run = [
+      game("E", "C", "2026-09-01", 3, 2, { startTs: "2026-09-01T15:00:00.000Z" }),
+      game("C", "E", "2026-09-01", 4, 1),
+      ...days(2, 4).map((date) => game("C", "E", date, 4, 1)),
+    ];
+    expect(theWeekly(PAGE, ROWS, run, TODAY).streaks).toEqual([{ teamId: "C", wins: 5 }]);
+  });
+
   it("ends a run at a tie, as at a loss", () => {
     const run = days(1, 5).map((date) => game("C", "E", date, 4, 1));
     expect(theWeekly(PAGE, ROWS, run, TODAY).streaks).toEqual([{ teamId: "C", wins: 5 }]);

@@ -79,7 +79,14 @@ export const myTeamMoves = (prev: MyTeamLook, now: MyTeamLook): MyTeamMoves | nu
   };
 };
 
-const lookKey = (teamId: string) => `lf_my_team_look_v1_${teamId}`;
+const LOOK_PREFIX = "lf_my_team_look_v1_";
+const lookKey = (teamId: string) => `${LOOK_PREFIX}${teamId}`;
+
+/**
+ * How many clubs' looks are kept: those looked at last, far more than the clubs one person marks
+ * as theirs at once, a club for each page they follow.
+ */
+const LOOKS_KEPT = 12;
 
 const isLook = (value: unknown): value is MyTeamLook => {
   if (!value || typeof value !== "object") return false;
@@ -107,10 +114,27 @@ export const readMyTeamLook = (teamId: string): MyTeamLook | null => {
   }
 };
 
-/** Keeps a look at a club on this device; a storage that refuses it changes nothing else. */
+/**
+ * Keeps a look at a club on this device; a storage that refuses it changes nothing else. A look is
+ * kept a club, and a browser that marked a club its own each season kept one for every club it
+ * ever did, never removed: now the looks beyond the `LOOKS_KEPT` looked at last go, an unreadable
+ * one first, and a club whose look went starts afresh if it is looked at again.
+ */
 export const saveMyTeamLook = (look: MyTeamLook): void => {
   try {
-    window.localStorage.setItem(lookKey(look.teamId), JSON.stringify(look));
+    const storage = window.localStorage;
+    const key = lookKey(look.teamId);
+    storage.setItem(key, JSON.stringify(look));
+    const others: { key: string; at: number }[] = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const other = storage.key(index);
+      if (!other?.startsWith(LOOK_PREFIX) || other === key) continue;
+      others.push({ key: other, at: readMyTeamLook(other.slice(LOOK_PREFIX.length))?.at ?? -1 });
+    }
+    others
+      .sort((a, b) => b.at - a.at)
+      .slice(LOOKS_KEPT - 1)
+      .forEach((stale) => storage.removeItem(stale.key));
   } catch {
     // Storage full or off: the line is only shown again next time, which is no loss.
   }

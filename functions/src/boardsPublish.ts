@@ -8,6 +8,7 @@
 import { randomUUID } from "node:crypto";
 import process from "node:process";
 import { failureWords, firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
+import { memoryFields, memoryUseOf } from "../../src/lib/cloud/memoryUse";
 import { rebuildsRun } from "../../src/lib/cloud/githubDispatch";
 import { budgetDay } from "../../src/lib/cloud/refreshGate";
 import { publishAfterPull } from "../../src/lib/live/afterPull";
@@ -78,4 +79,10 @@ try {
   // The store opens a channel to other tabs that would keep the process alive.
   resetTeamRankingsStore();
 }
+// What the publish held at its end and at most, as the nightly says it (`memoryUse.ts`): it builds
+// every board from the whole pool, which grows with every night.
+log(
+  "boards-memory",
+  memoryFields(memoryUseOf(process.memoryUsage().rss, process.resourceUsage().maxRSS))
+);
 process.exit(0);

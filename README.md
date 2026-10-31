@@ -628,11 +628,16 @@ last visit, on a line of what moved for the club since then: its place nationall
 state then and now, each running from one to the other (shown at once where motion is turned
 down), its record and its rating, until **Got it** (`myTeamLook.ts`, `MyTeamSince.tsx`). A look
 is kept per club in this browser only (`lf_my_team_look_v1_<club>`): the places, record, rating
-and the half of the season the board is for. The first visit only keeps one; a later one
+and the half of the season the board is for, for the twelve clubs looked at last, the rest let go
+as a look is kept (none was ever removed before). The first visit only keeps one; a later one
 compares with a look an hour old or more, and keeps a new one at Got it, or at once when nothing
 moved (the same places and record, the rating within a twentieth of a run). A look from the
 other half of the season is a new start, since the fall and spring boards count different games,
-and none is taken while the board is being refitted to the latest games. Most visits have
+and none is taken while the board is being refitted to the latest games. On the cloud's board,
+which draws the board this account kept before the network's, none is taken until the network has
+vouched for the board on screen (`checked`): decided on the kept one, the line said nothing of an
+overnight climb, kept the old places as seen that day and told the climb a visit late. Offline the
+network never vouches, so the line waits for a visit that reaches it. Most visits have
 nothing new, so the line's own file is fetched only when there is: with it in the tab, opening
 Team Rankings measured 167.1 KB gzipped against 165.4 KB before, and 166.2 KB without. Nothing is
 read from or written to the cloud. League Standings' Dashboard has the same idea as a card of its
@@ -867,22 +872,30 @@ everything the standings, the records and the projections are built from.
 Nothing is written before the review is read, and three rules keep a wrong score
 out of a table nobody can check:
 
-| Case                                 | What happens                                                                                               |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| The league game is blank             | Filled, and marked final. Ticked by default.                                                               |
-| The two spell a club differently     | Offered as **Check name**, with both spellings shown. Never applied unasked.                               |
-| The club's own row names only a slot | Offered as **Check opponent** — its only league game that day, against "TBD". Never applied unasked.       |
-| The two clubs' schedules differ      | Both scores shown and either can be filled. Ticked only when they agree on the winner (**Check score**).   |
-| A different score is already entered | Shown side by side and left alone unless that row is chosen by name.                                       |
-| A pairing plays twice on one day     | Paired in schedule order when both sides have the same number of games; otherwise reported, never guessed. |
+| Case                                 | What happens                                                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| The league game is blank             | Filled, and marked final. Ticked by default.                                                                  |
+| The two spell a club differently     | Offered as **Check name**, with both spellings shown. Never applied unasked.                                  |
+| The club's own row names only a slot | Offered as **Check opponent** — its only league game that day, against "TBD". Never applied unasked.          |
+| The two clubs' schedules differ      | Both scores shown and either can be filled. Ticked only when they agree on the winner (**Check score**).      |
+| A different score is already entered | Shown side by side and left alone unless that row is chosen by name.                                          |
+| A pairing plays twice on one day     | Paired in schedule order when both sides have the same number of games; otherwise reported, never guessed.    |
+| Two teams one name to the pool       | Turned the way the Settings links, then the clubs' GameChanger names, say; otherwise reported, never guessed. |
 
 **Games the schedule is missing (3.7).** Where both teams of a game are linked to their clubs,
 Fill scores also lists the pool's played games between two of the league's clubs on a day the
 schedule has those two meet nowhere (`LeagueFillPlan.missing`), to be added with their score,
 final. The second game of a doubleheader the league scheduled once is not offered: it is as
 likely a scrimmage, and is left to be added by hand. A game that looks like a tournament's
-(`tournamentReason`: entered under an event, or either club played somebody else that day) starts
-unticked, and since GameChanger's schedules do not say who was at home, each can be swapped.
+(`tournamentReason`: entered under an event, or either club played a club outside the league that
+day) starts unticked, and since GameChanger's schedules do not say who was at home, each can be
+swapped. A day a club played two of the league's own clubs is the league's: a league can play two
+of its teams on one day, and until October 2026 every other club played that day counted, the
+league's included, so both of such a day's games started unticked. Not where the schedule has
+either club playing another of its games that day: a meeting beside it is as likely a scrimmage as
+a doubleheader's second game, and starts unticked too. The league's-own-day rule is a start's
+(below), which has no schedule to say which of a day's games the league played; read by it alone,
+the Aces' second game of a day the schedule has them at the Bears started ticked, to go in final.
 
 **Starting a season from its clubs (3.7).** A new season can start from Team Rankings instead of
 from typed names, a CSV or the demo: **Start from Team Rankings clubs** on the empty season's
@@ -891,16 +904,20 @@ league's clubs on it (the clubs the hand picker offers, GameChanger's at that le
 below), and the days to look in (the half being played, to begin with). The pool's games among
 those clubs come back by day (`draftStart`): played ones with their score and, where the two
 clubs' schedules disagree, the other club's version said beside it; ones still to play blank; a
-likely tournament meeting unticked. Untick what is not the league's and swap what is the other
-way round, and the season is made (`seasonFromStart`): a team per club, named as Team Rankings
-names it and linked to it (`scoutTeamId`), and a game per one kept, the played ones final. Only
-the name and the link are taken from a club, never its coaches. The season is then put on the
-page it was started from, as Setup's League seasons card puts one (`season.assign`), so the
-forecast and Fill scores read the right page from the first game. Every step is the same code
-on this device's pool and on the server's (`answerStart`, the `league.start` question), so a
-member's phone, which holds no pool, sees exactly what a visitor's browser works out. One Undo
-takes back the teams and games; the season stays on its page, where an empty one changes
-nothing.
+likely tournament meeting unticked. The words above the games say how the boxes start: how many
+start unticked as a tournament's, to be ticked where they are the league's, or that all start
+ticked (`clubsDraftLead`), which stays true as boxes are ticked; they had said to untick what was
+not the league's over a draft whose every game started unticked. Untick what is not the league's
+and swap what is the other way round, and the season is made (`seasonFromStart`): a team per club,
+named as Team Rankings names it and linked to it (`scoutTeamId`), and a game per one kept, the
+played ones final. With games found and none of them ticked, the button asks first ("Start with 0
+of 7 games?"), since one tap made a season of teams alone. Only the name and the link are taken
+from a club, never its coaches. The season is then put on the page it was started from, as Setup's
+League seasons card puts one (`season.assign`), so the forecast and Fill scores read the right page
+from the first game. Every step is the same code on this device's pool and on the server's
+(`answerStart`, the `league.start` question), so a member's phone, which holds no pool, sees exactly
+what a visitor's browser works out. One Undo takes back the teams and games; the season stays on its
+page, where an empty one changes nothing.
 
 **Or from its GameChanger organization.** Paste the league's organization ID or its
 `gc.com/organizations/…` link into the same panel, asked for on 25 October 2026, and one
@@ -945,8 +962,9 @@ proxy (`gcOrgSchedule.ts`, `StartFromGcOrg`):
   first left over), so a doubleheader stays two even where one schedule lists only one of its
   games, and a copy matched to none is a game of its own; GameChanger says who was home, so a game is stood up
   away first; the away side's score speaks and the home side's goes beside it where they disagree;
-  a canceled game is left out. A game against anybody else marks a league game that day likely a
-  tournament's, unticked, as a Team Rankings start marks one (`orgGames`, then `draftStart`).
+  a canceled game is left out. A game against a team outside the ones ticked marks a league game
+  that day likely a tournament's, unticked, as a Team Rankings start marks one (`orgGames`, then
+  `draftStart`).
 - **The season.** The same review and the same making as a Team Rankings start: a team per one
   kept, linked to its Team Rankings club where this device's own pool pulled one under its
   GameChanger id (a device whose Team Rankings is the cloud's holds no pool, so its teams are
@@ -974,6 +992,19 @@ every page of the squad year rather than only the pages claiming the season: the
 Cincinnati Hornets' fall team is listed at 8U, and its copy of the league's 25
 September game sat on the 8U page. Unlinked, another page's club of the same name
 is as likely the same organisation's older squad, so it is left alone.
+
+Two league teams that are one name to the pool, "Heat (Coach A)" and "Heat (Coach B)" or "Wolves
+9U" and "Wolves 10U" (the pool keeps a club's name without its aside or its age,
+`cleanTeamName`), each fit either club, so a result between them fits both ways round. It goes in
+the way round that fits better, a side linked in Settings counting for more than names alike; where
+both fit as well, the way the clubs' names on GameChanger, kept whole (`GcTeamLink.name`), fit the
+teams' names, written alike or alike but for the age (`nameNearness`); and where nothing tells the
+two ways apart, it is reported as **Can't tell** and never written. Such a result is still the
+game's whichever way round: a score the league already has one way round is its own (**Already
+in**), and the game's start reaches the schedule as any matched game's does. Until October 2026 a
+result was taken the way the pool listed it whenever that fitted, and the pool lists the pulled club
+first, which says nothing of who was home: a meeting the pulled club hosted went in backwards and
+ticked, links or no links.
 
 A club's own schedule that was never told the opponent files the game against a
 slot, "TBD- 09/25/26, 7:15 PM", and when the other club's schedule is not in the
@@ -1940,6 +1971,45 @@ files it. On the pool of 26 September 2026 at 18:40 the tidy takes 121 rows off,
 records change: 30 toward GameChanger's own, 13 of them onto it, and one away, a loss its club's
 schedule has not scored yet, whose row the move let join the club's own copy of the game.
 
+**The club's own row of the game beside it** (tidy rules 36). Neither the region nor the level takes
+a row off a club whose own schedule has a row of that very game still standing apart from it
+(`ownCopyOf`): its day the row's or the day either side, both scored with their own results and the
+result mirrored, starting within the hour of each other or on the same clock a day apart, and against
+the club that filed the row, a slot, a stand-in of that club's name, or any stand-in at the row's very
+start. The sweep of 30 October 2026 found the game this was missing. The Comets of Ohio beat "Bears
+Black" 9-2, and the Bears Black of Texas have the same game at the same minute as a 2-9 loss to a
+stand-in of the Comets' name. The reclaim moved the Comets' row onto the Texas club on the game,
+since the club's own row is at the very start with the result mirrored; this step took it off again,
+since the two clubs had met in no game both their schedules held yet; the refile put it on the Bears
+Black of Kentucky, next door to Ohio, who never played it; and the collapse that would have made the
+two rows one game came after all three in each pass. Every tidy ran its six passes, and the game
+counted twice. Pulled in six orders, the four clubs' two rows of the game were folded on arrival in
+five; the sixth, the near club and the namesake pulled and tidied before the far club, cycled. Now the
+row stays and the claim step or the collapse folds the Texas club's row into it, so the tidy settles in
+two passes with one game between the two clubs in all six. Of 300 small random pools of clubs in
+Kentucky, Ohio, Indiana and Texas (`farApartGame.test.ts`), 38 ran to the tidy's limit under rules 35
+and 50 of their 971 games both clubs list counted twice; with Texas left out, none did, and under rules
+36 none does either way. The very start takes any stand-in because the reclaim does: read only as a
+stand-in of the filer's name there, the row went round six passes again. More than two levels apart
+only the club's own row naming the filer itself keeps the row: a pair a name and a slot or a stand-in
+join that far apart was false 11.9% of the time when the namesake join was measured, and that join
+reads no pair more than two apart. Two levels off, a row of the club's own that day already says it
+plays there (`twoOff`), so the copy this keeps is one dated a day off: taken off, such a row went to
+a stand-in, the refile put it on a namesake at the typed age that played that day, and the game
+counted twice.
+
+This keeps a row that is on the far club already, or that the reclaim moves there, and the reclaim
+moves one only onto a copy at the very start. Still open, as before rules 36: where a pull filed the
+near club's row onto the namesake next door and the far club's own row is off the very start, within
+the hour or a day apart, the row stays on the namesake, and the game counts twice where the far
+club's row is against a stand-in rather than a slot; and a copy scored on one side only backs
+nothing, so the row goes to the namesake. One cycle the sweep's own fuzz found is still open too
+(its seed 369), of another shape: a row filed onto a far club whose own schedule has no copy of it
+comes off as unvouched, a claim made in the same pass gives the two clubs an opponent in common, the
+next pass's refile files the row back on that, the claim is released, and the tidy runs its six
+passes. The stand-in share and the model sweep's stand-in mode have not been read again on the real
+copy since.
+
 A row the owner said is against a club is kept apart from all of that (`ScoutGame.namedByAvatar`).
 Same team as records the club on every row of a team known only by a name — a stand-in, a slot, one
 made by hand — that the user folds into a pulled club, since that is the user saying who played:
@@ -2030,6 +2100,17 @@ few words, the sentence the failing layer wrote, and a link to the team on
 GameChanger. **Download the list** writes the lot as a CSV, because a few
 hundred rows is spreadsheet work rather than something to scroll on a phone —
 the panel draws the first two hundred and the file has them all.
+
+**Played against a stand-in.** **Check the pool** in Pool health counts the slots
+and the clubs known only by name, and the results against them (`poolHealth`), and
+says the share the owner tracks with exactly what it counts: of the pool's played
+games, every squad year together, those with a club on one side and a slot or a
+club known only by name on the other. The tile of slots alone is **TBD slots**; it
+said "Stand-ins" until 31 October 2026, though it counted slots only, beside a
+count of results against a stand-in that counted both. The nightly's share is
+not this one: it is the stand-in report's, of one squad year's stored games with a
+stand-in on either side ("The nightly refresh on GitHub"), so a game between two
+stand-ins counts there and not here, and here every year counts.
 
 **One squad on GameChanger twice.** **Check the pool** in Pool health also lists pairs of pulled
 clubs that post the same games: at least two against the same opponent at the same minute with the
@@ -2516,8 +2597,16 @@ the owner clears on a club's panel stays clear: the club is marked so (`ScoutTea
 the data schema from 3), or the next tidy would fill it back in. A row a
 name filed onto a pulled club whose own schedule has none is taken off it onto
 a stand-in of the name, as **A name is checked against the club's own schedule** sets out; two ids are one
-squad only when their _own_ schedules filed the same fixture, at one level, in
-one state, under one listing name; and two clubs' copies of one game are one game as
+squad only when their _own_ schedules filed the same fixture against one third pulled club, read by its
+id, at one level, in one state, under one listing name, and never where the owner has said the two are
+two clubs, nor where two squads folding into a third in one pass could not be one club themselves (tidy
+rules 37: a TBD reads as one name wherever it is written, so two squads of one name that each beat a TBD
+5-3 on one day, hours apart, were folded into one club, the owner's answer unread; a stand-in's name is
+as many teams as wrote it, and so is a pulled club's, so two that each beat a different pulled club of
+one name were folded the same way; and the two squads' own tie with each other read the same from
+either side, and made one club that played itself; a fold made before stays, since the tidy folds and
+never splits, so such a pair is one club until the owner unlinks the id); and two clubs' copies of
+one game are one game as
 **One game on two clubs' schedules** sets out, kept once with the other side's score
 noted where they disagree — as is every game above that two coaches scored apart at one
 start time (on the stand-in fixtures export of 22 September 2026, 265 games joined, 479
@@ -4406,6 +4495,21 @@ settings travel in a shared link, and a parent's team is not the coach's they se
 the standings to. It is not in a backup either, for the same reason. It goes with its season,
 so a season made under a deleted one's id follows no team until one is picked there.
 
+The move is said only where it is two points or more (`GOLD_MOVE_SHOWN`), and the trend's last two
+points are drawn paired (`buildTrendStates`): from the last one's seed, each game from a stream of
+its own keyed to the season and the game (`gameStream`), every season played, so the two runs draw
+alike every game they share and their difference is what the result did. Each point drawn from its
+own seed, the step was two runs' worth of chance: on 40 synthetic eight-team leagues, measured
+against 24,000 seasons a point, it was 1.6 points out where a team not in the game truly moved 0.9,
+and 26 of the 235 moves shown went the wrong way. Paired, it is 0.66 out, and of the moves of two
+points or more none went the wrong way. One seed on one stream was not enough (1.43): the point
+before the result has that game still to play, and every draw after it moved. Every game of a paired
+run makes the tie draw, in a league that has had no tie too (`SeasonDraws.tieAlwaysDrawn`): the
+point before a league's first tie has no share of ties to draw at, made a draw fewer each game than
+the point after, and the step on that result was two runs' chance again: from seed to seed on four
+synthetic leagues it spread 2.27 points, where on a win it spread 0.85; drawn every game, 1.05
+(0.87 on a win). Only those two points moved; the six before them are as they were to the digit.
+
 When the team is linked to a Team Rankings club, the card also gives the club's place
 on its board — "37th of 1,812 nationally (▲3) · top 3% · 4th of 160 in OH · 9U 2027 ·
 Fall 2026, as of 9/27". League Standings cannot rank a club itself, since a board is a fit
@@ -4450,15 +4554,39 @@ list and is not shown. The lists a phone reads carry it to the minute: a club ca
 a page's Games list as `times` beside its games (so a reader from before them still takes each
 game's seven fields), both in whole minutes since 1970. A card's game is found for an edit by
 everything else it shows (`cardFixture`), so a card from before the start, or one carrying it in
-its own form, still names the stored game.
+its own form, still names the stored game. A League Standings game comes in with the start its
+season keeps (`deriveLeagueScoutGames`), and a league's scored game kept in place of a pulled copy
+of it takes the copy's start where it has none (`dedupeLeagueFixtures`): the copies giving its
+score, read from either seat with who won kept, all at one minute, and no other league game of
+that day between the two having that score, since two games of one score are not told apart by
+it, whether one game's copy is in the pool or both. A club's own copy filed against a slot ("TBD-
+09/25/26, 7:15 PM", `leagueCopiesFiledAgainstNobody`) gives the league's game it folds into its
+start the same way. Both came in untimed, so a league doubleheader was listed second game first
+and the later game named as next. No rating reads a start. The Weekly's streaks do, reading a
+club's games in playing order, but the seeded fixture's whole boards with every league game timed,
+the Weekly's included, are its boards with none, to the digit (`leagueStartsBoards.test.ts`).
 
 League Standings keeps each game's start too (`Matchup.startTs`, data schema 9): from a start's
 draft (Team Rankings clubs or a GameChanger organization), on a game Fill adds, and on every game
-Fill matches that has none (`startsFromFill`; a start changes no score, so it is given whether or
-not the score is ticked). The Schedule, the Dashboard's upcoming games, the Playoff machine and
-each team's next game go by day and then start, and the Schedule and the Dashboard show the start
-in the device's own time ("5/3 · 10:30 AM"). The forecast's own order of the games left is not
-changed, so no odds move. A game typed in has no start and is listed after the day's timed games.
+Fill matches that has none, or has one on another day both than its date and than the pool game's
+start, read in the device's time (`startsFromFill`; a start changes no score, so it is given
+whether or not the score is ticked). In the league's own zone the two readings are one. Further
+east either alone takes a start of the game's own day for another's: against the date, a
+morning's in the Americas, the next day in Sydney; against the pool's start, one of two starts
+hours apart, which fall on two days in Tokyo. So a start either reading puts on the game's day is
+kept (`leagueGameTimes.test.ts` reads Fill's starts in nine zones, Los Angeles to Auckland, and a
+start left from the evening before where the league plays). A start is its day's: a game given
+another day in the Schedule lets go of its start, and one Fill moves to the day it was played
+takes the pool game's start, or none (`movesToApply`). Kept, the moved game showed the old day's
+time and was listed by it among the new day's games, and Fill never gave it another. The
+Schedule, the Dashboard's upcoming games, the Playoff machine, each team's next game and the
+Forecast's notes that name one ("Eliminated if the Bears beat them next", and the rival's game a
+team needs help from, `clinchingPaths.ts`) go by day and then start (`inPlayingOrder`, which
+breaks a day's tie by start since 31 October 2026; the notes read the schedule's stored order
+until then, a round robin's pairings, its dates typed in after), and the Schedule and the
+Dashboard show the start in the device's own time ("5/3 · 10:30 AM"). The forecast's own order of
+the games left is not changed, so no odds move. A game typed in has no start and is listed after
+the day's timed games.
 
 ## A season's team list, then its schedule
 
@@ -4488,15 +4616,27 @@ where the first team is; rows laid out in cells, as a spreadsheet or a calendar 
 (`4/10/2027,9:00 AM,Falcons @ Wolves,Field 1`), the game read from its own cell and a place or a
 game number left out; and a table with no header, read away then home and marked as a guess. A line
 that is only a date, or a date with a start time ("Sat 4/12 9:00 AM"), dates the games under it;
-start times, "9 AM" as well as "9:00 AM", and fields are passed over, and a score at the end of a
-line is read in the order the teams were written, unless both names end alike ("Falcons 9-10 @
-Wolves 9-10"), which is an age span. A line with two markers, a TBD side, a game cancelled, rained
-out, postponed or suspended, or a day no calendar has ("Apr 31", never rolled on to May 1) is listed
-as left out rather than guessed at. A date with no year is placed in the year the paste wrote (on
-the date, in a heading, or in a title such as "Spring 2027 Schedule"), else in the squad year the
-season is filed under in Team Rankings, else the one its name says ("Fall 2026" is squad year 2027,
-and "2026 Fall - 2027 Spring" is 2027, `seasonNames.ts`), else the one being played today, with
-August to December in the year before.
+start times and fields are passed over: "9 AM" as well as "9:00 AM", a range ("9:00-11:00 AM",
+"9-11 AM"; a range of bare hours only with its AM or PM, since "9-11" alone is as likely a score or a
+day, and a day at the front of a line is passed over for a range only in that shape, so "4/12 Am
+Comets" is still on 4/12), a US time zone after the time ("6:30 PM EDT", "7 PM (CT)"), "Noon", and
+"TBA" for a start not set yet, which a site printing the zone had made "EDT Falcons" of every away
+team. A zone is read in capitals only, as sites print one: read in any case, a town's short form
+after a time came off the team's name, "6:30 PM Mt Comets" a team "Comets". A score at the end
+of a line is read in the order the teams were written, unless both names end alike ("Falcons 9-10 @
+Wolves 9-10"), which is an age span; so is one written beside each side ("Falcons 7 @ Wolves 5"),
+where both sides end in a number, the names left are two names and the numbers differ: "Team 1 @
+Team 2" is two squads of one name, and "Cubs 10 @ Reds 10" a number written on each, while "Falcons
+0 @ Wolves 0" is a 0-0, as nothing else can be. A line with no comma past its day is split at its
+bars, as sites print "Sat Apr 12 | 9:00 AM | Falcons @ Wolves | Riverside Park", and read as cells,
+the place left out; a CSV's cells are its commas, so a bar there stays in a name, and a line with no
+cell wholly a day, a time or a field is read whole, "Aces | Blue @ Wolves" included. A line with two
+markers, a TBD side, a game cancelled, rained out, postponed or suspended, or a day no calendar has
+("Apr 31", never rolled on to May 1) is listed as left out rather than guessed at. A date with no
+year is placed in the year the paste wrote (on the date, in a heading, or in a title such as "Spring
+2027 Schedule"), else in the squad year the season is filed under in Team Rankings, else the one its
+name says ("Fall 2026" is squad year 2027, and "2026 Fall - 2027 Spring" is 2027, `seasonNames.ts`),
+else the one being played today, with August to December in the year before.
 
 Every game is looked over before anything is added, with a Swap on each row; on a phone each game is
 a small block, its sides one under the other, so the Swap is on screen. Names are told apart as the
@@ -4660,17 +4800,29 @@ turned down); each result since, with the chance the team was given while the ga
 play; the upset of the stretch, the new final whose winner had been given the least chance, under
 one in two; and who passed the team and whom it passed. With no team followed it gives the new
 results' count, the upset and the biggest climb. The card stands in the list's place while it is
-up, and **Got it** puts both away.
+up, and **Got it** puts both away as they stood when the card came up: the card is what the season
+had come to as it was worked out, and stays so while it is up. What another device changed after
+that is listed once the card is put away (`seenAsListed`), and the next visit's card tells what
+moved since it came up. Got it used to keep the season as it stood at the press, so a final that
+arrived while the card was up was taken as seen, and neither the card nor the list ever told it.
 
 - **A look, one per season, on this device only** (`lf_last_look_v1_<season>`): each team's place
   and Gold odds, the games final, and the chance each game still to play was given, which nothing
   else keeps once the game is final. The first visit only keeps one; later, a look an hour old or
-  more is compared with, and kept again at **Got it**, or at once when nothing a person would want
-  told moved (no new final, no place changed, the Gold odds within a point). Left without Got it,
-  the card is there the next time.
+  more is compared with, and the look the card was worked out from is kept at **Got it**, or at
+  once when nothing a person would want told moved (no new final, no place changed, the Gold odds
+  within a point). Left without Got it, the card is there the next time.
+- **One season's, by the moment it was made.** The look is kept apart from what goes with its
+  season ([Data + persistence](#data--persistence)), and keeps when its season was made
+  (`createdAt`, read in the card's own file, so the first download carries none of it): a look of
+  a season made at another moment than the one now under its id (a deleted season's, or this
+  device's before a restore or a cloud merge put another under the id) is no look, and the season
+  starts afresh.
+  Compared with it, every final of the season now under the id was told as new. A look kept before
+  looks said so reads as the season's.
 - **Taken once the forecast describes the season:** while the Gold odds are still being worked
   out after the latest scores, a look would keep the odds from before them.
-- **Fetched as the Dashboard opens**, a file of its own (3.4 KB with the pieces it shares with
+- **Fetched as the Dashboard opens**, a file of its own (3.5 KB with the pieces it shares with
   Team Rankings' My Team card), so the Dashboard's own load and the first download carry only its
   place. Nothing is read from or written to the cloud.
 
@@ -4736,17 +4888,33 @@ subscription and sending to it, which the app does not have.
   lets go of what was kept of it. The page reads the team followed and the findings put aside
   again for each season it opens, told apart by id and the moment it was made, so neither a
   switch back to an id nor a restore that puts another season under the open one shows what
-  was kept of the season before.
+  was kept of the season before. The Dashboard's big card keeps its look of a season under a key
+  of its own (`lf_last_look_v1_<season>`), which none of this clears or moves: the look says when
+  its season was made, and one of a season made at another moment is read as none ([Since you last
+  looked](#since-you-last-looked)), so a season moved by a merge starts that card afresh.
 - League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose, and with `GROQ_API_KEY` Groq does when Gemini cannot; see [AI league story](#ai-league-story). No key is required for the app to work.
+- **A score is written half a second after the last keystroke**, and at once if the page moves
+  on first: another season opened, the page hidden or closed, or the turn given to another tab
+  (below). It goes into the season it was typed in, written before a switch moves the season saves
+  go into, and only the games changed are written, over what storage holds then
+  (`mergeHeldScores`). A score typed in that half second was lost with the switch or the page.
 - **One tab writes League Standings** (`tabTurn.ts`, the owner's choice of 26 October 2026).
   Every tab saves whole seasons from what it read when it opened, into the season storage names
   active, so two tabs of one browser, or a tab and the installed app, undid each other's scores,
   and a season switched in one moved where the other saved. The tabs now ask each other on a
   `BroadcastChannel` as each opens: the tab opened later is read-only, says "Open in another tab"
   over League Standings with **Use here**, and storage refuses every League write it makes, a
-  switch of season included (the cloud copy's own arriving is still laid in). Making, copying and
+  switch of season included (the cloud copy's own arriving is still laid in). League kept live
+  runs there too, so the season on screen follows what other devices send, but the tab keeps
+  nothing of the season's document that storage did not take (`leagueSync.ts`): kept regardless,
+  as it was, the base was ahead of storage, and the next tab to open the season read every game
+  and score sent meanwhile as deleted here, and erased them from the cloud. Nor do its refused
+  saves say storage is full, as they did at each arrival: the banner says why. Making, copying and
   deleting a season are refused before they start, with the same words: a delete goes to the
-  cloud's copy first, which storage refusing afterwards could not undo. A tab answers a hello to
+  cloud's copy first, which storage refusing afterwards could not undo. A label another device
+  changed renames the season in the switcher there only once a tab that writes has renamed it:
+  refused, the rename is asked again when a name changes, not each time the list is read again,
+  which had asked for ever (`renameSeason` says whether the list took it). A tab answers a hello to
   the tab that said it alone, so an answer heard by a third tab never makes that one give way.
   Use here first asks the writing tab for the turn: it writes what it still owes storage (a score
   App holds half a second before saving), goes read-only and says so to the tab that asked, which
@@ -4765,7 +4933,8 @@ subscription and sending to it, which the app does not have.
   turn (with several opened together, the turn taken would be the one given way to first). Two
   tabs holding a score for the same game keep the one written last. Storage asks the small registry
   in `tabTurn.ts`. Held by
-  `tabTurn.test.ts`, the storage test and `e2e/tabs.spec.ts`, which opens two real tabs.
+  `tabTurn.test.ts`, the storage test, `leagueSyncStorage.test.ts` and `e2e/tabs.spec.ts`, which
+  opens two real tabs.
 - What the last full restore replaced is kept on this device until the next restore
   (`league_forecast_replaced_backup_v1`, in the pool's IndexedDB store beside the saved board, and
   never read as the pool or sent to the cloud), and Settings' Data card offers it as "Download
@@ -4802,7 +4971,11 @@ IndexedDB is asynchronous and this app reads its pool during render, so the pool
 is read into memory once before anything mounts and the synchronous reads stay
 synchronous; writes go out behind them, coalesced per key. A write is therefore
 reported as _accepted_ rather than as landed, and one that later fails surfaces
-as a toast, which is the only thing left that can still say so.
+as a toast, which is the only thing left that can still say so. The other tabs
+are told of each key as it is accepted and again once it has landed, and read it
+again each time (`poolSync.ts`): told only as it was accepted, a tab read the later
+keys of a save before they had reached the store, kept their old values, and with
+its next save wrote those back over the other tab's work.
 
 A member's device is the exception. It opens on the cloud's board and on League
 Standings kept live, neither of which reads the pool, and a phone that held a pool
@@ -5604,7 +5777,8 @@ two catch-ups sent beside a 9,270-team pull waited behind it, and a leg took 199
 to 379 s. A job's own legs are never at once, since each queues the next as it
 ends; legs of two jobs that save together cost the later one a second filing onto
 the copy as the other left it, never a lost save. Each leg runs in a worker thread capped at 5,120 MB of heap, which
-leaves the rest of the 8 GiB for the bytes a heap does not count. A heap failure is
+leaves the rest of the 8 GiB for the bytes a heap does not count; on GitHub, where
+the legs run now, 12,288 MB of its 16 GB ("Pulls on GitHub", `legHeapMb`). A heap failure is
 reported by the worker; total instance memory still has its own limit. The worker
 has a 29-minute-30-second request budget inside the task's 30 minutes, including
 startup, and the parent waits for it
@@ -5859,6 +6033,15 @@ functions' logs did, the cloud's own words, counts and timings. Those lines are
 in **Actions → Pull in the cloud** rather than Google's logs, so the "Pulls in
 the cloud" status workflow, which reads Google's, sees the jobs but not them.
 
+A run on GitHub has the nightly's 16 GB, and gets the nightly's heap: 12,288 MB
+for the boards' publish, which had 6,144 sized for the 8 GiB of the Cloud Run
+job it replaces, and for a leg's worker, which the workflow says by
+`PULL_LEG_HEAP_MB` (`legHeapMb`); a leg on Cloud Run, which sets none, keeps
+5,120 of its 8 GiB. Each says at its end what it held then and at most, as the
+nightly does (`boards-memory`, `leg-memory`, in megabytes): neither said anything
+of its memory before. The closest measured case, the catch-up's publish of 16
+October 2026, ended at 3,787.5 MB.
+
 It starts within a minute or so of the press, where a task started in seconds.
 Without the token every launch goes to Google as before, but the deploy refuses
 to run unless the `GOOGLE_JOBS` variable is set to `on`. An emptied secret would
@@ -5889,8 +6072,9 @@ secret, and a deploy, puts them back.
 
 Where the pulls are on GitHub, so are the boards after a save. A save the boards
 read, an edit or a League Standings score, no longer asks for a rebuild on Google
-(`rebuildsRun`): the rebuilds' 8 GiB job (`ranking-rebuild`) was October 2026's
-largest metered use, 113,966 GiB-s and 49,543 vCPU-s. Each save queues its check
+(`rebuildsRun`): the rebuilds' ledger counted October 2026's largest metered use,
+113,966 GiB-s and 49,543 vCPU-s, the 8 GiB job's (`ranking-rebuild`) and, until
+16 October, the edits' and the questions' charged with it. Each save queues its check
 of the boards instead, counting on no rebuild ("Boards published after an edit"),
 and the check starts the boards' publish, which runs on GitHub. So does a save
 that moves nothing a board reads, a Pool health answer or a season renamed: the
@@ -6014,6 +6198,39 @@ that finds nothing new writes nothing. A leg of Refresh now sweeps as the nightl
 does; a leg of a pasted list never does, and a pasted list with nothing new to
 pull writes nothing at all, so the night's refresh sweeps what the lists filed.
 
+The log says what the tidy changed, a line for each step that changed anything,
+in the tidy's own words (`describeTidy`), under how many passes it took, or that
+it changed nothing; then the clubs the 40-run rule deleted and the games that went
+with them, and beside that line the marks of clubs plainly made up the sweep put
+on and still stand, and those it lifted, by GameChanger team
+(`nightlyReport.ts`). A club the rule deletes loses its mark with it, so it is
+counted once, on the deletion's line. The run hands back the tidy's counts, never
+the pool it tidied, so nothing that names a club can reach the log. A night with
+nothing to pull runs no tidy and says none.
+
+Then, when the store holds a copy, as the views need it to, how much of the squad
+year being played leans on a stand-in (`storedStandInLines`): of every game stored
+for the year, the share with a club known only by name or a bracket slot on a
+side, and the same of its played games, then the clubs known only by name by
+where a pulled club of the name is and by why none was joined. The numbers and
+their words are the model sweep's stand-in report (`standInReport`,
+`standInShareLines`, `standInWhyLines`), which the model sweep now says through
+the same functions, its output the same to the character on the seeded fixture.
+It reads the stored pool, as the stand-in rule's readings of 28 October 2026 did
+(28.4% of the year, 25.1% of its played games, "Placeholders"), not the boards'
+pool the model sweep's own report reads, which adds League Standings' games and
+leaves out the clubs taken off. The report's lists of the clubs holding the most
+games are never asked for, and a count that fails says so on its own line and
+leaves the night's colour alone.
+
+The memory the run holds is said after each step as the next begins
+(`stageMemory`, `memoryUse.ts`): after loading the copy, asking GameChanger,
+filing, tidying and sweeping, saving, publishing the views and, on the night it
+runs, the week's re-measure, each with the most the process has held so far
+(Node's `maxRSS`), then once more at the end as before. It was said only at the
+end, which held 7,588.7 MB at most on 30 October 2026 against a heap of 12,288,
+and a night that ran out would have said nothing of which step took it there.
+
 What it replaces it keeps, as an earlier version of the copy: the cloud panel's
 **Earlier versions** lists it, and **Bring back** undoes a bad night on every
 device. Six are kept, for 30 days at most.
@@ -6077,10 +6294,16 @@ pages, three halves each) in 5 s, after a 95 s pull. Their first publish would
 have been 30 uploads, 3.2 MB gzipped, and a 13.1 KB meta, and the run, pull and
 boards together, peaked at 4.1 GB of the runner's 16.
 
-It runs every night at 04:17 UTC, which is 12:17 in the morning Eastern in summer
-and 11:17 at night in winter. It used to be set for 07:17, and GitHub started it about
-seven hours late (between 14:09 and 14:33 UTC on 6 to 9 October 2026), so it was moved
-three hours earlier; a scheduled run starts when GitHub gets to it. A run by hand is **Actions → Nightly refresh → Run
+It is set for 04:17 UTC every night, which is 12:17 in the morning Eastern in summer
+and 11:17 at night in winter, but a scheduled run starts when GitHub gets to it, and
+GitHub starts this one four to six and a half hours late: between 08:32 and 10:52 UTC
+on 16 to 30 October 2026, about 4:30 to 6:50 in the morning Eastern, every run of
+them green and none dropped, so last night's games reach the boards around seven in
+the morning. Set for 07:17 it began between 14:09 and 14:33 UTC on 6 to 9 October, so
+moving it three hours earlier moved the start and not the lateness. The schedule is
+left as it is: a run that started on time, before midnight Eastern in winter, would
+miss the late West Coast games the late start catches, and each save's boards go
+out within minutes anyway ("Boards after saves on GitHub"). A run by hand is **Actions → Nightly refresh → Run
 workflow**, with `dry-run` (everything but the save, and what the save would
 have been) or `live`, and a limit of teams for a trial. The log carries counts,
 sizes and timings only, since this repository's Actions logs are public. A night
@@ -6097,11 +6320,26 @@ of them failed and the GiB-seconds they spent against the day's cap; the same of
 the last day before it that had a run, since the nightly runs a few hours into a
 New York day and a save just after midnight, or a day of refusals at a cap,
 moves the ledger on; the month's runs, failures, GiB-seconds and vCPU-seconds
-against its caps; then the failures in a row, a pause, and a run reserved and
+against its caps; the edits' own month; the questions the server spent compute on
+and left unanswered, on the ledger's day and the last day before it that had any,
+where there were some ("Questions to the cloud are going unanswered" raises its
+alarm past 20 a day); then the failures in a row, a pause, and a run reserved and
 not yet settled. A ledger that cannot be read says so on its own line and leaves
 the night's colour alone, as do failed rebuilds: they are not the refresh's
 work. This is what tells whether a week of dry runs went well before `mode` is
 set to `live`.
+
+Where the pulls run on GitHub (the workflow tells it whether the dispatch token is
+set, `PULLS_ON_GITHUB`), no rebuild runs on Google, so a deferral of the rebuild
+job is said as the boards' publish on GitHub having taken their place, which
+publishes each save, and no save waiting for the date. Until 31 October 2026 the
+line said of the deferral to 1 November "saves wait for then, or for a cap raised
+in ops/rebuild", though no rebuild had run on Google since 13 October, and the
+month's totals that deferred it were mostly the edits' and the questions' compute,
+charged to the rebuilds until 16 October: at least 34,964 of the 49,543
+vCPU-seconds, since the ledger's runs stood at 34 from 13 to 15 October while its
+vCPU-seconds went from 14,566 to 49,530. What if and Model check, refused while the
+month reads as spent, come back with the month. The caps are as they were.
 
 ### Boards published when a pull ends
 
@@ -6217,11 +6455,13 @@ failing, or deferred to a later month by their budget (as they were from 14
 October 2026, October's spent, until 1 November), a save reached the boards only
 with the nightly, which GitHub starts hours late. A pull's end and an edit's
 check now publish in those times ("Boards published when a pull ends", "Boards
-published after an edit"); a publish that failed still waits for this. So every
-half hour one of
+published after an edit"); a publish that failed still waits for this. So one of
 GitHub's servers looks (`.github/workflows/catch-up.yml`, `scripts/catchUp.ts`,
 `npm run catch-up`), and publishes the boards where they are behind the copy and
-nothing else is about to. Its rules are `catchUp.ts`'s, kept out of the script so
+nothing else is about to. It is set for every half hour, and GitHub runs it four
+to eight times a day, two to eight hours apart (16 to 30 October 2026); on each of
+those days the first run after 04:17 UTC came before the nightly, three hours
+before it on average. Its rules are `catchUp.ts`'s, kept out of the script so
 they are tested.
 
 It reads three things: the copy's manifest, with when Firestore last wrote it;
@@ -6282,8 +6522,8 @@ nightly's group, where a run joining every half hour would cancel a night
 waiting behind one. A publish that fails as the nightly's would
 (`publishFailedRun`) turns the run red, which GitHub emails about; a copy or a
 season saved during the run does not, and the next run publishes. It raises no
-issue of its own ("When a run fails"): the next run tries again within the half
-hour, and a night that fails raises its own. A run by hand is **Actions → Boards
+issue of its own ("When a run fails"): the next run tries again, within hours as
+GitHub runs it, and a night that fails raises its own. A run by hand is **Actions → Boards
 catch-up → Run workflow**.
 
 ### When a run fails
@@ -6360,6 +6600,14 @@ would have done"):
   gives each year's numbers. The copy stays as it was, its views unpublished, for a person to
   look at what GameChanger answered. The next night that saves, or has nothing to save, closes
   it. A pull a person starts saves what it files: the cap is the unattended night's.
+  The games that go with a club the owner's 40-run rule deletes (below, `lopsidedDrops`) do not
+  count toward the games' line, since that is the rule at work and not an answer gone wrong; the
+  clubs themselves still count toward the clubs' line, so a sweep gone wrong is still held. Lists,
+  the miner's hand-offs among them, never sweep, so the nightly meets every year they bring in
+  first: on 31 October 2026 it held its save, night after night, for the 1,646 of 2026's 16,036
+  games the rule's 40 deletions in that year took with them (a research read that day found the
+  tidy alone took nothing, and the rule 53 clubs across every year, all pulled). The night's log
+  says how many clubs the rule deleted and how many games went with them, counts only.
 - **The nightly's answers stopped reading as schedules** (`ingestCanary.ts`): of the games
   GameChanger listed that night, fewer than half could be filed, out of 500 or more. A cancelled
   game, or one with no date, is a few in a hundred; a change in how GameChanger writes a game
@@ -6375,6 +6623,20 @@ The two before them are read by their own step before the alarm (`scripts/upkeep
 whatever became of the refresh, which hands each as a word (`billing=on` or `off`,
 `dispatch=fine`, `refused` or `expires` and a day); it never fails the run, and it
 prints neither the key nor the token.
+
+And one on the cloud's questions, the owner's of 31 October 2026:
+
+- **Questions to the cloud are going unanswered** (`unansweredWord`): the nightly, dry or live,
+  read the ledger it already reads for the rebuilds and found more than 20 questions in a New York
+  day that the server spent compute on and could not answer (`dayUnanswered`, counted in the
+  write that charges each, "Rebuilds after saves" below), on the nightly's day or the day before:
+  the day before is kept as `lastUnanswered`, since a question charged after midnight moves the
+  ledger on before the nightly reads it. A device asks such a question again on its own at most
+  three times a season a day (`useScoutBridge`), so that many is a server that cannot answer, a
+  worker out of memory say, and not one member's bad minute. It says the day and the count, handed
+  over as `unanswered=over` with them, or `fine`. The first nightly to find neither day past 20
+  closes it; a ledger not read, or not one this build reads, leaves it as it is, and a day before
+  the day before was judged by the nightly after it.
 
 An issue is public, as the repository is, so it says when (UTC, to the minute),
 what failed in a word or two, and the run's link, and nothing from the log. The
@@ -6597,7 +6859,10 @@ feature ideas that day, and says more of the week than the moves (`theWeekly.ts`
 - the game of the week ahead: of the games still to play in the next seven days between two
   clubs of the board's top 50, the one whose odds are nearest even, the higher pair on a tie;
 - the winning streaks still running, five wins or more, the three longest: each club's games
-  of the board's half that count, read back from its latest until one it did not win;
+  of the board's half that count, in playing order as its form line reads them (`byGameTime`, a
+  game with no start after the day's timed ones; its own sort put that game first, and a day's
+  second game listed with no time cut the run after it short), read back from its latest until
+  one it did not win;
 - the page's own club's week: its record in the week's games that count, on any page of its
   rating pool, and its best win by the beaten club's place.
 
@@ -6837,6 +7102,20 @@ Readers fetch while a server writes, so publishing keeps four rules
   build of the replaced copy is held all the same while the meta still knows
   that copy.
 
+A publish counts every view it built once, family by family (`FamilyCounts`):
+**sent**, its JSON uploaded by this publish; **reused**, written from an upload
+the meta already names, of the same JSON, under a new version, another copy or
+another key, with nothing sent; **unchanged**, the same JSON from the same copy
+and version, which only a republish at the same version finds; or **refused as
+older**, a late publish's. A night that saves moves the version, so every view
+its save did not change is reused rather than unchanged: the nightly of 30
+October 2026 built 109 views and said 86 uploaded and 0 unchanged, the 23 it
+reused in no count. The log of each server that publishes (`viewsReport.ts`)
+now says the reused beside the uploads, and the four counts by family (boards,
+buckets of club cards, Find a team lists, Games lists), so a night shows which
+kinds of view it changed. Uploads and views differ where two views share one
+JSON: the seeded fixture's 33 boards went up on 29 uploads.
+
 The shape of the views has a number (`LIVE_SCHEMA`): 2 since the rows gained their
 clubs' towns, states and badges, the boards last week's places and their page's
 own club's rank line, and the meta its pages' counts; 3 since each League
@@ -7045,7 +7324,20 @@ October 2026 it went into the rebuilds' totals: a Setup question the server gave
 again and again by the device for a day, each try a cold load of the whole pool on an 8 GiB
 instance, and October's vCPU-seconds passed their cap with no rebuild run, so every save waited
 for the first of November. An edit is never refused for its caps; past them only the questions
-that refit a year are (`capsSpent`). October's totals were left as they stood, which keeps the
+that refit a year are (`capsSpent`). Every question's charge already reads the ledger and writes
+it back, and two things ride on that one read and write, with none of their own. Its reply says
+the edits' month as the charge left the ledger, the New York month and whether either of its
+totals is at its cap (`editMonth`, `editMonthOf`), and an unanswered question's error says the
+same in its details: League Standings makes no timer retry of its bridge question while that
+month is spent, until New York's month turns ("What Team Rankings has, asked of the server", in
+"League Standings in the cloud" below), and nothing a person asks is refused for it. A charge the ledger was slow to take (five seconds), or
+could not take, says nothing, which a device reads as not known, as it reads a reply from a
+server before this. And a question the server spent compute on and left unanswered, a worker out
+of memory say, is counted for its New York day (`dayUnanswered`, emptied on a new day as the
+day's totals are, the last day before that had any kept as `lastUnanswered`), for the nightly's
+alarm ("When a run fails"). One turned away before its turn spent nothing, so its charge writes
+nothing, and counting it would be a write of its own: it is not counted, unless it was a new
+instance's first call, which is charged the instance's start-up all the same and so is counted. October's totals were left as they stood, which keeps the
 rebuilds deferred for the rest of that month: raising a cap in `ops/rebuild` lets the next save
 start one, since the launcher lifts a deferral whose budget has room again (`requestRebuildJob`).
 The nightly says the edits' month and, while the job is deferred, why (its budget, a run still going, or failures in a row) and until when; only a budget's deferral is lifted by a raised cap. A field set to
@@ -8164,9 +8456,13 @@ switch is gone, and `lf_live_league_v1` is no longer read.
   holds it, one before it does not, so a value changed and changed back before
   the first write came back is still sent, and nothing of this device's is taken
   for another device's change. The base is kept between visits, always after
-  the season itself is in storage, so a base never holds what storage does not:
-  a game deleted on another device while this one was closed stays deleted,
-  rather than coming back from this device's copy. A base is used only for the
+  the season itself is in storage and only once storage has taken it, so a base
+  never holds what storage does not: a game deleted on another device while this
+  one was closed stays deleted, rather than coming back from this device's copy.
+  A base that will not fit takes the one before it out with it, since that one is
+  older than the season storage has just taken, and a score corrected elsewhere
+  since read against it as one changed back here; with none, the next visit keeps
+  everything either side holds. A base is used only for the
   season it was kept for, one made at the same moment; a season made since under
   a deleted season's id is a season of its own. With no base, the first meeting
   keeps everything either side holds, the cloud's record winning where both hold
@@ -8291,9 +8587,25 @@ functions the device would run, over the cloud's pool):
   out is never thrown away for another about the same teams: a change noted
   meanwhile is asked about once its answer is in, and being shown anew asks
   nothing while one is out. An answer for teams or scores since changed is
-  dropped. A question unanswered is asked again after 5 s, 30 s, 2 minutes and
-  10 minutes, then every half hour until one is answered (every 2 minutes until 16 Oct 2026,
-  when a pool the server could not answer in time made each try a cold 8 GiB load). The last bridge for a season, the bridge alone
+  dropped. A question unanswered is asked again on a timer after 5 s, 30 s and 2
+  minutes, then after 10 minutes and every half hour, but the timer sends at most
+  three a season a New York day on the device (`RETRIES_A_DAY`, the day's count
+  kept under `lf_bridge_retries_v1` with its day, so a reload sends none of the
+  day's again, and held by the page where storage will not keep it); past them the
+  waits go on sending nothing, so the next day's three are made with nothing else
+  asking. A retry that falls due while the page is hidden is not sent then: being
+  shown sends it, in place of what being shown would ask, so the two never ask
+  twice, and a change that asks anew meanwhile drops it. And while the server's
+  replies say the edits' month is spent (`editMonth`, "Rebuilds after saves"),
+  answered or not, the timer sends none until New York's month turns or a reply
+  says it is not spent; a reply that says nothing of it, from a server before
+  this or a charge the ledger was slow to take, is not known and changes nothing.
+  The sign-in, coming online, the page shown anew and every change still ask as
+  they did, whatever the timer has sent. Until 31 October 2026 the half hour
+  repeated with no end, hidden or not: one page left open with a server that
+  could not answer sent 48 cold 8 GiB loads a day, about 23,000 GiB-seconds at a
+  minute each (the sweep's reckoning of 30 October 2026); and every 2 minutes
+  until 16 Oct 2026. The last bridge for a season, the bridge alone
   and never the clubs, about 2,400 characters, with the very question it answered
   as JSON (compared as written, since a reload holds no array of the visit before
   to compare by identity) and the copy, version, moment asked and rules it came
@@ -9526,7 +9838,10 @@ them, and changing the signed-in account discards its saved snapshot.
 Transient status reads and import starts reconnect automatically, with delays capped
 at 30 seconds and at most five tries again (`MAX_RECONNECTS`), after which the card says what
 went wrong and offers to try again. A question or a warm-up the server gave up on (`aborted`,
-or past its time) is not asked again on its own at all: each try is a cold load of the whole
-pool. Sign-in and permission refusals remain actionable. Unkeyed edits are
+or past its time) is not sent again by the call (`GAVE_UP`): each try is a cold load of the whole
+pool, and a card that asked one offers to ask again. League Standings' bridge question alone is
+asked again on its own, on a timer at most three times a season a New York day, never while the
+page is hidden, and never while the server says the edits' month is spent ("What Team Rankings
+has, asked of the server"). Sign-in and permission refusals remain actionable. Unkeyed edits are
 not blindly repeated after an uncertain save, because doing that could duplicate an
 edit. Import starts are safe to retry by their persistent job identity.

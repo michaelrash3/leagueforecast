@@ -72,6 +72,7 @@ import { NAMED_GAMES_MAX } from "../../lib/teamRankings/namedGames";
 import type { SeasonMeta } from "../../lib/storage";
 import { readLeagueClubRanks } from "../../lib/leagueClubRanks";
 import { readDefaultState, writeDefaultState } from "../../lib/preferences";
+import { readMyTeamLook } from "../../lib/myTeamLook";
 import {
   initTeamRankingsStore,
   resetTeamRankingsStore,
@@ -1362,6 +1363,74 @@ const pullOnDevice = async (watched: { failWatches: (error: unknown) => void }) 
   act(() => watched.failWatches({ code: "permission-denied" }));
   await Promise.resolve();
 };
+
+/*
+ * The My Team card's "Since you last looked" on the cloud's board, which draws the board this
+ * account kept first and the network's after it. The line decides on the board the network has
+ * vouched for (`checked`): deciding on the kept one, it said nothing of the club's climb, kept the
+ * old places as seen that day, and told the climb a visit late.
+ */
+describe("Since you last looked, on the cloud's board", () => {
+  const DAY = 24 * 3_600_000;
+  // Published overnight: the page's own club one place higher, at 5-1.
+  const CLIMBED = {
+    rows: [
+      row("S-2", 1, { state: "OH", league: true, record: "5-1", wins: 5, games: 6, rating: 6 }),
+      row("S-1", 2, { city: "Springfield", state: "OH" }),
+      row("S-3", 3, { state: "KY" }),
+    ],
+  };
+
+  it("decides on the network's board, not the one this account kept", async () => {
+    const user = userEvent.setup();
+    // Two days ago: the club second, 3-1, and the board kept on this device.
+    vi.setSystemTime(new Date(Date.now() - 2 * DAY));
+    const first = open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    await waitFor(() => expect(readMyTeamLook("S-2")).toMatchObject({ national: 2 }));
+    await waitFor(async () => expect(await sourcesOf(live).cache.meta("uid-1")).not.toBeNull());
+    first.unmount();
+    forgetDecodedBoards();
+    forgetLiveBoard();
+    const keptAt = readMyTeamLook("S-2")?.at;
+
+    // Today, the climb published, and the network slow to answer: the kept board is drawn first.
+    vi.setSystemTime(new Date(`${TODAY}T12:00:00`));
+    await publish(live, [
+      { key: `board:2027:${PAGE}:spring`, value: CLIMBED },
+      { key: `board:2027:${PAGE}:fall`, value: FALL },
+      { key: `board:2027:${PAGE}:year`, value: CLIMBED },
+    ]);
+    let answer = () => undefined as void;
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    const slow: LiveReader = {
+      ...readerOf(live),
+      readMeta: async () => {
+        await answered;
+        return (await live.store.readMeta())?.meta ?? null;
+      },
+    };
+    open(sourcesOf(live, { reader: async () => slow }));
+    const mine = await screen.findByRole("region", { name: "My team" });
+    expect(mine).toHaveTextContent("#2 of 3");
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(within(mine).queryByRole("region", { name: "Since you last looked" })).toBeNull();
+    // Nothing is kept from the board the network has not vouched for.
+    expect(readMyTeamLook("S-2")?.at).toBe(keptAt);
+
+    act(() => answer());
+    const since = await within(mine).findByRole("region", { name: "Since you last looked" });
+    expect(since).toHaveTextContent("2 days ago");
+    expect(since).toHaveTextContent("#2 nationally then, #1 now");
+    expect(since).toHaveTextContent("3-1 → 5-1");
+    expect(readMyTeamLook("S-2")?.at).toBe(keptAt);
+
+    await user.click(within(since).getByRole("button", { name: "Got it" }));
+    expect(readMyTeamLook("S-2")).toMatchObject({ national: 1, record: "5-1" });
+  });
+});
 
 describe("a club's panel on the cloud's board", () => {
   const CARD: ClubCard = {

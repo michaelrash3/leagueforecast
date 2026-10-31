@@ -22,6 +22,7 @@ import {
   vouchedByImport,
   type GcImportOutcome,
   type GcImportState,
+  type PoolTidy,
   type TidyWatcher,
 } from "../gameChangerImport";
 import { lastPulled, localDayKey, markRefreshed, type RefreshLog } from "../gameChangerSchedule";
@@ -46,6 +47,7 @@ import {
   initTeamRankingsStore,
   loadAgeGroups,
   loadAgeUnknown,
+  loadAutoRemoved,
   loadDeletedGames,
   loadDroppedClubs,
   loadKeptApart,
@@ -246,6 +248,24 @@ export type CloudPullResult = {
   manifest?: CloudManifest;
   /** Where the run ended `held`: each year the save would have taken too much of. */
   held?: YearRadius[];
+  /**
+   * What the sweep deleted under the owner's 40-run rule, counted: in the copy where the run saved,
+   * and what it would have deleted where it was held.
+   */
+  deleted?: { clubs: number; games: number };
+  /**
+   * The sweep's marks of clubs plainly made up ("Clubs removed for you"), by GameChanger team, as
+   * `deleted` is counted: those it put on that still stand, and those it lifted. A club the 40-run
+   * rule deleted is in neither, its mark gone with it, so the nightly says it once. Absent where it
+   * did neither.
+   */
+  marks?: MarkCounts;
+  /**
+   * What the tidy changed, step by step, and its passes (`describeTidy` says them): counts only,
+   * never the pool, the try that stood's as `deleted` is. Absent where no tidy ran: a night with
+   * nothing to pull sweeps alone.
+   */
+  tidy?: TidyCounts;
   /** How much of what GameChanger listed the filing could read (`ingestCanary.ts`). */
   ingest?: IngestReading;
 };
@@ -257,6 +277,12 @@ export type CloudPullResult = {
  */
 export const heardNothing = ({ asked, answered }: Pick<CloudPullResult, "asked" | "answered">) =>
   asked > 0 && answered === 0;
+
+/** A tidy's counts, step by step, without the pool it left (`PoolTidy`). */
+export type TidyCounts = Omit<PoolTidy, "state">;
+
+/** The marks a sweep put on that still stand, and those it lifted, by GameChanger team. */
+export type MarkCounts = { marked: number; lifted: number };
 
 /** Tries at saving onto a copy that keeps moving before giving up on it. */
 const MAX_TRIES = 3;
@@ -457,7 +483,22 @@ export const workOutRefresh = async (store: CloudStore, now: Date): Promise<Work
  * What a filing did with each schedule, and how many entries each schedule listed, read or not
  * (`rowIds`), at the same places, for the ingest canary (`ingestReading`).
  */
-type Filed = { outcomes: GcImportOutcome[]; rows?: readonly number[] };
+type Filed = {
+  outcomes: GcImportOutcome[];
+  rows?: readonly number[];
+  /** What the sweep deleted under the owner's 40-run rule: the clubs, and every game they were in. */
+  deleted?: Deleted;
+  /** The sweep's marks, put on and lifted (`MarkCounts`). */
+  marks?: MarkCounts;
+  /** What the tidy changed, where one ran (`TidyCounts`). */
+  tidy?: TidyCounts;
+};
+
+/** Clubs deleted for a game won or lost by 40 or more, and the games that went with them. */
+type Deleted = { clubs: string[]; games: string[] };
+
+/** What a sweep deleted, and what it did to the marks. */
+type Swept = { deleted: Deleted; marks: MarkCounts };
 
 /** The levels a run logs as refreshed once it has asked about every team, and on which day. */
 type Marking = {
@@ -497,7 +538,7 @@ const withRefreshed = (log: RefreshLog, mark: Marking, now: Date): RefreshLog =>
  * times the 11 October pool is to come in through pasted lists, leg after leg: each list leg is
  * kept as light as it can be, and the night's refresh sweeps what they filed.
  */
-const sweep = (pool: SweepPool, now: Date, spared: ReadonlySet<string>): void => {
+const sweep = (pool: SweepPool, now: Date, spared: ReadonlySet<string>): Swept => {
   const [before, after] = sweepStored(pool, todayIsoDay(now));
   if (after !== before && !saveAutoRemoved(after)) {
     throw new Error("The store in memory refused the clubs taken off as plainly made up.");
@@ -510,12 +551,38 @@ const sweep = (pool: SweepPool, now: Date, spared: ReadonlySet<string>): void =>
    * the tidy spares (`sparedByTidy`), so a night that could not read League deletes none, and a
    * club a season's pick leans on stays marked, on its boards, as before.
    */
-  for (const teamId of lopsidedDrops(after, loadScoutTeams(), spared)) {
+  const drops = lopsidedDrops(after, loadScoutTeams(), spared);
+  // The games each goes with, read before it goes, for the nightly's cap (`blastRadius`).
+  const gamesOf = new Map(drops.map((teamId) => [teamId, [] as string[]]));
+  for (const game of drops.length > 0 ? loadScoutGames() : []) {
+    gamesOf.get(game.teamAId)?.push(game.id);
+    if (game.teamBId !== game.teamAId) gamesOf.get(game.teamBId)?.push(game.id);
+  }
+  const clubs: string[] = [];
+  // A set, as a game two deleted clubs played is in both of theirs (Codex on #495).
+  const games = new Set<string>();
+  for (const teamId of drops) {
     const run = runPoolCommand({ kind: "club.drop", teamId });
     if (!run.ok && run.why !== "missing") {
       throw new Error("The store in memory refused a club deleted for a lopsided score.");
     }
+    if (!run.ok) continue;
+    clubs.push(teamId);
+    for (const game of gamesOf.get(teamId) ?? []) games.add(game);
   }
+  // The marks put on are those standing once the deletions are done, each deleted club's gone
+  // with it (`club.drop`), so a club the rule deleted is counted once, by `Deleted`; the marks
+  // lifted are the sweep's own, which a deletion never is.
+  const standing = loadAutoRemoved();
+  const marks = {
+    marked: [...standing.keys()].filter((gcId) => !before.has(gcId)).length,
+    lifted: [...before.keys()].filter((gcId) => !after.has(gcId)).length,
+  };
+  if (clubs.length === 0) return { deleted: { clubs, games: [] }, marks };
+  // Only the games the pool no longer holds: a game a namesake join put a deleted club into is
+  // stood back up against the stand-in it named, and stays (`club.drop`; Codex on #495).
+  const left = new Set(loadScoutGames().map((game) => game.id));
+  return { deleted: { clubs, games: [...games].filter((game) => !left.has(game)) }, marks };
 };
 
 /**
@@ -527,9 +594,9 @@ const sweeps = (job: CloudPullJob): boolean => job.kind === "rota";
 /** The sweep alone, for a refresh with nothing to pull: the pool as the copy holds it. */
 const sweepOnly = async (now: Date, league: LeagueRead): Promise<Filed> => {
   const pool = { ageGroups: loadAgeGroups(), teams: loadScoutTeams(), games: loadScoutGames() };
-  sweep(pool, now, sparedByTidy(pool, await league()));
+  const swept = sweep(pool, now, sparedByTidy(pool, await league()));
   if (!(await flushPoolWrites())) throw new Error("The store in memory refused the sweep's marks.");
-  return { outcomes: [] };
+  return { outcomes: [], ...swept };
 };
 
 /**
@@ -721,6 +788,9 @@ const fileScheduleSource = async (
     SHIPPED_TIDY_RULES,
     retiredWithPicks(loadRetiredIds(), seasons, importer.state.teams)
   );
+  // Its counts go back to the caller and the pool beside them does not: the nightly says the counts
+  // in a public log, and the pool names every club in it.
+  const { state: _tidied, ...tidied } = tidy;
   saveTidyStamp(poolSignature(tidy.state));
   const filed = tidyChangedAnything(tidy) ? tidy.state : importer.state;
   const kept = persistPool(filed, undefined);
@@ -728,12 +798,12 @@ const fileScheduleSource = async (
   const lists = settleRunLists(outcomes, now.toISOString(), invalidIds);
   if (lists.invented.length > 0) saveDroppedClubs(forgetClubs(loadDroppedClubs(), lists.invented));
   // On the pool as tidied, so a club the tidy folded or settled is judged as it now stands.
-  if (sweeps(job)) sweep(filed, now, sparedByTidy(filed, seasons));
+  const swept = sweeps(job) ? sweep(filed, now, sparedByTidy(filed, seasons)) : undefined;
   // Marked only when every team due was asked about: a run stopped half way has not refreshed them.
   if (mark && complete) saveRefreshLog(withRefreshed(loadRefreshLog(), mark, now));
   if (!(await flushPoolWrites())) throw new Error("The store in memory refused the pull's pool.");
   await onOutcomes?.(outcomes);
-  return { outcomes, rows };
+  return { outcomes, rows, ...swept, tidy: tidied };
 };
 
 /**
@@ -975,6 +1045,20 @@ const fileAndSave = async (
     } finally {
       onCloudPoolWrite(null);
     }
+    // This try's alone: a try whose save met another device's files again, and may delete none.
+    if (filed.deleted && filed.deleted.clubs.length > 0) {
+      result.deleted = { clubs: filed.deleted.clubs.length, games: filed.deleted.games.length };
+    } else {
+      delete result.deleted;
+    }
+    // Its marks and its tidy likewise, which filing onto another device's save may change.
+    if (filed.marks && (filed.marks.marked > 0 || filed.marks.lifted > 0)) {
+      result.marks = filed.marks;
+    } else {
+      delete result.marks;
+    }
+    if (filed.tidy) result.tidy = filed.tidy;
+    else delete result.tidy;
     result.filed = filed.outcomes.filter((outcome) => !outcome.skip).length;
     result.gamesAdded = filed.outcomes.reduce((sum, outcome) => sum + outcome.gamesAdded, 0);
     result.gamesUpdated = filed.outcomes.reduce((sum, outcome) => sum + outcome.gamesUpdated, 0);
@@ -993,10 +1077,14 @@ const fileAndSave = async (
     }
     if (before) {
       const held = pastTheLine(
-        blastRadius(before, {
-          games: new Set(loadScoutGames().map((game) => game.id)),
-          clubs: new Set(loadScoutTeams().map((team) => team.id)),
-        })
+        blastRadius(
+          before,
+          {
+            games: new Set(loadScoutGames().map((game) => game.id)),
+            clubs: new Set(loadScoutTeams().map((team) => team.id)),
+          },
+          new Set(filed.deleted?.games)
+        )
       );
       if (held.length > 0) return { ...result, end: "held", changed: [], held };
     }

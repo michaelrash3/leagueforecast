@@ -4,6 +4,7 @@ import {
   clinchingPathsForTeams,
   goldCutLineSnapshot,
 } from "../clinchingPaths";
+import { seasonDaysFromToday } from "../leagueFindings";
 import { DEFAULT_SETTINGS, type Matchup, type SwingGame, type TeamWithProjection } from "../types";
 
 const team = (
@@ -57,6 +58,8 @@ const swing = (overrides: Partial<SwingGame>): SwingGame => ({
 });
 
 const settings = { ...DEFAULT_SETTINGS, goldCutoff: 2 };
+/** Every game today's, for the tests a team's next game is not what they are about. */
+const allToday = () => 0;
 
 describe("clinchingPathForTeam", () => {
   it("summarizes clinched and eliminated teams plainly", () => {
@@ -68,6 +71,7 @@ describe("clinchingPathForTeam", () => {
         cutoff: 2,
         settings,
         swings: [],
+        daysFromToday: allToday,
       }).notes[0]
     ).toContain("clinched");
 
@@ -79,6 +83,7 @@ describe("clinchingPathForTeam", () => {
         cutoff: 2,
         settings,
         swings: [],
+        daysFromToday: allToday,
       }).notes[0]
     ).toContain("Eliminated");
   });
@@ -92,6 +97,7 @@ describe("clinchingPathForTeam", () => {
       settings,
       swings: [swing({ winSeed: 2, lossSeed: 4 })],
       exactLimit: 0,
+      daysFromToday: allToday,
     });
 
     expect(note.notes.join(" ")).toContain("win projects inside Gold");
@@ -115,9 +121,68 @@ describe("clinchingPathForTeam", () => {
       settings,
       swings: [],
       exactLimit: 0,
+      daysFromToday: allToday,
     });
 
     expect(note.notes.join(" ")).toContain("get help if");
+  });
+
+  /*
+   * A schedule stores its games in the order they were made: a round robin its pairings, dates
+   * typed in after. Read in that order, a bubble team was "Eliminated if Bears beat them next" with
+   * the Ducks to play two weeks before the Bears.
+   */
+  it("names the opponent a team plays next, by day and start, not the one stored first", () => {
+    const zeroTies = { ...settings, tiePoints: 0 };
+    const teams: TeamWithProjection[] = [
+      team({ id: "C", name: "Comets", w: 4, rank: 1, projectedRank: 1, goldStatus: "Clinched" }),
+      team({ id: "B", name: "Bears", w: 3, l: 1, rank: 2, projectedRank: 2, goldStatus: "In" }),
+      team({ id: "A", name: "Aces", w: 1, l: 1, rank: 3, projectedRank: 3 }),
+      team({ id: "D", name: "Ducks", l: 2, rank: 4, projectedRank: 4, goldStatus: "Eliminated" }),
+      team({ id: "E", name: "Eagles", l: 4, rank: 5, projectedRank: 5, goldStatus: "Eliminated" }),
+    ];
+    const remaining: Matchup[] = [
+      { id: "g1", date: "5/20", away: "A", home: "B" },
+      { id: "g2", date: "5/6", away: "A", home: "D" },
+    ];
+    const note = clinchingPathForTeam({
+      team: teams[2]!,
+      teams,
+      remaining,
+      cutoff: 2,
+      settings: zeroTies,
+      swings: [],
+      daysFromToday: seasonDaysFromToday(["5/6", "5/20"], new Date(2026, 4, 1)),
+    });
+    expect(note.notes).toContain("Eliminated if Ducks beat them next.");
+  });
+
+  it("points to a rival's next game for help, not the one stored first", () => {
+    const teams: TeamWithProjection[] = [
+      team({ id: "A", name: "Aces", rank: 3, projectedRank: 3 }),
+      team({ id: "B", name: "Bears", rank: 2, projectedRank: 2 }),
+      team({ id: "C", name: "Comets", rank: 1, projectedRank: 1 }),
+      team({ id: "D", name: "Ducks", rank: 4, projectedRank: 4 }),
+      team({ id: "E", name: "Eagles", rank: 5, projectedRank: 5 }),
+    ];
+    // The Bears play the Ducks a week after the Eagles, though the Ducks game was stored first;
+    // the Eagles game is the day's late one, behind a Comets game at noon.
+    const remaining: Matchup[] = [
+      { id: "g1", date: "5/13", away: "B", home: "D" },
+      { id: "g2", date: "5/6", away: "B", home: "E", startTs: "2026-05-06T23:00:00.000Z" },
+      { id: "g3", date: "5/6", away: "C", home: "B", startTs: "2026-05-06T17:00:00.000Z" },
+    ];
+    const note = clinchingPathForTeam({
+      team: teams[0]!,
+      teams,
+      remaining,
+      cutoff: 2,
+      settings,
+      swings: [],
+      exactLimit: 0,
+      daysFromToday: seasonDaysFromToday(["5/6", "5/13"], new Date(2026, 4, 1)),
+    });
+    expect(note.notes).toContain("Aces get help if Bears lose to Comets.");
   });
 
   it("suppresses projected swing possibilities once exact math eliminates a team", () => {
@@ -141,6 +206,7 @@ describe("clinchingPathForTeam", () => {
       settings,
       swings: [swing({ winSeed: 2, lossSeed: 4 })],
       exactLimit: 0,
+      daysFromToday: allToday,
     });
 
     expect(note.status).toBe("Eliminated");
@@ -165,6 +231,7 @@ describe("clinchingPathsForTeams", () => {
       {
         limit: 1,
         exactLimit: 0,
+        daysFromToday: allToday,
       }
     );
     expect(paths[0]?.teamId).toBe("B");
@@ -186,6 +253,7 @@ describe("clinchingPathsForTeams", () => {
       {
         limit: 8,
         exactLimit: 0,
+        daysFromToday: allToday,
       }
     );
 
@@ -210,6 +278,7 @@ describe("clinchingPathsForTeams", () => {
     const paths = clinchingPathsForTeams(teams, [], 2, settings, () => [swing({})], {
       limit: 8,
       exactLimit: 0,
+      daysFromToday: allToday,
     });
 
     expect(paths.map((path) => path.teamId)).not.toContain("A");

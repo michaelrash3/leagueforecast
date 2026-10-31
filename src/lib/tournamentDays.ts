@@ -14,19 +14,21 @@ export const dayOf = (date: string | undefined): string | undefined =>
 /**
  * Why a meeting of two of the league's clubs looks like a tournament game rather than a league
  * one, read off every game the pool holds (`games`, the year's, every club's): entered under an
- * event, or either club played somebody else the same day. A league plays one opponent a day; a
- * doubleheader against the same one is still the league's. Undefined for a game that looks like
- * the league's own. Shared by a start (`draftStart`) and Fill scores' games not on the schedule
- * (`planLeagueScoreFill`), so the two say the same of one game.
+ * event, or either club played a club outside the league (`league`) the same day. A day of the
+ * league's own clubs alone is the league's, two of them or a doubleheader against one: a league can
+ * play two of its teams on one day, and counting them as somebody else left both of the day's
+ * games unticked as a tournament's. Undefined for a game that looks like the league's own. Shared
+ * by a start (`draftStart`) and Fill scores' games not on the schedule (`planLeagueScoreFill`), so
+ * the two say the same of one game.
  */
 export const tournamentReason = (
   games: readonly ScoutGame[],
   league: ReadonlySet<string>
 ): ((game: ScoutGame) => string | undefined) => {
-  // Who each of the league's clubs played on each day.
+  // Who outside the league each of the league's clubs played on each day.
   const opponents = new Map<string, Set<string>>();
   const met = (club: string, day: string, opponent: string) => {
-    if (!league.has(club)) return;
+    if (!league.has(club) || league.has(opponent)) return;
     const key = `${club}@${day}`;
     const seen = opponents.get(key) ?? new Set<string>();
     seen.add(opponent);

@@ -251,6 +251,20 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
       publish: { wrote: true, uploaded: 29 + others },
       sweep: { deleted: 0, strays: 0 },
     });
+    // By family the views, not the uploads: the 33 boards went up on 29.
+    const views = (count: number, as: "sent" | "unchanged") => ({
+      sent: 0,
+      reused: 0,
+      unchanged: 0,
+      refused: 0,
+      [as]: count,
+    });
+    expect(result.ok && result.publish.families).toEqual({
+      "board:": views(33, "sent"),
+      "club:": views(clubs.length, "sent"),
+      "search:": views(searches.length, "sent"),
+      "games:": views(games.length, "sent"),
+    });
     expect(live.meta()?.copy).toEqual({ id: manifest.copy, version: manifest.version });
     expect(live.meta()?.today).toBe(FIXTURE_TODAY);
     // What the boards' fits come to, for the log: one on every board with rows.
@@ -296,7 +310,13 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
     const again = await publish(cloud, live, manifest);
     expect(again).toMatchObject({
       ok: true,
-      publish: { wrote: false, unchanged: 33 + others },
+      publish: { wrote: false, unchanged: 33 + others, reused: 0 },
+    });
+    expect(again.ok && again.publish.families).toEqual({
+      "board:": views(33, "unchanged"),
+      "club:": views(clubs.length, "unchanged"),
+      "search:": views(searches.length, "unchanged"),
+      "games:": views(games.length, "unchanged"),
     });
     expect(live.costs.writes).toBe(writes);
   });
@@ -818,7 +838,9 @@ describe("whether a server's run failed at publishing the views", () => {
       pieces: 1,
       bytes: 1,
       unchanged: 0,
+      reused: 0,
       refused: 0,
+      families: { "board:": { sent: 1, reused: 0, unchanged: 0, refused: 0 } },
       removed: 0,
       retired: 0,
       deleted: 0,
