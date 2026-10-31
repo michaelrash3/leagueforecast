@@ -17,7 +17,14 @@ import {
 import { commitChanges, type Change } from "../cloudEngine";
 import { LEAGUE_PART } from "../cloudPlan";
 import { memoryIo, runCloudPull, type CloudPullResult, type TidyCounts } from "../cloudRunner";
-import { standInLines, storedStandInLines, sweptLines, tidyLines } from "../nightlyReport";
+import { memoryUseOf } from "../memoryUse";
+import {
+  stageMemory,
+  standInLines,
+  storedStandInLines,
+  sweptLines,
+  tidyLines,
+} from "../nightlyReport";
 import { memoryCloud, type MemoryCloud } from "./memoryCloud";
 
 /*
@@ -158,6 +165,33 @@ describe("the nightly's lines on the stand-ins", () => {
     expect(lines[2]).toBe("    Played: 3; with a stand-in: 2 (66.7%).");
     const log = lines.join("\n");
     for (const team of teams) expect(log).not.toContain(team.name);
+  });
+});
+
+describe("the nightly's memory after each step", () => {
+  it("says, as each stage of the pull begins, what the one before it left the memory at", () => {
+    const lines: string[] = [];
+    let rss = 1_000_000_000;
+    const memory = stageMemory(
+      () => memoryUseOf((rss += 500_000_000), (rss + 100_000_000) / 1024),
+      (line) => lines.push(line)
+    );
+    for (const stage of ["loading", "fetching", "fetching", "filing", "saving"] as const) {
+      memory.stage(stage);
+    }
+    memory.done();
+    expect(lines).toEqual([
+      "  Memory after loading the copy: 1500.0 MB (at most 1600.0 MB).",
+      "  Memory after asking GameChanger: 2000.0 MB (at most 2100.0 MB).",
+      "  Memory after filing, tidying and sweeping: 2500.0 MB (at most 2600.0 MB).",
+      "  Memory after saving: 3000.0 MB (at most 3100.0 MB).",
+    ]);
+    // The steps after the pull, by name, and nothing more once it is done.
+    memory.after("publishing the views");
+    memory.done();
+    expect(lines.slice(4)).toEqual([
+      "  Memory after publishing the views: 3500.0 MB (at most 3600.0 MB).",
+    ]);
   });
 });
 

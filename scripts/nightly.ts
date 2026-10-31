@@ -35,7 +35,13 @@ import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
 import { heldWord, radiusWords } from "../src/lib/cloud/blastRadius.ts";
 import { heardNothing, runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.ts";
 import { ingestWord, ingestWords } from "../src/lib/cloud/ingestCanary.ts";
-import { storedStandInLines, sweptLines, tidyLines } from "../src/lib/cloud/nightlyReport.ts";
+import { memoryUseOf, memoryWords, type MemoryUse } from "../src/lib/cloud/memoryUse.ts";
+import {
+  stageMemory,
+  storedStandInLines,
+  sweptLines,
+  tidyLines,
+} from "../src/lib/cloud/nightlyReport.ts";
 import { failureWords } from "../src/lib/cloud/firestoreRest.ts";
 import {
   nightlyEndsTurn,
@@ -85,6 +91,10 @@ if (limit !== undefined && !(Number.isInteger(limit) && limit > 0)) {
 
 const started = Date.now();
 const since = (): string => `${Math.round((Date.now() - started) / 1000)} s`;
+
+/** What the process holds now and the most it has held (`memoryUse.ts`). */
+const memoryNow = (): MemoryUse =>
+  memoryUseOf(process.memoryUsage().rss, process.resourceUsage().maxRSS);
 
 /**
  * `store` with its writes counted and not made: what a dry run saves, which is nothing, and what
@@ -178,8 +188,12 @@ const main = async (): Promise<void> => {
     }).`
   );
 
+  // The memory after each step, said as the next begins, so a night that runs out of memory has
+  // already said what each step before it held (`stageMemory`).
+  const memory = stageMemory(memoryNow, (line) => console.log(line));
   let lastTenth = -1;
   const onStage = (stage: CloudPullStage): void => {
+    memory.stage(stage.stage);
     if (stage.stage === "fetching") {
       const tenth = stage.total === 0 ? 10 : Math.floor((10 * stage.done) / stage.total);
       if (tenth === lastTenth) return;
@@ -252,6 +266,7 @@ const main = async (): Promise<void> => {
     }
   }
 
+  memory.done();
   console.log(
     `Ended ${result.end} in ${since()}: ${result.asked} teams asked, ${result.answered} answered, ${result.failed} not; ${result.filed} filed, ${result.gamesAdded} games added and ${result.gamesUpdated} updated.`
   );
@@ -323,11 +338,12 @@ const main = async (): Promise<void> => {
       console.log(`Publishing the views stopped: ${failureWords(error)}`);
       process.exitCode = 1;
     }
+    memory.after("publishing the views");
   }
   // Once a week, as of its Monday, where a rating starts, re-measured on the pool the boards were
   // just built from, League as the publish read it (`remeasureAfterPublish`).
   if (result.manifest) {
-    await remeasureAfterPublish({
+    const weekly = await remeasureAfterPublish({
       views: published,
       day,
       live,
@@ -343,6 +359,7 @@ const main = async (): Promise<void> => {
       log: (line) => console.log(line),
       now: () => new Date().toISOString(),
     });
+    if (weekly) memory.after("re-measuring where a rating starts");
   }
   // Backups the owner staged for the server that nothing used within a day (`uploads.ts`).
   try {
@@ -357,9 +374,7 @@ const main = async (): Promise<void> => {
   } catch (error) {
     console.log(`  The staged backups were not swept: ${failureWords(error)}`);
   }
-  console.log(
-    `  Memory at the end: ${mb(process.memoryUsage().rss)} (at most ${mb(process.resourceUsage().maxRSS * 1024)}).`
-  );
+  console.log(`  Memory at the end: ${memoryWords(memoryNow())}.`);
   if (
     result.end === "gave-up" ||
     result.end === "copy-kept-changing" ||

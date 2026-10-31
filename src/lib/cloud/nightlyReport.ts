@@ -8,13 +8,14 @@ import {
 } from "../standInReport";
 import { segmentOn } from "../teamRankings/seasons";
 import { loadAgeGroups, loadScoutGamesForYear, loadScoutTeams } from "../teamRankingsStorage";
-import type { CloudPullResult } from "./cloudRunner";
+import type { CloudPullResult, CloudPullStage } from "./cloudRunner";
+import { memoryWords, type MemoryUse } from "./memoryUse";
 
 /*
  * What the nightly says of its pull beyond its first line (`scripts/nightly.ts`, README "The
  * nightly refresh on GitHub"): what the tidy changed, step by step, what the sweep deleted under
- * the owner's 40-run rule, took off the boards and put back, and how much of the squad year leans
- * on a stand-in once they are done. Counts only, a line at a time:
+ * the owner's 40-run rule, took off the boards and put back, how much of the squad year leans on
+ * a stand-in once they are done, and the memory after each step. Counts only, a line at a time:
  * the repository's Actions logs are public, so no club's name or id is said, and the run hands
  * over nothing that holds one (`CloudPullResult.tidy` is the tidy's counts without its pool).
  */
@@ -79,4 +80,36 @@ export const storedStandInLines = (today: string): string[] => {
   return standInLines(
     standInReport(loadScoutTeams(), loadScoutGamesForYear(year), loadAgeGroups(), year, 0)
   );
+};
+
+/** What a pull had just done as its next stage began, by the stage it had been in. */
+const STAGE_DONE: Record<CloudPullStage["stage"], string> = {
+  loading: "loading the copy",
+  fetching: "asking GameChanger",
+  filing: "filing, tidying and sweeping",
+  tidying: "tidying",
+  saving: "saving",
+};
+
+/**
+ * The memory after each step of the night (`memoryWords`), said as the next begins, so a run that
+ * runs out of memory has said what each step before it held: as a stage of the pull begins, after
+ * the stage before it (`stage`); after the pull's last stage once it is over (`done`); and after a
+ * step of the night's own, by name (`after`).
+ */
+export const stageMemory = (read: () => MemoryUse, say: (line: string) => void) => {
+  let at: CloudPullStage["stage"] | null = null;
+  const after = (step: string) => say(`  Memory after ${step}: ${memoryWords(read())}.`);
+  return {
+    stage: (next: CloudPullStage["stage"]) => {
+      if (next === at) return;
+      if (at) after(STAGE_DONE[at]);
+      at = next;
+    },
+    done: () => {
+      if (at) after(STAGE_DONE[at]);
+      at = null;
+    },
+    after,
+  };
 };

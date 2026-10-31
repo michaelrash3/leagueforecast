@@ -79,6 +79,11 @@ jobs:
           # pull's own zone itself (`runLeg`).
           TZ: America/New_York
           LANG: en_US.UTF-8
+          # The heap of a leg's worker (`legHeapMb`): this runner has the nightly's 16 GB, and the
+          # nightly's 12,288 MB, where the Cloud Run instance a leg was sized for has 8 GiB and gives
+          # its worker 5,120, which a leg left unset keeps. The nightly, pulling into the same pool,
+          # peaked at 7,588.7 MB on 30 October 2026.
+          PULL_LEG_HEAP_MB: "12288"
         run: |
           if [ -z "$KEY" ] || [ -z "$GOOGLE_CLOUD_PROJECT" ]; then
             echo "::error::Set the FIREBASE_SERVICE_ACCOUNT secret and the FIREBASE_PROJECT_ID variable."
@@ -90,7 +95,9 @@ jobs:
           cd functions
           case "$TASK" in
             boards)
-              NODE_OPTIONS=--max-old-space-size=6144 node lib/boardsPublish.js
+              # The nightly's heap on the nightly's runner: it builds the same boards from the same
+              # pool, where 6,144 was sized for the 8 GiB of the Cloud Run job it replaces.
+              NODE_OPTIONS=--max-old-space-size=12288 node lib/boardsPublish.js
               ;;
             leg|import)
               if [ -z "$PULL_JOB_ID" ]; then

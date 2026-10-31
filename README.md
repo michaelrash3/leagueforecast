@@ -5534,7 +5534,8 @@ two catch-ups sent beside a 9,270-team pull waited behind it, and a leg took 199
 to 379 s. A job's own legs are never at once, since each queues the next as it
 ends; legs of two jobs that save together cost the later one a second filing onto
 the copy as the other left it, never a lost save. Each leg runs in a worker thread capped at 5,120 MB of heap, which
-leaves the rest of the 8 GiB for the bytes a heap does not count. A heap failure is
+leaves the rest of the 8 GiB for the bytes a heap does not count; on GitHub, where
+the legs run now, 12,288 MB of its 16 GB ("Pulls on GitHub", `legHeapMb`). A heap failure is
 reported by the worker; total instance memory still has its own limit. The worker
 has a 29-minute-30-second request budget inside the task's 30 minutes, including
 startup, and the parent waits for it
@@ -5789,6 +5790,15 @@ functions' logs did, the cloud's own words, counts and timings. Those lines are
 in **Actions → Pull in the cloud** rather than Google's logs, so the "Pulls in
 the cloud" status workflow, which reads Google's, sees the jobs but not them.
 
+A run on GitHub has the nightly's 16 GB, and gets the nightly's heap: 12,288 MB
+for the boards' publish, which had 6,144 sized for the 8 GiB of the Cloud Run
+job it replaces, and for a leg's worker, which the workflow says by
+`PULL_LEG_HEAP_MB` (`legHeapMb`); a leg on Cloud Run, which sets none, keeps
+5,120 of its 8 GiB. Each says at its end what it held then and at most, as the
+nightly does (`boards-memory`, `leg-memory`, in megabytes): neither said anything
+of its memory before. The closest measured case, the catch-up's publish of 16
+October 2026, ended at 3,787.5 MB.
+
 It starts within a minute or so of the press, where a task started in seconds.
 Without the token every launch goes to Google as before, but the deploy refuses
 to run unless the `GOOGLE_JOBS` variable is set to `on`. An emptied secret would
@@ -5968,6 +5978,14 @@ pool the model sweep's own report reads, which adds League Standings' games and
 leaves out the clubs taken off. The report's lists of the clubs holding the most
 games are never asked for, and a count that fails says so on its own line and
 leaves the night's colour alone.
+
+The memory the run holds is said after each step as the next begins
+(`stageMemory`, `memoryUse.ts`): after loading the copy, asking GameChanger,
+filing, tidying and sweeping, saving, publishing the views and, on the night it
+runs, the week's re-measure, each with the most the process has held so far
+(Node's `maxRSS`), then once more at the end as before. It was said only at the
+end, which held 7,588.7 MB at most on 30 October 2026 against a heap of 12,288,
+and a night that ran out would have said nothing of which step took it there.
 
 What it replaces it keeps, as an earlier version of the copy: the cloud panel's
 **Earlier versions** lists it, and **Bring back** undoes a bad night on every
