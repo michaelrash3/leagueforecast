@@ -8,6 +8,24 @@ import { VitePWA } from "vite-plugin-pwa";
 import { FIREBASE_WEB_CONFIG } from "./src/lib/cloud/cloudConfig.ts";
 import { GC_TEAM_FUNCTION_URL, LEAGUE_SUMMARY_FUNCTION_URL } from "./src/lib/cloud/apiEndpoints.ts";
 import { widenPolicyInHtml } from "./src/lib/contentPolicy.ts";
+import { loadedAtStartTest, type ModuleLinks } from "./src/lib/bootChunk.ts";
+
+/** The plain logic modules, which the boot chunk takes when the page loads them at start. */
+const LOGIC_MODULE = /[\\/]src[\\/](lib|styles)[\\/][^?]*\.ts$/;
+
+/**
+ * The boot chunk's test for the build under way, made afresh for each module graph the bundler
+ * hands over (a build, or each pass of a watch), since its answers are kept.
+ */
+let bootGraph: unknown = null;
+let atStart: (id: string) => boolean = () => false;
+const loadedAtStart = (getModuleInfo: (id: string) => ModuleLinks | null) => {
+  if (getModuleInfo !== bootGraph) {
+    bootGraph = getModuleInfo;
+    atStart = loadedAtStartTest(getModuleInfo);
+  }
+  return atStart;
+};
 
 /**
  * Writes the page's Content-Security-Policy for this build: `index.html`'s, plus the origins the
@@ -134,10 +152,15 @@ export default defineConfig({
          * React and React DOM go in a chunk of their own. They are a third of what a first visit
          * downloads and they change only when the dependency is upgraded, so keeping them apart
          * means a deploy of our own code re-downloads our own code and nothing else — every
-         * returning visit after a release is that much lighter.
+         * returning visit after a release is that much lighter. The logic the page loads at start
+         * goes in one boot chunk rather than in the entry chunk and a file per set of modules it
+         * shares with later views, 7 KB less to download (`bootChunk.ts`, with what it costs the
+         * cache).
          */
-        manualChunks: (id) =>
-          /node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id) ? "react" : undefined,
+        manualChunks: (id, { getModuleInfo }) => {
+          if (/node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return "react";
+          return LOGIC_MODULE.test(id) && loadedAtStart(getModuleInfo)(id) ? "boot" : undefined;
+        },
       },
     },
   },
