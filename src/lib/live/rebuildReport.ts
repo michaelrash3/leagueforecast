@@ -1,3 +1,4 @@
+import { shiftIsoDay } from "../date";
 import { isRecord } from "../validate";
 import { deferralReason } from "./rebuildJobControl";
 import { coerceLedger, type Ledger } from "./rebuildLedger";
@@ -5,8 +6,8 @@ import { coerceLedger, type Ledger } from "./rebuildLedger";
 /**
  * What the nightly says of the rebuilds after saves, read off their ledger (`rebuildLedger.ts`):
  * the switch, then the runs, failures and compute of the ledger's day and of the last day before
- * it that had a run, and of its month, against their caps, then the failures in a row and a run
- * not yet settled. It is how the
+ * it that had a run, and of its month, against their caps, the edits' own month and the questions
+ * left unanswered, then the failures in a row and a run not yet settled. It is how the
  * owner tells from the nightly's log whether the dry runs go well before turning them live,
  * without opening Google's logs. Counts, days and times only: the log is public, and nothing in
  * the ledger names anyone, though the ids of the task and the handling a run was reserved by are
@@ -55,6 +56,15 @@ export const describeRebuilds = (
           `  Edits and questions, ${ledger.month}: ${count(ledger.editMonthGiBs)} of ${count(caps.editMonthGiBs)} GiB-seconds and ${count(ledger.editMonthVcpuS)} of ${count(caps.editMonthVcpuS)} vCPU-seconds.`,
         ]
       : []),
+    ...(ledger.dayUnanswered > 0 || ledger.lastUnanswered
+      ? [
+          `  Questions left unanswered after a turn: ${count(ledger.dayUnanswered)} on ${ledger.day}${
+            ledger.lastUnanswered
+              ? `; before that, ${count(ledger.lastUnanswered.count)} on ${ledger.lastUnanswered.day}`
+              : ""
+          }.`,
+        ]
+      : []),
     ...heldBack(job, now, onGithub),
     `  ${
       ledger.pausedDay === null
@@ -80,6 +90,33 @@ export const rebuildsTrouble = (raw: unknown): "off" | "paused" | "failing" | "n
   if (!ledger) return null;
   if (!ledger.on) return "off";
   return ledger.pausedDay !== null ? "paused" : ledger.failures > 0 ? "failing" : "none";
+};
+
+/**
+ * More questions than this left unanswered in a New York day raise the nightly's alarm. A device
+ * asks one again on a timer at most three times a season a day (`useScoutBridge`), so a day past
+ * it is a server that cannot answer, a worker out of memory say, and not one member's bad minute.
+ */
+export const UNANSWERED_ALARM = 20;
+
+/**
+ * The questions the ledger counts unanswered on `today` (New York's, the nightly's) or the day
+ * before, for the alarm the nightly raises (`runAlarms.ts`): `over`, the day with the most and its
+ * count, where that is past `UNANSWERED_ALARM`; `fine` otherwise; and nothing where there is no
+ * ledger this build reads, which leaves the alarm as it is. Both days are read since a charge
+ * after midnight moves the ledger on before the nightly reads it (`lastUnanswered`), and none
+ * older, which the nightly of the day after it judged. The edits are charged whatever the
+ * rebuilds' switch says, so this is read either way.
+ */
+export const unansweredWord = (raw: unknown, today: string): string => {
+  const ledger = coerceLedger(raw);
+  if (!ledger) return "";
+  const recent = [today, shiftIsoDay(today, -1)];
+  let most = { day: today, count: 0 };
+  for (const one of [{ day: ledger.day, count: ledger.dayUnanswered }, ledger.lastUnanswered]) {
+    if (one && recent.includes(one.day) && one.count > most.count) most = one;
+  }
+  return most.count > UNANSWERED_ALARM ? `over ${most.day} ${most.count}` : "fine";
 };
 
 /**
