@@ -6285,16 +6285,22 @@ const ageLevelOfOutcome = (outcome: GcImportOutcome): number | undefined => {
  * have. Two clubs of one name that never met and never shared a result are left alone, which is
  * what keeps this from being the name matching the user threw out.
  *
- * The same opponent is a pulled third club. A slot is no opponent anyone can share: every plain
- * "TBD" reads as one name, so two squads of one name, level and state that each beat a TBD 5-3 on
- * one day, hours apart, were folded into one club and one of them left the board (the sweep of 30
- * October 2026). A stand-in's name is as many teams as wrote it, and the two squads' own game
- * against each other names each squad's own name and reads the same from either side, which folded
- * a tie between them into a club playing itself. A squad pulled twice still folds on a game both its
- * ids filed against a pulled club, and the owner can fold the rest by hand.
+ * The same opponent is one pulled third club, read by its id. A slot is no opponent anyone can
+ * share: every plain "TBD" reads as one name, so two squads of one name, level and state that each
+ * beat a TBD 5-3 on one day, hours apart, were folded into one club and one of them left the board
+ * (the sweep of 30 October 2026). A stand-in's name is as many teams as wrote it, and so is a pulled
+ * club's: two such squads that each beat a different pulled Vipers 5-3 that day, one of Kentucky
+ * and one of Ohio, were folded the same way, and so was a tie between the two squads themselves,
+ * each row naming the other by the name both carry, which made a club that played itself. Read by
+ * the id, each squad's row of that tie names the other squad, and the two rows are two fixtures. A
+ * squad pulled twice still folds on a game both its ids filed against one pulled club, and the owner
+ * can fold the rest by hand.
  *
  * Nor are two squads the owner has said are two clubs folded, whatever they filed (`apart`, as the
- * season pairing reads it): the tidy passed that answer to the pairing and not to this.
+ * season pairing reads it): the tidy passed that answer to the pairing and not to this. And every
+ * squad folding into one survivor is asked against the others folding into it in the same pass, as
+ * well as against the survivor: asked of the survivor alone, two the owner kept apart, or two of
+ * different states and a survivor of none, both folded into it and ended as one club.
  *
  * The survivor is the id with the most games, so the fold is towards whichever copy the pull knows
  * best, and `mergeScoutTeams` carries the games and both ids across.
@@ -6322,21 +6328,18 @@ export const mergeSameSquadIds = (
    * folded on fixtures none of them had filed.
    */
   const fixtureKeys = new Map<string, Set<string>>();
-  const nameOf = new Map(state.teams.map((team) => [team.id, teamNameKey(team.name)]));
   state.games.forEach((game) => {
     if (!game.date || !game.source) return;
     [game.teamAId, game.teamBId].forEach((teamId, side) => {
       if (!ownIds.get(teamId)?.has(game.source!.teamId)) return;
+      // A pulled club, never a slot or a stand-in, and by its id rather than its name.
       const otherId = side === 0 ? game.teamBId : game.teamAId;
-      const other = nameOf.get(otherId);
-      // A pulled third club: never a slot or a stand-in, nor a club of the team's own name, which
-      // is the other squad itself wherever the two are compared (`byName`).
-      if (!other || !pulledIds.has(otherId) || other === nameOf.get(teamId)) return;
+      if (!pulledIds.has(otherId)) return;
       const mine = side === 0 ? game.teamAScore : game.teamBScore;
       const theirs = side === 0 ? game.teamBScore : game.teamAScore;
       // Unscored rows say only that a fixture is planned, which two clubs can share.
       if (mine === undefined || theirs === undefined) return;
-      const key = [poolKeyOf(game.ageGroupId), game.date, other, mine, theirs].join(" ");
+      const key = [poolKeyOf(game.ageGroupId), game.date, otherId, mine, theirs].join(" ");
       const bucket = fixtureKeys.get(teamId);
       if (bucket) bucket.add(key);
       else fixtureKeys.set(teamId, new Set([key]));
@@ -6363,6 +6366,8 @@ export const mergeSameSquadIds = (
 
   /** Ids to fold, newest-known first, keyed by the id they fold into. */
   const foldInto = new Map<string, string>();
+  /** The squads each survivor takes in this pass, each asked against the next as one club. */
+  const joining = new Map<string, ScoutTeam[]>();
   // Counted once. Counting by scanning the games for each team made this pass quadratic, and it
   // runs at the end of every pull over the whole pool.
   const gameCounts = new Map<string, number>();
@@ -6389,12 +6394,14 @@ export const mergeSameSquadIds = (
       if (!mine || mine.size === 0) return;
       for (const other of ranked.slice(0, index)) {
         if (foldInto.has(other.id)) continue;
-        if (!couldBeOneSquad(team, other) || keptApart(team, other)) continue;
+        const club = [other, ...(joining.get(other.id) ?? [])];
+        if (club.some((one) => !couldBeOneSquad(team, one) || keptApart(team, one))) continue;
         const theirs = fixtureKeys.get(other.id);
         if (!theirs) continue;
         const shared = [...mine].some((key) => theirs.has(key));
         if (shared) {
           foldInto.set(team.id, other.id);
+          push(joining, other.id, team);
           break;
         }
       }
@@ -7531,19 +7538,24 @@ export const resettleOffLevel = (
     game.teamAId === teamId ? game.teamAScore : game.teamBScore;
   /**
    * The named club's own row of the very game a row filed onto it by name records, where that row
-   * is not yet one game with it: a row of the club's own schedules standing as a game of its own,
-   * or held in this one as a claim, that gives the game as this row does. Its day is the row's or
-   * the day either side; both rows carry their own result, mirrored, and a start, within the hour
-   * of each other, or on the same clock where the two clubs dated the game a day apart (the
-   * collapse joins those, `dayApartStrength`); and its other side could be the club that filed
-   * this row. That is `mover` where the club's schedule names the filer as the import found it, a
-   * slot, a stand-in of the filer's name (`nameFitsWithin`, its own name or a listing's), or any
-   * stand-in at this row's very start, which is how the reclaim reads the club's own row when it
-   * moves a row onto it (`atTheStart`) — narrower than that, the reclaim moved the row and this
-   * step took it off again every pass. A result on one side only, a start more than an hour off or
-   * a row against another pulled club is another game as far as anything says, and nothing is read
-   * off a name alone. A score either row borrowed is the other's word and proves nothing (`scoreFromB`,
+   * is not yet one game with it: a row of the club's own schedules standing as a game of its own
+   * that gives the game as this row does. Its day is the row's or the day either side; both rows
+   * carry their own result, mirrored, and a start, within the hour of each other, or on the same
+   * clock where the two clubs dated the game a day apart (the collapse joins those,
+   * `dayApartStrength`); and its other side could be the club that filed this row. That is `mover`
+   * where the club's schedule names the filer as the import found it, a slot, a stand-in of the
+   * filer's name (`nameFitsWithin`, its own name or a listing's), or any stand-in at this row's very
+   * start, which is how the reclaim reads the club's own row when it moves a row onto it
+   * (`atTheStart`) — narrower than that, the reclaim moved the row and this step took it off again
+   * every pass. A result on one side only, a start more than an hour off or a row against another
+   * pulled club is another game as far as anything says, and nothing is read off a name alone. A
+   * score either row borrowed is the other's word and proves nothing (`scoreFromB`,
    * `scoreFromTwin`), and a row the user threw out backs nothing.
+   *
+   * Not the club's row held in this game as a claim, which nothing here needs: it already makes
+   * the game one both clubs' schedules have, the meeting the region reads, and gives the club's own
+   * word that it plays at this level, which the two-levels test reads (`ownWordNow`); and a claim
+   * filed against the filer itself is settled, which `filedInto` reads before any rule.
    */
   const ownCopyOf = (
     game: ScoutGame,
@@ -7559,14 +7571,9 @@ export const resettleOffLevel = (
     const names = [mover.name, ...(mover.gcTeams ?? []).map((link) => link.name)];
     const namesMover = (name: string) =>
       names.some((own) => teamNameKey(own) === teamNameKey(name) || fits(name, own));
-    const rows = [
-      ...aroundDay(game.date).flatMap(
-        (day) => ownStandingNow().get(`${namedId}\u0000${day}`) ?? []
-      ),
-      ...(game.alsoRows ?? [])
-        .filter((record) => ownIds.get(namedId)?.has(record.teamId))
-        .map((record) => filedRowOf(game, record)),
-    ];
+    const rows = aroundDay(game.date).flatMap(
+      (day) => ownStandingNow().get(`${namedId}\u0000${day}`) ?? []
+    );
     let found: "mover" | "other" | undefined;
     rows.forEach((own) => {
       if (found === "mover" || own === game || own.excluded) return;
@@ -7713,7 +7720,10 @@ export const resettleOffLevel = (
      * level would take it off (`ownCopyOf`). More than two levels from the club's own, only its row
      * naming the filer itself does: two rows a name and a slot or a stand-in pair that far apart were
      * false 11.9% of the time (88 pairs) when the namesake join was measured, which reads no pair
-     * more than two apart (`PLAYS_UP_TO`).
+     * more than two apart (`PLAYS_UP_TO`). Two levels off, only a copy dated a day off is left for
+     * it to keep, since one that day already says the club plays there (`twoOff`); taken off, the
+     * row went to a stand-in, the refile put it on a namesake at the typed age that played that day,
+     * and the game counted twice.
      */
     let copy: "mover" | "other" | undefined | null = null;
     const copyNow = () => {
@@ -9422,9 +9432,10 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *       its own, left on it where the club's own row of that game stands beside it, the result
  *       mirrored within the hour (`ownCopyOf`), so a game two far-apart clubs both list is one game
  *       between them rather than a row passed round every pass and counted twice
- *  37 — two same-named squads folded into one club only on a game both filed against a pulled
- *       third club, never a slot, a stand-in or each other, and never where the owner said they are
- *       two clubs (`mergeSameSquadIds`)
+ *  37 — two same-named squads folded into one club only on a game both filed against one pulled
+ *       third club, read by its id: never a slot, a stand-in, another club of that name or each
+ *       other, and never where the owner said they are two clubs, nor two squads one survivor takes
+ *       in one pass that could not be one club themselves (`mergeSameSquadIds`)
  */
 const TIDY_RULES_VERSION = 37;
 

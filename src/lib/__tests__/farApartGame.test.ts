@@ -339,13 +339,55 @@ describe("two clubs three levels apart that both list the game", () => {
   });
 });
 
+describe("two clubs two levels apart that dated the game a day apart", () => {
+  /*
+   * The Aces' 10U row names "Bees 10U", two levels under the Bees' only listing, and the Bees' own
+   * row of the game, the result mirrored, is dated the next day at the same clock; a 10U Bees
+   * played the Vipers that morning. A row of the club's own that day is what keeps a row two
+   * levels off on it (`twoOff`), and this one is a day off: taken off the Bees for the typed age,
+   * the row went to a stand-in, the refile put it on the 10U Bees, who never played it, and the
+   * Bees' own row, where it named the Aces or a stand-in of their name, counted as a second game.
+   */
+  const ACES = club("ACES", "Aces", "KY", 10);
+  const BEES = club("BEES", "Bees", "KY", 12);
+  const BEES_10 = club("BEES10", "Bees", "KY", 10);
+  const acesRow: ScoutGame = { ...row("ACES", "a1", "BEES", START, [6, 4]), ageLevelB: 10 };
+  const beesRow = row("BEES", "b1", "ACES", "2026-09-14T16:30", [4, 6], 12);
+  const morning = [
+    row("BEES10", "n1", "VIPERS", "2026-09-13T10:00", [3, 1]),
+    row("VIPERS", "v1", "BEES10", "2026-09-13T10:00", [1, 3]),
+  ];
+
+  it("are one game between the two, whatever the Bees' own row names", () => {
+    const named = standIn("S-ACES", "Aces");
+    const tbd = slot("T-1", "TBD");
+    const against: [string, ScoutTeam[]][] = [
+      ["ACES", []],
+      [named.id, [named]],
+      [tbd.id, [tbd]],
+    ];
+    against.forEach(([vs, teams]) => {
+      const first = tidyPool({
+        ageGroups: groups,
+        teams: [ACES, BEES, BEES_10, VIPERS, ...teams],
+        games: [acesRow, { ...beesRow, teamBId: vs }, ...morning],
+      });
+      expectOneGame(first.state, "gcACES", "gcBEES", acesRow.id, beesRow.id);
+      expect(recordOf(first.state, "BEES10")).toEqual(["BEES10 3-1 VIPERS"]);
+      expect(tidyChangedAnything(tidyPool(first.state))).toBe(false);
+    });
+  });
+});
+
 /*
  * Small random pools of pulled clubs in Kentucky, Ohio, Indiana and Texas, which borders none of
  * them: stand-ins, TBD slots, and each club's own rows, often listed by the other club too at the
  * same start with the result mirrored, naming the first club, a stand-in of its very name or a
  * slot. Under rules 35, 38 of these 300 pools ran to the tidy's limit and 50 of their 971 games
  * both clubs list counted twice; with Texas left out of the states, none did. No club plays two
- * games at one start here, as none does.
+ * games at one start here, as none does, and with starts two hours apart no club has two within
+ * the hour either, which the one cycle still known needs: a claim of a game an hour off that gives
+ * two far-apart clubs an opponent in common (README, "The club's own row of the game beside it").
  */
 const mulberry = (seed: number) => () => {
   let t = (seed += 0x6d2b79f5);
@@ -454,8 +496,13 @@ const fuzzOver = (states: readonly string[]) => {
   return { pairs, wrong: { unsettled, misplaced, twice } };
 };
 const NONE_WRONG = { unsettled: [], misplaced: [], twice: [] };
+/**
+ * Six hundred tidies a test. Measured in review, the far one took 2.7 s on one worker of a loaded
+ * machine and 8.6 s, past the default five, with two workers at a load average of 12.
+ */
+const TIDIES_300_POOLS = { timeout: 30_000 };
 
-describe("small pools of clubs", () => {
+describe("small pools of clubs", TIDIES_300_POOLS, () => {
   it("far apart reach a fixed point, keep every row once, and count each game both list once", () => {
     const { pairs, wrong } = fuzzOver(FAR);
     // The fuzz reaches the shape it is for: hundreds of games both clubs list.

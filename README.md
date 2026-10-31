@@ -1928,8 +1928,22 @@ and 50 of their 971 games both clubs list counted twice; with Texas left out, no
 stand-in of the filer's name there, the row went round six passes again. More than two levels apart
 only the club's own row naming the filer itself keeps the row: a pair a name and a slot or a stand-in
 join that far apart was false 11.9% of the time when the namesake join was measured, and that join
-reads no pair more than two apart. The stand-in share and the model sweep's stand-in mode have not
-been read again on the real copy since.
+reads no pair more than two apart. Two levels off, a row of the club's own that day already says it
+plays there (`twoOff`), so the copy this keeps is one dated a day off: taken off, such a row went to
+a stand-in, the refile put it on a namesake at the typed age that played that day, and the game
+counted twice.
+
+This keeps a row that is on the far club already, or that the reclaim moves there, and the reclaim
+moves one only onto a copy at the very start. Still open, as before rules 36: where a pull filed the
+near club's row onto the namesake next door and the far club's own row is off the very start, within
+the hour or a day apart, the row stays on the namesake, and the game counts twice where the far
+club's row is against a stand-in rather than a slot; and a copy scored on one side only backs
+nothing, so the row goes to the namesake. One cycle the sweep's own fuzz found is still open too
+(its seed 369), of another shape: a row filed onto a far club whose own schedule has no copy of it
+comes off as unvouched, a claim made in the same pass gives the two clubs an opponent in common, the
+next pass's refile files the row back on that, the claim is released, and the tidy runs its six
+passes. The stand-in share and the model sweep's stand-in mode have not been read again on the real
+copy since.
 
 A row the owner said is against a club is kept apart from all of that (`ScoutGame.namedByAvatar`).
 Same team as records the club on every row of a team known only by a name — a stand-in, a slot, one
@@ -2507,12 +2521,16 @@ the owner clears on a club's panel stays clear: the club is marked so (`ScoutTea
 the data schema from 3), or the next tidy would fill it back in. A row a
 name filed onto a pulled club whose own schedule has none is taken off it onto
 a stand-in of the name, as **A name is checked against the club's own schedule** sets out; two ids are one
-squad only when their _own_ schedules filed the same fixture against a third pulled club, at one level, in
-one state, under one listing name, and never where the owner has said the two are two clubs (tidy rules
-37: a TBD reads as one name wherever it is written, so two squads of one name that each beat a TBD 5-3 on
-one day, hours apart, were folded into one club, the owner's answer unread; a stand-in's name is as many
-teams as wrote it; and the two squads' own tie with each other read the same from either side, and made
-one club that played itself); and two clubs' copies of one game are one game as
+squad only when their _own_ schedules filed the same fixture against one third pulled club, read by its
+id, at one level, in one state, under one listing name, and never where the owner has said the two are
+two clubs, nor where two squads folding into a third in one pass could not be one club themselves (tidy
+rules 37: a TBD reads as one name wherever it is written, so two squads of one name that each beat a TBD
+5-3 on one day, hours apart, were folded into one club, the owner's answer unread; a stand-in's name is
+as many teams as wrote it, and so is a pulled club's, so two that each beat a different pulled club of
+one name were folded the same way; and the two squads' own tie with each other read the same from
+either side, and made one club that played itself; a fold made before stays, since the tidy folds and
+never splits, so such a pair is one club until the owner unlinks the id); and two clubs' copies of
+one game are one game as
 **One game on two clubs' schedules** sets out, kept once with the other side's score
 noted where they disagree — as is every game above that two coaches scored apart at one
 start time (on the stand-in fixtures export of 22 September 2026, 265 games joined, 479

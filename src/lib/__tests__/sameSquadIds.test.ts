@@ -145,6 +145,30 @@ describe("what proves two same-named squads one", () => {
     expect(mergeSameSquadIds(pool([club("VIP", "Vipers")], sameGame("VIP"))).merged).toBe(1);
   });
 
+  it("is that very club, by its id, and not another club of its name", () => {
+    // Each squad beat a different pulled Vipers 5-3 that day, hours apart, one Vipers of Kentucky
+    // and one of Ohio, each Vipers club's own row mirroring its game: one name, two clubs, two
+    // games. Keyed by the name, the two games were one fixture and the squads one club.
+    const vipers = [club("VIPKY", "Vipers"), { ...club("VIPOH", "Vipers"), state: "OH" }];
+    const state = pool(vipers, [
+      row("GOLD", "g1", "VIPKY", "2026-09-13T10:00", [5, 3]),
+      row("VIPKY", "k1", "GOLD", "2026-09-13T10:00", [3, 5]),
+      row("BLUE", "b1", "VIPOH", "2026-09-13T13:00", [5, 3]),
+      row("VIPOH", "o1", "BLUE", "2026-09-13T13:00", [3, 5]),
+    ]);
+    expect(mergeSameSquadIds(state).merged).toBe(0);
+    const tidy = tidyPool(state);
+    expect(tidy.folded).toBe(0);
+    expect(clubsOf(tidy.state)).toEqual(["gcBLUE", "gcGOLD", "gcVIPKY", "gcVIPOH"]);
+  });
+
+  it("is a pulled club of the squads' own name too, from another state", () => {
+    // Read by its id, a Comets of Ohio is a third club like any other. The squads' own tie with
+    // each other is not read by this: each squad's row of it names the other, two ids (below).
+    const ohio = { ...club("OHIO"), state: "OH" };
+    expect(mergeSameSquadIds(pool([ohio], sameGame("OHIO"))).merged).toBe(1);
+  });
+
   it("is never a game against a slot, a placeholder or a stand-in", () => {
     const against: ScoutTeam[] = [
       { id: "T-1", name: "TBD", placeholder: true },
@@ -182,5 +206,44 @@ describe("what proves two same-named squads one", () => {
     expect(mergeSameSquadIds(state, apart).merged).toBe(0);
     expect(tidyPool(state).folded).toBe(1);
     expect(tidyPool(state, undefined, apart).folded).toBe(0);
+  });
+
+  /*
+   * A third squad of the name, RED, with the most games, that shares a 9-2 over the Vipers with
+   * GOLD and a 4-3 with BLUE: both fold into it in one pass. Each squad is asked against those
+   * already folding into RED as well as RED itself, or two that cannot be one club end as one.
+   */
+  const intoRed = [
+    row("RED", "r1", "VIP", "2026-09-20T15:00", [9, 2]),
+    row("RED", "r2", "VIP", "2026-09-27T15:00", [4, 3]),
+    row("RED", "r3", "VIP", "2026-10-04T15:00", [1, 1]),
+    row("GOLD", "g1", "VIP", "2026-09-20T15:00", [9, 2]),
+    row("BLUE", "b1", "VIP", "2026-09-27T15:00", [4, 3]),
+  ];
+  /** Whether one club holds both GOLD's and BLUE's ids. */
+  const goldWithBlue = (state: GcImportState) =>
+    clubsOf(state).some((one) => one.includes("gcBLUE") && one.includes("gcGOLD"));
+
+  it("never folds two the owner said are two clubs into a third squad in one pass", () => {
+    const state = pool([club("RED"), club("VIP", "Vipers")], intoRed);
+    const apart = new Set([apartKey("gcGOLD", "gcBLUE")]);
+    expect(goldWithBlue(mergeSameSquadIds(state).state)).toBe(true);
+    const folded = mergeSameSquadIds(state, apart);
+    expect(folded.merged).toBe(1);
+    expect(goldWithBlue(folded.state)).toBe(false);
+    expect(goldWithBlue(tidyPool(state, undefined, apart).state)).toBe(false);
+  });
+
+  it("never folds squads of two states into a third squad of none in one pass", () => {
+    const { state: _none, ...red } = club("RED");
+    const state: GcImportState = {
+      ageGroups: groups,
+      teams: [club("GOLD"), { ...club("BLUE"), state: "OH" }, red, club("VIP", "Vipers")],
+      games: intoRed,
+    };
+    const folded = mergeSameSquadIds(state);
+    expect(folded.merged).toBe(1);
+    expect(goldWithBlue(folded.state)).toBe(false);
+    expect(goldWithBlue(tidyPool(state).state)).toBe(false);
   });
 });
