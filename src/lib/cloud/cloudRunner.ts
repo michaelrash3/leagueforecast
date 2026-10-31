@@ -528,17 +528,19 @@ const sweep = (pool: SweepPool, now: Date, spared: ReadonlySet<string>): Deleted
     gamesOf.get(game.teamAId)?.push(game.id);
     if (game.teamBId !== game.teamAId) gamesOf.get(game.teamBId)?.push(game.id);
   }
-  const deleted: Deleted = { clubs: [], games: [] };
+  const clubs: string[] = [];
+  // A set, as a game two deleted clubs played is in both of theirs (Codex on #495).
+  const games = new Set<string>();
   for (const teamId of drops) {
     const run = runPoolCommand({ kind: "club.drop", teamId });
     if (!run.ok && run.why !== "missing") {
       throw new Error("The store in memory refused a club deleted for a lopsided score.");
     }
     if (!run.ok) continue;
-    deleted.clubs.push(teamId);
-    deleted.games.push(...(gamesOf.get(teamId) ?? []));
+    clubs.push(teamId);
+    for (const game of gamesOf.get(teamId) ?? []) games.add(game);
   }
-  return deleted;
+  return { clubs, games: [...games] };
 };
 
 /**

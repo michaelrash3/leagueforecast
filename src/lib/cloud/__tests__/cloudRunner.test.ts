@@ -714,6 +714,53 @@ describe("a pull run on the cloud copy", () => {
       expect(routerGone()).toEqual({ marked: false, club: false, games: 0, refused: true });
     });
 
+    it("counts once a game between two clubs the 40-run rule deletes (Codex on #495)", async () => {
+      const PAIR = ["gcROUTPAIR01", "gcROUTPAIR02"] as const;
+      const names = ["Router Pair One", "Router Pair Two"] as const;
+      // Each a 41-0 win of its own, and one meeting both schedules list: three games in all.
+      const answers = async (asked: string[]) =>
+        new Map(
+          asked.map((id) => {
+            const at = PAIR.indexOf(id as (typeof PAIR)[number]);
+            const meeting =
+              at === 0
+                ? game(`${id}-m`, names[1], 6, 4)
+                : { ...game(`${id}-m`, names[0], 4, 6), id: `${id}-m` };
+            return [
+              id,
+              {
+                ok: true,
+                schedule: schedule(id, names[at] ?? id, [
+                  { ...game(`${id}-r`, `Owls ${at}`, 41, 0), id: `${id}-r`, date: "2026-09-21" },
+                  meeting,
+                ]),
+              } as GcTeamResponse,
+            ];
+          })
+        );
+      const cloud = memoryCloud();
+      await seed(cloud, undefined, { seasons: [] });
+      await runCloudPull(
+        listOf([...PAIR]),
+        deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams: answers })
+      );
+      const meetings = loadScoutGames().filter((row) =>
+        [row.teamAId, row.teamBId].every((club) =>
+          loadScoutTeams().some(
+            (team) =>
+              team.id === club &&
+              team.gcTeams?.some((link) => PAIR.includes(link.teamId as (typeof PAIR)[number]))
+          )
+        )
+      ).length;
+      const night = await runCloudPull(
+        leg([]),
+        deps(cloud, "2026-09-30T07:17:00.000Z", { cap: true })
+      );
+      expect(night.deleted?.clubs).toBe(2);
+      expect(night.deleted?.games).toBe(2 + meetings);
+    });
+
     it("still holds a capped night whose 40-run deletions take more than 2% of a year's clubs", async () => {
       const ids = Array.from({ length: 25 }, (_, at) => `gcROUT${String(at).padStart(6, "0")}`);
       const answers = async (asked: string[]) =>
