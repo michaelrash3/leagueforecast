@@ -853,16 +853,25 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     act(() => shown("visible"));
     await settle();
     expect(asked).toHaveLength(2);
-    // Looked away and back within the half minute its next wait takes: being shown anew asks
-    // nothing so soon after a question, and the retry left waiting goes all the same, once.
+    // Looked away and back at once, well inside the half minute its next wait takes: the retry just
+    // sent is not sent again, which would start a second line of waits beside the first, and the
+    // next falls due once.
     act(() => shown("hidden"));
-    await wait(30_000);
-    expect(asked).toHaveLength(2);
     act(() => shown("visible"));
     await settle();
+    expect(asked).toHaveLength(2);
+    await wait(30_000);
     expect(asked).toHaveLength(3);
+    // Looked away for the two minutes its next wait takes: being shown anew asks nothing so soon
+    // after a question, and the retry left waiting goes all the same, once.
+    act(() => shown("hidden"));
+    await wait(120_000);
+    expect(asked).toHaveLength(3);
+    act(() => shown("visible"));
+    await settle();
+    expect(asked).toHaveLength(4);
     await wait(60_000);
-    expect(asked).toHaveLength(3);
+    expect(asked).toHaveLength(4);
   });
 
   it("drops a retry left waiting for the page to be shown once the question it was for is gone", async () => {

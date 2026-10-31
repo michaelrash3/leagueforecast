@@ -7004,7 +7004,8 @@ server before this. And a question the server spent compute on and left unanswer
 of memory say, is counted for its New York day (`dayUnanswered`, emptied on a new day as the
 day's totals are, the last day before that had any kept as `lastUnanswered`), for the nightly's
 alarm ("When a run fails"). One turned away before its turn spent nothing, so its charge writes
-nothing, and counting it would be a write of its own: it is not counted. October's totals were left as they stood, which keeps the
+nothing, and counting it would be a write of its own: it is not counted, unless it was a new
+instance's first call, which is charged the instance's start-up all the same and so is counted. October's totals were left as they stood, which keeps the
 rebuilds deferred for the rest of that month: raising a cap in `ops/rebuild` lets the next save
 start one, since the launcher lifts a deferral whose budget has room again (`requestRebuildJob`).
 The nightly says the edits' month and, while the job is deferred, why (its budget, a run still going, or failures in a row) and until when; only a budget's deferral is lifted by a raised cap. A field set to

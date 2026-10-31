@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import editFunction from "../../../../functions/src/index.ts?raw";
 import type { StartOfRankings } from "../../cloud/pullJobRunner";
 import type { PoolCommand } from "../commands";
 import type { EditRun, QueryRun } from "../editRun";
@@ -573,7 +574,8 @@ describe("a question", () => {
     {
       question = QUESTION,
       wait,
-    }: { question?: QueryAsk; wait?: (ms: number) => Promise<void> } = {}
+      startupS = 0,
+    }: { question?: QueryAsk; wait?: (ms: number) => Promise<void>; startupS?: number } = {}
   ) =>
     handleQuery({
       ask: question,
@@ -581,7 +583,7 @@ describe("a question", () => {
       worker,
       today: () => TODAY,
       size: SIZE,
-      startupS: () => 0,
+      startupS: () => startupS,
       charges: chargeQueue(),
       ...(signal ? { signal } : {}),
       ...(wait ? { wait } : {}),
@@ -756,6 +758,47 @@ describe("a question", () => {
     await ask(seen.store, workerOf());
     await ask(seen.store, { query: async () => ran({ ok: false, why: "copy-replaced" }) });
     expect(ledger.held()?.dayUnanswered).toBe(1);
+  });
+
+  it("turned away before its turn is counted where it was charged a new instance's start-up", async () => {
+    // A new instance's start-up is charged to its first call (`startupS`), which may be turned away
+    // all the same: that one spent compute, so it is counted, in the write its charge makes anyway.
+    for (const why of ["gone", "late"] as const) {
+      const ledger = memoryLedger(ledgerOf());
+      const seen = counting(ledger.store);
+      expect(
+        await ask(seen.store, { query: async () => ({ ran: false, why }) }, undefined, {
+          startupS: 2,
+        })
+      ).toEqual({
+        notAnswered: NOT_ANSWERED,
+        editMonth: { month: "2027-04", spent: false },
+        line: { kind: "merge.preview", gibs: 16, end: why },
+      });
+      expect(seen.made).toEqual({ reads: 1, writes: 1 });
+      expect(ledger.held()).toMatchObject({
+        editMonthGiBs: 16,
+        editMonthVcpuS: 4,
+        dayUnanswered: 1,
+      });
+    }
+  });
+
+  /*
+   * The function's part (`functions/src/index.ts`): a question left unanswered is answered as the
+   * error `aborted`, the month in its details, which is where a device reads it (`editClient.ts`).
+   * Without that, a question the server could not answer, a worker out of memory say, which is
+   * what a device's hold on its retries is for, would never say the month spent, and every test
+   * here and the client's would still pass. Nothing here runs the function, so its call is read as
+   * text, as the workflows' alarm steps are (`workflowAlarms.test.ts`).
+   */
+  it("is left unanswered by the function as an error that carries the month in its details", () => {
+    const thrown = /if \("notAnswered" in handled\) \{ throw new HttpsError\((.*?)\); \}/.exec(
+      editFunction.replace(/\s+/g, " ")
+    );
+    expect(thrown?.[1]?.trim()).toBe(
+      '"aborted", handled.notAnswered, handled.editMonth && { editMonth: handled.editMonth }'
+    );
   });
 
   it("says nothing of the month where its charge was slow or failed, or there is no ledger: not known", async () => {

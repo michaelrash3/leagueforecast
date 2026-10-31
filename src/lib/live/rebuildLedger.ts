@@ -115,7 +115,9 @@ export type Ledger = {
    * (`chargeEdit`), and the last day before `day` that had any, with its count as it stood when the
    * ledger moved on from it, or null before there was one. Only counted, for the nightly's alarm
    * (`unansweredWord`): no cap reads them. A question turned away before its turn spent nothing,
-   * so its charge writes nothing, and counting it would be a write of its own; it is not counted.
+   * so its charge writes nothing, and counting it would be a write of its own; it is not counted,
+   * unless it was a new instance's first call, which is charged the instance's start-up all the
+   * same and so is counted.
    */
   dayUnanswered: number;
   lastUnanswered: { day: string; count: number } | null;
