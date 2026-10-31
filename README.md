@@ -6775,6 +6775,20 @@ Readers fetch while a server writes, so publishing keeps four rules
   build of the replaced copy is held all the same while the meta still knows
   that copy.
 
+A publish counts every view it built once, family by family (`FamilyCounts`):
+**sent**, its JSON uploaded by this publish; **reused**, written from an upload
+the meta already names, of the same JSON, under a new version, another copy or
+another key, with nothing sent; **unchanged**, the same JSON from the same copy
+and version, which only a republish at the same version finds; or **refused as
+older**, a late publish's. A night that saves moves the version, so every view
+its save did not change is reused rather than unchanged: the nightly of 30
+October 2026 built 109 views and said 86 uploaded and 0 unchanged, the 23 it
+reused in no count. The log of each server that publishes (`viewsReport.ts`)
+now says the reused beside the uploads, and the four counts by family (boards,
+buckets of club cards, Find a team lists, Games lists), so a night shows which
+kinds of view it changed. Uploads and views differ where two views share one
+JSON: the seeded fixture's 33 boards went up on 29 uploads.
+
 The shape of the views has a number (`LIVE_SCHEMA`): 2 since the rows gained their
 clubs' towns, states and badges, the boards last week's places and their page's
 own club's rank line, and the meta its pages' counts; 3 since each League
