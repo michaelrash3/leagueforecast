@@ -4,9 +4,21 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import App from "./App";
 import { prefetchAllViews } from "./components/league/leagueViews";
 import type { LiveLeagueState } from "./lib/live/leagueSync";
+import { buildPredictionEngine } from "./lib/predictionEngine";
 import { writeOurTeam } from "./lib/preferences";
+import { attachAdjustedRatings, calculateTeams, predictGame } from "./lib/sim";
 import { readLook, saveLook } from "./lib/sinceLastLook";
-import { getActiveSeasonId, listSeasons, saveLogs, saveMatchups, saveTeams } from "./lib/storage";
+import {
+  getActiveSeasonId,
+  listSeasons,
+  loadLogs,
+  loadMatchups,
+  loadSettings,
+  loadTeams,
+  saveLogs,
+  saveMatchups,
+  saveTeams,
+} from "./lib/storage";
 
 /*
  * Opening the app after a while starts with what changed for the team followed, counting the
@@ -80,6 +92,26 @@ describe("Since you last looked, in the app", () => {
     await user.click(within(card).getByRole("button", { name: "Got it" }));
     expect(screen.queryByRole("region", { name: "Since you last looked" })).toBeNull();
     expect(readLook(getActiveSeasonId())?.finals).toEqual(expect.arrayContaining(["g1", "g2"]));
+
+    /*
+     * And it keeps, for the game still to play, the chance the Dashboard showed it with, which is
+     * the per-game model's, as the Schedule and the Our team card give it (sweep item 29): the next
+     * card says what a result had been given, and it was the prediction engine's own chance.
+     */
+    const settings = loadSettings();
+    const matchups = loadMatchups();
+    const logs = loadLogs();
+    const base = calculateTeams(loadTeams(), matchups, logs, settings);
+    const live = attachAdjustedRatings(
+      base,
+      buildPredictionEngine(base, matchups, logs, settings).ratings
+    );
+    const next = matchups.find((game) => game.id === "g3");
+    if (!next) throw new Error("No game still to play");
+    expect(readLook(getActiveSeasonId())?.chances.g3).toEqual({
+      a: "COMT",
+      pA: predictGame(next, live, settings).awayWinPct,
+    });
   }, 30_000);
 
   it("starts afresh from a look kept of another season made under the open one's id", async () => {

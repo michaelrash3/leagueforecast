@@ -4453,9 +4453,15 @@ made for.
 ## Why the forecast says what it does
 
 Each of the Dashboard's upcoming predictions has a **Why Aces at 64%?** button (2.8). The
-win chance is read off a projected margin, and the prediction engine now gives that margin
-as data with every forecast (`LeaguePrediction.explanation`), as the sum of its parts in
-runs, which add up to it exactly:
+chance is the one every League screen gives the game: the per-game model's (`predictGame`),
+which the Schedule's pick, the Our team card, the team drawer and the Gold odds read, and so
+is the pick (**Projected Winner**, and **Pick:** on a phone's line). The list used to show the
+prediction engine's own chance, a logistic over its margin held to 8–92%, beside it: one game
+could be 43% on the Our team card and the other side's pick at 54% in the list, and in a close
+game the two could back different sides. The engine's chance is now shown nowhere, and the card
+gives the engine's projected margin beside the pick only where the two lean the same way. What
+the panel explains is that margin, which the engine gives as data with every forecast
+(`LeaguePrediction.explanation`), as the sum of its parts in runs, which add up to it exactly:
 
 - **Results**: each side's average margin in the games its rating was fitted from (league
   and Team Rankings, each counted up to `FORECAST_RUN_CAP`), shrunk toward average by the
@@ -4479,17 +4485,20 @@ Beside them is what the margin does not count again or at all: recent form (alre
 results), runs scored and allowed in league games, the Team Rankings results behind each
 rating, how many games each rating rests on, each side's newest result and how long before
 the game it was (or after, or on the same day: a game whose date has passed with no score is
-still forecast, and the sides may have played since), and what the per-game model behind the
-Schedule's odds and the Gold chances makes of the same game (`forecastExplanation.ts`).
+still forecast, and the sides may have played since), and the per-game model the chance comes
+from, which reads runs scored and allowed beside the rating (`forecastExplanation.ts`): the
+reason given for its pick where no part of the margin leans that way.
 
 The panel leads with the strongest reason for each side (a part of the margin where there is
 one), then the margin as its parts ("Aces by 2.3 runs, from results +3.1, opponents faced
 −1.2, head-to-head +0.4"), with every factor on request. **What could change it** names a
 side with fewer than three games behind its rating, a newest result more than three weeks
 before the game, Team Rankings results from a club linked by a name more than one club
-carries, a rating and raw scoring that point different ways, and the two models disagreeing
-(backing different sides, or 15 points apart). Five numbers the page shows are said apart,
-since they are easily taken for one another: the **win chance** of this game, its **range**
+carries, a rating and raw scoring that point different ways, and the margin and the chance
+parting ways: the margin backing the other side, or the chance the engine reads off it 15
+points from the one shown, said as closer or more one-sided without that second number. A
+chance held at the per-game model's 96% (or 4%) says so. Five numbers the page shows are said
+apart, since they are easily taken for one another: the **win chance** of this game, its **range**
 (below), the model's **confidence** (how much it has to go on, not a second chance of
 winning), **Gold %** (the chance of finishing above the cut line over the season), and the
 **accuracy so far** (the season's finished games replayed one at a time, each called from the
@@ -4841,7 +4850,8 @@ moved for the team followed since the last visit, counting what was entered on t
 which the list above never tells (`src/lib/sinceLastLook.ts`, `SinceLastLook.tsx`): its place and
 Gold odds then and now, the numbers running from one to the other (shown at once where motion is
 turned down); each result since, with the chance the team was given while the game was still to
-play; the upset of the stretch, the new final whose winner had been given the least chance, under
+play (the one the Dashboard showed, the per-game model's, as every League screen gives it); the
+upset of the stretch, the new final whose winner had been given the least chance, under
 one in two; and who passed the team and whom it passed. With no team followed it gives the new
 results' count, the upset and the biggest climb. The card stands in the list's place while it is
 up, and **Got it** puts both away as they stood when the card came up: the card is what the season

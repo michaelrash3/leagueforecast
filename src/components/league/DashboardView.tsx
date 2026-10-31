@@ -45,8 +45,6 @@ const SinceLastLook = sinceLastLook.View;
 /** What a card's explanation reads beside the prediction itself, worked out once it is opened. */
 type WhyContext = {
   nameOf: (id: string) => string;
-  /** The per-game model's chance that the away side wins a game: the Schedule's odds. */
-  gameOdds?: (game: Matchup) => number;
   findings: readonly Finding[];
   record: { winnerAccuracy: number | null; sampleSize: number };
   /** Whether the league has a cut line, and so a Gold % to explain. */
@@ -57,14 +55,27 @@ function teamNameFor(map: Map<string, Team>, id: string) {
   return map.get(id)?.name ?? id;
 }
 
+/**
+ * Each side's chance as a whole percent, the way every League screen rounds a side's own: the away
+ * side's and the home side's each from their own share, as the Schedule's pick and the Our team
+ * card give them.
+ */
+const percentsOf = (chanceA: number) => ({
+  aPct: Math.round(chanceA * 100),
+  bPct: Math.round((1 - chanceA) * 100),
+});
+
 /** An upcoming game on a phone, in one line: who plays, when, and the pick, pressed to open. */
 function PredictionLine({
   prediction,
+  chanceA,
   teamsById,
   matchups,
   onOpen,
 }: {
   prediction: LeaguePrediction;
+  /** The away side's chance (`gameOdds`). */
+  chanceA: number;
   teamsById: Map<string, Team>;
   matchups: Matchup[];
   onOpen: () => void;
@@ -72,8 +83,7 @@ function PredictionLine({
   const game = matchups.find((item) => item.id === prediction.gameId);
   const a = displayName(teamNameFor(teamsById, prediction.teamAId));
   const b = displayName(teamNameFor(teamsById, prediction.teamBId));
-  const aPct = Math.round(prediction.winProbability.teamA * 100);
-  const bPct = Math.round(prediction.winProbability.teamB * 100);
+  const { aPct, bPct } = percentsOf(chanceA);
   const pick =
     aPct === bPct ? "Toss-up" : `Pick: ${aPct > bPct ? a : b} · ${Math.max(aPct, bPct)}%`;
   return (
@@ -100,11 +110,14 @@ function PredictionLine({
 
 function PredictionCard({
   prediction,
+  chanceA,
   teamsById,
   matchups,
   why: whyContext,
 }: {
   prediction: LeaguePrediction;
+  /** The away side's chance (`gameOdds`). */
+  chanceA: number;
   teamsById: Map<string, Team>;
   matchups: Matchup[];
   why: WhyContext;
@@ -114,20 +127,30 @@ function PredictionCard({
   const game = matchups.find((item) => item.id === prediction.gameId);
   const a = teamNameFor(teamsById, prediction.teamAId);
   const b = teamNameFor(teamsById, prediction.teamBId);
-  const winner = prediction.predictedWinnerId
-    ? teamNameFor(teamsById, prediction.predictedWinnerId)
-    : "Pending data";
+  const { aPct, bPct } = percentsOf(chanceA);
+  /*
+   * The pick is the side the chance favors, as on the Schedule. The margin is the prediction
+   * engine's, which the "Why" panel explains, and it is given only where it leans the same way: in
+   * a close game the two can back different sides, and a card naming one side the winner beside a
+   * chance that favors the other is two favorites for one game.
+   */
+  const pickId =
+    aPct > bPct
+      ? prediction.teamAId
+      : bPct > aPct
+        ? prediction.teamBId
+        : prediction.predictedWinnerId;
+  const winner = pickId ? teamNameFor(teamsById, pickId) : "Pending data";
+  const margin =
+    pickId && pickId === prediction.predictedWinnerId && prediction.projectedMargin !== null
+      ? ` by ${prediction.projectedMargin}`
+      : "";
   // How far the game can stray from the forecast (2.10), once the model has finals to go on.
   const range = prediction.range;
-  const aPct = Math.round(prediction.winProbability.teamA * 100);
-  const bPct = Math.round(prediction.winProbability.teamB * 100);
   const whyLabel =
     aPct === bPct
       ? "Why a toss-up?"
       : `Why ${displayName(aPct > bPct ? a : b)} at ${Math.max(aPct, bPct)}%?`;
-  // Asked for only while the explanation is open: the per-game model is not free to run.
-  const gameModelChance =
-    whyOpen && game && whyContext.gameOdds ? whyContext.gameOdds(game) : undefined;
   return (
     <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-xs ring-1 ring-slate-950/5 dark:border-slate-800 dark:bg-slate-950/70">
       <div className="flex items-start justify-between gap-4">
@@ -153,7 +176,7 @@ function PredictionCard({
           </p>
           <p className="mt-1 text-lg font-black">
             {winner}
-            {prediction.projectedMargin !== null ? ` by ${prediction.projectedMargin}` : ""}
+            {margin}
           </p>
           {range && (
             <p className={`mt-1 ${textRole.meta}`}>
@@ -224,11 +247,11 @@ function PredictionCard({
               >
                 <ForecastWhy
                   prediction={prediction}
+                  chanceA={chanceA}
                   nameOf={whyContext.nameOf}
                   findings={whyContext.findings}
                   record={whyContext.record}
                   hasCutLine={whyContext.hasCutLine}
-                  {...(gameModelChance !== undefined ? { gameModelChance } : {})}
                 />
               </Suspense>
             </ErrorBoundary>
@@ -280,11 +303,15 @@ export function DashboardView({
   /**
    * The season as it stands, for the big "Since you last looked" card (`SinceLastLookCard`): the
    * followed team's place and Gold odds then and now, its results, the upset, who passed whom.
-   * Unlike the digest, it counts what was entered here too. The forecasts come from `engine`.
+   * Unlike the digest, it counts what was entered here too. The chances come from `gameOdds`.
    */
   look?: Omit<LookInput, "predictions">;
-  /** The per-game model's chance that the away side wins a game, for a card's explanation. */
-  gameOdds?: (game: Matchup) => number;
+  /**
+   * The per-game model's chance that the away side wins a game (`predictGame`): the one chance the
+   * page gives a game, as the Schedule, the Our team card and the Gold odds read it. The prediction
+   * engine's own chance is not shown (sweep item 29); its margin and its words are.
+   */
+  gameOdds: (game: Matchup) => number;
   /**
    * How the season ended, once it has (`seasonFinalOf`): shown where the next games would be,
    * since a finished season has none to predict.
@@ -295,7 +322,6 @@ export function DashboardView({
 }) {
   const why: WhyContext = {
     nameOf: (id) => displayName(teamNameFor(teamsById, id)),
-    ...(gameOdds ? { gameOdds } : {}),
     findings,
     record: backtestResult,
     hasCutLine,
@@ -308,6 +334,16 @@ export function DashboardView({
   // The forecast lists them as the schedule stores them, which need not be either.
   const gameById = new Map(matchups.map((game) => [game.id, game]));
   const seasonStart = seasonStartMonth(matchups.map((game) => game.date));
+  // Each forecast game's chance as the page shows it, worked out once for the list and the look.
+  const chances = useMemo(() => {
+    const scheduled = new Map(matchups.map((game) => [game.id, game]));
+    return new Map(
+      engine.predictions.flatMap((call) => {
+        const game = scheduled.get(call.gameId);
+        return game ? [[call.gameId, gameOdds(game)] as const] : [];
+      })
+    );
+  }, [engine.predictions, matchups, gameOdds]);
   const upcoming = [...engine.predictions].sort((x, y) => {
     const a = gameById.get(x.gameId);
     const b = gameById.get(y.gameId);
@@ -320,14 +356,14 @@ export function DashboardView({
     );
   });
 
+  // The look keeps the chance each game was shown with, to say what a result had been given.
   const lookPredictions = useMemo(
     () =>
-      engine.predictions.map((call) => ({
-        gameId: call.gameId,
-        teamAId: call.teamAId,
-        pA: call.winProbability.teamA,
-      })),
-    [engine.predictions]
+      engine.predictions.flatMap((call) => {
+        const pA = chances.get(call.gameId);
+        return pA === undefined ? [] : [{ gameId: call.gameId, teamAId: call.teamAId, pA }];
+      }),
+    [engine.predictions, chances]
   );
   const lookRows = useMemo(
     () => look?.rows.map((row) => ({ ...row, name: displayName(row.name) })),
@@ -403,27 +439,29 @@ export function DashboardView({
               Open Schedule
             </button>
           </div>
-          {upcoming
-            .slice(0, 3)
-            .map((p) =>
-              narrow && openPrediction !== p.gameId ? (
-                <PredictionLine
-                  key={p.gameId}
-                  prediction={p}
-                  teamsById={teamsById}
-                  matchups={matchups}
-                  onOpen={() => setOpenPrediction(p.gameId)}
-                />
-              ) : (
-                <PredictionCard
-                  key={p.gameId}
-                  prediction={p}
-                  teamsById={teamsById}
-                  matchups={matchups}
-                  why={why}
-                />
-              )
-            )}
+          {upcoming.slice(0, 3).map((p) => {
+            const chanceA = chances.get(p.gameId);
+            if (chanceA === undefined) return null;
+            return narrow && openPrediction !== p.gameId ? (
+              <PredictionLine
+                key={p.gameId}
+                prediction={p}
+                chanceA={chanceA}
+                teamsById={teamsById}
+                matchups={matchups}
+                onOpen={() => setOpenPrediction(p.gameId)}
+              />
+            ) : (
+              <PredictionCard
+                key={p.gameId}
+                prediction={p}
+                chanceA={chanceA}
+                teamsById={teamsById}
+                matchups={matchups}
+                why={why}
+              />
+            );
+          })}
           {engine.predictions.length === 0 &&
             (seasonFinal ? (
               <section
