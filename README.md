@@ -956,10 +956,12 @@ Two league teams that are one name to the pool, "Heat (Coach A)" and "Heat (Coac
 the way round that fits better, a side linked in Settings counting for more than names alike; where
 both fit as well, the way the clubs' names on GameChanger, kept whole (`GcTeamLink.name`), fit the
 teams' names, written alike or alike but for the age (`nameNearness`); and where nothing tells the
-two ways apart, it is reported as **Can't tell** and never written. Until October 2026 a result was
-taken the way the pool listed it whenever that fitted, and the pool lists the pulled club first,
-which says nothing of who was home: a meeting the pulled club hosted went in backwards and ticked,
-links or no links.
+two ways apart, it is reported as **Can't tell** and never written. Such a result is still the
+game's whichever way round: a score the league already has one way round is its own (**Already
+in**), and the game's start reaches the schedule as any matched game's does. Until October 2026 a
+result was taken the way the pool listed it whenever that fitted, and the pool lists the pulled club
+first, which says nothing of who was home: a meeting the pulled club hosted went in backwards and
+ticked, links or no links.
 
 A club's own schedule that was never told the opponent files the game against a
 slot, "TBD- 09/25/26, 7:15 PM", and when the other club's schedule is not in the

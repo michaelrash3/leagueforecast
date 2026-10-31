@@ -6,6 +6,7 @@ import {
   movedGames,
   movesToApply,
   planLeagueScoreFill,
+  startsFromFill,
   summarizeLeagueFill,
   type LeagueFillPlan,
   type LeagueScoreFillInput,
@@ -487,6 +488,77 @@ describe("planLeagueScoreFill", () => {
       // The result is this game's, the way round aside, so it is not counted as unused.
       expect(plan.unusedResults).toBe(0);
       expect(plan.unmatched).toBe(0);
+    });
+
+    /*
+     * What the Can't tell row promises: link the teams to their clubs in Settings and it fills. A
+     * side linked counts for more than both names alike, so the links settle what names cannot,
+     * even one link alone; no other case here would notice a link that counted for no more.
+     */
+    it("fills the way round the Settings links say where nothing else tells the clubs apart", () => {
+      const bare: ScoutTeam[] = [
+        { id: "P-A", name: "Heat" },
+        { id: "P-B", name: "Heat" },
+      ];
+      const plan = heatGame({ scoutTeams: bare });
+      expect(runs(plan)).toEqual([["fill", 3, 8]]);
+      expect(defaultFillSelection(plan)).toEqual(["g1"]);
+      const listedFirst = heatGame({
+        scoutTeams: bare,
+        scoutGames: [scoutGame("s1", "P-A", "P-B", 3, 8, "2026-09-12")],
+      });
+      expect(runs(listedFirst)).toEqual([["fill", 3, 8]]);
+      // Coach A's team alone linked: one link still outweighs two names alike.
+      const oneLinked = heatGame({
+        teams: [
+          { id: "HA", name: "Heat (Coach A)", scoutTeamId: "P-A" },
+          { id: "HB", name: "Heat (Coach B)" },
+        ],
+        scoutTeams: bare,
+      });
+      expect(runs(oneLinked)).toEqual([["fill", 3, 8]]);
+    });
+
+    /*
+     * The result fits the game either way round, so the game is the pool's game whichever it is:
+     * when it started is known, and where the league already has the score one way round, that is
+     * the way, with nothing to do. Can't tell lost both, the start never reaching the schedule.
+     */
+    it("keeps what an either-way result settles: its start, and a score already recorded", () => {
+      const bare: ScoutTeam[] = [
+        { id: "P-A", name: "Heat" },
+        { id: "P-B", name: "Heat" },
+      ];
+      const START = "2026-09-12T15:00:00Z";
+      const timed = [
+        scoutGame("s1", "P-B", "P-A", 8, 3, "2026-09-12", {
+          startTs: START,
+          event: "Placeholder Fall League",
+        }),
+      ];
+      const game = (over: Partial<LeagueScoreFillInput>) =>
+        heatGame({ teams: heat(false), scoutTeams: bare, scoutGames: timed, ...over });
+      const blank = game({});
+      expect(blank.rows).toMatchObject([
+        {
+          action: "ambiguous",
+          scoutGameId: "s1",
+          startTs: START,
+          event: "Placeholder Fall League",
+        },
+      ]);
+      expect(startsFromFill(blank, [matchup("g1", "9/12", "HA", "HB")])).toEqual({ g1: START });
+      // Recorded either way round, it is the league's own score: nothing to fill.
+      const final = (away: string, home: string) => ({
+        g1: { ...blankLog("6"), awayRuns: away, homeRuns: home, isFinal: true },
+      });
+      expect(runs(game({ logs: final("3", "8") }))).toEqual([["unchanged", 3, 8]]);
+      expect(runs(game({ logs: final("8", "3") }))).toEqual([["unchanged", 8, 3]]);
+      // A score that is neither way round is still nothing to write over, and says so.
+      const other = game({ logs: final("5", "2") });
+      expect(runs(other)).toEqual([["ambiguous", 0, 0]]);
+      expect(other.rows[0]!.detail).toContain("Already recorded as 5–2 and marked final");
+      expect(other.rows[0]!.detail).not.toContain("it fills");
     });
 
     it("takes the way round both names fit over one that fits them only loosely", () => {
