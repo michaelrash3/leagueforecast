@@ -242,8 +242,8 @@ describe("leagues that owe games the schedule does not show yet", () => {
     expect(pins(ROUND, 4)).toMatchInlineSnapshot(`
       {
         "champion": {
-          "A": 51,
-          "B": 49,
+          "A": 57,
+          "B": 43,
           "C": 0,
           "D": 0,
         },
@@ -291,24 +291,24 @@ describe("leagues that owe games the schedule does not show yet", () => {
     expect(pins(ROUND, 12, false)).toMatchInlineSnapshot(`
       {
         "champion": {
-          "A": 51,
-          "B": 49,
-          "C": 0,
-          "D": 0,
+          "A": 56,
+          "B": 33,
+          "C": 9,
+          "D": 2,
         },
         "exact": "not asked",
         "finals": {
-          "A": 100,
-          "B": 100,
-          "C": 0,
-          "D": 0,
+          "A": 95,
+          "B": 80,
+          "C": 22,
+          "D": 3,
         },
-        "iterations": 200,
+        "iterations": 400,
         "odds": {
-          "A": 100,
-          "B": 100,
-          "C": 0,
-          "D": 0,
+          "A": 91,
+          "B": 72.25,
+          "C": 27,
+          "D": 9.75,
         },
         "paths": [
           "B In: Controls a Gold spot by protecting the current cut-line cushion.",
@@ -317,10 +317,10 @@ describe("leagues that owe games the schedule does not show yet", () => {
           "D Alive: Needs help from teams above the line.",
         ],
         "places": {
-          "A": 1,
-          "B": 2,
-          "C": 3,
-          "D": 4,
+          "A": 1.413,
+          "B": 2.12,
+          "C": 2.89,
+          "D": 3.578,
         },
         "status": [
           "A In, 9 left",
@@ -338,9 +338,9 @@ describe("leagues that owe games the schedule does not show yet", () => {
       {
         "champion": {
           "A": 54,
-          "B": 46,
-          "C": 0,
-          "D": 0,
+          "B": 42,
+          "C": 3,
+          "D": 1,
         },
         "exact": [
           "A | M 1 more win clinches a Gold Bracket spot. | E Its own losses cannot eliminate it, but other results still can. | needs []",
@@ -350,16 +350,16 @@ describe("leagues that owe games the schedule does not show yet", () => {
         ],
         "finals": {
           "A": 100,
-          "B": 100,
-          "C": 0,
-          "D": 0,
+          "B": 90,
+          "C": 8,
+          "D": 2,
         },
-        "iterations": 200,
+        "iterations": 400,
         "odds": {
           "A": 100,
-          "B": 100,
-          "C": 0,
-          "D": 0,
+          "B": 87.25,
+          "C": 9.75,
+          "D": 3,
         },
         "paths": [
           "B In: Controls a Gold spot by winning out.",
@@ -368,10 +368,10 @@ describe("leagues that owe games the schedule does not show yet", () => {
           "D Alive: Ducks get help if Bears lose to Aces. Out after 1 more loss.",
         ],
         "places": {
-          "A": 1.17,
-          "B": 1.83,
-          "C": 3,
-          "D": 4,
+          "A": 1.185,
+          "B": 1.975,
+          "C": 2.947,
+          "D": 3.893,
         },
         "status": [
           "A In, 2 left",

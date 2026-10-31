@@ -3,11 +3,18 @@ import { clinchingPathsForTeams } from "../clinchingPaths";
 import { eliminationNumberForGold, magicForGold, neededResults } from "../magic";
 import { needsLines } from "../ourTeam";
 import {
+  attachAdjustedRatings,
   calculateTeams,
+  emptyTeam,
   getMathGoldStatus,
   getRemainingCounts,
+  leagueAverageSide,
+  OWED_OPPONENT,
+  predictGame,
   rankOptionsFromSettings,
   rankTeams,
+  simulateBracketOdds,
+  simulateGoldOddsRun,
 } from "../sim";
 import {
   DEFAULT_SETTINGS,
@@ -106,7 +113,11 @@ const league = (
       limit: 8,
       exactLimit: 15,
     }).map((path) => `${path.teamName} ${path.status}: ${path.notes.join(" ")}`);
-  return { status, magic, elimination, needs, paths };
+  const odds = (iterations: number, follow?: string) =>
+    simulateGoldOddsRun(live, remaining, iterations, "owed", 2, settings, follow);
+  const bracket = (logs: Record<string, GameLog>) =>
+    simulateBracketOdds(live, remaining, 400, "owed", 2, settings, logs);
+  return { status, magic, elimination, needs, paths, odds, bracket };
 };
 
 describe("the reproduction: the entered games played, games per team still owed", () => {
@@ -249,5 +260,108 @@ describe("the season's last game owed beyond the schedule", () => {
     // The Bears get in only level with the Eagles, on the tiebreak they hold.
     expect(last.status("B")).toBe("Alive");
     expect(last.needs("B")).toEqual(["Eagles to lose their game not yet on the schedule"]);
+  });
+});
+
+/*
+ * The odds played the scheduled games alone, so with none left the season was over: the top two at
+ * 100% and the rest at 0% while each team had nine games to play. Each owed game is now played
+ * after the scheduled ones, against a side of the league's average strength that is never ranked.
+ */
+describe("the Gold odds with games owed beyond the schedule", () => {
+  it("play the owed games, so the race the status calls open is open in the odds too", () => {
+    const run = league(ROUND, 12).odds(4000);
+    for (const id of ["A", "B", "C", "D"]) {
+      expect(run.odds[id]).toBeGreaterThan(1);
+      expect(run.odds[id]).toBeLessThan(99);
+    }
+    // In the order the records put them, the Aces' three wins ahead of the Bears' two.
+    expect(run.odds.A).toBeGreaterThan(run.odds.B ?? 100);
+    expect(run.odds.B).toBeGreaterThan(run.odds.C ?? 100);
+    expect(run.odds.C).toBeGreaterThan(run.odds.D ?? 100);
+  });
+
+  it("fill the cut with the league's own teams, the stand-in never among them", () => {
+    const run = league(ROUND, 12).odds(400);
+    expect(Object.keys(run.odds).sort()).toEqual(["A", "B", "C", "D"]);
+    // Two places in every season, and every place from first to fourth handed out once.
+    const inside = Object.values(run.odds).reduce((sum, value) => sum + value, 0);
+    expect(inside).toBeCloseTo(200, 9);
+    const places = Object.values(run.places).reduce((sum, value) => sum + value, 0);
+    expect(places).toBeCloseTo(10, 9);
+  });
+
+  it("play them for the teams that owe them, and the schedule for the rest", () => {
+    // The Comets get in by winning both of theirs while the Bears lose both to the Aces.
+    const run = league(TWICE, 5).odds(4000, "C");
+    expect(run.odds.C).toBeGreaterThan(1);
+    expect(run.odds.B).toBeLessThan(99);
+    // The followed team's swing is the scheduled games', which are the ones it can be told about.
+    expect(run.swing?.gameIds).toEqual(["g7", "g8"]);
+  });
+
+  it("wait for the owed games before reading the bracket's kept scores", () => {
+    // The top seed won the final as kept, but with nine games owed each, nobody is seeded yet: the
+    // title odds are the ones drawn with no score kept at all.
+    const owed = league(ROUND, 12);
+    const crowned = owed.bracket({ "bracket-r1-g1": final(2, 5) });
+    expect(crowned).toEqual(owed.bracket({}));
+    expect(crowned.championOdds.C).toBeGreaterThan(0);
+  });
+});
+
+describe("the side a game owed beyond the schedule is played against", () => {
+  const settings = { ...DEFAULT_SETTINGS, goldCutoff: 2, regularSeasonGamesPerTeam: 12 };
+  const live = calculateTeams(TEAMS, ROUND, SCORES, settings);
+
+  it("is the league's average team, which no team of the league can be", () => {
+    const side = leagueAverageSide(live);
+    expect(side.id).toBe(OWED_OPPONENT);
+    expect(live.some((team) => team.id === side.id)).toBe(false);
+    // Every game was between two of the league's teams, so its average is a .500 side with no run
+    // differential, scoring and allowing the league's runs a game.
+    const runs = live.reduce((sum, team) => sum + team.rs, 0) / 12;
+    expect(side.games).toBe(3);
+    expect(side.pct).toBeCloseTo(0.5, 12);
+    expect(side.runDiff).toBeCloseTo(0, 12);
+    expect(side.rsg).toBeCloseTo(runs, 12);
+    expect(side.rag).toBeCloseTo(runs, 12);
+    expect(side.w + side.l + side.t).toBe(0);
+    expect(side.headToHead).toEqual({});
+    // A team yet to play counts for nothing in the average of what a game is like.
+    const unplayed = leagueAverageSide([...live, emptyTeam({ id: "E", name: "Eagles" })]);
+    expect(unplayed.pct).toBeCloseTo(0.5, 12);
+    expect(unplayed.rsg).toBeCloseTo(runs, 12);
+  });
+
+  it("is beaten more often by a better team", () => {
+    const side = leagueAverageSide(live);
+    const byId = new Map([...live.map((team) => [team.id, team] as const), [side.id, side]]);
+    const chance = (id: string) =>
+      predictGame({ id: "x", date: "", away: id, home: side.id }, live, settings, byId).awayWinPct;
+    expect(chance("A")).toBeGreaterThan(chance("B"));
+    expect(chance("B")).toBeGreaterThan(chance("C"));
+    expect(chance("C")).toBeGreaterThan(chance("D"));
+    expect(chance("A")).toBeGreaterThan(0.5);
+    expect(chance("D")).toBeLessThan(0.5);
+  });
+
+  it("carries the league's rating where its teams carry one, by the games behind each", () => {
+    expect(leagueAverageSide(live).adjustedRating).toBeUndefined();
+    const rated = attachAdjustedRatings(live, {
+      byTeam: new Map([
+        ["A", 3],
+        ["B", 1],
+        ["C", -1],
+      ]),
+      games: new Map([
+        ["A", 6],
+        ["B", 2],
+        ["C", 2],
+      ]),
+    });
+    const ratedSide = leagueAverageSide(rated);
+    expect(ratedSide.adjustedRating).toBeCloseTo((3 * 6 + 1 * 2 - 1 * 2) / 10, 12);
+    expect(ratedSide.ratedGames).toBeCloseTo(10 / 3, 12);
   });
 });

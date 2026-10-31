@@ -221,6 +221,35 @@ describe("a league that owes games the schedule does not show yet, as the page s
       expect(within(paths).getByRole("button", { name: team.name })).toBeInTheDocument();
   }, 60_000);
 
+  it("plays the owed games in the Gold odds, so the race the status leaves open is open", async () => {
+    const user = open(ROUND, 12, "A");
+    await user.click(await screen.findByRole("tab", { name: "Dashboard" }));
+    // The odds land a beat after the card, so it is read once it has held still.
+    const card = await settled("the Aces' card", () =>
+      /% Gold/.test(screen.queryByRole("region", { name: "Our team" })?.textContent ?? "")
+        ? (screen.getByRole("region", { name: "Our team" }).textContent ?? "")
+        : ""
+    );
+    const gold = Number(/(\d+)% Gold/.exec(card)?.[1]);
+    expect(gold).toBeGreaterThan(50);
+    expect(gold).toBeLessThan(100);
+
+    await user.click(await screen.findByRole("tab", { name: "Standings" }));
+    const row = (name: string) =>
+      settled(`the ${name}' row`, () =>
+        [...document.querySelectorAll("main tr")]
+          .map((line) => line.textContent ?? "")
+          .filter((line) => line.includes(name))
+          .join("")
+      );
+    // 2-1 with nine games to play: In, as the status says, and not sure of it.
+    expect(await row("Bears")).not.toContain("99%+");
+    // 1-2 with nine to play, chasing the line rather than out of it at under one per cent.
+    const comets = await row("Comets");
+    expect(comets).toContain("Chasing");
+    expect(comets).not.toContain("<1%");
+  }, 60_000);
+
   it("works the owed games into the exact numbers where few enough are left", async () => {
     // The Comets and the Ducks owe two each; the Aces and the Bears meet twice more.
     const user = open(TWICE, 5, "C");

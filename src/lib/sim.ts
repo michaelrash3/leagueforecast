@@ -159,6 +159,75 @@ export const owedGames = (
   return games;
 };
 
+/**
+ * The side a game owed beyond the schedule is played against in a simulated season (`playOwed`):
+ * the league's average team. Every number the forecast reads off a team is the league's average of
+ * it, each team counted by the games behind it, so a team yet to play adds nothing, and a league
+ * whose games are all its own gives a .500 side with no run differential; the forecast then favours
+ * a strong team against it and a weak one not. Its games are the league's average count, so the
+ * forecast trusts it as far as a typical team, and its rating, where the teams carry one, is theirs
+ * averaged by the games behind each. It is nobody's opponent in particular: no head-to-head, nothing
+ * booked onto it, and no place in any table. Exported for its tests.
+ */
+export const leagueAverageSide = (teams: readonly Team[]): Team => {
+  type Read = (team: Team) => number | null | undefined;
+  const byGames = (team: Team) => team.games;
+  const each = () => 1;
+  // A mean over the teams of what each gives, counted by `weight`; one giving nothing is left out.
+  const mean = (read: Read, weight = byGames): number | null => {
+    let sum = 0;
+    let count = 0;
+    teams.forEach((team) => {
+      const value = read(team);
+      if (value === null || value === undefined) return;
+      sum += value * weight(team);
+      count += weight(team);
+    });
+    return count ? sum / count : null;
+  };
+  const perGame = (read: Read) => mean((team) => read(team) ?? 0) ?? 0;
+  // A season's total, and the count of games itself, as the average team's.
+  const perTeam = (read: Read) => mean((team) => read(team) ?? 0, each) ?? 0;
+  const rating = mean(
+    (team) => team.adjustedRating,
+    (team) => team.ratedGames ?? 0
+  );
+  return {
+    ...emptyTeam({ id: OWED_OPPONENT, name: "Not yet scheduled" }),
+    games: perTeam((team) => team.games),
+    pct: perGame((team) => team.pct),
+    rsg: perGame((team) => team.rsg),
+    rag: perGame((team) => team.rag),
+    hpg: perGame((team) => team.hpg),
+    kpg: perGame((team) => team.kpg),
+    oppKpg: perGame((team) => team.oppKpg),
+    errorsPerGame: perGame((team) => team.errorsPerGame),
+    walksAllowedPerGame: perGame((team) => team.walksAllowedPerGame),
+    walksReceivedPerGame: perGame((team) => team.walksReceivedPerGame),
+    runDiff: perTeam((team) => team.runDiff),
+    hitDiff: perTeam((team) => team.hitDiff),
+    errorDiff: perTeam((team) => team.errorDiff),
+    walkDiff: perTeam((team) => team.walkDiff),
+    tpi: perGame((team) => team.tpi),
+    baseTpi: perGame((team) => team.baseTpi),
+    sos: perGame((team) => team.sos),
+    momentum: perGame((team) => team.momentum),
+    contactBonus: perGame((team) => team.contactBonus),
+    machineDifficulty: perGame((team) => team.machineDifficulty),
+    awayK6: mean((team) => team.awayK6),
+    homeK6: mean((team) => team.homeK6),
+    totalK6: mean((team) => team.totalK6),
+    ...(rating === null
+      ? {}
+      : {
+          adjustedRating: rating,
+          // The count the average rated team's rating rests on.
+          ratedGames:
+            mean((team) => (team.adjustedRating === undefined ? null : team.ratedGames), each) ?? 0,
+        }),
+  };
+};
+
 export type MathGoldStatus = {
   goldStatus: "Clinched" | "Eliminated" | "In" | "Alive";
   maxPoints: number;
@@ -1328,11 +1397,12 @@ export const drawMargin = (
 /**
  * Books a drawn margin onto the two sides, in place: the predicted total kept, split so that the
  * margin is the drawn one, the loser never below nothing. The league's carried totals move by
- * exactly what is booked, so they stay the counted ones.
+ * exactly what is booked, so they stay the counted ones. A side left out is the stand-in of a game
+ * owed beyond the schedule (`playOwed`), so only the team's own side is booked and counted.
  */
 const settleDrawn = (
-  away: Team,
-  home: Team,
+  away: Team | undefined,
+  home: Team | undefined,
   margin: number,
   prediction: Prediction,
   tally: LeagueTally
@@ -1341,9 +1411,19 @@ const settleDrawn = (
   const loser = Math.max(0, Math.round((total - Math.abs(margin)) / 2));
   const awayRuns = margin === 0 ? Math.round(total / 2) : margin > 0 ? loser + margin : loser;
   const homeRuns = margin === 0 ? awayRuns : margin < 0 ? loser - margin : loser;
-  tally.runs += awayRuns + homeRuns;
-  tally.games += 2;
-  bookScore(away, home, awayRuns, homeRuns, tally.runDiffCap);
+  if (away && home) {
+    tally.runs += awayRuns + homeRuns;
+    tally.games += 2;
+    bookScore(away, home, awayRuns, homeRuns, tally.runDiffCap);
+  } else if (away) {
+    tally.runs += awayRuns;
+    tally.games += 1;
+    bookSide(away, awayRuns, homeRuns, tally.runDiffCap);
+  } else if (home) {
+    tally.runs += homeRuns;
+    tally.games += 1;
+    bookSide(home, homeRuns, awayRuns, tally.runDiffCap);
+  }
 };
 
 /** How a game went, as `playOut` writes it down for the team followed (`GoldSwing`). */
@@ -1379,6 +1459,52 @@ const playOut = (
     const home = byId.get(game.home);
     if (away && home) settleDrawn(away, home, margin, prediction, tally);
   }
+};
+
+/** The games owed beyond the schedule (`owedGames`), and the side they are played against. */
+type OwedPlay = { games: Matchup[]; side: Team };
+
+/** What a simulation plays beyond the schedule: undefined where nothing is owed. */
+const owedPlay = (
+  teams: Team[],
+  remaining: Matchup[],
+  settings: Settings
+): OwedPlay | undefined => {
+  const games = owedGames(teams, remaining, settings);
+  return games.length ? { games, side: leagueAverageSide(teams) } : undefined;
+};
+
+/**
+ * Plays the games each team owes beyond the schedule, after the scheduled ones, each against the
+ * league's average side (`leagueAverageSide`) and drawn as a scheduled game is. The side is in the
+ * lookup for these games alone, and booking leaves it as it was (`settleDrawn`), so every owed game
+ * is against the same average, which no table ranks and no other game sees. They come after every
+ * scheduled game and draw nothing where none is owed, so a league owing none draws what it always
+ * did.
+ */
+const playOwed = (
+  season: Team[],
+  byId: Map<string, Team>,
+  owed: OwedPlay,
+  settings: Settings,
+  draws: SeasonDraws
+): void => {
+  // The league's totals as the scheduled games left them, which booking keeps the counted ones.
+  const tally = leagueTallyOf(season, settings);
+  byId.set(OWED_OPPONENT, owed.side);
+  for (const game of owed.games) {
+    const prediction = predictGame(game, season, settings, byId, tally);
+    const margin = drawMargin(
+      draws,
+      prediction.awayWinPct,
+      prediction.awayScore - prediction.homeScore,
+      true
+    );
+    const away = game.away === OWED_OPPONENT ? undefined : byId.get(game.away);
+    const home = game.home === OWED_OPPONENT ? undefined : byId.get(game.home);
+    settleDrawn(away, home, margin, prediction, tally);
+  }
+  byId.delete(OWED_OPPONENT);
 };
 
 export const DEFAULT_SEED_LOCK_REMAINING_GAME_LIMIT = 12;
@@ -1574,6 +1700,8 @@ export const simulateGoldOddsRun = (
   const minIterations = Math.min(iterations, ODDS_MIN_ITERATIONS);
   let completedIterations = 0;
   const rankOptions = rankOptionsFromSettings(settings);
+  // The games owed beyond the schedule, played after it; the swing below is the schedule's alone.
+  const owed = owedPlay(teams, remaining, settings);
   const following = follow !== undefined && teams.some((team) => team.id === follow);
   const results = following ? new Uint8Array(remaining.length) : undefined;
   const awayWins = new Array<number>(following ? remaining.length : 0).fill(0);
@@ -1585,6 +1713,7 @@ export const simulateGoldOddsRun = (
   for (let i = 0; i < iterations; i += 1) {
     const { season, byId } = scratchSeason(teams);
     playOut(season, byId, remaining, settings, draws, results);
+    if (owed) playOwed(season, byId, owed, settings, draws);
 
     let followedIn = false;
     // The same order the cut is read from, so the places are counted with no draw added and the
@@ -1800,8 +1929,9 @@ export const simulateBracketOdds = (
   /**
    * The Gold bracket's scores as kept (`bracketLogs`). A game already played is taken as it ended
    * rather than drawn again, so a team knocked out has no title odds left and the champion has
-   * them all. Read only once the regular season has no games left: the bracket is played on the
-   * final table, so only then is each slot sure to hold the team its score was kept for.
+   * them all. Read only once the regular season has no games left, on the schedule or owed beyond
+   * it: the bracket is played on the final table, so only then is each slot sure to hold the team
+   * its score was kept for.
    */
   bracketLogs: Record<string, GameLog> = {}
 ): BracketOddsResult => {
@@ -1818,12 +1948,14 @@ export const simulateBracketOdds = (
   const random = makeRandom(hashSeed(`${seedText}::bracket`));
   const rankOptions = rankOptionsFromSettings(settings);
   const bracketCutoff = Math.max(0, Math.min(cutoff, teamCount));
-  const played = remaining.length === 0 ? bracketLogs : {};
+  const owed = owedPlay(teams, remaining, settings);
+  const played = remaining.length === 0 && !owed ? bracketLogs : {};
   const draws = seasonDraws(teams, settings, random);
 
   for (let i = 0; i < iterations; i += 1) {
     const { season, byId } = scratchSeason(teams);
     playOut(season, byId, remaining, settings, draws);
+    if (owed) playOwed(season, byId, owed, settings, draws);
 
     const finalRanking = rankTeams(season, rankOptions);
     finalRanking.forEach((team, index) => {
