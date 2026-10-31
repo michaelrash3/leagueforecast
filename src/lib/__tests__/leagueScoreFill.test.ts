@@ -817,6 +817,49 @@ describe("games between the league's clubs that the schedule does not have", () 
     ]);
   });
 
+  /*
+   * A day of the league's own clubs alone is the league's for a start, which has no schedule to say
+   * which of them the league played that day (`tournamentReason`). Fill has one: where it has
+   * either club playing another of its games that day, a second meeting is as likely a scrimmage
+   * as a doubleheader's second game is, and it started ticked, to go in final at a tap.
+   */
+  it("are offered unticked on a day the schedule has either club playing another game", () => {
+    const plan = planLeagueScoreFill(
+      input({
+        teams: linked,
+        matchups: [matchup("g1", "5/1", "ACES", "BEAR"), matchup("g2", "5/15", "BEAR", "CUBS")],
+        scoutGames: [
+          scoutGame("s1", "S-ACES", "S-BEAR", 7, 3, "2026-05-01"),
+          // The same day, the Aces against the Cubs: not on the schedule, which has the Aces at
+          // the Bears.
+          scoutGame("s2", "S-ACES", "S-CUBS", 2, 1, "2026-05-01"),
+          scoutGame("s3", "S-BEAR", "S-CUBS", 4, 6, "2026-05-15"),
+          // A day the schedule has nobody playing, two of the league's games on it: the league's.
+          scoutGame("s4", "S-ACES", "S-BEAR", 5, 4, "2026-05-08"),
+          scoutGame("s5", "S-ACES", "S-CUBS", 3, 2, "2026-05-08"),
+          // The home side's scheduled game, the Cubs hosting the Bears, does the same.
+          scoutGame("s6", "S-ACES", "S-CUBS", 1, 0, "2026-05-15"),
+        ],
+      })
+    );
+    expect(plan.rows.map((row) => [row.matchupId, row.action])).toEqual([
+      ["g1", "fill"],
+      ["g2", "fill"],
+    ]);
+    expect(plan.missing?.map((game) => [game.scoutGameId, game.tournament])).toEqual([
+      [
+        "s2",
+        "One of the two has another game on the schedule that day, so this one was likely a scrimmage.",
+      ],
+      ["s4", undefined],
+      ["s5", undefined],
+      [
+        "s6",
+        "One of the two has another game on the schedule that day, so this one was likely a scrimmage.",
+      ],
+    ]);
+  });
+
   it("leave out a game the schedule already has that day, matched or not, and one unlinked", () => {
     const plan = planLeagueScoreFill(
       input({

@@ -109,7 +109,8 @@ export type LeagueFillRow = {
  * A game the pool holds between two of the league's own clubs, the teams linked to them, that no
  * game on the league's schedule is (3.7): played, on a page that claims the season, and not on a
  * day ahead. Offered to be added with its score; one that looks like a tournament meeting
- * (`tournamentReason`) is offered unticked.
+ * (`tournamentReason`), a scrimmage beside a game the schedule has that day or a playoff game is
+ * offered unticked, `tournament` saying why.
  */
 export type LeagueMissingGame = {
   scoutGameId: string;
@@ -888,6 +889,21 @@ export const planLeagueScoreFill = ({
   const scheduled = scheduledOn(matchups);
   const tournamentOf = tournamentReason(scoutGames, new Set(teamOfClub.keys()));
   /*
+   * Each team the schedule has playing on each day, "ACES@5/1". A day of the league's own clubs
+   * alone is the league's (`tournamentReason`), which suits a start, with no schedule to say which
+   * of them the league played that day. Fill has the schedule: a meeting on a day it has either
+   * team playing another of its games is as likely a scrimmage as a doubleheader's second game, and
+   * starts unticked. Read by the start's rule alone, it started ticked, to go in final at a tap.
+   */
+  const playingOn = new Set(
+    matchups.flatMap((matchup) => {
+      const date = normalizeDateInput(matchup.date ?? "");
+      return [`${matchup.away}@${date}`, `${matchup.home}@${date}`];
+    })
+  );
+  const besideAScheduledGame = (away: string, home: string, date: string) =>
+    playingOn.has(`${away}@${date}`) || playingOn.has(`${home}@${date}`);
+  /*
    * The schedule's last day, on the season's own calendar: a meeting of two of the league's clubs
    * after it passes the tournament checks when a playoff round is played one game a day, and
    * ticked, it went into the standings that seeded the bracket.
@@ -912,9 +928,11 @@ export const planLeagueScoreFill = ({
       if (scheduled.has(`${pairKey(away, home)}@${date}`)) return [];
       const tournament =
         tournamentOf(game) ??
-        (afterTheSchedule(date)
-          ? "Played after the last game on the schedule, so it was likely a playoff game."
-          : undefined);
+        (besideAScheduledGame(away, home, date)
+          ? "One of the two has another game on the schedule that day, so this one was likely a scrimmage."
+          : afterTheSchedule(date)
+            ? "Played after the last game on the schedule, so it was likely a playoff game."
+            : undefined);
       return [
         {
           scoutGameId: game.id,

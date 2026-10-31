@@ -852,7 +852,11 @@ likely a scrimmage, and is left to be added by hand. A game that looks like a to
 day) starts unticked, and since GameChanger's schedules do not say who was at home, each can be
 swapped. A day a club played two of the league's own clubs is the league's: a league can play two
 of its teams on one day, and until October 2026 every other club played that day counted, the
-league's included, so both of such a day's games started unticked.
+league's included, so both of such a day's games started unticked. Not where the schedule has
+either club playing another of its games that day: a meeting beside it is as likely a scrimmage as
+a doubleheader's second game, and starts unticked too. The league's-own-day rule is a start's
+(below), which has no schedule to say which of a day's games the league played; read by it alone,
+the Aces' second game of a day the schedule has them at the Bears started ticked, to go in final.
 
 **Starting a season from its clubs (3.7).** A new season can start from Team Rankings instead of
 from typed names, a CSV or the demo: **Start from Team Rankings clubs** on the empty season's
