@@ -4210,8 +4210,10 @@ the owed games can undo. They count toward the fifteen games the exact numbers
 wait for, so a league owing many shows them paused in the team panel, in its usual
 words, and leaves them off the Our team card, until few enough are left. A need
 in them has no opponent or day to name: "Win the 2 games not yet on the schedule",
-"Bears to lose their game not yet on the schedule". A league with no games per
-team set, or whose schedule has them all, is searched exactly as before.
+"Bears to lose their game not yet on the schedule"; and where the one game left in
+the season is owed, it is read at every score it can end with, as the last game on
+the schedule is. A league with no games per team set, or whose schedule has them
+all, is searched exactly as before.
 
 ## Playoff machine
 

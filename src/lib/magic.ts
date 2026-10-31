@@ -421,6 +421,10 @@ export type NeededResult = {
   owed?: number;
 };
 
+/** In a game owed beyond the schedule (`owedGames`), the team that owes it; null in any other. */
+const owing = (game: Matchup): string | null =>
+  game.away === OWED_OPPONENT ? game.home : game.home === OWED_OPPONENT ? game.away : null;
+
 /**
  * The league after one game has gone a given way: only the records move. Asked only with games
  * still to come after it, where the search reads points and losses and never the table's ranks.
@@ -509,13 +513,14 @@ const lastGameNeeds = (
   const possible = (winnerId: string | null) =>
     ways.some((way) => way.winnerId === winnerId && way.possible);
   const orTie = settings.tiePoints > 0 && possible(null);
+  const owed = owing(game) === null ? {} : { owed: 1 };
   return [
     [game.away, game.home],
     [game.home, game.away],
   ].flatMap(([side, against]) =>
     !side || !against || possible(against)
       ? []
-      : [{ gameId: game.id, date: game.date, side, against, orTie }]
+      : [{ gameId: game.id, date: game.date, side, against, orTie, ...owed }]
   );
 };
 
@@ -528,7 +533,9 @@ const lastGameNeeds = (
  * Exact, by the same search as the magic number, run once for each side of each game left, the
  * games owed beyond the schedule among them (`withOwedGames`); so it is asked only as late in the
  * season as the magic number is. With one game left there is no level finish to leave to chance:
- * every score it can end with is ranked (`lastGameNeeds`).
+ * every score it can end with is ranked (`lastGameNeeds`). So is a last game owed beyond the
+ * schedule: asked of the search below, with nothing after it, it read each team's place as it was
+ * before the game.
  */
 export const neededResults = (
   teamId: string,
@@ -541,18 +548,12 @@ export const neededResults = (
   if (!teams.some((team) => team.id === teamId)) return null;
   const games = withOwedGames(teams, remaining, settings);
   const [last, ...more] = games;
-  if (
-    last &&
-    more.length === 0 &&
-    teams.some((team) => team.id === last.away) &&
-    teams.some((team) => team.id === last.home)
-  )
+  const known = (id: string) => id === OWED_OPPONENT || teams.some((team) => team.id === id);
+  if (last && more.length === 0 && known(last.away) && known(last.home))
     return lastGameNeeds(teamId, teams, last, cutoff, settings);
   if (!solveCutoff(teamId, teams, games, effective, 0, 0, "any", false)) return null;
   if (solveCutoff(teamId, teams, games, effective, 0, 0, "all", true)) return null;
   const needed: NeededResult[] = [];
-  const owing = (game: Matchup) =>
-    game.away === OWED_OPPONENT ? game.home : game.home === OWED_OPPONENT ? game.away : null;
   const asked = new Set<string>();
   games.forEach((game) => {
     // A team's owed games are all against the one stand-in, so the first answers for every one.

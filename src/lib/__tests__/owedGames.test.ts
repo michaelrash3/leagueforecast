@@ -71,11 +71,16 @@ const SCORES: Record<string, GameLog> = {
   g6: final(5, 4),
 };
 
-const league = (matchups: Matchup[], gamesPerTeam: number) => {
+const league = (
+  matchups: Matchup[],
+  gamesPerTeam: number,
+  teams: TeamBase[] = TEAMS,
+  scores: Record<string, GameLog> = SCORES
+) => {
   const settings = { ...DEFAULT_SETTINGS, goldCutoff: 2, regularSeasonGamesPerTeam: gamesPerTeam };
-  const live = calculateTeams(TEAMS, matchups, SCORES, settings);
+  const live = calculateTeams(teams, matchups, scores, settings);
   const ranked = rankTeams(live, rankOptionsFromSettings(settings));
-  const remaining = matchups.filter((game) => !isFinal(SCORES[game.id]));
+  const remaining = matchups.filter((game) => !isFinal(scores[game.id]));
   const counts = getRemainingCounts(live, remaining, gamesPerTeam);
   const rows: TeamWithProjection[] = ranked.map((team) => ({
     ...team,
@@ -92,7 +97,7 @@ const league = (matchups: Matchup[], gamesPerTeam: number) => {
     eliminationNumberForGold(id, rows, remaining, 2, settings).description;
   const needs = (id: string) =>
     needsLines(id, neededResults(id, rows, remaining, 2, settings) ?? [], (teamId) => {
-      const name = TEAMS.find((team) => team.id === teamId)?.name;
+      const name = teams.find((team) => team.id === teamId)?.name;
       if (!name) throw new Error(`No team ${teamId} to name`);
       return name;
     });
@@ -198,5 +203,51 @@ describe("a league where only some teams owe games", () => {
       "Comets Alive: Comets get help if Bears lose to Aces. Out after 2 more losses.",
       "Ducks Alive: Ducks get help if Bears lose to Aces. Out after 1 more loss.",
     ]);
+  });
+});
+
+/*
+ * One game owed in the whole league and nothing left on the schedule, so the season's last game is
+ * one the schedule does not show yet. The search reads the table as it stands once nothing is left
+ * to play, and the needs ask it with the game already decided, which a table that has not booked
+ * the game cannot answer: the Eagles were told they needed nothing, and the Bears read a stand-in's
+ * id where a team's name goes. Like the last game on the schedule, it is read at every score it can
+ * end with.
+ */
+describe("the season's last game owed beyond the schedule", () => {
+  const FIVE: TeamBase[] = [...TEAMS, { id: "E", name: "Eagles" }];
+  // Three games each set. The Aces win all three, the Bears beat the Comets and the Ducks by eight
+  // runs each, and the Eagles, with two played, beat the same two by a run each.
+  const games: Matchup[] = [
+    { id: "f1", date: "5/1", away: "A", home: "B" },
+    { id: "f2", date: "5/1", away: "C", home: "E" },
+    { id: "f3", date: "5/8", away: "A", home: "C" },
+    { id: "f4", date: "5/8", away: "D", home: "E" },
+    { id: "f5", date: "5/15", away: "A", home: "D" },
+    { id: "f6", date: "5/15", away: "B", home: "C" },
+    { id: "f7", date: "5/22", away: "B", home: "D" },
+  ];
+  const scores: Record<string, GameLog> = {
+    f1: final(5, 4),
+    f2: final(3, 4),
+    f3: final(6, 2),
+    f4: final(2, 3),
+    f5: final(7, 3),
+    f6: final(9, 1),
+    f7: final(10, 2),
+  };
+  const last = league(games, 3, FIVE, scores);
+
+  it("tells the team that owes it what it needs from it", () => {
+    // Level with the Bears after a loss, the Eagles lose the tie on run differential at any score;
+    // a tie puts them half a point clear.
+    expect(last.status("E")).toBe("In");
+    expect(last.needs("E")).toEqual(["Don't lose the game not yet on the schedule"]);
+  });
+
+  it("tells a team it can pass what it needs from it, by the name of the team that owes it", () => {
+    // The Bears get in only level with the Eagles, on the tiebreak they hold.
+    expect(last.status("B")).toBe("Alive");
+    expect(last.needs("B")).toEqual(["Eagles to lose their game not yet on the schedule"]);
   });
 });

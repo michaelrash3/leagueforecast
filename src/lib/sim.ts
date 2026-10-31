@@ -1130,10 +1130,38 @@ const settleGame = (
 };
 
 /**
- * One score booked onto two teams the caller owns: the games, the runs, the run differential as
- * capped, head-to-head, the record (a level score is a tie) and the rating the tiebreakers fall back
- * on. Every simulated game is booked here (`settleDrawn`), and the standings solver books the last
- * game of a season here too, so a table it ranks is the one a forecast would.
+ * One side of a score booked onto a team the caller owns: the game, the runs, the run differential
+ * as capped, the record (a level score is a tie) and the rating the tiebreakers fall back on. A
+ * side's numbers move with its own runs alone, so booking the two sides of a game one after the
+ * other is booking the game; a game owed beyond the schedule (`owedGames`) books its team's side
+ * and no other.
+ */
+const bookSide = (team: Team, runsFor: number, runsAgainst: number, runDiffCap: number): void => {
+  team.games += 1;
+  team.rs += runsFor;
+  team.ra += runsAgainst;
+  team.runDiff += cappedRunDiff(runsFor, runsAgainst, runDiffCap);
+  if (runsFor > runsAgainst) team.w += 1;
+  else if (runsFor < runsAgainst) team.l += 1;
+  else team.t += 1;
+  team.pct = team.games ? (team.w + team.t * 0.5) / team.games : 0;
+  // Keep per-game production rates anchored to finalized games only. Projected
+  // results can update standings and run-differential tiebreakers, but they
+  // should not dilute displayed R/G, H/G, K/G, or opponent K/G with model-generated games.
+  const diffPerGame = team.games ? clamp(team.runDiff / team.games, -8, 8) : 0;
+  // The contact term is carried, not recomputed. It is the one piece of `baseTpi` that comes
+  // from strikeout rates, and a model game has none — so recomputing it here does not leave it
+  // undiluted, it deletes it. Before this, booking the first simulated game moved `baseTpi` by
+  // up to 1.25 in either direction on a four-team pin, and `tpi` feeds `predictGame` and the
+  // tiebreakers for every game after it in the same iteration.
+  team.baseTpi = team.games ? diffPerGame + team.pct * 2 + (team.contactBonus ?? 0) : 0;
+  team.tpi = team.baseTpi + team.sos * 0.2;
+};
+
+/**
+ * One score booked onto two teams the caller owns: each side (`bookSide`) and the head-to-head
+ * between them. Every simulated game is booked here (`settleDrawn`), and the standings solver books
+ * the last game of a season here too, so a table it ranks is the one a forecast would.
  */
 const bookScore = (
   away: Team,
@@ -1142,49 +1170,17 @@ const bookScore = (
   homeRuns: number,
   runDiffCap: number
 ): void => {
-  away.games += 1;
-  home.games += 1;
-  away.rs += awayRuns;
-  away.ra += homeRuns;
-  home.rs += homeRuns;
-  home.ra += awayRuns;
-  away.runDiff += cappedRunDiff(awayRuns, homeRuns, runDiffCap);
-  home.runDiff += cappedRunDiff(homeRuns, awayRuns, runDiffCap);
-
+  bookSide(away, awayRuns, homeRuns, runDiffCap);
+  bookSide(home, homeRuns, awayRuns, runDiffCap);
   addHeadToHeadResult(away, home.id, awayRuns - homeRuns);
   addHeadToHeadResult(home, away.id, homeRuns - awayRuns);
-
-  if (awayRuns > homeRuns) {
-    away.w += 1;
-    home.l += 1;
-  } else if (homeRuns > awayRuns) {
-    home.w += 1;
-    away.l += 1;
-  } else {
-    away.t += 1;
-    home.t += 1;
-  }
-
-  [away, home].forEach((team) => {
-    team.pct = team.games ? (team.w + team.t * 0.5) / team.games : 0;
-    // Keep per-game production rates anchored to finalized games only. Projected
-    // results can update standings and run-differential tiebreakers, but they
-    // should not dilute displayed R/G, H/G, K/G, or opponent K/G with model-generated games.
-    const diffPerGame = team.games ? clamp(team.runDiff / team.games, -8, 8) : 0;
-    // The contact term is carried, not recomputed. It is the one piece of `baseTpi` that comes
-    // from strikeout rates, and a model game has none — so recomputing it here does not leave it
-    // undiluted, it deletes it. Before this, booking the first simulated game moved `baseTpi` by
-    // up to 1.25 in either direction on a four-team pin, and `tpi` feeds `predictGame` and the
-    // tiebreakers for every game after it in the same iteration.
-    team.baseTpi = team.games ? diffPerGame + team.pct * 2 + (team.contactBonus ?? 0) : 0;
-    team.tpi = team.baseTpi + team.sos * 0.2;
-  });
 };
 
 /**
  * The teams with the one game left booked at a given score, as new objects where they change; the
  * inputs are untouched. What the standings solver ranks to see where a team finishes on the last
- * day of a season (`neededResults`).
+ * day of a season (`neededResults`). A game owed beyond the schedule (`owedGames`) has one side in
+ * the league, and that side alone is booked.
  */
 export const withScore = (
   teams: Team[],
@@ -1200,7 +1196,10 @@ export const withScore = (
   );
   const away = next.find((team) => team.id === game.away);
   const home = next.find((team) => team.id === game.home);
-  if (away && home) bookScore(away, home, awayRuns, homeRuns, resolveMaxRunDifferential(settings));
+  const cap = resolveMaxRunDifferential(settings);
+  if (away && home) bookScore(away, home, awayRuns, homeRuns, cap);
+  else if (away) bookSide(away, awayRuns, homeRuns, cap);
+  else if (home) bookSide(home, homeRuns, awayRuns, cap);
   return next;
 };
 
