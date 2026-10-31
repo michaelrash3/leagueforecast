@@ -278,6 +278,41 @@ describe("what a list told, taken as seen", () => {
     expect(taken.race).toBe(since.race);
   });
 
+  it("takes the race as the list told it: a clinch, and the followed team's odds", () => {
+    // The list as drawn: the Aces clinched and the Comets' chance went from 40% to 65%.
+    const before = {
+      ...was,
+      race: { ...was.race, C: { status: "Alive" as const, gold: 40 } },
+    };
+    const told = {
+      ...listed,
+      race: {
+        A: { status: "Clinched" as const, gold: 100 },
+        C: { status: "Alive" as const, gold: 65 },
+      },
+    };
+    const options = { followed: "C" };
+    expect(kinds(changesBetween(before, told, options))).toEqual([
+      "final",
+      "teamRenamed",
+      "clinched",
+      "odds",
+    ]);
+    const taken = seenAsListed(before, before, told);
+    expect(taken.race).toBe(told.race);
+    expect(changesBetween(taken, told, options)).toEqual([]);
+  });
+
+  it("keeps the race as last seen where the list was drawn with no forecast", () => {
+    // No cut line now, so no forecast: the list told the final and nothing of the race. Taken as
+    // none, the race would start again at the next forecast, and a clinch before it go untold.
+    const unraced = { ...listed, race: null };
+    expect(kinds(changesBetween(was, unraced))).toEqual(["final", "teamRenamed"]);
+    const taken = seenAsListed(was, was, unraced);
+    expect(taken.games.g2?.final).toBe("1-0");
+    expect(taken.race).toBe(was.race);
+  });
+
   it("is the same object when the list told nothing", () => {
     expect(seenAsListed(was, was, was)).toBe(was);
   });

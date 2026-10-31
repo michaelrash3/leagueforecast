@@ -167,10 +167,14 @@ export const keptWith = (kept: SeasonSeen, was: SeasonSeen, now: SeasonSeen): Se
  * Got it, which stands in the list's place while it is up (`SinceLastLook`): what arrived after
  * the list was drawn is still news, and what `seen` has taken as seen since (an edit here, a Got it
  * in another tab) stays as it is, never put back to what the list said.
+ *
+ * A list drawn with no forecast (`to.race` null: no cut line, or the odds still being worked out)
+ * told nothing of the race, so the race stays as last seen, as the list's own Got it keeps it.
+ * Taken as none, the next forecast would be where the race starts, and a clinch before it untold.
  */
 export const seenAsListed = (seen: SeasonSeen, from: SeasonSeen, to: SeasonSeen): SeasonSeen => {
   const laid = laidOver(seen, from, to, true);
-  return sameRace(from.race, to.race) || !sameRace(seen.race, from.race)
+  return to.race === null || sameRace(from.race, to.race) || !sameRace(seen.race, from.race)
     ? laid
     : { ...laid, race: to.race };
 };
