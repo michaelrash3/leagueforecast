@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSeasonStore, type SeasonState } from "../../seasonStore";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup } from "../../types";
 import type { BaseKeeper, Known } from "../leagueBase";
-import { docToSeason, encodeKey, LEAGUE_DOC_SCHEMA, seasonDocId, seasonToDoc } from "../leagueDocs";
+import {
+  docToSeason,
+  encodeKey,
+  LEAGUE_DOC_SCHEMA,
+  seasonDocId,
+  seasonToDoc,
+  type LeagueDocChange,
+} from "../leagueDocs";
 import { liveSeason, type SeasonEntry, type SeasonParts } from "../leagueLive";
 import { startLeagueSync, type LiveLeagueState } from "../leagueSync";
 import { memoryLeague, settled } from "./memoryLeague";
@@ -455,6 +462,53 @@ describe("a season that may not be written", () => {
     cloud.put(DOC_ID, docOf(PARTS));
     await settled();
     expect(last(states)).toBe("newer");
+  });
+
+  it("raises a season an older build made to this layout with the first write it sends, and never on its own", async () => {
+    const cloud = memoryLeague();
+    // Made before a game kept its start, at the first layout, and then given one game's start.
+    const timed = {
+      ...PARTS,
+      matchups: [
+        { ...game("g1", "A", "B"), startTs: "2027-04-03T15:00:00.000Z" },
+        ...PARTS.matchups.slice(1),
+      ],
+    };
+    cloud.put(DOC_ID, { ...docOf(timed), schema: 1 });
+    const sent: LeagueDocChange[][] = [];
+    const watched = {
+      ...cloud,
+      store: {
+        ...cloud.store,
+        update: <T>(docId: string, plan: Parameters<typeof cloud.store.update<T>>[1]): Promise<T> =>
+          cloud.store.update(docId, (remote) => {
+            const planned = plan(remote);
+            if (planned.write && "changes" in planned.write) sent.push([...planned.write.changes]);
+            return planned;
+          }),
+      },
+    };
+    const { setLogs, sync, states, cloudSeason } = setup({ cloud: watched, parts: timed });
+    await settled();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(last(states)).toBe("live");
+    // Opened and heard, with nothing to send: nothing is written for the raise alone.
+    expect(sent).toEqual([]);
+    expect(cloud.read(DOC_ID)?.schema).toBe(1);
+    setLogs({ g2: score("7", "4") });
+    sync.settle();
+    await settled();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContainEqual({ path: ["schema"], value: LEAGUE_DOC_SCHEMA });
+    expect(cloud.read(DOC_ID)?.schema).toBe(2);
+    expect(cloudSeason().matchups[0]?.startTs).toBe("2027-04-03T15:00:00.000Z");
+    // A season at this layout is written without it, as every write was before.
+    setLogs({ g1: score("1", "0") });
+    sync.settle();
+    await settled();
+    expect(sent).toHaveLength(2);
+    expect(sent[1]?.map((change) => change.path[0])).toEqual(["logs", "updatedAt", "rev"]);
+    expect(cloud.read(DOC_ID)?.schema).toBe(2);
   });
 
   it("never writes back a season deleted on another device", async () => {

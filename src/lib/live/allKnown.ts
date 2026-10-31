@@ -12,8 +12,10 @@ import {
   type SeasonSegment,
 } from "../teamRankings";
 import { type AutoRemovals } from "../autoRemoved";
+import { NO_RETIRED, retireIds, type RetiredIds } from "../teamRankings/retiredIds";
 import { removedClubIds } from "../removedClubs";
 import { withoutClubs } from "../unrealClubs";
+import type { TeamBase } from "../types";
 
 /**
  * Every team and game Team Rankings knows about for one squad year, as one pure function of the
@@ -34,8 +36,64 @@ export type LeagueSeasonData = Omit<LeagueSeasonSnapshot, "seasonId">;
  * A season's teams, schedule and results by its id. An id with nothing stored must come back empty,
  * `{ teams: [], matchups: [], logs: {} }`, as the storage loaders return it, not be left out: a
  * season with no data still has an entry in `leagueClubs` and `leagueHalves`.
+ *
+ * `picks`, where the reader holds every season (`seasonsReader`, a browser's `readStoredSeason`), is
+ * every club a League Standings team picks in any of them, claimed by a page or not: what a mint
+ * holds as taken (`retiredWithPicks`). A start of Team Rankings leaves no page claiming a season,
+ * so the pages' seasons alone would say nothing of the picks a start exposes.
  */
-export type SeasonReader = (seasonId: string) => LeagueSeasonData;
+export type SeasonReader = {
+  (seasonId: string): LeagueSeasonData;
+  readonly picks?: () => readonly string[];
+};
+
+const NO_SEASON: LeagueSeasonData = { teams: [], matchups: [], logs: {} };
+
+/** Every club the teams of `seasons` pick (`TeamBase.scoutTeamId`), each once, in order. */
+export const picksOf = (seasons: Iterable<{ teams: readonly TeamBase[] }>): string[] => {
+  const picked = new Set<string>();
+  for (const { teams } of seasons) {
+    teams.forEach((team) => {
+      if (team.scoutTeamId) picked.add(team.scoutTeamId);
+    });
+  }
+  return [...picked];
+};
+
+/** A reader of `seasons`, every season there is, which can say what they pick. */
+export const seasonsReader = (seasons: ReadonlyMap<string, LeagueSeasonData>): SeasonReader =>
+  Object.assign((seasonId: string) => seasons.get(seasonId) ?? NO_SEASON, {
+    picks: () => picksOf(seasons.values()),
+  });
+
+/** Held by nothing: the picks of clubs gone are let go of whatever else a mint holds. */
+const NOTHING_HELD = { has: () => false };
+
+/**
+ * The high-water a mint that can read League Standings is held to: `retired`, the roster's own,
+ * raised over every club a League Standings team picks that `roster` does not hold
+ * (`SeasonReader.picks`). Such a pick names an id let go of, before the roster kept a high-water or
+ * across a start of Team Rankings, which empties it. Minted again, the pick named the new club: the
+ * league's games went onto that club's record and the club's results into the league's forecast,
+ * and nothing said so. Held, it reads as a club gone, and a pick kept with a GameChanger id is
+ * followed (`readPick`).
+ *
+ * Worked out afresh by each run that mints, from the seasons it reads already, and never stored, so
+ * it costs no read and no write: the pull and its tidy, a game added by name on either page, the
+ * clubs a league's teams are carried onto, and the device's own pull, tidy and stand-ins.
+ */
+export const retiredWithPicks = (
+  retired: RetiredIds,
+  readSeason: SeasonReader | null | undefined,
+  roster: readonly { id: string }[]
+): RetiredIds => {
+  const gone = new Set(readSeason?.picks?.());
+  if (gone.size === 0) return retired;
+  for (const team of roster) {
+    if (gone.delete(team.id) && gone.size === 0) return retired;
+  }
+  return retireIds(retired, gone, NOTHING_HELD);
+};
 
 export type AllKnown = {
   /** The stored roster, then every league team not already in it, in the order they were met. */
@@ -92,6 +150,11 @@ export type AllKnown = {
  * It goes after the league pass, which links League Standings teams off the stored games as they
  * are, so a club the league links is still found, and with no club to leave out everything is
  * exactly as it was. Required, so no caller can forget the marks and draw a board with the club.
+ *
+ * A league team's club is minted under no id the stored roster has let go of (`retired`), as a
+ * stored club is not: under a folded club's id, a pick of the folded club found it, and the
+ * league's games went onto it. Nor under one a League Standings team picks that the roster no
+ * longer holds, where `readSeason` can say (`retiredWithPicks`).
  */
 export const deriveAllKnown = ({
   ageGroups,
@@ -99,6 +162,7 @@ export const deriveAllKnown = ({
   yearGames,
   readSeason,
   autoRemoved,
+  retired = NO_RETIRED,
 }: {
   ageGroups: AgeGroup[];
   /** The stored roster, as `loadScoutTeams` decodes it. */
@@ -108,8 +172,10 @@ export const deriveAllKnown = ({
   readSeason: SeasonReader;
   /** The clubs taken off as plainly made up, by GameChanger id (`loadAutoRemoved`). */
   autoRemoved: AutoRemovals;
+  /** The ids the stored roster has let go of, as `loadRetiredIds` reads them off it. */
+  retired?: RetiredIds;
 }): AllKnown => {
-  const pass = leaguePass(ageGroups, scoutTeams, yearGames, readSeason);
+  const pass = leaguePass(ageGroups, scoutTeams, yearGames, readSeason, retired);
   // Taken off as plainly made up, unless a League Standings team links it.
   const marked = removedClubIds(scoutTeams, ageGroups, autoRemoved);
   const removed = new Set([...marked].filter((id) => !pass.linked.has(id)));
@@ -140,7 +206,8 @@ const leaguePass = (
   ageGroups: AgeGroup[],
   scoutTeams: ScoutTeam[],
   yearGames: ScoutGame[],
-  readSeason: SeasonReader
+  readSeason: SeasonReader,
+  retired: RetiredIds = NO_RETIRED
 ) => {
   let teams = scoutTeams;
   const derivedGames: ScoutGame[] = [];
@@ -149,6 +216,10 @@ const leaguePass = (
   const leagueClubs = new Map<string, Map<string, Map<string, string>>>();
   const leagueHalves = new Map<string, Map<string, Set<SeasonSegment>>>();
   const stored = { games: yearGames, ageGroups };
+  // A league team's club is minted under no id a League Standings team picks that the roster no
+  // longer holds either: a season's pick found the club made under it, and a game added by name
+  // adopted that club into the roster under the pick's id.
+  const held = retiredWithPicks(retired, readSeason, scoutTeams);
   ageGroups.forEach((group) => {
     const seasons: LeagueSeasonSnapshot[] = group.seasonIds.map((seasonId) => {
       const { teams: leagueTeams, matchups, logs } = readSeason(seasonId);
@@ -156,7 +227,7 @@ const leaguePass = (
     });
     // The page's squad year supplies the year a League Standings date does not carry.
     const year = ageGroupYear(group);
-    const derived = deriveLeagueScoutGames(group.id, seasons, teams, year, stored);
+    const derived = deriveLeagueScoutGames(group.id, seasons, teams, year, stored, held);
     teams = derived.teams;
     derivedGames.push(...derived.games);
     derived.pickedClubIds.forEach((id) => picked.add(id));

@@ -498,6 +498,39 @@ describe("what League Standings asks of Team Rankings, for a device that holds n
       expect(coerceQueryAnswer(callableEncode(asJson(answer)), kind)).toEqual(answer);
   });
 
+  it("sends the club a moved pick is followed to with a team's clubs, however far down it is", () => {
+    saveAgeGroups(
+      GROUPS.map((group) => (group.id === "ag_10u_2027" ? { ...group, seasonIds: ["s"] } : group))
+    );
+    // More clubs GameChanger knows on the page than the bridge sends a team, two games each, and
+    // the Rays' club with one, so it comes last.
+    const known = (id: string) => ({
+      id,
+      name: `Club ${id}`,
+      gcTeams: [{ teamId: `gc-${id}`, name: `Club ${id}`, ageGroupId: "ag_10u_2027" }],
+    });
+    const many = Array.from({ length: LEAGUE_CANDIDATES_MAX + 5 }, (_, at) => known(`X${at}`));
+    saveScoutTeams([...many, known("RAYS2")]);
+    saveScoutGames([
+      ...many.map((club, at) =>
+        game(`x${at}`, "ag_10u_2027", club.id, many[(at + 1) % many.length]!.id)
+      ),
+      game("r1", "ag_10u_2027", "RAYS2", "X0"),
+    ]);
+    // Picked while the Rays were X0, an id another club has now.
+    const answer = answerQuery({
+      kind: "league.bridge",
+      season: "s",
+      teams: [{ id: "r", name: "Rays", scoutTeamId: "X0", scoutGcTeamId: "gc-RAYS2" }],
+      fixtures: [],
+    });
+    if (answer.kind !== "league.bridge") throw new Error(answer.kind);
+    expect(answer.bridge.rows[0]).toMatchObject({ how: "picked", scoutTeamId: "RAYS2" });
+    const sent = answer.candidates[0]?.clubs.map((club) => club.scoutTeamId) ?? [];
+    expect(sent.slice(0, LEAGUE_CANDIDATES_MAX)).not.toContain("RAYS2");
+    expect(sent).toContain("RAYS2");
+  });
+
   it("answers the bridge as the rules a device keeps it under say (`BRIDGE_RULES_NOW`)", () => {
     claimed();
     // Pinned with its rules: an answer this moves is one a device's kept answer no longer stands
@@ -658,8 +691,12 @@ describe("what League Standings asks of Team Rankings, for a device that holds n
     }));
     // As many as a season may ask about, and one more.
     const many = <T>(one: T, count = LEAGUE_GAMES_MAX) => Array.from({ length: count }, () => one);
+    // A pick kept with its club's GameChanger id, which the server follows a moved pick by.
+    const followed = { id: "b", name: "Club B", scoutTeamId: "B", scoutGcTeamId: "gc-B" };
     const most = [
       { ...BRIDGE, teams: tooMany.slice(1) },
+      { ...BRIDGE, teams: [followed] },
+      { ...FILL, teams: [followed] },
       { ...BRIDGE, fixtures: many(FIXTURES[0]) },
       {
         ...FILL,
@@ -674,6 +711,8 @@ describe("what League Standings asks of Team Rankings, for a device that holds n
       { ...BRIDGE, extra: 1 },
       { ...BRIDGE, teams: [{ id: "a", name: "Club A", extra: 1 }] },
       { ...BRIDGE, teams: [{ id: "a", name: "Club A", scoutTeamId: "" }] },
+      { ...BRIDGE, teams: [{ ...followed, scoutGcTeamId: "" }] },
+      { ...FILL, teams: [{ ...followed, scoutGcTeamId: 4 }] },
       { ...BRIDGE, teams: tooMany },
       { ...BRIDGE, fixtures: many(FIXTURES[0], LEAGUE_GAMES_MAX + 1) },
       { ...BRIDGE, fixtures: [{ ...FIXTURES[0], awayRuns: -1 }] },

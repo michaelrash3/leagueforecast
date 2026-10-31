@@ -9,8 +9,8 @@ import { TEAM_SEARCH_LIMIT } from "./TeamSearchSelect";
 
 /**
  * Two clubs of one name in one town, which is the ordinary case on a nationwide pool and the one
- * the picker used to be unable to show a difference between: the rows read "Cincy Stix Navy ·
- * Harrison, OH" twice over, and the only way to choose was to guess.
+ * the picker used to be unable to show a difference between: the rows read "Aces · Harrison, OH"
+ * twice over, and the only way to choose was to guess.
  */
 const candidate = (
   scoutTeamId: string,
@@ -18,7 +18,7 @@ const candidate = (
   sharedOpponents: string[] = []
 ): ScoutLinkCandidate => ({
   scoutTeamId,
-  name: "Stix Navy",
+  name: "Aces",
   city: "Harrison",
   state: "OH",
   sharedOpponents,
@@ -29,14 +29,14 @@ const candidate = (
 const bridge: LeagueScoutBridge = {
   results: [],
   seasonLinked: true,
-  rows: [{ leagueTeamId: "L-A", leagueTeamName: "Stix Navy", how: "none" }],
+  rows: [{ leagueTeamId: "L-A", leagueTeamName: "Aces", how: "none" }],
   linkedCount: 0,
   countedResults: 0,
 };
 
 const wideClub = (id: string, ageLevel: number): ScoutTeam & { ageLevel?: number } => ({
   id,
-  name: "Stix Navy",
+  name: "Aces",
   city: "Harrison",
   state: "OH",
   ageLevel,
@@ -94,9 +94,7 @@ describe("picking which club a league team is", () => {
           wideClub("S-9", 9),
           {
             ...wideClub("S-10", 10),
-            gcTeams: [
-              { teamId: "gc10", name: "Stix Navy", ageGroupId: "ag10", staff: ["Sam Sample"] },
-            ],
+            gcTeams: [{ teamId: "gc10", name: "Aces", ageGroupId: "ag10", staff: ["Sam Sample"] }],
           },
         ].map(clubPickOption),
     });
@@ -131,6 +129,68 @@ describe("picking which club a league team is", () => {
     // A member's device is sent each team's best clubs alone (`leagueCandidates`), so the list a
     // picker opens on is the one the device would have drawn from all of them.
     expect(LEAGUE_CANDIDATES_MAX).toBe(TEAM_SEARCH_LIMIT);
+  });
+
+  it("keeps the GameChanger id of the club picked beside the pick, from either list", async () => {
+    // A club's id is the pool's own and can come to name another club; its GameChanger id is
+    // never another team's, so the pick keeps one to follow the club by (`readPick`).
+    const user = userEvent.setup();
+    /** What picking the club of `age` hands on, off a panel drawn afresh. */
+    const picked = async (age: string, wide = false) => {
+      const onPick = vi.fn();
+      const { unmount } = renderPanel({
+        onPick,
+        candidatesFor: () => [
+          candidate("S-9", 9),
+          { ...candidate("S-10", 10), gcIds: ["gc10fall", "gc10spring"] },
+        ],
+        wideOptions: () =>
+          [
+            wideClub("S-9", 9),
+            {
+              ...wideClub("S-10", 10),
+              gcTeams: [{ teamId: "gc10wide", name: "Aces", ageGroupId: "ag10" }],
+            },
+          ].map(clubPickOption),
+      });
+      if (wide) {
+        await user.click(screen.getByRole("checkbox", { name: /search every gamechanger club/i }));
+      }
+      const options = await optionsInPicker(user);
+      await user.click(
+        within(options.find((option) => option.textContent?.includes(age))!).getByRole("button")
+      );
+      unmount();
+      return onPick.mock.calls;
+    };
+    expect(await picked("10U")).toEqual([["L-A", "S-10", "gc10fall"]]);
+    // A club GameChanger has no id for keeps none.
+    expect(await picked("9U")).toEqual([["L-A", "S-9", undefined]]);
+    // And off the wide list, as a member's phone has it from the server.
+    expect(await picked("10U", true)).toEqual([["L-A", "S-10", "gc10wide"]]);
+  });
+
+  it("says a pick whose club no longer carries its GameChanger team has moved, and to pick again", () => {
+    renderPanel({
+      bridge: {
+        ...bridge,
+        rows: [
+          {
+            leagueTeamId: "L-A",
+            leagueTeamName: "Aces",
+            how: "none",
+            movedScoutTeamId: "S-9",
+          },
+        ],
+      },
+    });
+    expect(screen.getByText("Moved")).toBeInTheDocument();
+    // Neither cause is told as the only one: the club itself can have lost the team it was
+    // picked as (a year deleted, the team taken off it) as well as given its place to another.
+    expect(
+      screen.getByText(/no longer carries the GameChanger team you picked it as/)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/taken off it or its year deleted/)).toBeInTheDocument();
   });
 
   it("says what it is and is not offering, rather than leaving it to be inferred", () => {

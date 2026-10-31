@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { GcImportState, PoolTidy } from "../lib/gameChangerImport";
-import { tidyPool } from "../lib/gameChangerImport";
+import { SHIPPED_TIDY_RULES, tidyPool } from "../lib/gameChangerImport";
 import { keptApartList } from "../lib/keptApart";
 import { notThisTeamList } from "../lib/notThisTeam";
+import { storedRetired } from "../lib/teamRankings/retiredIds";
 import {
   loadAutoRemoved,
   loadKeptApart,
   loadNamedAges,
   loadNotThisTeam,
   loadRealClubs,
+  loadRetiredIds,
 } from "../lib/teamRankingsStorage";
 import { autoRemovalsList, type AutoRemovals } from "../lib/autoRemoved";
-import { leagueLinkedClubsOf, type SeasonReader } from "../lib/live/allKnown";
+import { leagueLinkedClubsOf, retiredWithPicks, type SeasonReader } from "../lib/live/allKnown";
 import type { FewOutsideList } from "../lib/fewOutside";
 import { readStoredSeason } from "../lib/storage";
 import type { MarksChange } from "../lib/removedForYou";
@@ -200,11 +202,17 @@ export function usePoolTidy() {
       const refused = loadNotThisTeam();
       const today = todayIsoDay();
       // Every page's seasons, each once, read here: the worker has no storage to read them from.
+      // Nor the ids the roster let go of, which the boards mint no league team's club as, nor those
+      // League Standings picks that the roster no longer holds, as the boards hold them.
+      const retired = storedRetired(
+        retiredWithPicks(loadRetiredIds(), boards?.readSeason, state.teams)
+      );
       const asked: BoardsAsked | undefined = boards && {
         seasons: [...new Set(state.ageGroups.flatMap((group) => group.seasonIds))].map(
           (seasonId): [string, ReturnType<SeasonReader>] => [seasonId, boards.readSeason(seasonId)]
         ),
         marks: autoRemovalsList(boards.autoRemoved),
+        ...(retired ? { retired } : {}),
       };
       return ask<PoolInspection>(
         "inspect",
@@ -274,6 +282,9 @@ export function usePoolTidy() {
       const refused = loadNotThisTeam();
       // And the clubs the owner has said are real, which no tidy step deletes for its name.
       const real = loadRealClubs();
+      // And the ids the pool let go of, which no slot or stand-in the tidy makes is minted as, with
+      // those of the clubs League Standings picks that the pool no longer holds.
+      const retired = retiredWithPicks(loadRetiredIds(), readStoredSeason, state.teams);
       // What the sweep honours, read with the rest, and the marks it starts from.
       const sweep: SweepAsked | undefined =
         sweepOn === undefined
@@ -304,6 +315,7 @@ export function usePoolTidy() {
             apart: keptApartList(apart),
             notThisTeam: notThisTeamList(refused),
             realClubs: [...spared].sort(),
+            ...(retired.size > 0 ? { retired: storedRetired(retired) } : {}),
             ...(sweep ? { sweep } : {}),
           }),
           // What came back is only what changed; the rest is the caller's own arrays, so the
@@ -327,7 +339,9 @@ export function usePoolTidy() {
               noteTidyStep,
               apart,
               refused,
-              spared
+              spared,
+              SHIPPED_TIDY_RULES,
+              retired
             );
             return {
               state: tidied,

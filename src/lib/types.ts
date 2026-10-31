@@ -15,6 +15,15 @@ export type TeamBase = {
    * is then never matched by name either — an answer, not a gap.
    */
   scoutTeamId?: string;
+  /**
+   * A GameChanger team id the picked club carried when it was picked, beside the pick. A club's id
+   * here is the pool's own and can come to name another club (Start again mints every id afresh);
+   * GameChanger's is never another team's. Where the club under `scoutTeamId` no longer carries
+   * it, the pick has moved: it is followed to the one club that does, or said to have moved and not
+   * used (`readPick`). Absent for a club GameChanger has no id for, and on a pick made before it
+   * was kept (League layout 2).
+   */
+  scoutGcTeamId?: string;
 };
 
 export type HeadToHeadRecord = {

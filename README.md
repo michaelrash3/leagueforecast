@@ -817,6 +817,40 @@ A pick is stored on the league team, so it rides that season's backup, duplicate
 and undo. Share links deliberately leave it out: a pool id is minted in the
 browser that made it and means nothing in anyone else's.
 
+A pick keeps, beside the club's id, a GameChanger id the club carried when it was
+picked (`TeamBase.scoutGcTeamId`, League layout 2, data schema 10): set by the
+link panel on a device holding the pool, on a member's phone from the clubs the
+server's answer already lists with their GameChanger ids, and by a season started
+from Team Rankings clubs or from an organization's schedule. Every club the panel
+offers has one, since it offers only clubs GameChanger knows. The one kept is the
+club's team of the season itself: one filed on a page that claims the season, the
+last pulled first, else one in the season's squad year, else the last pulled
+(`gcIdsForSeason`, the order every list hands a club's ids in). A club carries a
+team for every season it was pulled in, and the first of them is the one pulled
+longest ago: kept with a pick, last year deleted, that team taken off the club, or
+Team Rankings started again with only this season's teams pulled back would each
+leave a pick of a club still the league's reading as moved. A club's id is the
+pool's own, and Start again mints every one afresh; GameChanger's is never another
+team's.
+So where the club under a pick's id no longer carries that GameChanger id, the pick
+has moved: it is followed to the one club that carries it now, whatever that club's
+id is (`readPick`), in the forecast, Fill scores and the league's games carried into
+Team Rankings alike; and where no one club does, the club under the id is not used
+at all, in none of the three, its name included, so a club of the team's very name
+in its place takes neither the league's games nor a Fill score; the team falls back
+to a guess from its name as a pick of a club gone does, and Settings marks the row
+**Moved** and Data Quality says so (`link-moved`). A pick made before the id was
+kept reads as it always has, and no club is minted under its id: not after a fold
+or a deletion (see "Where the Team Rankings pool lives"), nor under an id let go of
+before that was kept, nor after Team Rankings started again, since every mint that
+reads League Standings holds as taken every club a League team picks that the
+roster no longer holds (`retiredWithPicks`). Such a pick reads as a club gone,
+**Gone** in Settings, until its club is picked again, which keeps the GameChanger
+id from then on. Two teams of a season whose picks are of two clubs later folded
+into one both name the one club, the folded pick followed into it, and so clash
+(**Clash**, `link-shared`): the fold says the two are one club, and which team is
+it is for a person to say.
+
 A pick is by id, so a club the league reaches only through picks can be renamed on
 Team Rankings and keeps the league's games. A club any season reaches by its name
 (a guess, the roster's club of that name, or two picks that clash) has its name
@@ -4717,7 +4751,8 @@ the forecast is affected; the **Data Quality** tab lists them in three groups:
   date that cannot be read, a final over 40 runs a side or won by 40 or more, fewer games
   scheduled than the games-per-team setting (which holds clinching back), teams without a final
   once the league has played about three games each, two teams of one name, a link to a club
-  Team Rankings no longer has.
+  Team Rankings no longer has, a link whose club no longer carries the GameChanger team it was
+  picked as, which no one club carries.
 - **Information**: an undated game, a schedule giving teams two or more games apart, teams
   without a final early on, a link guessed from a name more than one club carries, two finals of
   one pair on one day with different scores.
@@ -5067,6 +5102,41 @@ check lists only that season's pages, and both pulls refuse any other season's t
 (`other-season`), which also takes it off the waiting list. The nightly holds the waiting
 teams it asks about to the same season (`GcImportOptions.seasonYearsFor`), while the rota's
 own teams are filed as the pool already holds them.
+
+**A club's id is never handed out twice.** A club's id is `S-`, the first four letters and
+digits of its name, and the first counter free (`S-RIVE`, `S-RIVE2`), and free used to mean
+free against the roster alone: a club folded into another (a pairing kept, Same team as, a
+tidy) or deleted gave its id back, and the next club whose name started the same was minted
+under it. Whatever had kept the id then named the new club with nothing to say so: a League
+Standings team picked as the folded club carried its league's games onto the new club's
+record and the new club's tournament results into its forecast, and a club watched on a
+device showed another club's row. So the roster keeps, for each family of ids that has let one
+go, the highest counter it let go of (`CompactTeams.h`, `retiredIds.ts`), and every mint skips
+every counter of the family up to it: a pull's, the tidy's slots and stand-ins (and none later
+in a tidy under an id an earlier step of it let go of), a game added by its clubs' names on
+either page, a stand-in made for a game taken off a club, and the clubs League Standings'
+teams are carried onto, which a game added by name adopts into the roster. It is worked out
+where the roster is saved, from the ids the store held before (`saveScoutTeams`), so no fold or
+deletion has to say so, and written only with the roster. A restore keeps the store's and the
+file's together; the Team Rankings file carries it inside the roster, and the whole-browser
+file and Undo beside it. A high-water rather than the ids, because it stores fewer bytes: on
+the seeded fixture at its full size (20,204 clubs, 58,105 games), first words spread over
+4,000 invented words (2,790 families), with every stand-in and slot and a tenth of the pulled
+clubs let go of it is 8,610 bytes of the 889,717-byte gzipped copy (0.97%) where the ids would
+be 27,627 (3.11%), and with a tenth of the stand-ins and slots and 1% of the pulled clubs, 2,306
+(0.24%) where the ids would be 3,900. A pool that has let none go is written as it was. The
+data schema went to 10 for it, since an older build would drop it with the next save of the
+roster. The high-water covers the ids let go of from the build that keeps it on, and Start again
+empties the roster and the high-water with it (see "Team Rankings started again"). So every mint
+that reads League Standings also holds, as the high-water does, the id of every club a League
+team picks that the roster no longer holds (`retiredWithPicks`): an id let go of before the
+high-water was kept, or across a start. Those are the pull and the tidy after it, on the server
+and on a device, a game added by name on either page, a stand-in made on a device's own page,
+and the clubs League Standings' teams are carried onto, and each reads the seasons already, so
+it costs no read and no write, and it is never stored: worked out afresh by each run. The one
+mint that reads no League Standings is the live page's stand-in for a game taken off a club,
+which carries random letters no other mint makes. A pick of such an id reads as a club gone
+until its club is picked again, never as another club.
 
 An archived table keeps the numbers it was frozen with, since its games are gone and nothing
 can fit it again. Tables frozen before the cap moved from eight to twelve, at the end of
@@ -8271,7 +8341,7 @@ The document holds the season record by record rather than as one value:
 
 | Field                            | What it holds                                                                  |
 | -------------------------------- | ------------------------------------------------------------------------------ |
-| `schema`                         | The layout's version, 1. A device reads and writes no document of a later one. |
+| `schema`                         | The layout's version, 2. A device reads and writes no document of a later one. |
 | `rev`                            | The write the document is at: 1 when made, one more with every write.          |
 | `name`, `createdAt`, `updatedAt` | As the season's entry in the switcher has them.                                |
 | `teams`, `teamOrder`             | Each team under its id, and the teams' ids in the season's order.              |
@@ -8298,6 +8368,25 @@ season's document is named the same way. A record found under a key that is not
 its own id's, or under a key `encodeKey` would never write, is left unread, and
 every record is checked by the same validators storage reads with, so nothing
 reaches a device unchecked.
+
+**The layout's version.** A device writes a changed record whole, as its build
+reads one, so a build that predates a field drops it from every record it
+writes: a phone still on a build from before games kept their start erased the
+start of any game it moved or edited, for every device. So the version goes up
+with every field a season's document holds (`leagueDocSchema.test.ts` lists each
+one, and fails until it does), and a device reads and writes no document of a
+later layout than its build's: the season is read-only there, saying a newer
+version saved it, until the page reloads. Layout 2 is a game's start
+(`Matchup.startTs`), a set team list (`Settings.teamsLocked`) and the GameChanger
+id kept beside a team's pick (`TeamBase.scoutGcTeamId`), one raise for the three. Both sides of
+every comparison are stamped with the build's own layout, so until 31 October
+2026 no write carried one and every season stayed at 1, open to the builds that
+drop a start. A season of an earlier layout is raised by the first write a device
+of a later build sends it, in that write (`writesFor`), never by a write of its
+own, which would cost one for each season opened. The servers read with the same
+version (`docToSeason`), so the functions go out with the app or before it: a
+server older than a raised season stops on it (`newer-league`) until it is
+deployed.
 
 The rules (`firestore.rules`, tried on the emulator by `npm run test:rules`) let
 the accounts on the list read, list, make and change seasons, and nobody else
@@ -8939,6 +9028,19 @@ copy to bring a version back. Both are the owner's alone, refused to a member wi
 copy's owner can …", as the functions' smoke run holds for all four of the owner's commands.
 `editRun.test.ts` holds the start, its Undo, a version a device kept brought back, the boards
 emptied and published again, and a save landing between.
+
+**What a start does to League Standings' links.** A start takes the roster, every club's id and
+the high-water of the ids let go of with it (`CompactTeams.h`), so the pulls after it mint ids
+afresh in whatever order their teams come. League Standings is not touched, and every pull, tidy
+and game added by name after the start reads it, as each did before, and holds as taken the id
+of every club a League team picks that the roster no longer holds (`retiredWithPicks`), so no
+club is minted under a pick's old id. Each pick is read through its club's GameChanger id
+(`readPick`): until the club is pulled again, the pick names a club gone; once it is, the pick is
+that club's under its new id, with nothing written to League Standings. A pick made before the id
+was kept carries none, and reads as a club gone, **Gone** in Settings and `link-gone` in Data
+Quality, until its club is picked again (`clubIdsOnce.test.ts` holds both on the server's own
+start, pulls, tidy and a game added by name). Bringing an earlier version back brings back its
+roster with the high-water it had then, and the same holds of it.
 
 **A start is not undone by work already under way.** The start keeps the copy's id, so until
 16 October 2026 a nightly, a Refresh now leg or a staged import that had read the pool before it

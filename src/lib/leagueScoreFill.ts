@@ -8,6 +8,7 @@ import {
   scoreSeenBy,
   squadNameKey,
   teamNameKey,
+  withPicksRead,
   type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
@@ -263,6 +264,9 @@ const clubMatch = (leagueTeam: TeamBase, poolTeam: ScoutTeam): ClubMatch | null 
   // The club a person linked this league team to in Settings is that club, whatever either half
   // calls it: the link was made so a league's "513 Force" is the pool's "513 FORCE - BOULEY".
   if (leagueTeam.scoutTeamId === poolTeam.id) return "linked";
+  // Nor, by its name or at all, the club under a pick that moved: it no longer carries the team the
+  // pick was made by, and is used for nothing, as the bridge uses it (`withPicksRead`).
+  if ("movedScoutTeamId" in leagueTeam && leagueTeam.movedScoutTeamId === poolTeam.id) return null;
   if (teamNameKey(leagueTeam.name) === teamNameKey(poolTeam.name)) return "exact";
   return findSimilarTeam(leagueTeam.name, [poolTeam]) ? "similar" : null;
 };
@@ -344,7 +348,7 @@ type EitherWay = { either: readonly [Alignment, Alignment] };
  */
 export const planLeagueScoreFill = ({
   seasonId,
-  teams,
+  teams: picked,
   matchups,
   logs,
   ageGroups,
@@ -352,6 +356,10 @@ export const planLeagueScoreFill = ({
   scoutGames,
   today = todayIsoDay(),
 }: LeagueScoreFillInput): LeagueFillPlan => {
+  // Each pick as the bridge reads it (`readPick`): a club whose id the pool has given to another
+  // club is followed by its GameChanger id, or linked to none, never to the club the id now names,
+  // not even by its name (`clubMatch`).
+  const teams = withPicksRead(picked, scoutTeams);
   // The link already exists: an age group names the League Standings seasons that belong to it.
   // Reusing it means the two halves cannot disagree about which games are the same season's.
   const claiming = ageGroups.filter((group) => group.seasonIds.includes(seasonId));

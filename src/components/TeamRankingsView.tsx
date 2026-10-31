@@ -19,6 +19,7 @@ import { compareClubs } from "../lib/clubCompare";
 import { setClubAge } from "../lib/clubAge";
 import { createAgeGroupId } from "../lib/teamRankings/seasons";
 import { filedByNameOn, mintStandInId, takenOffSaid } from "../lib/notThisTeam";
+import { mintedIds, withRetired } from "../lib/teamRankings/retiredIds";
 import { planClubAges } from "../lib/live/agePlan";
 import { BROUGHT_BACK, whereIsGcId } from "../lib/gcIdWhereabouts";
 import type { GcIdOffer } from "./TeamSearchSelect";
@@ -68,7 +69,13 @@ import {
   latestImportedAt,
 } from "../lib/gameChangerImport";
 import { remainingIds } from "../lib/gameChangerPull";
-import { archivedFrom, deriveAllKnown, gamesOnPages, leagueTeamIdsOn } from "../lib/live/allKnown";
+import {
+  archivedFrom,
+  deriveAllKnown,
+  gamesOnPages,
+  leagueTeamIdsOn,
+  retiredWithPicks,
+} from "../lib/live/allKnown";
 import { countedByHalf, segmentWorthShowing } from "../lib/teamRankings/halves";
 import {
   placesOf,
@@ -94,6 +101,7 @@ import {
   loadArchiveIndex,
   loadPullProgress,
   loadRefreshLog,
+  loadRetiredIds,
   loadScoutGames,
   loadScoutGamesForYear,
   loadScoutTeams,
@@ -702,6 +710,8 @@ export function TeamRankingsView({
         yearGames: scoutGames,
         readSeason: readStoredSeason,
         autoRemoved,
+        // Read off the stored roster `scoutTeams` was loaded from, so it moves when that does.
+        retired: loadRetiredIds(),
       }),
     [ageGroups, scoutGames, scoutTeams, autoRemoved]
   );
@@ -1358,6 +1368,13 @@ export function TeamRankingsView({
   };
 
   /**
+   * The ids a club made on this page is minted under none of: those the pool let go of, and those
+   * of the clubs League Standings picks that the pool no longer holds (`retiredWithPicks`), which
+   * this device reads where it keeps League Standings.
+   */
+  const mintRetired = () => retiredWithPicks(loadRetiredIds(), readStoredSeason, scoutTeams);
+
+  /**
    * "Not this team": a game a club has only because a name on another club's schedule was matched
    * to it, taken off the club onto the stand-in of the name (`game.notThisTeam`), in the year its
    * page is in, as storage files it, and with it every other game that club's schedules filed onto
@@ -1373,7 +1390,10 @@ export function TeamRankingsView({
       year,
       gameId: game.id,
       teamId,
-      standInId: mintStandInId(club.name, new Set(scoutTeams.map((team) => team.id))),
+      standInId: mintStandInId(
+        club.name,
+        withRetired(new Set(scoutTeams.map((team) => team.id)), mintRetired())
+      ),
     });
     if (!run.ok || run.writes.length === 0) return;
     const opponent = teamNameById.get(game.teamAId === teamId ? game.teamBId : game.teamAId);
@@ -2107,9 +2127,15 @@ export function TeamRankingsView({
       return;
     }
     let teams = allKnown.teams;
-    const a = resolveOrCreateTeam(gameDraft.teamAName, teams);
+    // Against the clubs here and every id the pool let go of, so neither name takes a folded
+    // club's id (`retiredIds.ts`), nor one a League Standings pick names (`mintRetired`).
+    const ids = mintedIds(
+      teams.map((team) => team.id),
+      mintRetired()
+    );
+    const a = resolveOrCreateTeam(gameDraft.teamAName, teams, ids);
     teams = a.teams;
-    const b = resolveOrCreateTeam(gameDraft.teamBName, teams);
+    const b = resolveOrCreateTeam(gameDraft.teamBName, teams, ids);
     teams = b.teams;
     const newGame: ScoutGame = {
       id: `scout_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -2171,6 +2197,7 @@ export function TeamRankingsView({
       named,
       known: allKnown.teams,
       roster: scoutTeams,
+      retired: mintRetired(),
     });
     const run = runCommand(add);
     if (!run.ok) return;

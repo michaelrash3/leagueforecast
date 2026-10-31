@@ -58,6 +58,7 @@ import {
   loadOrgMembership,
   loadRealClubs,
   loadRefreshLog,
+  loadRetiredIds,
   loadScoutGames,
   loadScoutGamesForSeason,
   loadScoutGamesForYear,
@@ -499,6 +500,7 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
         yearGames: loadScoutGamesForYear(ageGroupYear(page)),
         readSeason: seasons,
         autoRemoved: loadAutoRemoved(),
+        retired: loadRetiredIds(),
       });
       const games = gamesOnPages(known.games, rankingPoolGroupIds(page.id, ageGroups));
       // Found among the club's games of the year, as its card lists them; fitted on the page's pool.
@@ -530,6 +532,7 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
         yearGames: loadScoutGamesForYear(ageGroupYear(page)),
         readSeason: seasons,
         autoRemoved: loadAutoRemoved(),
+        retired: loadRetiredIds(),
       });
       return {
         kind: "model.check",
@@ -666,6 +669,7 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
                 gamesOfYear: loadScoutGamesForYear,
                 readSeason: seasons,
                 autoRemoved: marks,
+                retired: loadRetiredIds(),
                 // The boards' day, not the reader's: the list's places are the ones on the boards.
                 today: query.boardDay ?? query.today,
               }),
@@ -683,21 +687,29 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
       const ageGroups = loadAgeGroups();
       const teams = loadScoutTeams();
       const games = loadScoutGamesForSeason(query.season);
+      const bridge = leagueScoutBridge(
+        query.season,
+        ageGroups,
+        teams,
+        games,
+        query.teams,
+        query.fixtures
+      );
+      // The club each team's pick names now, which the panel shows it picked as: followed by its
+      // GameChanger id where the pool gave the pick's id to another club (`readPick`).
+      const picked = new Map(
+        bridge.rows.flatMap((row) =>
+          row.how === "picked" && row.scoutTeamId ? [[row.leagueTeamId, row.scoutTeamId]] : []
+        )
+      );
       return {
         kind: "league.bridge",
-        bridge: leagueScoutBridge(
-          query.season,
-          ageGroups,
-          teams,
-          games,
-          query.teams,
-          query.fixtures
-        ),
+        bridge,
         candidates: query.teams.map((team) => ({
           name: team.name,
           clubs: leagueCandidates(
             scoutLinkCandidates(team.name, query.season, ageGroups, teams, games, query.fixtures),
-            team.scoutTeamId
+            picked.get(team.id) ?? team.scoutTeamId
           ),
         })),
       };
@@ -742,6 +754,7 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
         yearGames: loadScoutGamesForYear(ageGroupYear(page)),
         readSeason: seasons,
         autoRemoved: loadAutoRemoved(),
+        retired: loadRetiredIds(),
       });
       const onPage = known.games.filter((game) => game.ageGroupId === page.id);
       return {
@@ -861,12 +874,14 @@ const isRuns = (value: unknown): value is number =>
 /** A league team as the bridge reads it: its id, its name, and the club a person picked, if any. */
 const leagueTeamLink = (raw: unknown): LeagueTeamLink | null => {
   if (!isRecord(raw) || !isString(raw.id) || !isText(raw.name)) return null;
-  const { scoutTeamId } = raw;
+  const { scoutTeamId, scoutGcTeamId } = raw;
   if (scoutTeamId !== undefined && !isString(scoutTeamId)) return null;
+  if (scoutGcTeamId !== undefined && !isString(scoutGcTeamId)) return null;
   const link: LeagueTeamLink = {
     id: raw.id,
     name: raw.name,
     ...(scoutTeamId === undefined ? {} : { scoutTeamId }),
+    ...(scoutGcTeamId === undefined ? {} : { scoutGcTeamId }),
   };
   return keptWhole(raw, link) ? link : null;
 };

@@ -94,7 +94,15 @@ export const coerceTeams = (raw: unknown): TeamBase[] => {
     // answer — `leagueScoutBridge` does, and reports it. Dropping the id here because the pool is
     // not loaded yet would erase a person's answer every time the app opened.
     const scoutTeamId = isString(item.scoutTeamId) ? cleanId(item.scoutTeamId) : "";
-    out.push({ id, name, ...(scoutTeamId ? { scoutTeamId } : {}) });
+    // The GameChanger id beside it says which club it was, and means nothing without it.
+    const scoutGcTeamId =
+      scoutTeamId && isString(item.scoutGcTeamId) ? cleanId(item.scoutGcTeamId) : "";
+    out.push({
+      id,
+      name,
+      ...(scoutTeamId ? { scoutTeamId } : {}),
+      ...(scoutGcTeamId ? { scoutGcTeamId } : {}),
+    });
   });
   return out;
 };

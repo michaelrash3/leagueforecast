@@ -1,10 +1,12 @@
 import {
+  SHIPPED_TIDY_RULES,
   tidyPool,
   type GcImportState,
   type PoolTidy,
   type TidyStep,
 } from "../lib/gameChangerImport";
 import { coerceKeptApart } from "../lib/keptApart";
+import { coerceRetired } from "../lib/teamRankings/retiredIds";
 import { coerceNotThisTeam } from "../lib/notThisTeam";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
 import { poolLists, type PoolLists } from "../lib/poolLists";
@@ -63,6 +65,11 @@ export type TidyRequest = {
    */
   realClubs?: string[];
   /**
+   * The ids the stored pool let go of, as stored (`retiredIds.ts`), which no slot or stand-in the
+   * tidy makes is minted as: the worker cannot read the store to know them.
+   */
+  retired?: Record<string, number>;
+  /**
    * The sweep for clubs plainly made up to run on the tidied pool, as the nightly runs it on the
    * cloud copy after its tidy (`obviousFakes.ts`): asked at the end of a pull, where it walks every
    * game of the pool, 1.5 s on the pool of 26 September 2026 at 18:40 and 2.5 s on 11 October's
@@ -110,7 +117,12 @@ export type WorkerRequest = TidyRequest | InspectRequest;
  * taken off as plainly made up. The worker can read neither, and the boards read both, so the
  * leaders with few outside games are worked out only where the page sends them.
  */
-export type BoardsAsked = { seasons: Array<[string, LeagueSeasonData]>; marks: AutoRemoval[] };
+export type BoardsAsked = {
+  seasons: Array<[string, LeagueSeasonData]>;
+  marks: AutoRemoval[];
+  /** The ids the stored roster let go of, as stored, which the boards mint no league club as. */
+  retired?: Record<string, number>;
+};
 
 export type TidyResponse = {
   kind: "tidy";
@@ -224,6 +236,7 @@ export const fewOutsideAsked = (
     gamesOfYear: (year) => games.get(year) ?? [],
     readSeason: (seasonId) => seasons.get(seasonId) ?? { teams: [], matchups: [], logs: {} },
     autoRemoved: coerceAutoRemovals(asked.marks),
+    retired: coerceRetired(asked.retired),
     today,
   });
 };
@@ -262,7 +275,9 @@ export const createTidyHandler =
       (step) => post({ kind: "tidy-progress", id: request.id, step, ms: performance.now() - from }),
       coerceKeptApart(request.apart),
       coerceNotThisTeam(request.notThisTeam),
-      new Set((request.realClubs ?? []).filter((id): id is string => typeof id === "string"))
+      new Set((request.realClubs ?? []).filter((id): id is string => typeof id === "string")),
+      SHIPPED_TIDY_RULES,
+      coerceRetired(request.retired)
     );
     // Identity against the pool as decoded here: a pass that changes nothing hands back the array
     // it was given, and that is the whole test.

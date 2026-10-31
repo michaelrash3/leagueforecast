@@ -22,6 +22,7 @@ import {
   loadNamedAges,
   loadAgeRightClubs,
   loadRealClubs,
+  loadRetiredIds,
   loadScoutGames,
   loadScoutTeams,
   loadTooYoungClubs,
@@ -61,7 +62,9 @@ import {
   encodeAgeGroups,
   encodeScoutGames,
   encodeScoutTeams,
+  retiredOfStored,
 } from "./teamRankingsCompact";
+import { coerceRetired, storedRetired } from "./teamRankings/retiredIds";
 
 /**
  * Team Rankings lives in its own storage keys, outside the season-namespaced league data, so a
@@ -99,6 +102,14 @@ export type TeamRankingsBackup = {
    * "this file has nothing to say about it" are the same bytes, exactly as `archives` is handled.
    */
   answers?: BackupAnswers;
+  /**
+   * The ids the pool had let go of (`retiredIds.ts`), as stored: in the Team Rankings JSON inside
+   * the roster, as the store keeps them, and as this field in the whole-browser file and an undo
+   * snapshot, which carry the roster as it decodes. A restore keeps them beside the store's own:
+   * neither a club in the file nor one the restore lets go of is minted again, so no pick or watch
+   * made before it names another club. Absent where the pool let none go.
+   */
+  retired?: Record<string, number>;
 };
 
 /** The answers, in the shape they are stored in. */
@@ -244,11 +255,17 @@ export const teamRankingsBackupIsEmpty = (backup: TeamRankingsBackup): boolean =
   // that file empty would refuse to write the one thing left worth keeping.
   !backup.archives?.length;
 
+/** The `retired` field of a backup, left out where the pool let no id go. */
+const retiredOf = (
+  retired: Record<string, number> | undefined
+): Pick<TeamRankingsBackup, "retired"> => (retired ? { retired } : {});
+
 /** Snapshot the live Team Rankings pool for inclusion in a backup. */
 export const readTeamRankingsBackup = (): TeamRankingsBackup => ({
   ageGroups: loadAgeGroups(),
   teams: loadScoutTeams(),
   games: loadScoutGames(),
+  ...retiredOf(storedRetired(loadRetiredIds())),
   answers: {
     namedAges: namedAgesList(loadNamedAges()),
     droppedClubs: [...loadDroppedClubs()].sort(),
@@ -266,7 +283,7 @@ export const readTeamRankingsBackup = (): TeamRankingsBackup => ({
 /** Replace the live pool with a restored one. `false` if any key could not be written. */
 export const writeTeamRankingsBackup = (backup: TeamRankingsBackup): boolean => {
   const wroteAgeGroups = saveAgeGroups(backup.ageGroups);
-  const wroteTeams = saveScoutTeams(backup.teams);
+  const wroteTeams = saveScoutTeams(backup.teams, coerceRetired(backup.retired));
   // A restore is the pool now, so a stored year the file has nothing for is meant to go; see
   // `replaceScoutGames`, which is the only caller entitled to that.
   const wroteGames = replaceScoutGames(backup.games);
@@ -352,6 +369,7 @@ export const coerceTeamRankingsBackup = (raw: unknown): TeamRankingsBackup | nul
     teams: coerceScoutTeams(raw.teams),
     games: coerceScoutGames(raw.games),
     ...(answers ? { answers } : {}),
+    ...retiredOf(storedRetired(coerceRetired(raw.retired))),
   };
 };
 
@@ -631,7 +649,9 @@ export const teamRankingsJsonParts = (backup: TeamRankingsBackup, savedAt: strin
   const body = JSON.stringify(head);
   const parts: string[] = [body.slice(0, -1)];
   parts.push(`,"ageGroups":${JSON.stringify(encodeAgeGroups(backup.ageGroups))}`);
-  parts.push(`,"teams":${JSON.stringify(encodeScoutTeams(backup.teams))}`);
+  parts.push(
+    `,"teams":${JSON.stringify(encodeScoutTeams(backup.teams, coerceRetired(backup.retired)))}`
+  );
   parts.push(`,"games":${JSON.stringify(encodeScoutGames(backup.games))}`);
   /*
    * A season a part, not the array in one go. A nationwide season is a hundred thousand rows and
@@ -742,6 +762,8 @@ export const readTeamRankingsFile = (parsed: unknown): TeamRankingsBackup | null
     games,
     ...(archives ? { archives } : {}),
     ...(answers ? { answers } : {}),
+    // Kept inside the roster, as the store keeps them.
+    ...retiredOf(storedRetired(retiredOfStored(parsed.teams))),
   };
 };
 

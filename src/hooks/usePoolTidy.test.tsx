@@ -302,6 +302,35 @@ describe("what the tidy worker is told", () => {
     await pending;
   });
 
+  // The boards hold them, so the leaders worked out beside the boards hold them as well.
+  it("hands the inspection the ids League Standings picks that the pool no longer holds", async () => {
+    RecordingWorker.sent = [];
+    vi.stubGlobal("Worker", RecordingWorker);
+    const pool = withStandIn();
+    const paged = { ...pool, ageGroups: [{ ...pool.ageGroups[0]!, seasonIds: ["s1"] }] };
+    const readSeason = Object.assign(
+      () => ({
+        teams: [{ id: "lt-gone", name: "Gone Club", scoutTeamId: "S-GONE2" }],
+        matchups: [],
+        logs: {},
+      }),
+      { picks: () => ["S-GONE2", "S-HOME"] }
+    );
+    const { result, unmount } = renderHook(() => usePoolTidy());
+    const pending = result.current.inspect(paged, "", new Set(), {
+      readSeason,
+      autoRemoved: new Map(),
+    });
+    expect(RecordingWorker.sent).toEqual([
+      expect.objectContaining({
+        kind: "inspect",
+        boards: expect.objectContaining({ retired: { GONE: 2 } }),
+      }),
+    ]);
+    unmount();
+    await pending;
+  });
+
   /*
    * In a browser the look's answer comes from the worker, through the hook's reading of its reply:
    * the list is the worker's, carried over whole, and none where the look was asked without what
@@ -393,6 +422,24 @@ describe("what the tidy keeps for League Standings", () => {
     const { result } = renderHook(() => usePoolTidy());
     const state = withLeague({ id: "lt-hawks", name: "Hollowmere Hawks" });
     expect((await result.current.tidy(state))?.tidy.notATeam).toBe(0);
+  });
+
+  /*
+   * A pick of a club the pool no longer holds names an id let go of before the pool kept a
+   * high-water, or across a start of Team Rankings: a slot or stand-in the tidy minted under it
+   * would be the club the pick names. The worker cannot read League Standings to know it.
+   */
+  it("tells the worker the ids League Standings picks that the pool no longer holds", async () => {
+    const state = withLeague({ id: "lt-gone", name: "Gone Club", scoutTeamId: "S-GONE2" });
+    RecordingWorker.sent = [];
+    vi.stubGlobal("Worker", RecordingWorker);
+    const { result, unmount } = renderHook(() => usePoolTidy());
+    const pending = result.current.tidy(state);
+    expect(RecordingWorker.sent).toEqual([
+      expect.objectContaining({ kind: "tidy", retired: { GONE: 2 } }),
+    ]);
+    unmount();
+    await pending;
   });
 
   it("tells the worker the clubs League Standings links, beside the clubs said to be real", async () => {

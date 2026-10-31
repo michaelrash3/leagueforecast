@@ -262,7 +262,15 @@ export function StartFromGcOrg({
       .catch(() => new Map<string, string>())
       .then((links) =>
         onCreate(
-          seasonFromStart(clubs, draft, choices, innings, (id) => links.get(id)),
+          // Each club is the organization's GameChanger team, its id the one kept beside the link.
+          seasonFromStart(
+            clubs,
+            draft,
+            choices,
+            innings,
+            (id) => links.get(id),
+            (id) => id
+          ),
           page
         )
       );

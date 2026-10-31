@@ -240,3 +240,31 @@ describe("a browser with nothing in it yet", () => {
     expect(screen.getByRole("button", { name: /set one up by hand/i })).toBeInTheDocument();
   });
 });
+
+/*
+ * A League Standings pick of a club the pool no longer holds names an id let go of before the pool
+ * kept a high-water of them, or across a start of Team Rankings: a club made for a name typed in
+ * under it would be the club the pick names. This device holds League Standings, and reads it.
+ */
+describe("a game typed in, with a League pick of a club the pool no longer holds", () => {
+  it("makes the club it names under another id than the pick's", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings({
+      ageGroups: [ageGroup(10, 2027)],
+      teams: [team("S-OWLS", "Owls", { state: "KY" })],
+      games: [],
+      search: "?section=games",
+      leagueSeasons: {
+        "season-old": {
+          teams: [{ id: "WR", name: "Wrens", scoutTeamId: "S-WREN" }],
+          matchups: [],
+          logs: {},
+        },
+      },
+    });
+    await user.type(screen.getByPlaceholderText("Team name"), "Owls");
+    await user.type(screen.getByPlaceholderText("Opponent name"), "Wrens");
+    await user.click(screen.getByRole("button", { name: "Add Game" }));
+    expect(loadScoutTeams().find((club) => club.name === "Wrens")?.id).toBe("S-WREN2");
+  });
+});

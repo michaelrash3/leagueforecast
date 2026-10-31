@@ -188,9 +188,10 @@ describe("League Standings asking the server what Team Rankings has", () => {
     server.bridge = null;
     server.placed = [];
     server.leagueLive = false;
+    // The Bears picked with their club's GameChanger id, which each question carries beside it.
     saveTeams([
       { id: "A", name: "Aces" },
-      { id: "B", name: "Bears", scoutTeamId: "S-BEARS" },
+      { id: "B", name: "Bears", scoutTeamId: "S-BEARS", scoutGcTeamId: "gcBEARS" },
     ]);
     saveMatchups([{ id: "g1", date: "5/1", away: "A", home: "B" }]);
   });
@@ -206,7 +207,7 @@ describe("League Standings asking the server what Team Rankings has", () => {
     expect(server.asked.find((query) => query.kind === "league.bridge")).toMatchObject({
       teams: [
         { id: "A", name: "Aces" },
-        { id: "B", name: "Bears", scoutTeamId: "S-BEARS" },
+        { id: "B", name: "Bears", scoutTeamId: "S-BEARS", scoutGcTeamId: "gcBEARS" },
       ],
       fixtures: [{ away: "Aces", home: "Bears", date: "5/1" }],
     });
@@ -402,7 +403,7 @@ describe("League Standings asking the server what Team Rankings has", () => {
     expect(server.asked.find((query) => query.kind === "league.fill")).toMatchObject({
       teams: [
         { id: "A", name: "Aces" },
-        { id: "B", name: "Bears", scoutTeamId: "S-BEARS" },
+        { id: "B", name: "Bears", scoutTeamId: "S-BEARS", scoutGcTeamId: "gcBEARS" },
       ],
       matchups: [{ id: "g1", date: "5/1", away: "A", home: "B" }],
       today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),

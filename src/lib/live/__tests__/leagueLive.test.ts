@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SeasonSnapshot } from "../../storage";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup } from "../../types";
-import { encodeKey } from "../leagueDocs";
+import { encodeKey, LEAGUE_DOC_SCHEMA } from "../leagueDocs";
 import {
   fieldsChanged,
   guardedUndo,
@@ -93,12 +93,29 @@ describe("laying this device's changes over the cloud's", () => {
 describe("what a write sends", () => {
   it("is each changed field and when it was saved, and nothing for no change", () => {
     const merged = withLogs(BASE, { "Row 3": score("2", "5") });
-    expect(writesFor(BASE, 4, merged, "2027-04-03T18:00:00.000Z")).toEqual([
+    expect(writesFor(BASE, 4, merged, "2027-04-03T18:00:00.000Z", LEAGUE_DOC_SCHEMA)).toEqual([
       { path: ["logs", encodeKey("Row 3")], value: score("2", "5") },
       { path: ["updatedAt"], value: "2027-04-03T18:00:00.000Z" },
       { path: ["rev"], value: 5 },
     ]);
-    expect(writesFor({ ...BASE, updatedAt: "earlier" }, 4, BASE, "now")).toEqual([]);
+    expect(writesFor({ ...BASE, updatedAt: "earlier" }, 4, BASE, "now", LEAGUE_DOC_SCHEMA)).toEqual(
+      []
+    );
+  });
+
+  it("raises a document of an earlier layout to this build's with the change, and never alone", () => {
+    const merged = withLogs(BASE, { "Row 3": score("2", "5") });
+    expect(writesFor(BASE, 4, merged, "now", 1)).toEqual([
+      { path: ["logs", encodeKey("Row 3")], value: score("2", "5") },
+      { path: ["schema"], value: LEAGUE_DOC_SCHEMA },
+      { path: ["updatedAt"], value: "now" },
+      { path: ["rev"], value: 5 },
+    ]);
+    expect(writesFor(BASE, 4, BASE, "now", 1)).toEqual([]);
+    // A document of a later layout is never written at all (`docToSeason`), and never lowered here.
+    expect(
+      writesFor(BASE, 4, merged, "now", LEAGUE_DOC_SCHEMA + 1).map(({ path }) => path)
+    ).toEqual([["logs", encodeKey("Row 3")], ["updatedAt"], ["rev"]]);
   });
 
   it("reads two versions alike whatever order or save time they carry", () => {

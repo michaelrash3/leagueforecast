@@ -1,4 +1,5 @@
 import { gamesOfNamed, loggedNamed, type NamedGame } from "../teamRankings/namedGames";
+import { NO_RETIRED, type RetiredIds } from "../teamRankings/retiredIds";
 import type { ScoutGame, ScoutTeam } from "../teamRankings/types";
 import { MAX_COMMAND_STEPS, stepCount, type PoolCommand } from "./commands";
 
@@ -51,14 +52,17 @@ export const addOfNamed = ({
   named,
   known,
   roster,
+  retired = NO_RETIRED,
 }: {
   year: number | null;
   page: string;
   named: readonly NamedGame[];
   known: ScoutTeam[];
   roster: readonly ScoutTeam[];
+  /** The ids the stored pool let go of, which no club made for a name is minted as. */
+  retired?: RetiredIds;
 }): PoolCommand => {
-  const { teams, games } = gamesOfNamed(named, known, page);
+  const { teams, games } = gamesOfNamed(named, known, page, retired);
   return addOfResolved({ year, games, teams, roster });
 };
 
@@ -84,19 +88,22 @@ export const importOfNamed = ({
   named,
   known,
   roster,
+  retired = NO_RETIRED,
 }: {
   year: number | null;
   page: string;
   named: readonly NamedGame[];
   known: { teams: ScoutTeam[]; games: readonly ScoutGame[] };
   roster: readonly ScoutTeam[];
+  /** The ids the stored pool let go of, which no club made for a name is minted as. */
+  retired?: RetiredIds;
 }): { ok: true; command: PoolCommand } | { ok: false; why: ImportRefusal } => {
   // Checked as the device's check is (`games.check`), so a game refused here reads as logged there.
   const onPage = known.games.filter((game) => game.ageGroupId === page);
   const logged = loggedNamed(named, known.teams, onPage, page);
   if (named.some((game, at) => logged[at] === true && game.again !== true))
     return { ok: false, why: "logged" };
-  const { teams, games } = gamesOfNamed(named, known.teams, page);
+  const { teams, games } = gamesOfNamed(named, known.teams, page, retired);
   if (games.some((game) => game.teamAId === game.teamBId)) return { ok: false, why: "refused" };
   const command = addOfResolved({ year, games, teams, roster });
   return stepCount(command) > MAX_COMMAND_STEPS

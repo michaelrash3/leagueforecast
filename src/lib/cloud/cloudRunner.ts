@@ -15,6 +15,7 @@ import {
 import {
   createGcImporter,
   poolSignature,
+  SHIPPED_TIDY_RULES,
   stampFromNewerRules,
   tidyChangedAnything,
   tidyPool,
@@ -32,7 +33,7 @@ import { persistPool } from "../poolPersist";
 import { settleRunLists } from "../pullLists";
 import { refreshNow, storedRota, type RefreshNow } from "../storedRota";
 import { pulledGcTeamIds } from "../teamRankings";
-import { leagueLinkedClubsOf, type SeasonReader } from "../live/allKnown";
+import { leagueLinkedClubsOf, retiredWithPicks, type SeasonReader } from "../live/allKnown";
 import { leagueSeasonsOf, NO_LEAGUE_DOCS, type LeagueDocsList } from "../live/cloudLeague";
 import type { SweepPool } from "../obviousFakes";
 import { sweepStored } from "../sweepStored";
@@ -54,6 +55,7 @@ import {
   loadNotThisTeam,
   loadOrgMembership,
   loadRealClubs,
+  loadRetiredIds,
   loadRefreshLog,
   loadScoutGames,
   loadScoutTeams,
@@ -714,6 +716,9 @@ const fileScheduleSource = async (
           seasonYearsFor: new Set(loadAgeUnknown().map((entry) => entry.teamId)),
         }
       : {}),
+    // The ids the copy's pool let go of, which no club the pull makes is minted as, and those of
+    // the clubs League Standings picks that the pool no longer holds (`retiredWithPicks`).
+    retired: retiredWithPicks(loadRetiredIds(), seasons, pool.teams),
   });
   const claimed = new Map(
     job.kind === "list" ? job.entries.map((entry) => [entry.teamId, entry]) : []
@@ -774,7 +779,15 @@ const fileScheduleSource = async (
   }
   await onTidy?.();
   const spared = sparedByTidy(importer.state, seasons);
-  const tidy = tidyPool(importer.state, watchTidy, loadKeptApart(), refused, spared);
+  const tidy = tidyPool(
+    importer.state,
+    watchTidy,
+    loadKeptApart(),
+    refused,
+    spared,
+    SHIPPED_TIDY_RULES,
+    retiredWithPicks(loadRetiredIds(), seasons, importer.state.teams)
+  );
   // Its counts go back to the caller and the pool beside them does not: the nightly says the counts
   // in a public log, and the pool names every club in it.
   const { state: _tidied, ...tidied } = tidy;

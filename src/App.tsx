@@ -824,17 +824,20 @@ export default function App() {
     [teams, matchups, finalScores]
   );
 
-  /** Stores which Team Rankings club a league team is, or clears the answer. */
+  /**
+   * Stores which Team Rankings club a league team is, with a GameChanger id the club carries
+   * (`TeamBase.scoutGcTeamId`), or clears the answer. A pick of a club GameChanger has no id for
+   * keeps none, and never the one the team's last pick had.
+   */
   const setScoutLink = useCallback(
-    (leagueTeamId: string, scoutTeamId: string | undefined) => {
+    (leagueTeamId: string, scoutTeamId: string | undefined, scoutGcTeamId?: string) => {
       setTeams((prev) =>
-        prev.map((team) =>
-          team.id === leagueTeamId
-            ? scoutTeamId
-              ? { ...team, scoutTeamId }
-              : (({ scoutTeamId: _dropped, ...rest }) => rest)(team)
-            : team
-        )
+        prev.map((team) => {
+          if (team.id !== leagueTeamId) return team;
+          const { scoutTeamId: _was, scoutGcTeamId: _gc, ...rest } = team;
+          if (!scoutTeamId) return rest;
+          return { ...rest, scoutTeamId, ...(scoutGcTeamId ? { scoutGcTeamId } : {}) };
+        })
       );
     },
     [setTeams]
@@ -2131,10 +2134,11 @@ export default function App() {
     const asked = askLeague({
       kind: "league.fill",
       season,
-      teams: teams.map(({ id, name, scoutTeamId }) => ({
+      teams: teams.map(({ id, name, scoutTeamId, scoutGcTeamId }) => ({
         id,
         name,
         ...(scoutTeamId === undefined ? {} : { scoutTeamId }),
+        ...(scoutGcTeamId === undefined ? {} : { scoutGcTeamId }),
       })),
       matchups: matchups.map(({ id, date, away, home }) => ({ id, date, away, home })),
       runs: Object.entries(logs).map(([id, log]) => ({

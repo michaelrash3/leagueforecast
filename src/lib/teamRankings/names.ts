@@ -13,6 +13,13 @@
  */
 import { ageSpanFromName } from "../gameChangerApi";
 import { createTeamId } from "../sim";
+import {
+  mintedIds,
+  NO_RETIRED,
+  type MintedIds,
+  type RetiredIds,
+  type TakenIds,
+} from "./retiredIds";
 import type { ScoutRankingRow, ScoutTeam } from "./types";
 
 /** Prefix guarantees a scout-created id can never collide with a league season's own team ids
@@ -296,15 +303,18 @@ const nameKeyOf = (team: ScoutTeam): string => {
  * its next match, so old entries converge without a migration.
  *
  * `ids`, where a caller looking many names up in one pass keeps it, is every id `teams` holds, and
- * a team made here is added to it: without it, each new team counts the whole pool's ids again.
+ * a team made here is added to it: without it, each new team counts the whole pool's ids again. A
+ * caller minting into a stored pool hands in its ids let go of with them (`mintedIds`).
  *
  * A club made for a league team said not to be in Team Rankings (`offClubIdFor`) carries that
- * team's name and is never found by it: it is that team's alone.
+ * team's name and is never found by it: it is that team's alone. Nor is `not`, the club in the
+ * place of a league team's pick that moved (`readPick`), which is another club of the name.
  */
 export const resolveOrCreateTeam = (
   name: string,
   teams: ScoutTeam[],
-  ids?: Set<string>
+  ids?: MintedIds,
+  not?: string
 ): { teams: ScoutTeam[]; teamId: string } => {
   const display = cleanTeamName(name);
   const key = normalizeName(name);
@@ -324,7 +334,8 @@ export const resolveOrCreateTeam = (
     };
   }
   const existingIndex = teams.findIndex(
-    (team) => !team.placeholder && !isOffClubId(team.id) && nameKeyOf(team) === key
+    (team) =>
+      !team.placeholder && !isOffClubId(team.id) && team.id !== not && nameKeyOf(team) === key
   );
 
   if (existingIndex >= 0) {
@@ -351,12 +362,13 @@ export const resolveOrCreateTeam = (
  * the 116,485 names of 29 September 2026 moved).
  *
  * `fillState` fills in a club's state where it has none, as a file's state is. `teams` is the
- * roster as it now stands: the one handed over, where nothing on it changed.
+ * roster as it now stands: the one handed over, where nothing on it changed. A club made is minted
+ * under no id the stored pool let go of (`retired`).
  */
-export const teamResolver = (teams: ScoutTeam[]) => {
+export const teamResolver = (teams: ScoutTeam[], retired: RetiredIds = NO_RETIRED) => {
   const pool = teams.slice();
   let changed = false;
-  const ids = new Set<string>();
+  const ids = mintedIds([], retired);
   const placesById = new Map<string, number[]>();
   const placeByKey = new Map<string, number>();
   pool.forEach((team, place) => {
@@ -412,9 +424,11 @@ export const teamResolver = (teams: ScoutTeam[]) => {
  *
  * Taking the set rather than the roster matters when thousands of teams are created in one pass:
  * rebuilding it from the roster each time is what made a large import quadratic. A caller that
- * keeps its own set hands it in and the minting is constant.
+ * keeps its own set hands it in and the minting is constant. Anything that says whether an id is
+ * taken will do, so a caller holding the ids its pool let go of hands those in too (`withRetired`):
+ * against the roster alone, a club folded or deleted gave its id to the next club of its letters.
  */
-const mintScoutTeamIdFrom = (display: string, existingIds: ReadonlySet<string>): string => {
+const mintScoutTeamIdFrom = (display: string, existingIds: TakenIds): string => {
   const id = `${SCOUT_ID_PREFIX}${createTeamId(display, new Set())}`;
   let uniqueId = id;
   let counter = 2;
@@ -454,7 +468,7 @@ export const createScoutTeam = (
  */
 export const buildScoutTeam = (
   name: string,
-  existingIds: ReadonlySet<string>,
+  existingIds: TakenIds,
   extras: Partial<ScoutTeam> = {}
 ): ScoutTeam => {
   const display = cleanTeamName(name).trim();

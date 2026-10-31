@@ -46,7 +46,13 @@ import { coerceLedger, REBUILD_LEDGER_PATH, restLedgerStore } from "../../live/r
 import { coerceClosedLevelRecord, readLastClosedLevel } from "../../live/closedLevelRecord";
 import { restServerStores } from "../../live/serverStores";
 import { unpackChunks } from "../cloudPack";
-import { docToSeason, LEAGUE_COLLECTION, seasonDocId, seasonToDoc } from "../../live/leagueDocs";
+import {
+  docToSeason,
+  LEAGUE_COLLECTION,
+  LEAGUE_DOC_SCHEMA,
+  seasonDocId,
+  seasonToDoc,
+} from "../../live/leagueDocs";
 import { unsaved, writesFor } from "../../live/leagueLive";
 import { firestoreLeague } from "../../live/leagueStore";
 import type { SeasonSnapshot } from "../../storage";
@@ -1002,7 +1008,7 @@ describe.skipIf(!HOST)("League seasons' rules, on the Firestore emulator", () =>
       if (!read.ok) throw new Error(`unread: ${read.reason}`);
       const theirs = unsaved(read.season);
       return {
-        write: { changes: writesFor(theirs, read.rev, change(theirs), NOW) },
+        write: { changes: writesFor(theirs, read.rev, change(theirs), NOW, read.schema) },
         result: read.rev + 1,
       };
     });
@@ -1129,9 +1135,23 @@ describe.skipIf(!HOST)("League seasons' rules, on the Firestore emulator", () =>
       updateDoc(where(db), { schema: deleteField(), rev: rev + 1 })
     ).rejects.toMatchObject(REFUSED);
     await expect(updateDoc(where(db), { rev: 2.5 })).rejects.toMatchObject(REFUSED);
-    await updateDoc(where(db), { schema: 2, rev: next() });
-    await expect(updateDoc(where(db), { schema: 1, rev: rev + 1 })).rejects.toMatchObject(REFUSED);
+    await updateDoc(where(db), { schema: LEAGUE_DOC_SCHEMA + 1, rev: next() });
+    await expect(
+      updateDoc(where(db), { schema: LEAGUE_DOC_SCHEMA, rev: rev + 1 })
+    ).rejects.toMatchObject(REFUSED);
     await updateDoc(where(db), { updatedAt: "2027-04-10T00:00:00.000Z", rev: next() });
+  });
+
+  it("take the raise of a season an older build made, sent with a current build's write, and never take it back", async () => {
+    await setDoc(where(as(LAPTOP)), { ...seasonToDoc(SEASON, 1), schema: 1 });
+    expect(await editAs(OWNER, (season) => ({ ...season, logs: { g1: final("7", "4") } }))).toBe(2);
+    const raised = await readAs(as(LAPTOP));
+    expect(raised.schema).toBe(LEAGUE_DOC_SCHEMA);
+    expect(raised.season.logs).toEqual({ g1: final("7", "4") });
+    // What a device of the first layout would write over it: refused.
+    await expect(updateDoc(where(as(LAPTOP)), { schema: 1, rev: 3 })).rejects.toMatchObject(
+      REFUSED
+    );
   });
 
   it("are deleted by the owner alone, and never before the cloud agrees", async () => {

@@ -60,8 +60,12 @@ const FORMAT_WITHOUT_EPOCH = 2;
  * after the schedule was meant to start from them.
  * 9: a League game keeps its start (`Matchup.startTs`); dropped by an older build, the Schedule
  * would lose a day's order and its times with that build's next save.
+ * 10: the roster keeps the highest counter it has let go of in each family of club ids
+ * (`CompactTeams.h`, `retiredIds.ts`), and a League team's pick the GameChanger id of the club it
+ * picked (`TeamBase.scoutGcTeamId`); dropped by an older build, the next club of a folded or
+ * deleted club's letters would be minted under its id again, and a pick of it handed to that club.
  */
-export const DATA_SCHEMA = 9;
+export const DATA_SCHEMA = 10;
 
 /**
  * Thrown for a manifest this build cannot read, which is never to be taken for no copy at all: the

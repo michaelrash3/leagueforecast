@@ -1,5 +1,6 @@
 import { findDuplicateGame } from "./games";
 import { findSimilarTeam, isPlaceholderName, teamNameKey, teamResolver } from "./names";
+import { NO_RETIRED, type RetiredIds } from "./retiredIds";
 import type { ScoutGame, ScoutTeam } from "./types";
 
 /**
@@ -43,14 +44,15 @@ const scoreOf = (game: NamedGame): Pick<ScoutGame, "teamAScore" | "teamBScore"> 
  * index of the roster rather than a walk down it), one of `teams` by its name or else a club of its
  * own, minted into the roster returned; a state a game carries fills in a club's that has none.
  * What a file names on the row is more trustworthy than nothing, and less than what was typed on
- * the club.
+ * the club. A club minted here takes no id the stored pool let go of (`retired`).
  */
 export const gamesOfNamed = (
   named: readonly NamedGame[],
   teams: ScoutTeam[],
-  ageGroupId: string
+  ageGroupId: string,
+  retired: RetiredIds = NO_RETIRED
 ): { teams: ScoutTeam[]; games: ScoutGame[] } => {
-  const resolver = teamResolver(teams);
+  const resolver = teamResolver(teams, retired);
   const games = named.map((game): ScoutGame => {
     const teamAId = resolver.resolve(game.teamA);
     const teamBId = resolver.resolve(game.teamB);
