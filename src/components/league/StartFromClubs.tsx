@@ -107,7 +107,8 @@ const SWAP =
  * What the review says above a start's games, as their boxes stand when it opens (`startChoices`):
  * how many there are, how many start unticked as a tournament's and so are to be ticked where they
  * are the league's, and what else to check. It said to untick what was not the league's whatever
- * the boxes showed, over a draft whose every game started unticked.
+ * the boxes showed, over a draft whose every game started unticked. Worded as how the boxes start,
+ * which stays true as they are ticked: "all unticked" stood over a box ticked since.
  */
 export const clubsDraftLead = (draft: StartDraft): string => {
   const total = draft.games.length;
@@ -125,9 +126,9 @@ export const clubsDraftLead = (draft: StartDraft): string => {
     : "since they look like tournament games (each says why): tick the ones that are the league's";
   const lead =
     unticked === 0
-      ? `${games} among these clubs, ${total === 1 ? "ticked" : "all ticked"}. Untick a game that is not the league's, and ${SWAP}`
+      ? `${games} among these clubs, ${total === 1 ? "which starts ticked" : "which all start ticked"}. Untick a game that is not the league's, and ${SWAP}`
       : unticked === total
-        ? `${games} among these clubs, ${one ? "unticked" : "all unticked"}, ${why}, and ${SWAP}`
+        ? `${games} among these clubs, ${one ? "which starts unticked" : "which all start unticked"}, ${why}, and ${SWAP}`
         : `${games} among these clubs. ${unticked} ${one ? "starts" : "start"} unticked, ${why}. Untick any other that is not, and ${SWAP}`;
   return `${lead}${outside}`;
 };

@@ -865,20 +865,20 @@ league's clubs on it (the clubs the hand picker offers, GameChanger's at that le
 below), and the days to look in (the half being played, to begin with). The pool's games among
 those clubs come back by day (`draftStart`): played ones with their score and, where the two
 clubs' schedules disagree, the other club's version said beside it; ones still to play blank; a
-likely tournament meeting unticked. The words above the games say how the boxes stand: how many
-start unticked as a tournament's, to be ticked where they are the league's, or that all are ticked
-(`clubsDraftLead`); they had said to untick what was not the league's over a draft whose every game
-started unticked. Untick what is not the league's and swap what is the other way round, and the
-season is made (`seasonFromStart`): a team per club, named as Team Rankings names it and linked to
-it (`scoutTeamId`), and a game per one kept, the played ones final. With games found and none of
-them ticked, the button asks first ("Start with 0 of 7 games?"), since one tap made a season of
-teams alone. Only the name and the link are taken from a club, never its coaches. The season is
-then put on the page it was started from, as Setup's League seasons card puts one
-(`season.assign`), so the forecast and Fill scores read the right page from the first game. Every
-step is the same code on this device's pool and on the server's (`answerStart`, the `league.start`
-question), so a member's phone, which holds no pool, sees exactly what a visitor's browser works
-out. One Undo takes back the teams and games; the season stays on its page, where an empty one
-changes nothing.
+likely tournament meeting unticked. The words above the games say how the boxes start: how many
+start unticked as a tournament's, to be ticked where they are the league's, or that all start
+ticked (`clubsDraftLead`), which stays true as boxes are ticked; they had said to untick what was
+not the league's over a draft whose every game started unticked. Untick what is not the league's
+and swap what is the other way round, and the season is made (`seasonFromStart`): a team per club,
+named as Team Rankings names it and linked to it (`scoutTeamId`), and a game per one kept, the
+played ones final. With games found and none of them ticked, the button asks first ("Start with 0
+of 7 games?"), since one tap made a season of teams alone. Only the name and the link are taken
+from a club, never its coaches. The season is then put on the page it was started from, as Setup's
+League seasons card puts one (`season.assign`), so the forecast and Fill scores read the right page
+from the first game. Every step is the same code on this device's pool and on the server's
+(`answerStart`, the `league.start` question), so a member's phone, which holds no pool, sees exactly
+what a visitor's browser works out. One Undo takes back the teams and games; the season stays on its
+page, where an empty one changes nothing.
 
 **Or from its GameChanger organization.** Paste the league's organization ID or its
 `gc.com/organizations/…` link into the same panel, asked for on 25 October 2026, and one
