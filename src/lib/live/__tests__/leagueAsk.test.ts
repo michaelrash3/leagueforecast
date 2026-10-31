@@ -63,6 +63,40 @@ describe("askLeague", () => {
     stand.reply = { ok: true, value: { ok: false, why: "refused" } };
     expect(await askLeague(question)).toBeNull();
   });
+
+  it("tells the asker what the reply said of the edits' month, answered or not, and nothing where it said none", async () => {
+    const question: QueryOf<"league.bridge"> = {
+      kind: "league.bridge",
+      season: "s1",
+      teams: [],
+      fixtures: [],
+    };
+    const SPENT = { month: "2026-10", spent: true };
+    const RAISED = { month: "2026-10", spent: false };
+    const heard: unknown[] = [];
+    const note = (month: unknown) => heard.push(month);
+    const answer = { kind: "league.bridge", bridge: BRIDGE, candidates: [] };
+    stand.reply = {
+      ok: true,
+      value: { ok: true, copy: "c1", version: 7, answer, editMonth: SPENT },
+    };
+    // The answer is the answer's alone: the month is told, not handed back with it.
+    expect(await askLeague(question, note)).toEqual({ ...answer, at: { copy: "c1", version: 7 } });
+    stand.reply = { ok: true, value: { ok: false, why: "kept-moving", editMonth: RAISED } };
+    expect(await askLeague(question, note)).toBeNull();
+    stand.reply = { ok: false, why: "failed", message: "Not answered.", editMonth: SPENT };
+    expect(await askLeague(question, note)).toBeNull();
+    expect(heard).toEqual([SPENT, RAISED, SPENT]);
+    // An older server's reply, or a call that never reached one, says none, and nothing is told.
+    stand.reply = { ok: true, value: { ok: true, copy: "c1", version: 7, answer } };
+    await askLeague(question, note);
+    stand.reply = { ok: false, why: "failed", message: "offline" };
+    await askLeague(question, note);
+    expect(heard).toHaveLength(3);
+    // Asked with nobody to tell, as Fill and the start from clubs ask, it is answered as before.
+    stand.reply = { ok: false, why: "failed", message: "Not answered.", editMonth: SPENT };
+    expect(await askLeague(question)).toBeNull();
+  });
 });
 
 describe("copyAtNow", () => {

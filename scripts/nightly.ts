@@ -50,7 +50,11 @@ import {
   publishFailedRun,
   type CopyPublish,
 } from "../src/lib/live/publishCopy.ts";
-import { describeRebuilds, rebuildsTrouble } from "../src/lib/live/rebuildReport.ts";
+import {
+  describeRebuilds,
+  rebuildsTrouble,
+  unansweredWord,
+} from "../src/lib/live/rebuildReport.ts";
 import { remeasureAfterPublish } from "../src/lib/live/closedLevelWeekly.ts";
 import {
   loadAgeGroups,
@@ -139,8 +143,9 @@ const output = (name: string, value: string): void => {
  * since a night that failed is when it is most wanted. Said and never judged: the rebuilds are not
  * this run's work, and a night turned red by them would read as a refresh that failed. Whether
  * they are failing goes to the workflow as a word (`rebuildsTrouble`), for the alarm of their own
- * it raises or settles (`runAlarms.ts`); a ledger not read hands over nothing, which leaves that
- * alarm as it is.
+ * it raises or settles (`runAlarms.ts`), and so does whether a day past or this one has had more
+ * than 20 questions the cloud could not answer (`unansweredWord`), from the same read of the
+ * ledger; a ledger not read hands over nothing, which leaves both alarms as they are.
  */
 const tellRebuilds = async (): Promise<void> => {
   if (!readLedger) return;
@@ -150,6 +155,8 @@ const tellRebuilds = async (): Promise<void> => {
     for (const line of describeRebuilds(ledger, job)) console.log(line);
     const trouble = rebuildsTrouble(ledger);
     if (trouble) output("rebuilds", trouble);
+    const unanswered = unansweredWord(ledger, todayIsoDay());
+    if (unanswered) output("unanswered", unanswered);
   } catch (error) {
     console.log(`The rebuilds' ledger could not be read: ${failureWords(error)}`);
   }

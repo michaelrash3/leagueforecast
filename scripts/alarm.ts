@@ -3,7 +3,8 @@
  * README "When a run fails"), run by the workflows as the run's last step, whatever came before:
  *
  *   npm run alarm -- nightly      after the nightly refresh (OUTCOME, MODE, REBUILDS,
- *                                 CLOSED_LEVEL, BILLING and DISPATCH set)
+ *                                 CLOSED_LEVEL, HELD, INGEST, UNANSWERED, BILLING and
+ *                                 DISPATCH set)
  *   npm run alarm -- republish    after the republish that follows a deploy (OUTCOME set)
  *   npm run alarm -- verify-gc    after the GameChanger pull check (OUTCOME and RESULT set)
  *
@@ -46,6 +47,7 @@ const verdicts: Verdict[] | null =
         dispatch: env.DISPATCH ?? "",
         held: env.HELD ?? "",
         ingest: env.INGEST ?? "",
+        unanswered: env.UNANSWERED ?? "",
       })
     : which === "republish"
       ? republishVerdicts({ outcome: env.OUTCOME ?? "" })

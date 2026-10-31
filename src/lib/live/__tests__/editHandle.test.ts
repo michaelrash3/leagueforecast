@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import editFunction from "../../../../functions/src/index.ts?raw";
 import type { StartOfRankings } from "../../cloud/pullJobRunner";
 import type { PoolCommand } from "../commands";
 import type { EditRun, QueryRun } from "../editRun";
@@ -52,6 +53,8 @@ const ledgerOf = (more: Partial<Ledger> = {}): Ledger => ({
   monthFailed: 0,
   editMonthGiBs: 0,
   editMonthVcpuS: 0,
+  dayUnanswered: 0,
+  lastUnanswered: null,
   failures: 0,
   pausedDay: null,
   open: null,
@@ -78,6 +81,25 @@ const memoryLedger = (raw: unknown) => {
     },
   };
   return { store, held: () => coerceLedger(doc?.raw ?? null) };
+};
+
+/**
+ * A ledger's store with its reads and writes counted, so a request can be seen to make no more of
+ * either than its charge always made: one read, and a write where the charge changes the ledger.
+ */
+const counting = (inner: LedgerStore) => {
+  const made = { reads: 0, writes: 0 };
+  const store: LedgerStore = {
+    read: () => {
+      made.reads += 1;
+      return inner.read();
+    },
+    replace: (token, next) => {
+      made.writes += 1;
+      return inner.replace(token, next);
+    },
+  };
+  return { store, made };
 };
 
 const EDITED: EditRun = {
@@ -552,7 +574,8 @@ describe("a question", () => {
     {
       question = QUESTION,
       wait,
-    }: { question?: QueryAsk; wait?: (ms: number) => Promise<void> } = {}
+      startupS = 0,
+    }: { question?: QueryAsk; wait?: (ms: number) => Promise<void>; startupS?: number } = {}
   ) =>
     handleQuery({
       ask: question,
@@ -560,7 +583,7 @@ describe("a question", () => {
       worker,
       today: () => TODAY,
       size: SIZE,
-      startupS: () => 0,
+      startupS: () => startupS,
       charges: chargeQueue(),
       ...(signal ? { signal } : {}),
       ...(wait ? { wait } : {}),
@@ -583,6 +606,7 @@ describe("a question", () => {
         copy: "c1",
         version: 8,
         answer: { kind: "merge.preview", found: true, games: 12, dropped: 2 },
+        editMonth: { month: "2027-04", spent: false },
       },
       line: {
         kind: "merge.preview",
@@ -624,6 +648,7 @@ describe("a question", () => {
       copy: "c1",
       version: 8,
       answer: { kind: "model.check", answer: { cap: null, runs: [1] } },
+      editMonth: { month: "2027-04", spent: false },
     });
   });
 
@@ -631,7 +656,10 @@ describe("a question", () => {
     const ledger = memoryLedger(ledgerOf());
     expect(
       await ask(ledger.store, { query: async () => ran({ ok: false, why: "copy-replaced" }) })
-    ).toMatchObject({ reply: { ok: false, why: "copy-replaced" }, line: { end: "copy-replaced" } });
+    ).toMatchObject({
+      reply: { ok: false, why: "copy-replaced", editMonth: { month: "2027-04", spent: false } },
+      line: { end: "copy-replaced" },
+    });
     expect(ledger.held()).toMatchObject({ editMonthGiBs: 16 });
   });
 
@@ -646,17 +674,168 @@ describe("a question", () => {
         })
       ).toEqual({
         notAnswered: NOT_ANSWERED,
+        editMonth: { month: "2027-04", spent: false },
         line: { kind: "merge.preview", gibs: 4, end: "threw", error: "the worker died" },
       });
     }
     for (const why of ["gone", "late"] as const) {
       expect(await ask(ledger.store, { query: async () => ({ ran: false, why }) })).toEqual({
         notAnswered: NOT_ANSWERED,
+        editMonth: { month: "2027-04", spent: false },
         line: { kind: "merge.preview", gibs: 0, end: why },
       });
     }
     // A question changes nothing, so nothing in what the device is told says it may have.
     expect(NOT_ANSWERED).toMatch(/nothing was changed/);
+  });
+
+  /*
+   * What a device makes no timer retry for (`useScoutBridge`): the edits' month spent. Each question
+   * is already charged by reading the ledger and writing it back (`charge`, `updateLedger`), so the
+   * answer is what that charge left in the ledger, and costs no read or write of its own.
+   */
+  it("says with its answer whether the edits' month is spent, as its own charge left the ledger, reading nothing more", async () => {
+    const below = counting(memoryLedger(ledgerOf()).store);
+    expect(await ask(below.store, workerOf())).toMatchObject({
+      reply: { ok: true, editMonth: { month: "2027-04", spent: false } },
+    });
+    expect(below.made).toEqual({ reads: 1, writes: 1 });
+    // Spent by this very charge, 8 GiB-seconds past 4 short of the cap: the ledger as the charge
+    // wrote it is what is said, not the ledger as it was read.
+    const edge = memoryLedger(ledgerOf({ editMonthGiBs: DEFAULT_CAPS.editMonthGiBs - 4 }));
+    const spent = counting(edge.store);
+    expect(await ask(spent.store, workerOf())).toMatchObject({
+      reply: { ok: true, editMonth: { month: "2027-04", spent: true } },
+    });
+    expect(spent.made).toEqual({ reads: 1, writes: 1 });
+    expect(edge.held()?.editMonthGiBs).toBe(DEFAULT_CAPS.editMonthGiBs + 4);
+    // The vCPU-seconds' cap is the edits' month's too; the rebuilds' month is not.
+    const vcpu = memoryLedger(ledgerOf({ editMonthVcpuS: DEFAULT_CAPS.editMonthVcpuS }));
+    expect(await ask(vcpu.store, workerOf())).toMatchObject({
+      reply: { editMonth: { spent: true } },
+    });
+    const rebuilds = memoryLedger(
+      ledgerOf({ monthGiBs: DEFAULT_CAPS.monthGiBs, monthVcpuS: DEFAULT_CAPS.monthVcpuS })
+    );
+    expect(await ask(rebuilds.store, workerOf())).toMatchObject({
+      reply: { ok: true, editMonth: { spent: false } },
+    });
+    // Answered at the caps all the same: only the device's own retries wait on what it says.
+    expect(await ask(memoryLedger(ledgerOf({ editMonthGiBs: 500_000 })).store, workerOf())).toEqual(
+      expect.objectContaining({ reply: expect.objectContaining({ ok: true, version: 8 }) })
+    );
+  });
+
+  it("says it with a question left unanswered, for the function to send in its error, and counts that question", async () => {
+    const ledger = memoryLedger(ledgerOf({ editMonthVcpuS: DEFAULT_CAPS.editMonthVcpuS }));
+    const seen = counting(ledger.store);
+    const outOfMemory = "The edit ran out of memory in its worker.";
+    expect(
+      await ask(seen.store, {
+        query: async () => {
+          throw new TurnFailed(outOfMemory, 60_000, true);
+        },
+      })
+    ).toEqual({
+      notAnswered: NOT_ANSWERED,
+      editMonth: { month: "2027-04", spent: true },
+      line: { kind: "merge.preview", gibs: 480, end: "threw", error: outOfMemory },
+    });
+    // A minute in the worker charged, and the question counted, in the charge's one write.
+    expect(seen.made).toEqual({ reads: 1, writes: 1 });
+    expect(ledger.held()).toMatchObject({ editMonthGiBs: 480, dayUnanswered: 1 });
+    // Turned away before its turn it spent nothing, so its charge reads the ledger and writes
+    // nothing, as it always did: said all the same, and not counted, which would be a write.
+    for (const why of ["gone", "late"] as const) {
+      const before = { ...seen.made };
+      expect(await ask(seen.store, { query: async () => ({ ran: false, why }) })).toMatchObject({
+        notAnswered: NOT_ANSWERED,
+        editMonth: { month: "2027-04", spent: true },
+      });
+      expect(seen.made).toEqual({ reads: before.reads + 1, writes: before.writes });
+    }
+    // Answered, or refused on the copy, it is not counted either.
+    await ask(seen.store, workerOf());
+    await ask(seen.store, { query: async () => ran({ ok: false, why: "copy-replaced" }) });
+    expect(ledger.held()?.dayUnanswered).toBe(1);
+  });
+
+  it("turned away before its turn is counted where it was charged a new instance's start-up", async () => {
+    // A new instance's start-up is charged to its first call (`startupS`), which may be turned away
+    // all the same: that one spent compute, so it is counted, in the write its charge makes anyway.
+    for (const why of ["gone", "late"] as const) {
+      const ledger = memoryLedger(ledgerOf());
+      const seen = counting(ledger.store);
+      expect(
+        await ask(seen.store, { query: async () => ({ ran: false, why }) }, undefined, {
+          startupS: 2,
+        })
+      ).toEqual({
+        notAnswered: NOT_ANSWERED,
+        editMonth: { month: "2027-04", spent: false },
+        line: { kind: "merge.preview", gibs: 16, end: why },
+      });
+      expect(seen.made).toEqual({ reads: 1, writes: 1 });
+      expect(ledger.held()).toMatchObject({
+        editMonthGiBs: 16,
+        editMonthVcpuS: 4,
+        dayUnanswered: 1,
+      });
+    }
+  });
+
+  /*
+   * The function's part (`functions/src/index.ts`): a question left unanswered is answered as the
+   * error `aborted`, the month in its details, which is where a device reads it (`editClient.ts`).
+   * Without that, a question the server could not answer, a worker out of memory say, which is
+   * what a device's hold on its retries is for, would never say the month spent, and every test
+   * here and the client's would still pass. Nothing here runs the function, so its call is read as
+   * text, as the workflows' alarm steps are (`workflowAlarms.test.ts`).
+   */
+  it("is left unanswered by the function as an error that carries the month in its details", () => {
+    const thrown = /if \("notAnswered" in handled\) \{ throw new HttpsError\((.*?)\); \}/.exec(
+      editFunction.replace(/\s+/g, " ")
+    );
+    expect(thrown?.[1]?.trim()).toBe(
+      '"aborted", handled.notAnswered, handled.editMonth && { editMonth: handled.editMonth }'
+    );
+  });
+
+  it("says nothing of the month where its charge was slow or failed, or there is no ledger: not known", async () => {
+    const failing: LedgerStore = {
+      read: async () => {
+        throw new Error("Firestore is busy");
+      },
+      replace: async () => false,
+    };
+    const crowded: LedgerStore = {
+      read: async () => ({ raw: ledgerOf(), token: "t0" }),
+      replace: async () => false,
+    };
+    const silent: LedgerStore = {
+      read: () => new Promise(() => undefined),
+      replace: async () => true,
+    };
+    const died = {
+      query: async (): Promise<Turned<QueryRun>> => {
+        throw new TurnFailed("the worker died", 500, false);
+      },
+    };
+    for (const [store, wait] of [
+      [failing, undefined],
+      [crowded, undefined],
+      // Slow: the answer goes, the charge left to finish behind it.
+      [silent, async () => undefined],
+      [memoryLedger(null).store, undefined],
+    ] as const) {
+      const options = wait ? { wait } : {};
+      const answered = await ask(store, workerOf(), undefined, options);
+      expect(answered).toMatchObject({ reply: { ok: true, version: 8 } });
+      expect("reply" in answered ? answered.reply : null).not.toHaveProperty("editMonth");
+      const left = await ask(store, died, undefined, options);
+      expect(left).toMatchObject({ notAnswered: NOT_ANSWERED });
+      expect(left).not.toHaveProperty("editMonth");
+    }
   });
 
   it("that refits a year is refused once the day's or the month's compute is spent, never reaching the pool", async () => {

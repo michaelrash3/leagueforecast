@@ -109,6 +109,18 @@ export type Ledger = {
    */
   editMonthGiBs: number;
   editMonthVcpuS: number;
+  /**
+   * The edit function's questions that went unanswered on `day` after spending compute (a worker
+   * that ran out of memory with one, say), each counted in the write that charges it
+   * (`chargeEdit`), and the last day before `day` that had any, with its count as it stood when the
+   * ledger moved on from it, or null before there was one. Only counted, for the nightly's alarm
+   * (`unansweredWord`): no cap reads them. A question turned away before its turn spent nothing,
+   * so its charge writes nothing, and counting it would be a write of its own; it is not counted,
+   * unless it was a new instance's first call, which is charged the instance's start-up all the
+   * same and so is counted.
+   */
+  dayUnanswered: number;
+  lastUnanswered: { day: string; count: number } | null;
   /** Failures since the last run that did not fail. */
   failures: number;
   /** The day the failures paused the rebuilds, which they stay paused for. */
@@ -193,6 +205,15 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
   const editMonthGiBs = given(raw.editMonthGiBs, 0);
   const editMonthVcpuS = given(raw.editMonthVcpuS, 0);
   if (!isCount(editMonthGiBs) || !isCount(editMonthVcpuS)) return null;
+  const dayUnanswered = given(raw.dayUnanswered, 0);
+  if (!isWhole(dayUnanswered)) return null;
+  const unanswered = given(raw.lastUnanswered, null);
+  let lastUnanswered: Ledger["lastUnanswered"] = null;
+  if (unanswered !== null) {
+    if (!isRecord(unanswered) || typeof unanswered.day !== "string") return null;
+    if (!isWhole(unanswered.count)) return null;
+    lastUnanswered = { day: unanswered.day, count: unanswered.count };
+  }
   const last = given(raw.lastDay, null);
   let lastDay: Ledger["lastDay"] = null;
   if (last !== null) {
@@ -251,6 +272,8 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
     monthFailed,
     editMonthGiBs,
     editMonthVcpuS,
+    dayUnanswered,
+    lastUnanswered,
     failures,
     pausedDay,
     open,
@@ -289,6 +312,11 @@ const fieldsOf = (ledger: Ledger): Record<string, unknown> => ({
   monthFailed: ledger.monthFailed,
   editMonthGiBs: ledger.editMonthGiBs,
   editMonthVcpuS: ledger.editMonthVcpuS,
+  dayUnanswered: ledger.dayUnanswered,
+  lastUnanswered: ledger.lastUnanswered && {
+    day: ledger.lastUnanswered.day,
+    count: ledger.lastUnanswered.count,
+  },
   failures: ledger.failures,
   pausedDay: ledger.pausedDay,
   open: ledger.open && {
@@ -327,7 +355,9 @@ const failed = (ledger: Ledger, today: string, runDay: string): Ledger => {
 
 /**
  * The ledger moved on to `today`: the day's counts emptied, and kept as `lastDay` where the day
- * they counted had a run.
+ * they counted had a run, and as `lastUnanswered` where it had a question left unanswered. The
+ * nightly reads the ledger a few hours into New York's day, so a charge after midnight would
+ * otherwise empty the day it has come to judge.
  */
 const newDay = (ledger: Ledger, today: string): Ledger => ({
   ...ledger,
@@ -339,6 +369,11 @@ const newDay = (ledger: Ledger, today: string): Ledger => ({
     ledger.dayRuns > 0
       ? { day: ledger.day, runs: ledger.dayRuns, failed: ledger.dayFailed, gibs: ledger.dayGiBs }
       : ledger.lastDay,
+  dayUnanswered: 0,
+  lastUnanswered:
+    ledger.dayUnanswered > 0
+      ? { day: ledger.day, count: ledger.dayUnanswered }
+      : ledger.lastUnanswered,
 });
 
 /**
@@ -377,16 +412,44 @@ const rolledOver = (ledger: Ledger, today: string): Ledger => {
  * A charge carries no id, as a reservation does: one whose write landed though its answer was lost
  * is told apart by the ledger reading as written (`updateLedger`), so another write landing between
  * makes it charge twice. That errs over the caps, never under, and is left so.
+ *
+ * A question the function went on to leave `unanswered` is counted in the same write
+ * (`dayUnanswered`), where it spent compute: one that spent nothing changes nothing else, and its
+ * charge writes nothing, so counting it would be a write of its own.
  */
-export const chargeEdit = (ledger: Ledger | null, today: string, used: RunCost): Ledger | null => {
+export const chargeEdit = (
+  ledger: Ledger | null,
+  today: string,
+  used: RunCost,
+  unanswered = false
+): Ledger | null => {
   if (!ledger) return null;
   const next = rolledOver(ledger, today);
+  const spent = used.gibs > 0 || used.vcpuS > 0;
   return {
     ...next,
     editMonthGiBs: next.editMonthGiBs + used.gibs,
     editMonthVcpuS: next.editMonthVcpuS + used.vcpuS,
+    dayUnanswered: next.dayUnanswered + (unanswered && spent ? 1 : 0),
   };
 };
+
+/**
+ * The edits' month as a ledger holds it: the New York month it counts, and whether either of the
+ * edits' own totals for it is at or past its cap. Said with every question's reply from the ledger
+ * its charge left (`handleQuery`), so League Standings makes no timer retry of a question while
+ * the month is spent, until New York's month turns (`useScoutBridge`); the question a person asks
+ * is answered whatever it says, as an edit is made. The rebuilds' own month is theirs, and says
+ * nothing here.
+ */
+export type EditMonth = { month: string; spent: boolean };
+
+export const editMonthOf = (ledger: Ledger): EditMonth => ({
+  month: ledger.month,
+  spent:
+    ledger.editMonthGiBs >= ledger.caps.editMonthGiBs ||
+    ledger.editMonthVcpuS >= ledger.caps.editMonthVcpuS,
+});
 
 /**
  * The ledger with a rebuild's compute that no reservation covered (the rebuild job's start-up when
@@ -421,8 +484,7 @@ export const capsSpent = (ledger: Ledger | null, today: string): "day" | "month"
   if (
     next.monthGiBs >= next.caps.monthGiBs ||
     next.monthVcpuS >= next.caps.monthVcpuS ||
-    next.editMonthGiBs >= next.caps.editMonthGiBs ||
-    next.editMonthVcpuS >= next.caps.editMonthVcpuS
+    editMonthOf(next).spent
   )
     return "month";
   return next.dayGiBs >= next.caps.dayGiBs ? "day" : null;
