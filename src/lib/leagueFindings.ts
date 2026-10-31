@@ -508,7 +508,7 @@ export const auditLeague = ({
           severity: "review",
           summary: `${plural(shortOfSetting.length, "team")} with fewer games scheduled than the ${perTeam} per team set`,
           detail:
-            "Clinching, elimination and the Gold odds count the games each team has left from that setting, so games that are not on the schedule hold them back.",
+            "Clinching, elimination and the Gold odds count the games each team has left from that setting, so games that are not on the schedule hold them back, and the title odds read no kept bracket score until those games are played.",
           suggestion: even
             ? `Set games per team to ${most}, what the schedule has, or add the missing games.`
             : "Add the missing games, or change games per team in Settings.",

@@ -4233,6 +4233,12 @@ Bears from 99%+ to 77%, the Comets from under 1% to 20% and the Ducks to 5%. A
 league with no games per team set, or whose schedule has them all, is searched and
 simulated exactly as before, to the digit.
 
+Waiting for the owed games has a cost where games per team counts one that will
+never be played, a rainout taken off the schedule and not made up, say: the title
+odds draw the bracket afresh even once it is played and the Dashboard names its
+champion. Data Quality's finding on the setting says so, and once the setting
+leaves no game owed, the kept scores are read again.
+
 ## Playoff machine
 
 "If we beat the Bears and the Comets lose, where are we?" The Forecast tab has a
