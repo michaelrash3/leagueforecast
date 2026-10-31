@@ -12,10 +12,12 @@ import { deriveAllKnown, type SeasonReader } from "../allKnown";
 import { buildAllBoards, type PageBoard } from "../views/board";
 
 /*
- * League Standings games carry their starts into Team Rankings, and no board reads a start: the
+ * League Standings games carry their starts into Team Rankings, and no rating reads a start: the
  * seeded fixture's boards, with every league game timed but one, whose pulled copy is, are the
- * boards of the same pool with no start anywhere, to the last digit. The pin below was taken on
- * the code from before the starts were carried, so it also says the change moved no board.
+ * boards of the same pool with no start anywhere, to the last digit. That is whole boards, the
+ * Weekly among them, whose streaks read a club's games in playing order and so read starts: on
+ * this fixture they come out the same either way. Both pins below hold on the code from before
+ * the starts were carried, so they also say the change moved no board.
  */
 
 const fixture = poolFixture({ seed: 7, clubsPerPage: 40 });
@@ -117,6 +119,22 @@ const steady = (boards: PageBoard[]) =>
       .sort((a, b) => (a.teamId < b.teamId ? -1 : a.teamId > b.teamId ? 1 : 0)),
   }));
 
+/** The boards' weeks less what one engine's last bit can move: their odds to the millionth. */
+const steadyWeeks = (boards: PageBoard[]) =>
+  boards.map(({ pageId, half, weekly }) => ({
+    pageId,
+    half,
+    weekly: weekly && {
+      ...weekly,
+      upsets: weekly.upsets.map((upset) => ({ ...upset, chance: toMillionth(upset.chance) })),
+      ahead: weekly.ahead && {
+        ...weekly.ahead,
+        chanceA: toMillionth(weekly.ahead.chanceA),
+        margin: toMillionth(weekly.ahead.margin),
+      },
+    },
+  }));
+
 describe("League Standings starts on the boards", () => {
   it("are carried into what the boards are built from, the copy's onto the row it folds into", () => {
     const pool = timed();
@@ -139,10 +157,14 @@ describe("League Standings starts on the boards", () => {
   });
 
   it("move no board, to the last digit", () => {
-    const rowsOf = (boards: PageBoard[]) =>
-      boards.map(({ pageId, half, rows }) => ({ pageId, half, rows }));
     const withStarts = boardsOf(timed());
-    expect(rowsOf(withStarts)).toStrictEqual(rowsOf(boardsOf(untimed(timed()))));
+    // Whole boards: the rows, the week before, the history, the fit and the Weekly, whose streaks
+    // read a club's games in playing order (`byGameTime`) and so read starts.
+    expect(withStarts).toStrictEqual(boardsOf(untimed(timed())));
     expect(fingerprint(steady(withStarts))).toBe("aa8e91c9");
+    // 28 boards with a week, naming 22 streaks and 9 games ahead between them.
+    const weeks = steadyWeeks(withStarts);
+    expect(weeks.flatMap(({ weekly }) => weekly?.streaks ?? [])).toHaveLength(22);
+    expect(fingerprint(weeks)).toBe("23a5731b");
   });
 });

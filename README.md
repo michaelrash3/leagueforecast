@@ -4423,11 +4423,15 @@ game's seven fields), both in whole minutes since 1970. A card's game is found f
 everything else it shows (`cardFixture`), so a card from before the start, or one carrying it in
 its own form, still names the stored game. A League Standings game comes in with the start its
 season keeps (`deriveLeagueScoutGames`), and a league's scored game kept in place of a pulled copy
-of it takes the copy's start where it has none (`dedupeLeagueFixtures`: the copies giving its
-score, read from either seat, all at one minute); both came in untimed, so a league doubleheader
-was listed second game first and the later game named as next. No board reads a start: the
-seeded fixture's boards with every league game timed are its boards with none, to the digit
-(`leagueStartsBoards.test.ts`).
+of it takes the copy's start where it has none (`dedupeLeagueFixtures`): the copies giving its
+score, read from either seat with who won kept, all at one minute, and no other league game of
+that day between the two having that score, since two games of one score are not told apart by
+it, whether one game's copy is in the pool or both. A club's own copy filed against a slot ("TBD-
+09/25/26, 7:15 PM", `leagueCopiesFiledAgainstNobody`) gives the league's game it folds into its
+start the same way. Both came in untimed, so a league doubleheader was listed second game first
+and the later game named as next. No rating reads a start. The Weekly's streaks do, reading a
+club's games in playing order, but the seeded fixture's whole boards with every league game timed,
+the Weekly's included, are its boards with none, to the digit (`leagueStartsBoards.test.ts`).
 
 League Standings keeps each game's start too (`Matchup.startTs`, data schema 9): from a start's
 draft (Team Rankings clubs or a GameChanger organization), on a game Fill adds, and on every game
