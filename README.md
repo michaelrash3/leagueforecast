@@ -1997,6 +1997,17 @@ GameChanger. **Download the list** writes the lot as a CSV, because a few
 hundred rows is spreadsheet work rather than something to scroll on a phone —
 the panel draws the first two hundred and the file has them all.
 
+**Played against a stand-in.** **Check the pool** in Pool health counts the slots
+and the clubs known only by name, and the results against them (`poolHealth`), and
+says the share the owner tracks with exactly what it counts: of the pool's played
+games, every squad year together, those with a club on one side and a slot or a
+club known only by name on the other. The tile of slots alone is **TBD slots**; it
+said "Stand-ins" until 31 October 2026, though it counted slots only, beside a
+count of results against a stand-in that counted both. The nightly's share is
+not this one: it is the stand-in report's, of one squad year's stored games with a
+stand-in on either side ("The nightly refresh on GitHub"), so a game between two
+stand-ins counts there and not here, and here every year counts.
+
 **One squad on GameChanger twice.** **Check the pool** in Pool health also lists pairs of pulled
 clubs that post the same games: at least two against the same opponent at the same minute with the
 same result, with no game ever against each other and no two different games within the hour of each
