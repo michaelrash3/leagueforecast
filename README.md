@@ -8918,6 +8918,17 @@ shared handlers with recorded provider responses and require no deployed credent
   - **The numbers did not move.** `src/AppLeagueNumbers.test.tsx` pins what each
     tab shows on a fixed six-team season, the forecast seeded from the season;
     it was recorded before the split and matches after it.
+- **One file for the logic the page loads at start** (`src/lib/bootChunk.ts`, the boot chunk in
+  `vite.config.ts`). The bundler had cut the first download's logic into the entry chunk and 23
+  files of the 55 modules it shares with views loaded later, every one fetched at start anyway,
+  each compressed afresh and carrying its own imports and exports. Every logic module
+  (`src/lib`, `src/styles`) that a chain of static imports from the entry reaches is now in one
+  file, worked out from the build's own module graph rather than a list, so a module added later
+  lands where it should. Components stay in the entry chunk, since a chunk takes the modules its
+  own import along and a component there brought React's core out of React's own chunk. The first
+  download went from 254.9 KB to 248.0 KB gzipped (247,951 bytes), Team Rankings from 166.2 to
+  165.3 KB, with nothing removed and nothing fetched later. The cost is caching: a release that
+  changes any logic module has a returning visitor fetch the whole 124 KB file again.
 - **League Standings works out only what is on screen** (2.2). Every number it
   shows is read from the games marked final, so its calculations are keyed on
   those scores alone (`finalLogsOf`, held by `useSeasonState`), which stay the same
