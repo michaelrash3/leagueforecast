@@ -146,6 +146,26 @@ describe("the games among a league's clubs", () => {
     ]);
   });
 
+  /*
+   * A league can play two of its own teams on one day, and every other club a picked club played
+   * was counted as "somebody else": both of the day's league games started unticked as a
+   * tournament's. Only a club outside the league marks the day.
+   */
+  it("keep a day a club played two of the league's clubs, and not one it played a club outside", () => {
+    const made = draft([
+      game("g1", "2026-09-13", "S-A", "S-B", [5, 3]),
+      game("g2", "2026-09-13", "S-A", "S-C", [2, 1]),
+      game("g3", "2026-09-20", "S-B", "S-C", [4, 4]),
+      game("g4", "2026-09-20", "S-B", "S-X", [1, 0]),
+    ]);
+    expect(made.games.map((one) => [one.gameId, one.tournament])).toEqual([
+      ["g1", undefined],
+      ["g2", undefined],
+      ["g3", "One of the two played somebody else that day, so it was likely a tournament."],
+    ]);
+    expect(startChoices(made).map((choice) => choice.keep)).toEqual([true, true, false]);
+  });
+
   it("give the other club's score where the two schedules disagree", () => {
     const made = draft([
       game("g1", "2026-09-13", "S-A", "S-B", [5, 3], {

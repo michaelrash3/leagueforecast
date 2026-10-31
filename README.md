@@ -848,8 +848,11 @@ Fill scores also lists the pool's played games between two of the league's clubs
 schedule has those two meet nowhere (`LeagueFillPlan.missing`), to be added with their score,
 final. The second game of a doubleheader the league scheduled once is not offered: it is as
 likely a scrimmage, and is left to be added by hand. A game that looks like a tournament's
-(`tournamentReason`: entered under an event, or either club played somebody else that day) starts
-unticked, and since GameChanger's schedules do not say who was at home, each can be swapped.
+(`tournamentReason`: entered under an event, or either club played a club outside the league that
+day) starts unticked, and since GameChanger's schedules do not say who was at home, each can be
+swapped. A day a club played two of the league's own clubs is the league's: a league can play two
+of its teams on one day, and until October 2026 every other club played that day counted, the
+league's included, so both of such a day's games started unticked.
 
 **Starting a season from its clubs (3.7).** A new season can start from Team Rankings instead of
 from typed names, a CSV or the demo: **Start from Team Rankings clubs** on the empty season's
@@ -858,16 +861,20 @@ league's clubs on it (the clubs the hand picker offers, GameChanger's at that le
 below), and the days to look in (the half being played, to begin with). The pool's games among
 those clubs come back by day (`draftStart`): played ones with their score and, where the two
 clubs' schedules disagree, the other club's version said beside it; ones still to play blank; a
-likely tournament meeting unticked. Untick what is not the league's and swap what is the other
-way round, and the season is made (`seasonFromStart`): a team per club, named as Team Rankings
-names it and linked to it (`scoutTeamId`), and a game per one kept, the played ones final. Only
-the name and the link are taken from a club, never its coaches. The season is then put on the
-page it was started from, as Setup's League seasons card puts one (`season.assign`), so the
-forecast and Fill scores read the right page from the first game. Every step is the same code
-on this device's pool and on the server's (`answerStart`, the `league.start` question), so a
-member's phone, which holds no pool, sees exactly what a visitor's browser works out. One Undo
-takes back the teams and games; the season stays on its page, where an empty one changes
-nothing.
+likely tournament meeting unticked. The words above the games say how the boxes stand: how many
+start unticked as a tournament's, to be ticked where they are the league's, or that all are ticked
+(`clubsDraftLead`); they had said to untick what was not the league's over a draft whose every game
+started unticked. Untick what is not the league's and swap what is the other way round, and the
+season is made (`seasonFromStart`): a team per club, named as Team Rankings names it and linked to
+it (`scoutTeamId`), and a game per one kept, the played ones final. With games found and none of
+them ticked, the button asks first ("Start with 0 of 7 games?"), since one tap made a season of
+teams alone. Only the name and the link are taken from a club, never its coaches. The season is
+then put on the page it was started from, as Setup's League seasons card puts one
+(`season.assign`), so the forecast and Fill scores read the right page from the first game. Every
+step is the same code on this device's pool and on the server's (`answerStart`, the `league.start`
+question), so a member's phone, which holds no pool, sees exactly what a visitor's browser works
+out. One Undo takes back the teams and games; the season stays on its page, where an empty one
+changes nothing.
 
 **Or from its GameChanger organization.** Paste the league's organization ID or its
 `gc.com/organizations/…` link into the same panel, asked for on 25 October 2026, and one
@@ -912,8 +919,9 @@ proxy (`gcOrgSchedule.ts`, `StartFromGcOrg`):
   first left over), so a doubleheader stays two even where one schedule lists only one of its
   games, and a copy matched to none is a game of its own; GameChanger says who was home, so a game is stood up
   away first; the away side's score speaks and the home side's goes beside it where they disagree;
-  a canceled game is left out. A game against anybody else marks a league game that day likely a
-  tournament's, unticked, as a Team Rankings start marks one (`orgGames`, then `draftStart`).
+  a canceled game is left out. A game against a team outside the ones ticked marks a league game
+  that day likely a tournament's, unticked, as a Team Rankings start marks one (`orgGames`, then
+  `draftStart`).
 - **The season.** The same review and the same making as a Team Rankings start: a team per one
   kept, linked to its Team Rankings club where this device's own pool pulled one under its
   GameChanger id (a device whose Team Rankings is the cloud's holds no pool, so its teams are
