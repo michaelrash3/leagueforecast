@@ -833,22 +833,30 @@ everything the standings, the records and the projections are built from.
 Nothing is written before the review is read, and three rules keep a wrong score
 out of a table nobody can check:
 
-| Case                                 | What happens                                                                                               |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| The league game is blank             | Filled, and marked final. Ticked by default.                                                               |
-| The two spell a club differently     | Offered as **Check name**, with both spellings shown. Never applied unasked.                               |
-| The club's own row names only a slot | Offered as **Check opponent** — its only league game that day, against "TBD". Never applied unasked.       |
-| The two clubs' schedules differ      | Both scores shown and either can be filled. Ticked only when they agree on the winner (**Check score**).   |
-| A different score is already entered | Shown side by side and left alone unless that row is chosen by name.                                       |
-| A pairing plays twice on one day     | Paired in schedule order when both sides have the same number of games; otherwise reported, never guessed. |
+| Case                                 | What happens                                                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| The league game is blank             | Filled, and marked final. Ticked by default.                                                                  |
+| The two spell a club differently     | Offered as **Check name**, with both spellings shown. Never applied unasked.                                  |
+| The club's own row names only a slot | Offered as **Check opponent** — its only league game that day, against "TBD". Never applied unasked.          |
+| The two clubs' schedules differ      | Both scores shown and either can be filled. Ticked only when they agree on the winner (**Check score**).      |
+| A different score is already entered | Shown side by side and left alone unless that row is chosen by name.                                          |
+| A pairing plays twice on one day     | Paired in schedule order when both sides have the same number of games; otherwise reported, never guessed.    |
+| Two teams one name to the pool       | Turned the way the Settings links, then the clubs' GameChanger names, say; otherwise reported, never guessed. |
 
 **Games the schedule is missing (3.7).** Where both teams of a game are linked to their clubs,
 Fill scores also lists the pool's played games between two of the league's clubs on a day the
 schedule has those two meet nowhere (`LeagueFillPlan.missing`), to be added with their score,
 final. The second game of a doubleheader the league scheduled once is not offered: it is as
 likely a scrimmage, and is left to be added by hand. A game that looks like a tournament's
-(`tournamentReason`: entered under an event, or either club played somebody else that day) starts
-unticked, and since GameChanger's schedules do not say who was at home, each can be swapped.
+(`tournamentReason`: entered under an event, or either club played a club outside the league that
+day) starts unticked, and since GameChanger's schedules do not say who was at home, each can be
+swapped. A day a club played two of the league's own clubs is the league's: a league can play two
+of its teams on one day, and until October 2026 every other club played that day counted, the
+league's included, so both of such a day's games started unticked. Not where the schedule has
+either club playing another of its games that day: a meeting beside it is as likely a scrimmage as
+a doubleheader's second game, and starts unticked too. The league's-own-day rule is a start's
+(below), which has no schedule to say which of a day's games the league played; read by it alone,
+the Aces' second game of a day the schedule has them at the Bears started ticked, to go in final.
 
 **Starting a season from its clubs (3.7).** A new season can start from Team Rankings instead of
 from typed names, a CSV or the demo: **Start from Team Rankings clubs** on the empty season's
@@ -857,16 +865,20 @@ league's clubs on it (the clubs the hand picker offers, GameChanger's at that le
 below), and the days to look in (the half being played, to begin with). The pool's games among
 those clubs come back by day (`draftStart`): played ones with their score and, where the two
 clubs' schedules disagree, the other club's version said beside it; ones still to play blank; a
-likely tournament meeting unticked. Untick what is not the league's and swap what is the other
-way round, and the season is made (`seasonFromStart`): a team per club, named as Team Rankings
-names it and linked to it (`scoutTeamId`), and a game per one kept, the played ones final. Only
-the name and the link are taken from a club, never its coaches. The season is then put on the
-page it was started from, as Setup's League seasons card puts one (`season.assign`), so the
-forecast and Fill scores read the right page from the first game. Every step is the same code
-on this device's pool and on the server's (`answerStart`, the `league.start` question), so a
-member's phone, which holds no pool, sees exactly what a visitor's browser works out. One Undo
-takes back the teams and games; the season stays on its page, where an empty one changes
-nothing.
+likely tournament meeting unticked. The words above the games say how the boxes start: how many
+start unticked as a tournament's, to be ticked where they are the league's, or that all start
+ticked (`clubsDraftLead`), which stays true as boxes are ticked; they had said to untick what was
+not the league's over a draft whose every game started unticked. Untick what is not the league's
+and swap what is the other way round, and the season is made (`seasonFromStart`): a team per club,
+named as Team Rankings names it and linked to it (`scoutTeamId`), and a game per one kept, the
+played ones final. With games found and none of them ticked, the button asks first ("Start with 0
+of 7 games?"), since one tap made a season of teams alone. Only the name and the link are taken
+from a club, never its coaches. The season is then put on the page it was started from, as Setup's
+League seasons card puts one (`season.assign`), so the forecast and Fill scores read the right page
+from the first game. Every step is the same code on this device's pool and on the server's
+(`answerStart`, the `league.start` question), so a member's phone, which holds no pool, sees exactly
+what a visitor's browser works out. One Undo takes back the teams and games; the season stays on its
+page, where an empty one changes nothing.
 
 **Or from its GameChanger organization.** Paste the league's organization ID or its
 `gc.com/organizations/…` link into the same panel, asked for on 25 October 2026, and one
@@ -911,8 +923,9 @@ proxy (`gcOrgSchedule.ts`, `StartFromGcOrg`):
   first left over), so a doubleheader stays two even where one schedule lists only one of its
   games, and a copy matched to none is a game of its own; GameChanger says who was home, so a game is stood up
   away first; the away side's score speaks and the home side's goes beside it where they disagree;
-  a canceled game is left out. A game against anybody else marks a league game that day likely a
-  tournament's, unticked, as a Team Rankings start marks one (`orgGames`, then `draftStart`).
+  a canceled game is left out. A game against a team outside the ones ticked marks a league game
+  that day likely a tournament's, unticked, as a Team Rankings start marks one (`orgGames`, then
+  `draftStart`).
 - **The season.** The same review and the same making as a Team Rankings start: a team per one
   kept, linked to its Team Rankings club where this device's own pool pulled one under its
   GameChanger id (a device whose Team Rankings is the cloud's holds no pool, so its teams are
@@ -940,6 +953,19 @@ every page of the squad year rather than only the pages claiming the season: the
 Cincinnati Hornets' fall team is listed at 8U, and its copy of the league's 25
 September game sat on the 8U page. Unlinked, another page's club of the same name
 is as likely the same organisation's older squad, so it is left alone.
+
+Two league teams that are one name to the pool, "Heat (Coach A)" and "Heat (Coach B)" or "Wolves
+9U" and "Wolves 10U" (the pool keeps a club's name without its aside or its age,
+`cleanTeamName`), each fit either club, so a result between them fits both ways round. It goes in
+the way round that fits better, a side linked in Settings counting for more than names alike; where
+both fit as well, the way the clubs' names on GameChanger, kept whole (`GcTeamLink.name`), fit the
+teams' names, written alike or alike but for the age (`nameNearness`); and where nothing tells the
+two ways apart, it is reported as **Can't tell** and never written. Such a result is still the
+game's whichever way round: a score the league already has one way round is its own (**Already
+in**), and the game's start reaches the schedule as any matched game's does. Until October 2026 a
+result was taken the way the pool listed it whenever that fitted, and the pool lists the pulled club
+first, which says nothing of who was home: a meeting the pulled club hosted went in backwards and
+ticked, links or no links.
 
 A club's own schedule that was never told the opponent files the game against a
 slot, "TBD- 09/25/26, 7:15 PM", and when the other club's schedule is not in the
@@ -4372,6 +4398,21 @@ settings travel in a shared link, and a parent's team is not the coach's they se
 the standings to. It is not in a backup either, for the same reason. It goes with its season,
 so a season made under a deleted one's id follows no team until one is picked there.
 
+The move is said only where it is two points or more (`GOLD_MOVE_SHOWN`), and the trend's last two
+points are drawn paired (`buildTrendStates`): from the last one's seed, each game from a stream of
+its own keyed to the season and the game (`gameStream`), every season played, so the two runs draw
+alike every game they share and their difference is what the result did. Each point drawn from its
+own seed, the step was two runs' worth of chance: on 40 synthetic eight-team leagues, measured
+against 24,000 seasons a point, it was 1.6 points out where a team not in the game truly moved 0.9,
+and 26 of the 235 moves shown went the wrong way. Paired, it is 0.66 out, and of the moves of two
+points or more none went the wrong way. One seed on one stream was not enough (1.43): the point
+before the result has that game still to play, and every draw after it moved. Every game of a paired
+run makes the tie draw, in a league that has had no tie too (`SeasonDraws.tieAlwaysDrawn`): the
+point before a league's first tie has no share of ties to draw at, made a draw fewer each game than
+the point after, and the step on that result was two runs' chance again: from seed to seed on four
+synthetic leagues it spread 2.27 points, where on a win it spread 0.85; drawn every game, 1.05
+(0.87 on a win). Only those two points moved; the six before them are as they were to the digit.
+
 When the team is linked to a Team Rankings club, the card also gives the club's place
 on its board — "37th of 1,812 nationally (▲3) · top 3% · 4th of 160 in OH · 9U 2027 ·
 Fall 2026, as of 9/27". League Standings cannot rank a club itself, since a board is a fit
@@ -4454,15 +4495,27 @@ where the first team is; rows laid out in cells, as a spreadsheet or a calendar 
 (`4/10/2027,9:00 AM,Falcons @ Wolves,Field 1`), the game read from its own cell and a place or a
 game number left out; and a table with no header, read away then home and marked as a guess. A line
 that is only a date, or a date with a start time ("Sat 4/12 9:00 AM"), dates the games under it;
-start times, "9 AM" as well as "9:00 AM", and fields are passed over, and a score at the end of a
-line is read in the order the teams were written, unless both names end alike ("Falcons 9-10 @
-Wolves 9-10"), which is an age span. A line with two markers, a TBD side, a game cancelled, rained
-out, postponed or suspended, or a day no calendar has ("Apr 31", never rolled on to May 1) is listed
-as left out rather than guessed at. A date with no year is placed in the year the paste wrote (on
-the date, in a heading, or in a title such as "Spring 2027 Schedule"), else in the squad year the
-season is filed under in Team Rankings, else the one its name says ("Fall 2026" is squad year 2027,
-and "2026 Fall - 2027 Spring" is 2027, `seasonNames.ts`), else the one being played today, with
-August to December in the year before.
+start times and fields are passed over: "9 AM" as well as "9:00 AM", a range ("9:00-11:00 AM",
+"9-11 AM"; a range of bare hours only with its AM or PM, since "9-11" alone is as likely a score or a
+day, and a day at the front of a line is passed over for a range only in that shape, so "4/12 Am
+Comets" is still on 4/12), a US time zone after the time ("6:30 PM EDT", "7 PM (CT)"), "Noon", and
+"TBA" for a start not set yet, which a site printing the zone had made "EDT Falcons" of every away
+team. A zone is read in capitals only, as sites print one: read in any case, a town's short form
+after a time came off the team's name, "6:30 PM Mt Comets" a team "Comets". A score at the end
+of a line is read in the order the teams were written, unless both names end alike ("Falcons 9-10 @
+Wolves 9-10"), which is an age span; so is one written beside each side ("Falcons 7 @ Wolves 5"),
+where both sides end in a number, the names left are two names and the numbers differ: "Team 1 @
+Team 2" is two squads of one name, and "Cubs 10 @ Reds 10" a number written on each, while "Falcons
+0 @ Wolves 0" is a 0-0, as nothing else can be. A line with no comma past its day is split at its
+bars, as sites print "Sat Apr 12 | 9:00 AM | Falcons @ Wolves | Riverside Park", and read as cells,
+the place left out; a CSV's cells are its commas, so a bar there stays in a name, and a line with no
+cell wholly a day, a time or a field is read whole, "Aces | Blue @ Wolves" included. A line with two
+markers, a TBD side, a game cancelled, rained out, postponed or suspended, or a day no calendar has
+("Apr 31", never rolled on to May 1) is listed as left out rather than guessed at. A date with no
+year is placed in the year the paste wrote (on the date, in a heading, or in a title such as "Spring
+2027 Schedule"), else in the squad year the season is filed under in Team Rankings, else the one its
+name says ("Fall 2026" is squad year 2027, and "2026 Fall - 2027 Spring" is 2027, `seasonNames.ts`),
+else the one being played today, with August to December in the year before.
 
 Every game is looked over before anything is added, with a Swap on each row; on a phone each game is
 a small block, its sides one under the other, so the Swap is on screen. Names are told apart as the

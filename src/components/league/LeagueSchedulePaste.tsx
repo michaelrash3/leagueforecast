@@ -13,11 +13,11 @@ import { todayIsoDay } from "../../lib/date";
 import { displayName } from "../../lib/format";
 import {
   parseLeagueSchedule,
-  pasteNameKey,
   pasteSquadYear,
   type LeaguePasteRow,
   type LeagueSchedule,
 } from "../../lib/leagueScheduleText";
+import { pasteNameKey } from "../../lib/teamRankings";
 import {
   matchPastedNames,
   seasonFromPaste,

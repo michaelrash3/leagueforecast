@@ -7,6 +7,7 @@ import {
   simulateBracketOdds,
   simulateGoldOdds,
   simulateGoldOddsRun,
+  simulateTrendPoint,
   simulationSeed,
 } from "../lib/sim";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type Settings } from "../lib/types";
@@ -108,5 +109,29 @@ describe("simulated odds after only the ratings change", () => {
     await waitFor(() => expect(result.current.b).toHaveLength(1));
     rerender({ teams: after });
     await waitFor(() => expect(result.current.b).toEqual([expected.b ?? 0]));
+  });
+});
+
+describe("the trend's paired points, simulated on the page", () => {
+  it("are drawn paired, as the worker draws them", async () => {
+    // A point the trend marks paired (`buildTrendStates`), where no worker runs.
+    const state = { teams: after, remaining, seedText, paired: true as const };
+    const paired = simulateTrendPoint(state, 1000, 2, settings);
+    const unpaired = simulateGoldOdds(after, remaining, 1000, seedText, 2, settings);
+    // The fixture is worth something: the two ways of drawing give different odds.
+    expect(paired).not.toEqual(unpaired);
+    const { result } = renderHook(() =>
+      useSimulationTrend(
+        {
+          teamIds: bases.map((team) => team.id),
+          states: [state],
+          iterations: 1000,
+          cutoff: 2,
+          settings,
+        },
+        0
+      )
+    );
+    await waitFor(() => expect(result.current.b).toEqual([paired.b ?? 0]));
   });
 });

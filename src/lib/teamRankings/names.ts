@@ -116,6 +116,21 @@ export const squadNameKey = (listingName: string): string =>
     .trim();
 
 /**
+ * The key a name written in full is told apart by: case, spacing and punctuation aside, with every
+ * word kept, a bracketed coach's name and an age label included. `teamNameKey` drops both, which
+ * suits matching a GameChanger opponent to its club, but one league can have "Heat (Coach A)" and
+ * "Heat (Coach B)", or "Wolves 9U" and "Wolves 10U", as two of its teams, and a pasted schedule
+ * names them so (`leagueScheduleText.ts`), as Fill scores reads them against the names GameChanger
+ * lists each club under (`leagueScoreFill.ts`).
+ */
+export const pasteNameKey = (name: string): string =>
+  name
+    .toLowerCase()
+    .replace(/[‘’`]/g, "'")
+    .replace(/[^\p{L}\p{N}']+/gu, " ")
+    .trim();
+
+/**
  * Words that say what a club is rather than which one. "Dragons Baseball" is the Dragons, "Cincy
  * Stix Baseball Club" is the Stix, and a coach typing an opponent's name leaves these off as often
  * as not. Kept to the words that carry no identity at all: "Elite", "Select" and "Academy" are
