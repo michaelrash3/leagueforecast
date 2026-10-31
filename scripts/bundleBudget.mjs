@@ -10,6 +10,8 @@
  * - **First download**: the page's entry script, everything it preloads, and its stylesheet.
  * - **A view's own load**: what opening it fetches beyond the first download, its chunk and every
  *   chunk that one imports that the first download has not already brought.
+ * - **A Team Rankings section's own load**: what opening it fetches beyond the first download and
+ *   Team Rankings' own load, since a section is only ever opened from the page.
  *
  * Writes the numbers to `dist/bundle-report.json` for any later comparison, prints them, and exits
  * non-zero naming each limit passed. A limit sits above what it measured when set (below), so an
@@ -140,6 +142,15 @@ const DIST = "dist";
  * and exports. The entry chunk keeps the components, 41.7 KB, so its line now has room it did not;
  * the first download's line, which holds both, is the one that binds. Team Rankings went from 166.2
  * KB to 165.3 KB with it, and each League view by 0 to 0.4 KB.
+ * Team Rankings came down on 31 Oct 2026, 60.3 KB against 166.2 KB on main (60,292 bytes against
+ * 166,193), with nothing removed: each section's code is fetched as the section is first opened
+ * (`teamRankings/sections.ts`), and the tidy's stamp (`tidyStamp.ts`) and the pool's packing for
+ * the tidy worker (`tidyWire.ts`) are modules of their own, so the page fetches the tidy only to run
+ * it with no worker. Its line comes down to 62.0 KB, 1.7 KB above what it measured, so what left
+ * stays out. Each section is a line of its own below, set as the views' were, a tenth above what it
+ * measured and at least 1.5 KB: Games 10.9 KB (10,882 bytes), Import, the GameChanger pull, 57.8
+ * (57,776), Scouting 7.4 (7,442), its tournament panel 3.6 (3,610), Archive 2.3 (2,321) and Setup
+ * 68.9 (68,918). The first download is 251.8 KB, as it was.
  */
 const BUDGET = {
   firstDownload: 255_000,
@@ -156,7 +167,15 @@ const BUDGET = {
     Settings: 13_700,
     "Seasons at a glance": 4_400,
     "Since you last looked": 4_500,
-    "Team Rankings": 166_500,
+    "Team Rankings": 62_000,
+  },
+  sections: {
+    Games: 12_400,
+    Import: 63_600,
+    Scouting: 9_000,
+    Tournament: 5_200,
+    Archive: 3_900,
+    Setup: 75_900,
   },
 };
 
@@ -177,6 +196,19 @@ const VIEWS = {
   "Seasons at a glance": ["src/components/league/SeasonsAtAGlance.tsx"],
   "Since you last looked": ["src/components/league/SinceLastLook.tsx"],
   "Team Rankings": ["src/components/TeamRankingsView.tsx"],
+};
+
+/**
+ * The modules each Team Rankings section loads from (`teamRankings/sections.ts`). The tournament
+ * panel is drawn below the scouting report and loads beside it, but is a chunk of its own.
+ */
+const SECTIONS = {
+  Games: ["src/components/teamRankings/GamesSection.tsx"],
+  Import: ["src/components/GameChangerImportPanel.tsx"],
+  Scouting: ["src/components/teamRankings/ScoutingSection.tsx"],
+  Tournament: ["src/components/teamRankings/TournamentPanel.tsx"],
+  Archive: ["src/components/teamRankings/ArchiveSection.tsx"],
+  Setup: ["src/components/teamRankings/SetupSection.tsx"],
 };
 
 const gzipped = new Map();
@@ -208,6 +240,8 @@ const closure = (key, into = new Set()) => {
 
 const total = (files) => [...files].reduce((sum, file) => sum + sizeOf(file), 0);
 const entryFile = manifest["index.html"]?.file;
+/** What a visit has once Team Rankings is open, which a section's own load is beyond. */
+const rankingsOpen = new Set([...first, ...closure(VIEWS["Team Rankings"][0])]);
 const report = {
   firstDownload: total(first),
   entryChunk: entryFile ? sizeOf(entryFile) : 0,
@@ -219,6 +253,13 @@ const report = {
       return [view, total([...files].filter((file) => !first.has(file)))];
     })
   ),
+  sections: Object.fromEntries(
+    Object.entries(SECTIONS).map(([section, modules]) => {
+      const files = new Set();
+      modules.forEach((module) => closure(module, files));
+      return [section, total([...files].filter((file) => !rankingsOpen.has(file)))];
+    })
+  ),
 };
 
 writeFileSync(
@@ -228,9 +269,9 @@ writeFileSync(
 
 const kb = (bytes) => `${(bytes / 1000).toFixed(1)} KB`;
 const over = [];
-const line = (name, measured, limit) => {
+const line = (name, measured, limit, said = name) => {
   const mark = measured > limit ? "OVER" : "ok";
-  if (measured > limit) over.push(`${name}: ${kb(measured)} against a limit of ${kb(limit)}`);
+  if (measured > limit) over.push(`${said}: ${kb(measured)} against a limit of ${kb(limit)}`);
   console.log(`${mark.padEnd(5)}${name.padEnd(28)}${kb(measured).padStart(10)}  of ${kb(limit)}`);
 };
 console.log("Gzipped downloads, against the budget (scripts/bundleBudget.mjs):");
@@ -239,6 +280,9 @@ line("Entry chunk", report.entryChunk, BUDGET.entryChunk);
 line("Stylesheet", report.css, BUDGET.css);
 for (const [view, measured] of Object.entries(report.views)) {
   line(`Opening ${view}`, measured, BUDGET.views[view]);
+}
+for (const [section, measured] of Object.entries(report.sections)) {
+  line(`  then ${section}`, measured, BUDGET.sections[section], `Team Rankings' ${section}`);
 }
 if (over.length > 0) {
   for (const message of over) console.log(`::error::Over the bundle budget: ${message}`);

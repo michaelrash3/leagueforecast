@@ -11,28 +11,9 @@ import { TeamNameCombobox } from "../TeamNameCombobox";
 import { TeamSearchSelect } from "../TeamSearchSelect";
 import { WhatIf, WhatIfButton } from "./WhatIf";
 import { button, card, pill } from "../../styles/tokens";
+import type { AddGameDraft } from "./addGameDraft";
 
-/**
- * The half-written game in the add form. One object rather than six pieces of state, because the
- * form is filled in and cleared as a unit and the view has to hand the whole of it down anyway.
- */
-export type AddGameDraft = {
-  teamAName: string;
-  teamAScore: string;
-  teamBName: string;
-  teamBScore: string;
-  date: string;
-  event: string;
-};
-
-export const EMPTY_ADD_GAME_DRAFT: AddGameDraft = {
-  teamAName: "",
-  teamAScore: "",
-  teamBName: "",
-  teamBScore: "",
-  date: "",
-  event: "",
-};
+export { EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./addGameDraft";
 
 type GamesSectionProps = {
   groupName: string;

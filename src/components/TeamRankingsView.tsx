@@ -25,7 +25,6 @@ import { BROUGHT_BACK, whereIsGcId } from "../lib/gcIdWhereabouts";
 import type { GcIdOffer } from "./TeamSearchSelect";
 import { clubRankPage, leagueClubRanksFrom, writeLeagueClubRanks } from "../lib/leagueClubRanks";
 import { scoutAsked, scoutTaken } from "../lib/scoutRequest";
-import { TournamentPanel } from "./teamRankings/TournamentPanel";
 import {
   ageGroupChain,
   ageGroupLevel,
@@ -64,10 +63,9 @@ import {
   poolSignature,
   poolSignatureOf,
   stampFromNewerRules,
-  type GcImportState,
-  type PoolTidy,
   latestImportedAt,
-} from "../lib/gameChangerImport";
+} from "../lib/tidyStamp";
+import type { GcImportState, PoolTidy } from "../lib/gameChangerImport";
 import { remainingIds } from "../lib/gameChangerPull";
 import {
   archivedFrom,
@@ -170,16 +168,14 @@ import {
   nothingUnder,
   summariseYears,
 } from "../lib/yearSummary";
-import { ArchiveSection } from "./teamRankings/ArchiveSection";
 import { isPoolBusy, isPullLive, watchPull } from "../lib/pullSession";
 import { usePoolTidy } from "../hooks/usePoolTidy";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { card } from "../styles/tokens";
-import { GameChangerImportPanel } from "./GameChangerImportPanel";
 import { ClubSheet } from "./teamRankings/ClubSheet";
 import { leftClubSheet, markClubSheet } from "../lib/clubSheetHistory";
 import { useWatchList } from "../lib/watchList";
-import { GamesSection, EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/GamesSection";
+import { EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/addGameDraft";
 import type { NamedChecker } from "./ScheduleImportPanel";
 import { checkNamedGames, type NamedGame } from "../lib/teamRankings/namedGames";
 import { addOfNamed } from "../lib/live/namedAdd";
@@ -191,12 +187,23 @@ import {
   RankingsSection as RankingsBoards,
   STATE_TOP,
 } from "./teamRankings/RankingsSection";
-import { ScoutingSection } from "./teamRankings/ScoutingSection";
 import { todayIsoDay } from "../lib/date";
 import { ratedClubsOf, whatIfDeclines } from "../lib/scoutWhatIf";
 import { RankingsHeader } from "./teamRankings/RankingsHeader";
 import { SECTION_PANEL_ID, sectionTabId } from "./teamRankings/SectionNav";
-import { SetupSection } from "./teamRankings/SetupSection";
+import {
+  archiveSection,
+  gamesSection,
+  importSection,
+  LIKELY_NEXT_SECTION,
+  prefetchSection,
+  resetSection,
+  scoutingSection,
+  setupSection,
+  tournamentPanel,
+} from "./teamRankings/sections";
+import type { ViewChunk } from "./viewChunk";
+import { LoadingPanel } from "./LoadingPanel";
 import { useLeagueSummary } from "../hooks/useLeagueSummary";
 import { useClubSearch } from "../hooks/useClubSearch";
 import { clubSearchGames } from "../lib/clubSearch";
@@ -213,6 +220,31 @@ import type { ToastTone } from "../hooks/useToast";
 const TeamDetailPanel = lazy(() =>
   import("./TeamDetailPanel").then((module) => ({ default: module.TeamDetailPanel }))
 );
+
+/**
+ * A section whose code is fetched as it is first opened, or a little before (`sections.ts`), drawn
+ * in a boundary of its own: a line saying it is loading stands in its place meanwhile, and nothing
+ * else on the page is swapped for it, nor is the scouting report while the tournament panel below
+ * it loads, which says nothing as it does. A load that fails is the section boundary's Try again.
+ */
+const inPlace = <P extends object>({ View }: ViewChunk<P>, loading: RankingsSection | null) => {
+  const Section = (props: P) => (
+    <Suspense fallback={loading === null ? null : <LoadingPanel area={sectionLoading(loading)} />}>
+      <View {...props} />
+    </Suspense>
+  );
+  Section.displayName = `InPlace(${View.displayName ?? "Section"})`;
+  return Section;
+};
+const GamesSection = inPlace(gamesSection, "games");
+const GameChangerImportPanel = inPlace(importSection, "import");
+const ScoutingSection = inPlace(scoutingSection, "scouting");
+const TournamentPanel = inPlace(tournamentPanel, null);
+const ArchiveSection = inPlace(archiveSection, "archive");
+const SetupSection = inPlace(setupSection, "setup");
+
+/** A section's tab pointed at or focused: its code starts loading before it is pressed. */
+const previewSection = (section: RankingsSection) => void prefetchSection(section);
 
 type ConfirmOptions = {
   title: string;
@@ -308,6 +340,10 @@ const sectionLabel = (section: RankingsSection): string =>
     setup: "Setup",
   })[section];
 
+/** What a section is called while its code loads, in a sentence ("Loading the archive…"). */
+const sectionLoading = (section: RankingsSection): string =>
+  sectionLabel(section).replace(/^The /, "the ");
+
 export function TeamRankingsView({
   seasons,
   showToast,
@@ -354,6 +390,13 @@ export function TeamRankingsView({
     defaultAge,
     setDefaultAge,
   } = useRankingsPages(ageGroups, today);
+  // The section most often opened next, fetched once this one is drawn and the page is idle.
+  useEffect(() => {
+    const next = LIKELY_NEXT_SECTION[section];
+    if (!next) return;
+    const timer = window.setTimeout(() => void prefetchSection(next), 1_500);
+    return () => window.clearTimeout(timer);
+  }, [section]);
 
   const [scoutTeams, setScoutTeams] = useState<ScoutTeam[]>(() => loadScoutTeams());
   /**
@@ -2511,6 +2554,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
         onOpenYear={openYear}
         onOpenPage={openPage}
         onOpenSection={openSection}
+        onPreviewSection={previewSection}
       />
 
       <div
@@ -2523,9 +2567,14 @@ This cannot be undone. Cancel and download the backups first if there is any cha
           One boundary per section, keyed by section, so a section that throws leaves the tabs and
           the age picker above it usable — you can still get to Setup and take a backup out. Keying
           it clears the caught error on the way to another section, which is what makes leaving a
-          broken one possible at all.
+          broken one possible at all. A section whose code failed to load is caught here too, and
+          its Try again fetches the code afresh (`resetSection`).
         */}
-        <ErrorBoundary key={section} area={sectionLabel(section)}>
+        <ErrorBoundary
+          key={section}
+          area={sectionLabel(section)}
+          onReset={() => resetSection(section)}
+        >
           {section === "rankings" && (
             <RankingsBoards
               groupName={selectedGroupName}

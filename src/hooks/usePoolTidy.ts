@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { GcImportState, PoolTidy } from "../lib/gameChangerImport";
-import { SHIPPED_TIDY_RULES, tidyPool } from "../lib/gameChangerImport";
 import { keptApartList } from "../lib/keptApart";
 import { notThisTeamList } from "../lib/notThisTeam";
 import { storedRetired } from "../lib/teamRankings/retiredIds";
@@ -18,8 +17,8 @@ import type { FewOutsideList } from "../lib/fewOutside";
 import { readStoredSeason } from "../lib/storage";
 import type { MarksChange } from "../lib/removedForYou";
 import { todayIsoDay } from "../lib/date";
-import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
-import { poolLists, type PoolLists } from "../lib/poolLists";
+import type { PoolHealth } from "../lib/poolHealth";
+import type { PoolLists } from "../lib/poolLists";
 import {
   beginTidy,
   endTidy,
@@ -28,16 +27,13 @@ import {
   watchPull,
   type TidyWatch,
 } from "../lib/pullSession";
-import {
-  applyTidied,
-  fewOutsideAsked,
-  packPool,
-  sweepAsked,
-  type BoardsAsked,
-  type SweepAsked,
-  type WorkerRequest,
-  type WorkerResponse,
+import type {
+  BoardsAsked,
+  SweepAsked,
+  WorkerRequest,
+  WorkerResponse,
 } from "../workers/tidyProtocol";
+import { applyTidied, packPool } from "../workers/tidyWire";
 import { createWorker } from "./createWorker";
 
 /**
@@ -45,7 +41,9 @@ import { createWorker } from "./createWorker";
  *
  * Both jobs walk every game, and on a nationwide pool that is half a second for the inspection and
  * something like half a minute for the tidy. Off the main thread for that reason; inline where a
- * worker cannot be had, so nothing depends on having one.
+ * worker cannot be had, so nothing depends on having one. Inline, their code is fetched first: a
+ * page with a worker never runs the tidy or the inspection itself, so Team Rankings does not load
+ * them when it opens (README "Performance notes").
  */
 
 /**
@@ -126,7 +124,8 @@ export function usePoolTidy() {
       job: "inspect" | "tidy",
       request: (id: number) => WorkerRequest,
       matches: (response: WorkerResponse, id: number) => T | null,
-      inline: () => T,
+      /** The same work on this thread, its code fetched as it is first asked for. */
+      inline: () => Promise<T>,
       { workerOnly = false }: TidyReach = {},
       /** Told about every message that is not the answer, which is how progress arrives. */
       onNote?: (response: WorkerResponse, id: number) => void
@@ -141,9 +140,16 @@ export function usePoolTidy() {
       if (!worker && workerOnly) return Promise.resolve(null);
       setBusy(job);
       if (!worker) {
-        const answer = inline();
-        setBusy(null);
-        return Promise.resolve(answer);
+        return inline().then(
+          (answer) => {
+            setBusy(null);
+            return answer;
+          },
+          (error: unknown) => {
+            setBusy(null);
+            throw error;
+          }
+        );
       }
       const id = nextId.current + 1;
       nextId.current = id;
@@ -170,7 +176,13 @@ export function usePoolTidy() {
           worker.terminate();
           workerRef.current = null;
           // A worker that died mid-job leaves the same choice as never having had one.
-          done(workerOnly ? null : inline());
+          if (workerOnly) done(null);
+          else
+            inline().then(done, (failure: unknown) => {
+              // Settled, with nothing, so the slot the tidy holds is let go of.
+              console.warn("The tidy failed on the page too.", failure);
+              done(null);
+            });
         };
         /** The panel went away mid-job. No answer is coming, and saying so is what frees the slot. */
         const giveUp = () => done(null);
@@ -236,7 +248,13 @@ export function usePoolTidy() {
                 ...(response.fewOutside ? { fewOutside: response.fewOutside } : {}),
               }
             : null,
-        () => {
+        async () => {
+          const [{ poolHealth, settleableNow }, { poolLists }, { fewOutsideAsked }] =
+            await Promise.all([
+              import("../lib/poolHealth"),
+              import("../lib/poolLists"),
+              import("../workers/tidyProtocol"),
+            ]);
           const health = poolHealth(state, stamp, today);
           return {
             health,
@@ -328,7 +346,11 @@ export function usePoolTidy() {
                   ...(sweep ? { marks: response.marks ?? null } : {}),
                 }
               : null,
-          () => {
+          async () => {
+            const [{ SHIPPED_TIDY_RULES, tidyPool }, { sweepAsked }] = await Promise.all([
+              import("../lib/gameChangerImport"),
+              import("../workers/tidyProtocol"),
+            ]);
             /*
              * Inline there is no port to report over and no frame to paint between steps — this is
              * running on the thread that would draw them — so they are collected and handed over

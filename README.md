@@ -127,9 +127,11 @@ src/
   workers/
     sim.worker.ts  rankings.worker.ts  tidy.worker.ts
     rankingsProtocol.ts  tidyProtocol.ts  # what crosses to each worker; pure, so tested
+    tidyWire.ts            # the pool packed for the tidy worker, apart from the tidy itself
   components/
+    viewChunk.ts        # a view or section loaded on demand
     league/             # League Standings views: standings, games, forecast, settings
-    teamRankings/       # Team Rankings sections and cards
+    teamRankings/       # Team Rankings sections and cards; sections.ts loads each on demand
     bracket/  charts/
     ShortcutsHelp.tsx  OnboardingTour.tsx  Toast.tsx
     GameChangerImportPanel.tsx  ScheduleImportPanel.tsx  TeamDetailPanel.tsx
@@ -9387,6 +9389,30 @@ shared handlers with recorded provider responses and require no deployed credent
   download went from 254.9 KB to 248.0 KB gzipped (247,951 bytes), Team Rankings from 166.2 to
   165.3 KB, with nothing removed and nothing fetched later. The cost is caching: a release that
   changes any logic module has a returning visitor fetch the whole 124 KB file again.
+- **Team Rankings' sections load on demand** (`src/components/teamRankings/sections.ts`, through
+  the views' own `viewChunk`). Opening Team Rankings fetched every section's code, the Import panel
+  and the tidy it runs, Setup's cards and Pool health, the games list, the scouting report and its
+  tournament panel, and the archive, though the page opens on the rankings and shows one section at
+  a time. Now the rankings, and the state and handlers every section reads, come with the page, and
+  a section's code when it is first opened, or a little before: when its tab is pointed at or
+  focused, and, once the rankings are drawn and the page has been idle 1.5 s, the Games section's.
+  A section still loading says so in its place ("Loading the archive…"), each in a boundary of its
+  own, so nothing else is swapped for that line: not the rankings, and not the scouting report while
+  the tournament panel below it loads, which says nothing as it does. A load that fails is the
+  section's Try again, which fetches it afresh. The tidy's stamp, which the page reads as it opens
+  to decide whether a tidy is due, is a module of its own (`tidyStamp.ts`), as is the pool's packing
+  for the tidy worker (`tidyWire.ts`), so the page fetches the tidy and the inspection only to run
+  them itself, where it has no worker (`usePoolTidy`).
+  - **Measured** (gzipped, `npm run bundle:check`, 31 October 2026): opening Team Rankings went from
+    166.2 KB to 60.3 KB, with nothing removed. A section's own first open fetches Games 10.9 KB,
+    Import 57.8, Scouting 7.4 and its tournament panel 3.6, Archive 2.3 and Setup 68.9, each held to
+    a line of its own in the budget. The first download did not move.
+  - **The cost**: the first open of each section after a release waits for its download, which on a
+    slow connection is a moment of "Loading Setup…" until the service worker has stored the release.
+  - **Guarded** by `src/components/teamRankings/sectionsLoad.test.tsx`: a tab pointed at or focused
+    starts its section's load, the Games section's starts once the page is idle, a load that fails
+    is that section's Try again and fetches afresh, and the scouting report stays on screen while
+    the tournament panel's code loads.
 - **League Standings works out only what is on screen** (2.2). Every number it
   shows is read from the games marked final, so its calculations are keyed on
   those scores alone (`finalLogsOf`, held by `useSeasonState`), which stay the same
