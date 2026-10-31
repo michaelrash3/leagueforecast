@@ -6561,7 +6561,10 @@ feature ideas that day, and says more of the week than the moves (`theWeekly.ts`
 - the game of the week ahead: of the games still to play in the next seven days between two
   clubs of the board's top 50, the one whose odds are nearest even, the higher pair on a tie;
 - the winning streaks still running, five wins or more, the three longest: each club's games
-  of the board's half that count, read back from its latest until one it did not win;
+  of the board's half that count, in playing order as its form line reads them (`byGameTime`, a
+  game with no start after the day's timed ones; its own sort put that game first, and a day's
+  second game listed with no time cut the run after it short), read back from its latest until
+  one it did not win;
 - the page's own club's week: its record in the week's games that count, on any page of its
   rating pool, and its best win by the beaten club's place.
 
