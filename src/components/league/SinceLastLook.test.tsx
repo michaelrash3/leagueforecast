@@ -168,6 +168,38 @@ describe("Since you last looked", () => {
     expect(next).toHaveTextContent("Place 1 then, 2 now");
   });
 
+  /*
+   * Season ids are handed out again, and a look is kept outside the keys `forgetSeasons` clears:
+   * kept of a deleted season, or of this device's before a restore put another under its id, it
+   * was compared with the season now under the id, every final of it told as new.
+   */
+  it("reads a look at another season made under its id as none, and starts afresh", () => {
+    const MADE = "2026-10-01T09:00:00.000Z";
+    saveLook("s1", {
+      ...takeLook(NOW - 2 * 24 * HOUR, before.rows, [], before.predictions, true),
+      createdAt: "2026-03-01T00:00:00.000Z",
+    });
+    render(
+      <SinceLastLook look={{ ...after, createdAt: MADE }} onDismiss={() => {}} onShown={() => {}} />
+    );
+    expect(screen.queryByRole("region", { name: "Since you last looked" })).toBeNull();
+    expect(readLook("s1", MADE)).toMatchObject({ at: NOW, createdAt: MADE, finals: ["g1"] });
+  });
+
+  it("compares with a look kept before looks said when their season was made", () => {
+    keepLookAt(NOW - 2 * 24 * HOUR);
+    render(
+      <SinceLastLook
+        look={{ ...after, createdAt: "2026-10-01T09:00:00.000Z" }}
+        onDismiss={() => {}}
+        onShown={() => {}}
+      />
+    );
+    expect(screen.getByRole("region", { name: "Since you last looked" })).toHaveTextContent(
+      "Place 2 then, 1 now"
+    );
+  });
+
   it("says nothing within the hour of the last look, and keeps that look", () => {
     keepLookAt(NOW - HOUR / 2);
     render(<SinceLastLook look={after} onDismiss={() => {}} onShown={() => {}} />);

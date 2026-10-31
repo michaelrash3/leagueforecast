@@ -16,6 +16,8 @@ import {
 /** What the Dashboard hands the card: the season as it stands, and whether its odds are settled. */
 export type LookInput = {
   seasonId: string;
+  /** When the season was made, which its looks keep to be told from another under its id. */
+  createdAt?: string;
   /** False until the Gold odds describe this season: a look taken before would keep wrong odds. */
   ready: boolean;
   /** Each team with its name as shown. */
@@ -46,18 +48,20 @@ type Held = {
   keep?: LookSnapshot;
 };
 
-const lookAt = (input: LookInput, at: number) =>
-  takeLook(
+const lookAt = (input: LookInput, at: number): LookSnapshot => ({
+  ...takeLook(
     at,
     input.rows,
     lookGames(input.matchups, input.logs),
     input.predictions,
     input.withGold
-  );
+  ),
+  ...(input.createdAt ? { createdAt: input.createdAt } : {}),
+});
 
 const decide = (input: LookInput, at: number): Held => {
   const now = lookAt(input, at);
-  const prev = readLook(input.seasonId);
+  const prev = readLook(input.seasonId, input.createdAt);
   // The first visit has nothing to compare with, so it only keeps where the season stands.
   if (!prev) return { seasonId: input.seasonId, keep: now };
   if (now.at - prev.at < VISIT_GAP_MS) return { seasonId: input.seasonId };

@@ -50,6 +50,11 @@ export type LookSnapshot = {
   v: 1;
   /** When it was taken, in milliseconds. */
   at: number;
+  /**
+   * When its season was made (`SeasonMeta.createdAt`), which tells it from another season under
+   * the same id (`readLook`). Absent from a look kept before looks said so.
+   */
+  createdAt?: string;
   places: Record<string, number>;
   gold?: Record<string, number>;
   finals: string[];
@@ -236,6 +241,7 @@ const isLook = (value: unknown): value is LookSnapshot => {
   return (
     look.v === 1 &&
     typeof look.at === "number" &&
+    (look.createdAt === undefined || typeof look.createdAt === "string") &&
     typeof look.places === "object" &&
     look.places !== null &&
     Array.isArray(look.finals) &&
@@ -244,13 +250,24 @@ const isLook = (value: unknown): value is LookSnapshot => {
   );
 };
 
-/** The last look kept for a season on this device, or null (none, unreadable, or storage off). */
-export const readLook = (seasonId: string): LookSnapshot | null => {
+/**
+ * The last look kept for a season on this device, or null (none, unreadable, or storage off).
+ *
+ * A look is kept under its season's id, apart from what `forgetSeasons` clears or moves, and ids
+ * are handed out again: a season deleted and its id given to another, one a restore put another
+ * under, or this device's moved to a new id by a cloud merge and the other side's left under the
+ * old one. So a look kept of a season made at another moment than `createdAt` is none, and the
+ * season starts afresh from where it stands; compared with it, every final of the season under the
+ * id was told as new. Where either does not say when its season was made, from before they said,
+ * the look is the season's.
+ */
+export const readLook = (seasonId: string, createdAt = ""): LookSnapshot | null => {
   try {
     const raw = window.localStorage.getItem(lookKey(seasonId));
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
-    return isLook(parsed) ? parsed : null;
+    if (!isLook(parsed)) return null;
+    return createdAt && parsed.createdAt && parsed.createdAt !== createdAt ? null : parsed;
   } catch {
     return null;
   }

@@ -628,7 +628,8 @@ last visit, on a line of what moved for the club since then: its place nationall
 state then and now, each running from one to the other (shown at once where motion is turned
 down), its record and its rating, until **Got it** (`myTeamLook.ts`, `MyTeamSince.tsx`). A look
 is kept per club in this browser only (`lf_my_team_look_v1_<club>`): the places, record, rating
-and the half of the season the board is for. The first visit only keeps one; a later one
+and the half of the season the board is for, for the twelve clubs looked at last, the rest let go
+as a look is kept (none was ever removed before). The first visit only keeps one; a later one
 compares with a look an hour old or more, and keeps a new one at Got it, or at once when nothing
 moved (the same places and record, the rating within a twentieth of a run). A look from the
 other half of the season is a new start, since the fall and spring boards count different games,
@@ -4641,6 +4642,14 @@ arrived while the card was up was taken as seen, and neither the card nor the li
   more is compared with, and the look the card was worked out from is kept at **Got it**, or at
   once when nothing a person would want told moved (no new final, no place changed, the Gold odds
   within a point). Left without Got it, the card is there the next time.
+- **One season's, by the moment it was made.** The look is kept apart from what goes with its
+  season ([Data + persistence](#data--persistence)), and keeps when its season was made
+  (`createdAt`, read in the card's own file, so the first download carries none of it): a look of
+  a season made at another moment than the one now under its id (a deleted season's, or this
+  device's before a restore or a cloud merge put another under the id) is no look, and the season
+  starts afresh.
+  Compared with it, every final of the season now under the id was told as new. A look kept before
+  looks said so reads as the season's.
 - **Taken once the forecast describes the season:** while the Gold odds are still being worked
   out after the latest scores, a look would keep the odds from before them.
 - **Fetched as the Dashboard opens**, a file of its own (3.4 KB with the pieces it shares with
@@ -4709,7 +4718,10 @@ subscription and sending to it, which the app does not have.
   lets go of what was kept of it. The page reads the team followed and the findings put aside
   again for each season it opens, told apart by id and the moment it was made, so neither a
   switch back to an id nor a restore that puts another season under the open one shows what
-  was kept of the season before.
+  was kept of the season before. The Dashboard's big card keeps its look of a season under a key
+  of its own (`lf_last_look_v1_<season>`), which none of this clears or moves: the look says when
+  its season was made, and one of a season made at another moment is read as none ([Since you last
+  looked](#since-you-last-looked)), so a season moved by a merge starts that card afresh.
 - League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose, and with `GROQ_API_KEY` Groq does when Gemini cannot; see [AI league story](#ai-league-story). No key is required for the app to work.
 - **One tab writes League Standings** (`tabTurn.ts`, the owner's choice of 26 October 2026).
   Every tab saves whole seasons from what it read when it opened, into the season storage names

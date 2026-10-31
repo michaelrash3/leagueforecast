@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -6,7 +6,7 @@ import { prefetchAllViews } from "./components/league/leagueViews";
 import type { LiveLeagueState } from "./lib/live/leagueSync";
 import { writeOurTeam } from "./lib/preferences";
 import { readLook, saveLook } from "./lib/sinceLastLook";
-import { getActiveSeasonId, saveLogs, saveMatchups, saveTeams } from "./lib/storage";
+import { getActiveSeasonId, listSeasons, saveLogs, saveMatchups, saveTeams } from "./lib/storage";
 
 /*
  * Opening the app after a while starts with what changed for the team followed, counting the
@@ -80,5 +80,21 @@ describe("Since you last looked, in the app", () => {
     await user.click(within(card).getByRole("button", { name: "Got it" }));
     expect(screen.queryByRole("region", { name: "Since you last looked" })).toBeNull();
     expect(readLook(getActiveSeasonId())?.finals).toEqual(expect.arrayContaining(["g1", "g2"]));
+  }, 30_000);
+
+  it("starts afresh from a look kept of another season made under the open one's id", async () => {
+    const seasonId = getActiveSeasonId();
+    const made = listSeasons().find((season) => season.id === seasonId)?.createdAt ?? "";
+    expect(made).not.toBe("");
+    // The last visit's look, said to be of a season made at another moment, as one a deleted
+    // season left, or this device's before a restore put another season under the id.
+    const kept = readLook(seasonId);
+    if (!kept) throw new Error("No look kept");
+    saveLook(seasonId, { ...kept, createdAt: "2020-01-01T00:00:00.000Z" });
+    render(<App />);
+    await waitFor(() => expect(readLook(seasonId, made)?.createdAt).toBe(made), {
+      timeout: 20_000,
+    });
+    expect(screen.queryByRole("region", { name: "Since you last looked" })).toBeNull();
   }, 30_000);
 });

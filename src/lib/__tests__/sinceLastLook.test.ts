@@ -6,6 +6,7 @@ import {
   takeLook,
   type LookGame,
   type LookRow,
+  type LookSnapshot,
 } from "../sinceLastLook";
 
 /*
@@ -116,6 +117,20 @@ describe("the look kept on this device", () => {
     expect(readLook("s1")).toEqual(look);
     expect(readLook("s2")).toBeNull();
     window.localStorage.setItem("lf_last_look_v1_s3", "{not json");
+    expect(readLook("s3")).toBeNull();
+  });
+
+  it("is none for a season made at another moment than the one it was kept of", () => {
+    const look = { ...takeLook(1_000, before, [g1], calls, true), createdAt: "2026-03-01" };
+    saveLook("s1", look);
+    expect(readLook("s1", "2026-03-01")).toEqual(look);
+    expect(readLook("s1", "2026-10-30")).toBeNull();
+    // A season, or a look, from before the moment was kept reads as the same season.
+    expect(readLook("s1", "")).toEqual(look);
+    const older = takeLook(1_000, before, [g1], calls, true);
+    saveLook("s2", older);
+    expect(readLook("s2", "2026-10-30")).toEqual(older);
+    saveLook("s3", { ...older, createdAt: 7 } as unknown as LookSnapshot);
     expect(readLook("s3")).toBeNull();
   });
 });

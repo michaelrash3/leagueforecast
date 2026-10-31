@@ -851,9 +851,9 @@ export default function App() {
    * (`replaceLeagueSnapshot`). What the page holds of a season by id alone outlived a restore that
    * put another season under the open id, and was written back under it at the next change.
    */
-  const activeSeasonKey = `${activeSeasonId}\n${
-    seasons.all.find((season) => season.id === activeSeasonId)?.createdAt ?? ""
-  }`;
+  const activeCreatedAt =
+    seasons.all.find((season) => season.id === activeSeasonId)?.createdAt ?? "";
+  const activeSeasonKey = `${activeSeasonId}\n${activeCreatedAt}`;
 
   /*
    * The team this browser follows, for the Dashboard's card: this browser's own pick, one per season
@@ -3718,6 +3718,7 @@ export default function App() {
                     <DashboardView
                       look={{
                         seasonId: activeSeasonId,
+                        createdAt: activeCreatedAt,
                         ready: lookReady,
                         rows: dashboardRows,
                         matchups,
