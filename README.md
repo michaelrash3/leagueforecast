@@ -4487,8 +4487,11 @@ game number left out; and a table with no header, read away then home and marked
 that is only a date, or a date with a start time ("Sat 4/12 9:00 AM"), dates the games under it;
 start times and fields are passed over: "9 AM" as well as "9:00 AM", a range ("9:00-11:00 AM",
 "9-11 AM"; a range of bare hours only with its AM or PM, since "9-11" alone is as likely a score or a
-day), a US time zone after the time ("6:30 PM EDT", "7 PM (CT)"), "Noon", and "TBA" for a start not
-set yet, which a site printing the zone had made "EDT Falcons" of every away team. A score at the end
+day, and a day at the front of a line is passed over for a range only in that shape, so "4/12 Am
+Comets" is still on 4/12), a US time zone after the time ("6:30 PM EDT", "7 PM (CT)"), "Noon", and
+"TBA" for a start not set yet, which a site printing the zone had made "EDT Falcons" of every away
+team. A zone is read in capitals only, as sites print one: read in any case, a town's short form
+after a time came off the team's name, "6:30 PM Mt Comets" a team "Comets". A score at the end
 of a line is read in the order the teams were written, unless both names end alike ("Falcons 9-10 @
 Wolves 9-10"), which is an age span; so is one written beside each side ("Falcons 7 @ Wolves 5"),
 where both sides end in a number, the names left are two names and the numbers differ: "Team 1 @

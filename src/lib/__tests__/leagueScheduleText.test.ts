@@ -491,6 +491,32 @@ describe("parseLeagueSchedule", () => {
     ]);
   });
 
+  /*
+   * A time zone is read in capitals, as sites print it. Read in any case, a town's short form after
+   * a start, "Mt" or "Pt", came off the team's name as the zone, and the saved team "Mt Comets" was
+   * met by a new one called "Comets". And a day is passed over before an AM or a PM only where it is
+   * shaped like a range of hours, "9-11 AM": "4/13 Am Comets" is a game on 4/13.
+   */
+  it("does not take a town's short form for a time zone, nor a day before Am for a range", () => {
+    expect(
+      read([
+        "Sat 4/12 6:30 PM Mt Comets @ Wolves",
+        "Sat 4/12 18:30 Pt Rockets @ Mt Comets",
+        "4/12 9 AM Ct Falcons @ Wolves",
+        "4/12 6:30 PM MDT Bears @ Lions",
+        "4/13 Am Comets @ Pm Rockets",
+        "Apr 13 Pm Falcons @ Wolves",
+      ]).rows
+    ).toEqual([
+      { date: "4/12", away: "Mt Comets", home: "Wolves" },
+      { date: "4/12", away: "Pt Rockets", home: "Mt Comets" },
+      { date: "4/12", away: "Ct Falcons", home: "Wolves" },
+      { date: "4/12", away: "Bears", home: "Lions" },
+      { date: "4/13", away: "Am Comets", home: "Pm Rockets" },
+      { date: "4/13", away: "Pm Falcons", home: "Wolves" },
+    ]);
+  });
+
   it("leaves out one team's schedule, whose scores are from that team's side", () => {
     // Read by position this would be a game, Falcons away at Wolves, with the scores the wrong
     // way round for one of them: "Us" and "Them" say whose they are, not who hosted.
@@ -569,11 +595,15 @@ describe("parseLeagueSchedule", () => {
    * team's name, "TBA" skipped its line, the runs beside each side were on both names, the place
    * after a bar was on the home team's, and the range under a heading was a game on 9/11 for "AM
    * Comets". "Team 1 @ Team 2", "Falcons 7 @ Wolves", "9:00 AM - 11:00 AM", a bar line ending in a
-   * field, "Aces | Blue" and "TBD @ Wolves" read as they did. Placeholder names.
+   * field, "Aces | Blue" and "TBD @ Wolves" read as they did, and so do a town's short form after a
+   * time, "Mt Comets", and a name starting "Am" after a day, which the zone and the range had
+   * taken apart once read. Placeholder names.
    */
   it("reads the lines sites print around a game", () => {
     const lines = [
       "Sat 4/12 6:30 PM EDT Falcons @ Wolves",
+      "Sat 4/12 6:30 PM Mt Comets @ Wolves",
+      "4/12 Am Comets @ Wolves",
       "4/12 6:30 PM ET Comets @ Rockets",
       "4/12 7 PM (CDT) Bears @ Lions",
       "4/12 Noon Falcons @ Wolves",
@@ -651,6 +681,13 @@ describe("parseLeagueSchedule", () => {
               "home": "Wolves",
             },
           ],
+          "4/12 Am Comets @ Wolves": [
+            {
+              "away": "Am Comets",
+              "date": "4/12",
+              "home": "Wolves",
+            },
+          ],
           "4/12 Comets 2 vs Rockets 11 Final": [
             {
               "away": "Rockets",
@@ -700,6 +737,13 @@ describe("parseLeagueSchedule", () => {
           "Sat 4/12 6:30 PM EDT Falcons @ Wolves": [
             {
               "away": "Falcons",
+              "date": "4/12",
+              "home": "Wolves",
+            },
+          ],
+          "Sat 4/12 6:30 PM Mt Comets @ Wolves": [
+            {
+              "away": "Mt Comets",
               "date": "4/12",
               "home": "Wolves",
             },

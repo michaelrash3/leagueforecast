@@ -70,11 +70,13 @@ const WEEKDAY_FIRST = `(?:${WEEKDAY_WORD},?\\s+)?`;
 /** What follows the hour of a start time written without its minutes: "9 AM", "1 p.m.". */
 const MERIDIEM = "(?:am|pm|a\\.m\\.|p\\.m\\.)(?=$|[\\s,])";
 /**
- * A day at the front of a line, never one an AM or PM follows: "9-11 AM Comets @ Rockets" under a
- * day's heading starts at nine, and was a game on 11 September for a team called "AM Comets".
+ * A day at the front of a line, never a range of hours: "9-11 AM Comets @ Rockets" under a day's
+ * heading starts at nine, and was a game on 11 September for a team called "AM Comets". Only that
+ * shape, two numbers and a dash before an AM or a PM: refusing any day an AM or a PM followed lost
+ * the day of "4/12 Am Comets @ Wolves", and "Apr 13 Pm Falcons" came in as a team "Apr Falcons".
  */
 const LEADING_DAY = new RegExp(
-  `^${WEEKDAY_FIRST}(${DAY_SHAPE})(?=$|[\\s,])(?!\\s*${MERIDIEM})`,
+  `^(?!${WEEKDAY_FIRST}\\d{1,2}-\\d{1,2}\\s*${MERIDIEM})${WEEKDAY_FIRST}(${DAY_SHAPE})(?=$|[\\s,])`,
   "i"
 );
 const ONLY_DAY = new RegExp(`^${WEEKDAY_FIRST}(${DAY_SHAPE})$`, "i");
@@ -92,22 +94,33 @@ const ONLY_WEEKDAY = new RegExp(`^${WEEKDAY_WORD},?$`, "i");
 /** A line naming a season, "Spring 2027 Schedule" or "2026-27", rather than prose with a year in. */
 const NAMES_A_SEASON = /\b(?:fall|autumn|spring|summer)\b|\b(?:19|20)\d{2}\s*[-–/]\s*\d{2}\b/i;
 
-const MERIDIEM_WORD = "(?:am|pm|a\\.m\\.|p\\.m\\.)";
+/**
+ * A word in either case, letter by letter, for the patterns read with their case kept so that a
+ * time zone is read in capitals alone (`TIME_ZONE`): "am" is `[aA][mM]`.
+ */
+const anyCase = (word: string): string =>
+  word.replace(/[a-z]/g, (letter) => `[${letter}${letter.toUpperCase()}]`);
+const MERIDIEM_WORD = `(?:${["am", "pm", "a\\.m\\.", "p\\.m\\."].map(anyCase).join("|")})`;
 const CLOCK = `\\d{1,2}(?::\\d{2})?\\s*${MERIDIEM_WORD}|\\d{1,2}:\\d{2}`;
 /** A range of bare hours only with its AM or PM: "9-11" alone is as likely a score or a day. */
 const CLOCK_RANGE = `\\d{1,2}(?::\\d{2})?\\s*(?:${MERIDIEM_WORD}\\s*)?[-–—]\\s*\\d{1,2}(?::\\d{2})?\\s*${MERIDIEM_WORD}|\\d{1,2}:\\d{2}\\s*[-–—]\\s*\\d{1,2}:\\d{2}`;
-/** A US time zone after a start, "EDT", "PT", "(CST)". */
+/**
+ * A US time zone after a start, "EDT", "PT", "(CST)": in capitals, as sites print one. Read in any
+ * case, a town's short form after a start was taken for one, and "6:30 PM Mt Comets" came in as a
+ * team "Comets" beside the saved "Mt Comets".
+ */
 const TIME_ZONE = "(?:\\s*\\(?[ECMP][SD]?T\\)?)?";
 /** "Noon" or "12 Noon": a number before it otherwise is a day, "Sat 26 Noon" under a month. */
-const START = `(?:(?:${CLOCK_RANGE}|${CLOCK})${TIME_ZONE}|(?:12(?::00)?\\s*)?noon|tba|tbd)`;
+const START = `(?:(?:${CLOCK_RANGE}|${CLOCK})${TIME_ZONE}|(?:12(?::00)?\\s*)?${anyCase("noon")}|${anyCase("tba")}|${anyCase("tbd")})`;
 /**
  * A start time, which says nothing about who played: `9:00 AM`, `9am`, `18:30`; a range, `9:00-11:00
  * AM` or `9-11 AM`; with its time zone, `6:30 PM EDT`; `Noon`; or `TBA`, a start not set yet: beside
  * spaces or the commas of a line read whole. Read as names, the zone, the range and the word were
  * part of the team after them, "EDT Falcons" for every away team of a site that prints the zone.
+ * No `i` flag, for the zone's sake: every other word in it is written in either case (`anyCase`).
  */
-const TIME = new RegExp(`(?:^|[\\s,])${START}(?=[\\s,]|$)`, "gi");
-const ONLY_TIME = new RegExp(`^${START}$`, "i");
+const TIME = new RegExp(`(?:^|[\\s,])${START}(?=[\\s,]|$)`, "g");
+const ONLY_TIME = new RegExp(`^${START}$`);
 /**
  * Where it is played, at the end of a line: `Field 3`, `- Fld 2`, `@ Diamond B`. A bracketed end,
  * "(Blue)", is left alone, since it is as often part of a team's name as a place.
