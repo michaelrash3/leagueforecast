@@ -8231,9 +8231,25 @@ functions the device would run, over the cloud's pool):
   out is never thrown away for another about the same teams: a change noted
   meanwhile is asked about once its answer is in, and being shown anew asks
   nothing while one is out. An answer for teams or scores since changed is
-  dropped. A question unanswered is asked again after 5 s, 30 s, 2 minutes and
-  10 minutes, then every half hour until one is answered (every 2 minutes until 16 Oct 2026,
-  when a pool the server could not answer in time made each try a cold 8 GiB load). The last bridge for a season, the bridge alone
+  dropped. A question unanswered is asked again on a timer after 5 s, 30 s and 2
+  minutes, then after 10 minutes and every half hour, but the timer sends at most
+  three a season a New York day on the device (`RETRIES_A_DAY`, the day's count
+  kept under `lf_bridge_retries_v1` with its day, so a reload sends none of the
+  day's again, and held by the page where storage will not keep it); past them the
+  waits go on sending nothing, so the next day's three are made with nothing else
+  asking. A retry that falls due while the page is hidden is not sent then: being
+  shown sends it, in place of what being shown would ask, so the two never ask
+  twice, and a change that asks anew meanwhile drops it. And while the server's
+  replies say the edits' month is spent (`editMonth`, "Rebuilds after saves"),
+  answered or not, the timer sends none until New York's month turns or a reply
+  says it is not spent; a reply that says nothing of it, from a server before
+  this or a charge the ledger was slow to take, is not known and changes nothing.
+  The sign-in, coming online, the page shown anew and every change still ask as
+  they did, whatever the timer has sent. Until 31 October 2026 the half hour
+  repeated with no end, hidden or not: one page left open with a server that
+  could not answer sent 48 cold 8 GiB loads a day, about 23,000 GiB-seconds at a
+  minute each (the sweep's reckoning of 30 October 2026); and every 2 minutes
+  until 16 Oct 2026. The last bridge for a season, the bridge alone
   and never the clubs, about 2,400 characters, with the very question it answered
   as JSON (compared as written, since a reload holds no array of the visit before
   to compare by identity) and the copy, version, moment asked and rules it came
@@ -9453,7 +9469,10 @@ them, and changing the signed-in account discards its saved snapshot.
 Transient status reads and import starts reconnect automatically, with delays capped
 at 30 seconds and at most five tries again (`MAX_RECONNECTS`), after which the card says what
 went wrong and offers to try again. A question or a warm-up the server gave up on (`aborted`,
-or past its time) is not asked again on its own at all: each try is a cold load of the whole
-pool. Sign-in and permission refusals remain actionable. Unkeyed edits are
+or past its time) is not sent again by the call (`GAVE_UP`): each try is a cold load of the whole
+pool, and a card that asked one offers to ask again. League Standings' bridge question alone is
+asked again on its own, on a timer at most three times a season a New York day, never while the
+page is hidden, and never while the server says the edits' month is spent ("What Team Rankings
+has, asked of the server"). Sign-in and permission refusals remain actionable. Unkeyed edits are
 not blindly repeated after an uncertain save, because doing that could duplicate an
 edit. Import starts are safe to retry by their persistent job identity.

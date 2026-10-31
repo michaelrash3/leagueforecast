@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { keptBridge, useScoutBridge, type SeasonFixture } from "./useScoutBridge";
 import { BRIDGE_RULES_NOW, type LeagueBridgeAnswer } from "../lib/live/leagueAnswers";
 import type { CopyAt, LeagueAsker } from "../lib/live/leagueAsk";
+import type { EditMonth } from "../lib/live/rebuildLedger";
 import type { QueryOf } from "../lib/live/queries";
 import type { AgeGroup, ScoutTeam } from "../lib/teamRankings";
 import {
@@ -226,8 +227,11 @@ describe("what Team Rankings has for a league season, asked of the server", () =
   beforeEach(() => {
     localStorage.clear();
     resetTeamRankingsStore();
-    // The clock too, since being shown anew asks at most once every few minutes.
+    // The clock too, since being shown anew asks at most once every few minutes; set to noon in
+    // New York, so a test's hours of waiting cross the day a question's timer retries are counted
+    // by (`RETRIES_A_DAY`) only where it means to.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    vi.setSystemTime(new Date("2026-10-30T16:00:00.000Z"));
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
   });
   afterEach(() => vi.useRealTimers());
@@ -612,7 +616,9 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     await wait(30_000);
     expect(nothing.asked).toHaveLength(3);
     none.unmount();
-    // One on hand for the teams before a club was picked: not the season's, so they go on too.
+    // One on hand for the teams before a club was picked: not the season's, so they go on too. On
+    // a device of its own, which has sent none of the day's timer retries.
+    localStorage.clear();
     keepAnswered("s1", ANSWER.bridge);
     const stale = server({ answer: null });
     const picked = [{ id: "lt1", name: "Rays", scoutTeamId: "S-R" }];
@@ -726,7 +732,25 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     expect(setup().result.current.unanswered).toBeUndefined();
   });
 
-  it("asks again after 5 s, 30 s, 2 and 10 minutes, then every half hour, until answered", async () => {
+  /*
+   * A question the server cannot answer, a worker out of memory say, is a cold load of the whole
+   * pool on the 8 GiB server each try. Asked again every half hour with no end, a page left open,
+   * hidden or not, was 48 of them a day; now its timer sends three a season a New York day, none
+   * while the page is hidden, and none while the server says the edits' month is spent.
+   */
+
+  /** A server that answers nothing, saying of the edits' month what `said.month` holds, if any. */
+  const unanswering = (said: { month: EditMonth | null } = { month: null }) => {
+    const asked: number[] = [];
+    const asker = (async (_query: Asked, heard?: (month: EditMonth) => void) => {
+      asked.push(Date.now());
+      if (said.month) heard?.(said.month);
+      return null;
+    }) as LeagueAsker;
+    return { asked, asker, said };
+  };
+
+  it("asks again after 5 s, 30 s and 2 minutes, on a timer no more that New York day, and nothing once answered", async () => {
     let answering = false;
     const asked: number[] = [];
     const asker = (async () => {
@@ -739,18 +763,201 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     await wait(5_000);
     await wait(30_000);
     await wait(120_000);
+    // The day's three are made: the ten minutes' wait and every half hour's after it send nothing.
     await wait(600_000);
-    await wait(1_800_000);
-    await wait(1_800_000);
-    expect(asked.map((at) => at - start)).toEqual([
-      800, 5_800, 35_800, 155_800, 755_800, 2_555_800, 4_355_800,
-    ]);
+    await wait(6 * 60 * 60_000);
+    expect(asked.map((at) => at - start)).toEqual([800, 5_800, 35_800, 155_800]);
+    expect(result.current.unanswered).toBe("failed");
+    // Coming online asks all the same, and once answered nothing more is asked.
     answering = true;
-    await wait(1_800_000);
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await settle();
     expect(result.current.bridge).toEqual(ANSWER.bridge);
     expect(result.current.unanswered).toBeUndefined();
+    await wait(24 * 60 * 60_000);
+    expect(asked).toHaveLength(5);
+  });
+
+  it("asks three more on a timer once New York's day has turned, with nothing else asking", async () => {
+    const { asked, asker } = unanswering();
+    const start = Date.now();
+    const upTo = (ms: number) => wait(start + ms - Date.now());
+    setup({ asker });
+    // Noon to midnight in New York: the question and its three, then waits that send nothing.
+    await upTo(12 * 60 * 60_000);
+    expect(asked).toHaveLength(4);
+    // The first wait to end after midnight sends, and the two after it, half an hour apart.
+    await upTo(15 * 60 * 60_000);
+    expect(asked.map((at) => at - start).slice(4)).toEqual([43_955_800, 45_755_800, 47_555_800]);
+  });
+
+  it("keeps the day's count on the device, so a reload sends none of the day's again, and each season its own", async () => {
+    const { asked, asker } = unanswering();
+    const first = setup({ asker });
+    await wait(800 + 5_000 + 30_000 + 120_000);
+    expect(asked).toHaveLength(4);
+    first.unmount();
+    // Reloaded the same day: its first question goes, as a visit's always does, and no retry.
+    const again = setup({ asker });
+    await settle();
+    expect(asked).toHaveLength(5);
     await wait(60 * 60_000);
-    expect(asked).toHaveLength(8);
+    expect(asked).toHaveLength(5);
+    again.unmount();
+    // Another season's are its own.
+    const other = setup({ asker, activeSeasonId: "s2" });
+    await wait(800 + 5_000 + 30_000 + 120_000 + 600_000);
+    expect(asked).toHaveLength(9);
+    other.unmount();
+    // Kept with its day, and that day's alone, so what is kept is never more than a day's seasons.
+    const kept = () =>
+      JSON.parse(localStorage.getItem("lf_bridge_retries_v1") ?? "null") as unknown;
+    expect(kept()).toEqual({ day: "2026-10-30", tries: { s1: 3, s2: 3 } });
+    vi.setSystemTime(new Date("2026-10-31T16:00:00.000Z"));
+    setup({ asker });
+    await wait(800 + 5_000);
+    expect(asked).toHaveLength(11);
+    expect(kept()).toEqual({ day: "2026-10-31", tries: { s1: 1 } });
+  });
+
+  it("holds the day's count on the page where storage will not keep it or read it back", async () => {
+    for (const method of ["setItem", "getItem"] as const) {
+      const refused = vi.spyOn(Storage.prototype, method).mockImplementation(() => {
+        throw new Error("The quota has been exceeded.");
+      });
+      try {
+        const { asked, asker } = unanswering();
+        const { unmount } = setup({ asker });
+        await wait(800 + 5_000 + 30_000 + 120_000 + 600_000 + 60 * 60_000);
+        expect(asked, method).toHaveLength(4);
+        unmount();
+      } finally {
+        refused.mockRestore();
+      }
+    }
+  });
+
+  it("leaves a timer retry that falls due while the page is hidden until it is shown, and then asks it once", async () => {
+    const { asked, asker } = unanswering();
+    setup({ asker });
+    await settle();
+    expect(asked).toHaveLength(1);
+    act(() => shown("hidden"));
+    // Its retry falls due, and an hour passes, hidden: nothing is sent.
+    await wait(5_000);
+    await wait(60 * 60_000);
+    expect(asked).toHaveLength(1);
+    // Shown an hour on, when being shown anew would ask too: the retry goes, and nothing beside it.
+    act(() => shown("visible"));
+    await settle();
+    expect(asked).toHaveLength(2);
+    // Looked away and back within the half minute its next wait takes: being shown anew asks
+    // nothing so soon after a question, and the retry left waiting goes all the same, once.
+    act(() => shown("hidden"));
+    await wait(30_000);
+    expect(asked).toHaveLength(2);
+    act(() => shown("visible"));
+    await settle();
+    expect(asked).toHaveLength(3);
+    await wait(60_000);
+    expect(asked).toHaveLength(3);
+  });
+
+  it("drops a retry left waiting for the page to be shown once the question it was for is gone", async () => {
+    let answering = false;
+    const asked: Asked[] = [];
+    const asker = (async (query: Asked) => {
+      asked.push(query);
+      return answering ? { kind: "league.bridge", ...ANSWER } : null;
+    }) as LeagueAsker;
+    const { rerender } = setup(props({ asker }));
+    await settle();
+    act(() => shown("hidden"));
+    await wait(5_000);
+    expect(asked).toHaveLength(1);
+    // A team added meanwhile, as another device's change can be while the page is hidden: asked
+    // about at once, as a change always is, and answered.
+    answering = true;
+    const more = [...TEAMS, { id: "lt2", name: "Owls" }];
+    rerender(props({ asker, teams: more }));
+    await settle();
+    expect(asked).toHaveLength(2);
+    // Shown: the retry for the teams before is not sent.
+    act(() => shown("visible"));
+    await settle();
+    expect(asked).toHaveLength(2);
+  });
+
+  it("makes no timer retry while the server says the edits' month is spent, until New York's month turns", async () => {
+    // Noon on the last day of October in New York.
+    vi.setSystemTime(new Date("2026-10-31T16:00:00.000Z"));
+    const { asked, asker, said } = unanswering({ month: { month: "2026-10", spent: true } });
+    const start = Date.now();
+    const upTo = (ms: number) => wait(start + ms - Date.now());
+    setup({ asker });
+    await upTo(12 * 60 * 60_000);
+    expect(asked).toHaveLength(1);
+    // Past midnight it is November there, whatever the server said of October: the waits that
+    // went on send again, and the server's new month is not spent.
+    said.month = { month: "2026-11", spent: false };
+    await upTo(12.25 * 60 * 60_000);
+    expect(asked.map((at) => at - start).slice(1)).toEqual([43_955_800]);
+  });
+
+  it("asks what a person's own doing asks while the edits' month is spent, and retries once a reply says it is not", async () => {
+    const { asked, asker, said } = unanswering({ month: { month: "2026-10", spent: true } });
+    const { rerender } = setup(props({ asker, signedIn: false }));
+    await settle();
+    await wait(60 * 60_000);
+    expect(asked).toHaveLength(1);
+    // Online again, and signed in: each asks, and nothing on a timer after it.
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await settle();
+    expect(asked).toHaveLength(2);
+    rerender(props({ asker, signedIn: true }));
+    await settle();
+    expect(asked).toHaveLength(3);
+    await wait(60 * 60_000);
+    expect(asked).toHaveLength(3);
+    // A reply that says nothing of the month, from an older server or a charge the ledger was slow
+    // to take, is not known: what was heard stands.
+    said.month = null;
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await settle();
+    await wait(60 * 60_000);
+    expect(asked).toHaveLength(4);
+    // One that says it is not spent, as once the owner raises a cap, lets the timer ask again.
+    said.month = { month: "2026-10", spent: false };
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await settle();
+    await wait(5_000);
+    expect(asked).toHaveLength(6);
+  });
+
+  it("still asks on the sign-in and the page shown anew past the day's three, and on a timer no more", async () => {
+    const { asked, asker } = unanswering();
+    const { rerender } = setup(props({ asker, signedIn: false }));
+    await wait(800 + 5_000 + 30_000 + 120_000);
+    expect(asked).toHaveLength(4);
+    rerender(props({ asker, signedIn: true }));
+    await settle();
+    expect(asked).toHaveLength(5);
+    // Put away and looked at again past the few minutes being shown anew waits.
+    act(() => shown("hidden"));
+    await wait(10 * 60_000);
+    act(() => shown("visible"));
+    await settle();
+    expect(asked).toHaveLength(6);
+    await wait(60 * 60_000);
+    expect(asked).toHaveLength(6);
   });
 
   it("is asked again once the sign-in is ready, or the device is back online", async () => {
