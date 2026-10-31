@@ -4716,7 +4716,10 @@ subscription and sending to it, which the app does not have.
   and score sent meanwhile as deleted here, and erased them from the cloud. Nor do its refused
   saves say storage is full, as they did at each arrival: the banner says why. Making, copying and
   deleting a season are refused before they start, with the same words: a delete goes to the
-  cloud's copy first, which storage refusing afterwards could not undo. A tab answers a hello to
+  cloud's copy first, which storage refusing afterwards could not undo. A label another device
+  changed renames the season in the switcher there only once a tab that writes has renamed it:
+  refused, the rename is asked again when a name changes, not each time the list is read again,
+  which had asked for ever (`renameSeason` says whether the list took it). A tab answers a hello to
   the tab that said it alone, so an answer heard by a third tab never makes that one give way.
   Use here first asks the writing tab for the turn: it writes what it still owes storage (a score
   App holds half a second before saving), goes read-only and says so to the tab that asked, which

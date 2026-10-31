@@ -157,17 +157,19 @@ export function useSeasons({
 
   // Keeps the index's name for the active season in step with its editable label, so the header
   // switcher and the season manager always show the name that was typed under "Season label".
+  // Asked again when a name changes, not whenever the list is read again into a new array: a
+  // rename refused, in a tab another has the turn from or for room, was asked for ever.
+  const activeName = all.find((season) => season.id === activeId)?.name;
   useEffect(() => {
     const label = seasonLabel.trim();
     if (!label) return;
-    const current = all.find((season) => season.id === activeId);
-    if (current && current.name !== label && renameSeason(activeId, label)) {
+    if (activeName !== undefined && activeName !== label && renameSeason(activeId, label)) {
       // Reflecting localStorage back into React after writing to it. The season index is the
       // source of truth and is not React state, so re-reading it here is the sync, not a cascade.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setAll(listSeasons());
     }
-  }, [seasonLabel, activeId, all]);
+  }, [seasonLabel, activeId, activeName]);
 
   return { all, activeId, reload, refresh, switchTo, create, duplicate, remove };
 }
