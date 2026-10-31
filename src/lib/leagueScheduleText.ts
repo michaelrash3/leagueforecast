@@ -24,7 +24,7 @@ import {
   STATUS_SUFFIX,
 } from "./scheduleText";
 import { squadYearFromName } from "./seasonNames";
-import { isPlaceholderName, segmentOn } from "./teamRankings";
+import { isPlaceholderName, pasteNameKey, segmentOn } from "./teamRankings";
 
 /** One game read off the paste, from the league's side: both teams named, away and home. */
 export type LeaguePasteRow = {
@@ -44,19 +44,6 @@ export type LeagueSchedule = {
   /** Lines that held something but could not be read, as pasted, so the panel can show them. */
   skipped: string[];
 };
-
-/**
- * The key a pasted name is told apart by: case, spacing and punctuation aside, with every word
- * kept, a bracketed coach's name and an age label included. `teamNameKey` drops both, which suits
- * matching a GameChanger opponent to its club, but one league can have "Heat (Ealey)" and "Heat
- * (Smith)", or "Wolves 9U" and "Wolves 10U", as two of its teams, and a paste names them so.
- */
-export const pasteNameKey = (name: string): string =>
-  name
-    .toLowerCase()
-    .replace(/[\u2018\u2019`]/g, "'")
-    .replace(/[^\p{L}\p{N}']+/gu, " ")
-    .trim();
 
 /**
  * The squad year a paste's dates are placed in when it writes no year of its own: the one the

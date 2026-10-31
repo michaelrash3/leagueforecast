@@ -833,14 +833,15 @@ everything the standings, the records and the projections are built from.
 Nothing is written before the review is read, and three rules keep a wrong score
 out of a table nobody can check:
 
-| Case                                 | What happens                                                                                               |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| The league game is blank             | Filled, and marked final. Ticked by default.                                                               |
-| The two spell a club differently     | Offered as **Check name**, with both spellings shown. Never applied unasked.                               |
-| The club's own row names only a slot | Offered as **Check opponent** — its only league game that day, against "TBD". Never applied unasked.       |
-| The two clubs' schedules differ      | Both scores shown and either can be filled. Ticked only when they agree on the winner (**Check score**).   |
-| A different score is already entered | Shown side by side and left alone unless that row is chosen by name.                                       |
-| A pairing plays twice on one day     | Paired in schedule order when both sides have the same number of games; otherwise reported, never guessed. |
+| Case                                 | What happens                                                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| The league game is blank             | Filled, and marked final. Ticked by default.                                                                  |
+| The two spell a club differently     | Offered as **Check name**, with both spellings shown. Never applied unasked.                                  |
+| The club's own row names only a slot | Offered as **Check opponent** — its only league game that day, against "TBD". Never applied unasked.          |
+| The two clubs' schedules differ      | Both scores shown and either can be filled. Ticked only when they agree on the winner (**Check score**).      |
+| A different score is already entered | Shown side by side and left alone unless that row is chosen by name.                                          |
+| A pairing plays twice on one day     | Paired in schedule order when both sides have the same number of games; otherwise reported, never guessed.    |
+| Two teams one name to the pool       | Turned the way the Settings links, then the clubs' GameChanger names, say; otherwise reported, never guessed. |
 
 **Games the schedule is missing (3.7).** Where both teams of a game are linked to their clubs,
 Fill scores also lists the pool's played games between two of the league's clubs on a day the
@@ -940,6 +941,17 @@ every page of the squad year rather than only the pages claiming the season: the
 Cincinnati Hornets' fall team is listed at 8U, and its copy of the league's 25
 September game sat on the 8U page. Unlinked, another page's club of the same name
 is as likely the same organisation's older squad, so it is left alone.
+
+Two league teams that are one name to the pool, "Heat (Coach A)" and "Heat (Coach B)" or "Wolves
+9U" and "Wolves 10U" (the pool keeps a club's name without its aside or its age,
+`cleanTeamName`), each fit either club, so a result between them fits both ways round. It goes in
+the way round that fits better, a side linked in Settings counting for more than names alike; where
+both fit as well, the way the clubs' names on GameChanger, kept whole (`GcTeamLink.name`), fit the
+teams' names, written alike or alike but for the age (`nameNearness`); and where nothing tells the
+two ways apart, it is reported as **Can't tell** and never written. Until October 2026 a result was
+taken the way the pool listed it whenever that fitted, and the pool lists the pulled club first,
+which says nothing of who was home: a meeting the pulled club hosted went in backwards and ticked,
+links or no links.
 
 A club's own schedule that was never told the opponent files the game against a
 slot, "TBD- 09/25/26, 7:15 PM", and when the other club's schedule is not in the
