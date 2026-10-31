@@ -4703,15 +4703,28 @@ subscription and sending to it, which the app does not have.
   switch back to an id nor a restore that puts another season under the open one shows what
   was kept of the season before.
 - League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose, and with `GROQ_API_KEY` Groq does when Gemini cannot; see [AI league story](#ai-league-story). No key is required for the app to work.
+- **A score is written half a second after the last keystroke**, and at once if the page moves
+  on first: another season opened, the page hidden or closed, or the turn given to another tab
+  (below). It goes into the season it was typed in, written before a switch moves the season saves
+  go into, and only the games changed are written, over what storage holds then
+  (`mergeHeldScores`). A score typed in that half second was lost with the switch or the page.
 - **One tab writes League Standings** (`tabTurn.ts`, the owner's choice of 26 October 2026).
   Every tab saves whole seasons from what it read when it opened, into the season storage names
   active, so two tabs of one browser, or a tab and the installed app, undid each other's scores,
   and a season switched in one moved where the other saved. The tabs now ask each other on a
   `BroadcastChannel` as each opens: the tab opened later is read-only, says "Open in another tab"
   over League Standings with **Use here**, and storage refuses every League write it makes, a
-  switch of season included (the cloud copy's own arriving is still laid in). Making, copying and
+  switch of season included (the cloud copy's own arriving is still laid in). League kept live
+  runs there too, so the season on screen follows what other devices send, but the tab keeps
+  nothing of the season's document that storage did not take (`leagueSync.ts`): kept regardless,
+  as it was, the base was ahead of storage, and the next tab to open the season read every game
+  and score sent meanwhile as deleted here, and erased them from the cloud. Nor do its refused
+  saves say storage is full, as they did at each arrival: the banner says why. Making, copying and
   deleting a season are refused before they start, with the same words: a delete goes to the
-  cloud's copy first, which storage refusing afterwards could not undo. A tab answers a hello to
+  cloud's copy first, which storage refusing afterwards could not undo. A label another device
+  changed renames the season in the switcher there only once a tab that writes has renamed it:
+  refused, the rename is asked again when a name changes, not each time the list is read again,
+  which had asked for ever (`renameSeason` says whether the list took it). A tab answers a hello to
   the tab that said it alone, so an answer heard by a third tab never makes that one give way.
   Use here first asks the writing tab for the turn: it writes what it still owes storage (a score
   App holds half a second before saving), goes read-only and says so to the tab that asked, which
@@ -4730,7 +4743,8 @@ subscription and sending to it, which the app does not have.
   turn (with several opened together, the turn taken would be the one given way to first). Two
   tabs holding a score for the same game keep the one written last. Storage asks the small registry
   in `tabTurn.ts`. Held by
-  `tabTurn.test.ts`, the storage test and `e2e/tabs.spec.ts`, which opens two real tabs.
+  `tabTurn.test.ts`, the storage test, `leagueSyncStorage.test.ts` and `e2e/tabs.spec.ts`, which
+  opens two real tabs.
 - What the last full restore replaced is kept on this device until the next restore
   (`league_forecast_replaced_backup_v1`, in the pool's IndexedDB store beside the saved board, and
   never read as the pool or sent to the cloud), and Settings' Data card offers it as "Download
@@ -4767,7 +4781,11 @@ IndexedDB is asynchronous and this app reads its pool during render, so the pool
 is read into memory once before anything mounts and the synchronous reads stay
 synchronous; writes go out behind them, coalesced per key. A write is therefore
 reported as _accepted_ rather than as landed, and one that later fails surfaces
-as a toast, which is the only thing left that can still say so.
+as a toast, which is the only thing left that can still say so. The other tabs
+are told of each key as it is accepted and again once it has landed, and read it
+again each time (`poolSync.ts`): told only as it was accepted, a tab read the later
+keys of a save before they had reached the store, kept their old values, and with
+its next save wrote those back over the other tab's work.
 
 A member's device is the exception. It opens on the cloud's board and on League
 Standings kept live, neither of which reads the pool, and a phone that held a pool
@@ -8113,9 +8131,13 @@ switch is gone, and `lf_live_league_v1` is no longer read.
   holds it, one before it does not, so a value changed and changed back before
   the first write came back is still sent, and nothing of this device's is taken
   for another device's change. The base is kept between visits, always after
-  the season itself is in storage, so a base never holds what storage does not:
-  a game deleted on another device while this one was closed stays deleted,
-  rather than coming back from this device's copy. A base is used only for the
+  the season itself is in storage and only once storage has taken it, so a base
+  never holds what storage does not: a game deleted on another device while this
+  one was closed stays deleted, rather than coming back from this device's copy.
+  A base that will not fit takes the one before it out with it, since that one is
+  older than the season storage has just taken, and a score corrected elsewhere
+  since read against it as one changed back here; with none, the next visit keeps
+  everything either side holds. A base is used only for the
   season it was kept for, one made at the same moment; a season made since under
   a deleted season's id is a season of its own. With no base, the first meeting
   keeps everything either side holds, the cloud's record winning where both hold
