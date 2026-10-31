@@ -68,6 +68,7 @@ import {
   withSchedulesOf,
   withSideBReport,
   CLOSE_DISPUTE_RUNS,
+  ONE_GAME_WINDOW_MINUTES,
   startsWithinTheHour,
   claimInto,
   filedRowOf,
@@ -7331,6 +7332,15 @@ export const oneNamesake = (
  * Met on either club's own schedules alone, where one misfile can vouch for another, five of those
  * records stayed further from their own schedules'.
  *
+ * Neither the region nor the level takes off a row the named club's own schedule has a row of too,
+ * still standing apart from it (`ownCopyOf`): the same game, its result mirrored, starting within
+ * the hour. Read only off rows already folded into the game, the reclaim moved an Ohio club's 9-2
+ * onto the Texas club whose own 2-9 stood at the very start, this step took it off again before the
+ * collapse could make the two rows one game, the refile put it on the Texas club's namesake next
+ * door to Ohio, and every tidy ran its six passes with the game counted twice, once for a club that
+ * never played it (the sweep of 30 October 2026: 27 of 400 small pools with a state far from the
+ * rest never settled, 40 of 480 games both clubs listed counted twice, none with neighbours only).
+ *
  * And any row filed by name onto a pulled club whose own schedules have no game that day or the day
  * either side (`unlisted`): the double check the user asked for on 28 September 2026, a name being
  * where to look rather than who played. An Illinois club's 8 August loss to "Eagles" sat on the
@@ -7482,6 +7492,87 @@ export const resettleOffLevel = (
     return ![...theirs].some((clubId) => clubId !== namedId && ours?.has(clubId));
   };
 
+  /** Each pulled club's own rows standing as games, by club and day. Read only once a row asks. */
+  let ownStanding: Map<string, ScoutGame[]> | undefined;
+  const ownStandingNow = () => {
+    if (ownStanding) return ownStanding;
+    const rows = new Map<string, ScoutGame[]>();
+    state.games.forEach((game) => {
+      if (!game.date) return;
+      [game.teamAId, game.teamBId].forEach((teamId) => {
+        if (isOwnRow(game, teamId)) push(rows, `${teamId}\u0000${game.date}`, game);
+      });
+    });
+    ownStanding = rows;
+    return rows;
+  };
+  const fits = nameFitter();
+  const runsOf = (game: ScoutGame, teamId: string) =>
+    game.teamAId === teamId ? game.teamAScore : game.teamBScore;
+  /**
+   * The named club's own row of the very game a row filed onto it by name records, where that row
+   * is not yet one game with it: a row of the club's own schedules standing as a game of its own,
+   * or held in this one as a claim, that gives the game as this row does. Its day is the row's or
+   * the day either side; both rows carry their own result, mirrored, and a start, within the hour
+   * of each other, or on the same clock where the two clubs dated the game a day apart (the
+   * collapse joins those, `dayApartStrength`); and its other side could be the club that filed
+   * this row. That is `mover` where the club's schedule names the filer as the import found it, a
+   * slot, a stand-in of the filer's name (`nameFitsWithin`, its own name or a listing's), or any
+   * stand-in at this row's very start, which is how the reclaim reads the club's own row when it
+   * moves a row onto it (`atTheStart`) — narrower than that, the reclaim moved the row and this
+   * step took it off again every pass. A result on one side only, a start more than an hour off or
+   * a row against another pulled club is another game as far as anything says, and nothing is read
+   * off a name alone. A score either row borrowed is the other's word and proves nothing (`scoreFromB`,
+   * `scoreFromTwin`), and a row the user threw out backs nothing.
+   */
+  const ownCopyOf = (
+    game: ScoutGame,
+    namedId: string,
+    moverId: string
+  ): "mover" | "other" | undefined => {
+    const mover = teamById.get(moverId);
+    if (!mover || !game.date || !isScored(game) || game.scoreFromB || game.scoreFromTwin) {
+      return undefined;
+    }
+    const theirs = runsOf(game, namedId);
+    const ours = runsOf(game, moverId);
+    const names = [mover.name, ...(mover.gcTeams ?? []).map((link) => link.name)];
+    const namesMover = (name: string) =>
+      names.some((own) => teamNameKey(own) === teamNameKey(name) || fits(name, own));
+    const rows = [
+      ...aroundDay(game.date).flatMap(
+        (day) => ownStandingNow().get(`${namedId}\u0000${day}`) ?? []
+      ),
+      ...(game.alsoRows ?? [])
+        .filter((record) => ownIds.get(namedId)?.has(record.teamId))
+        .map((record) => filedRowOf(game, record)),
+    ];
+    let found: "mover" | "other" | undefined;
+    rows.forEach((own) => {
+      if (found === "mover" || own === game || own.excluded) return;
+      if (!isScored(own) || own.scoreFromB || own.scoreFromTwin) return;
+      const other = own.teamAId === namedId ? own.teamBId : own.teamAId;
+      if (runsOf(own, namedId) !== theirs || runsOf(own, other) !== ours) return;
+      const gap = minutesApart(own.startTs, game.startTs);
+      if (gap === undefined) return;
+      const dayOff = own.date !== game.date && Math.abs(gap - 24 * 60) <= ONE_GAME_WINDOW_MINUTES;
+      if (gap > ONE_GAME_WINDOW_MINUTES && !dayOff) return;
+      if (other === moverId) {
+        found = "mover";
+        return;
+      }
+      const vs = teamById.get(other);
+      if (!vs || vs.gcTeams?.length) return;
+      if (
+        vs.placeholder ||
+        (vs.nameOnly && (sameStart(own.startTs, game.startTs) || namesMover(vs.name)))
+      ) {
+        found = "other";
+      }
+    });
+    return found;
+  };
+
   const used = new Set(state.teams.map((team) => team.id));
   const added: ScoutTeam[] = [];
   /**
@@ -7597,8 +7688,23 @@ export const resettleOffLevel = (
      */
     const refusedHere =
       refusesName(refused, game.source.teamId, named.name, named) && !listedByOwn(game, named);
+    /*
+     * The club's own row of the game, standing apart from it, keeps the row where the region or the
+     * level would take it off (`ownCopyOf`). More than two levels from the club's own, only its row
+     * naming the filer itself does: two rows a name and a slot or a stand-in pair that far apart were
+     * false 11.9% of the time (88 pairs) when the namesake join was measured, which reads no pair
+     * more than two apart (`PLAYS_UP_TO`).
+     */
+    let copy: "mover" | "other" | undefined | null = null;
+    const copyNow = () => {
+      if (copy === null) copy = ownCopyOf(game, namedId, moverId);
+      return copy;
+    };
     const offByRule =
-      refusedHere || farOff || twoOff(namedId, typed, game.date) || unvouched(namedId, moverId);
+      refusedHere ||
+      (farOff && copyNow() !== "mover") ||
+      ((twoOff(namedId, typed, game.date) || unvouched(namedId, moverId)) &&
+        copyNow() === undefined);
     // A name no other club carries is the club's though it has no game that day, which is where
     // the refile files it (`soleNamesakes`); so is the one club of it in the namer's state, where
     // the rules read it so (`inStateNamesakes`), and the one of it in the namer's region
@@ -9292,8 +9398,12 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *  35 — the namesake join reading a stand-in of no pulled club's name as each club its name fits,
  *       where that club's own row of the game is against a slot, between neighbours: the owner's
  *       "Both teams have the game" of 28 October 2026
+ *  36 — a row filed by name onto a pulled club far from its namer, or more than two levels from
+ *       its own, left on it where the club's own row of that game stands beside it, the result
+ *       mirrored within the hour (`ownCopyOf`), so a game two far-apart clubs both list is one game
+ *       between them rather than a row passed round every pass and counted twice
  */
-const TIDY_RULES_VERSION = 35;
+const TIDY_RULES_VERSION = 36;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this

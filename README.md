@@ -1906,6 +1906,31 @@ files it. On the pool of 26 September 2026 at 18:40 the tidy takes 121 rows off,
 records change: 30 toward GameChanger's own, 13 of them onto it, and one away, a loss its club's
 schedule has not scored yet, whose row the move let join the club's own copy of the game.
 
+**The club's own row of the game beside it** (tidy rules 36). Neither the region nor the level takes
+a row off a club whose own schedule has a row of that very game still standing apart from it
+(`ownCopyOf`): its day the row's or the day either side, both scored with their own results and the
+result mirrored, starting within the hour of each other or on the same clock a day apart, and against
+the club that filed the row, a slot, a stand-in of that club's name, or any stand-in at the row's very
+start. The sweep of 30 October 2026 found the game this was missing. The Comets of Ohio beat "Bears
+Black" 9-2, and the Bears Black of Texas have the same game at the same minute as a 2-9 loss to a
+stand-in of the Comets' name. The reclaim moved the Comets' row onto the Texas club on the game,
+since the club's own row is at the very start with the result mirrored; this step took it off again,
+since the two clubs had met in no game both their schedules held yet; the refile put it on the Bears
+Black of Kentucky, next door to Ohio, who never played it; and the collapse that would have made the
+two rows one game came after all three in each pass. Every tidy ran its six passes, and the game
+counted twice. Pulled in six orders, the four clubs' two rows of the game were folded on arrival in
+five; the sixth, the near club and the namesake pulled and tidied before the far club, cycled. Now the
+row stays and the claim step or the collapse folds the Texas club's row into it, so the tidy settles in
+two passes with one game between the two clubs in all six. Of 300 small random pools of clubs in
+Kentucky, Ohio, Indiana and Texas (`farApartGame.test.ts`), 38 ran to the tidy's limit under rules 35
+and 50 of their 971 games both clubs list counted twice; with Texas left out, none did, and under rules
+36 none does either way. The very start takes any stand-in because the reclaim does: read only as a
+stand-in of the filer's name there, the row went round six passes again. More than two levels apart
+only the club's own row naming the filer itself keeps the row: a pair a name and a slot or a stand-in
+join that far apart was false 11.9% of the time when the namesake join was measured, and that join
+reads no pair more than two apart. The stand-in share and the model sweep's stand-in mode have not
+been read again on the real copy since.
+
 A row the owner said is against a club is kept apart from all of that (`ScoutGame.namedByAvatar`).
 Same team as records the club on every row of a team known only by a name — a stand-in, a slot, one
 made by hand — that the user folds into a pulled club, since that is the user saying who played:
