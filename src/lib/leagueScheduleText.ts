@@ -67,10 +67,17 @@ const WEEKDAY_WORD =
  */
 const DAY_SHAPE = `(?:\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}[/-]\\d{1,2}(?:[/-]\\d{2,4})?|${MONTH_WORD}\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?|\\d{1,2}(?:st|nd|rd|th)?\\s+${MONTH_WORD}(?:,?\\s+\\d{4})?)`;
 const WEEKDAY_FIRST = `(?:${WEEKDAY_WORD},?\\s+)?`;
-const LEADING_DAY = new RegExp(`^${WEEKDAY_FIRST}(${DAY_SHAPE})(?=$|[\\s,])`, "i");
-const ONLY_DAY = new RegExp(`^${WEEKDAY_FIRST}(${DAY_SHAPE})$`, "i");
 /** What follows the hour of a start time written without its minutes: "9 AM", "1 p.m.". */
 const MERIDIEM = "(?:am|pm|a\\.m\\.|p\\.m\\.)(?=$|[\\s,])";
+/**
+ * A day at the front of a line, never one an AM or PM follows: "9-11 AM Comets @ Rockets" under a
+ * day's heading starts at nine, and was a game on 11 September for a team called "AM Comets".
+ */
+const LEADING_DAY = new RegExp(
+  `^${WEEKDAY_FIRST}(${DAY_SHAPE})(?=$|[\\s,])(?!\\s*${MERIDIEM})`,
+  "i"
+);
+const ONLY_DAY = new RegExp(`^${WEEKDAY_FIRST}(${DAY_SHAPE})$`, "i");
 /**
  * A bare day of the month, "12" or "Sat 12th", which is a day only under a month's heading. Not an
  * hour: "9 AM Comets @ Rockets" under a day's heading starts at nine, on the heading's day.
@@ -85,13 +92,22 @@ const ONLY_WEEKDAY = new RegExp(`^${WEEKDAY_WORD},?$`, "i");
 /** A line naming a season, "Spring 2027 Schedule" or "2026-27", rather than prose with a year in. */
 const NAMES_A_SEASON = /\b(?:fall|autumn|spring|summer)\b|\b(?:19|20)\d{2}\s*[-–/]\s*\d{2}\b/i;
 
+const MERIDIEM_WORD = "(?:am|pm|a\\.m\\.|p\\.m\\.)";
+const CLOCK = `\\d{1,2}(?::\\d{2})?\\s*${MERIDIEM_WORD}|\\d{1,2}:\\d{2}`;
+/** A range of bare hours only with its AM or PM: "9-11" alone is as likely a score or a day. */
+const CLOCK_RANGE = `\\d{1,2}(?::\\d{2})?\\s*(?:${MERIDIEM_WORD}\\s*)?[-–—]\\s*\\d{1,2}(?::\\d{2})?\\s*${MERIDIEM_WORD}|\\d{1,2}:\\d{2}\\s*[-–—]\\s*\\d{1,2}:\\d{2}`;
+/** A US time zone after a start, "EDT", "PT", "(CST)". */
+const TIME_ZONE = "(?:\\s*\\(?[ECMP][SD]?T\\)?)?";
+/** "Noon" or "12 Noon": a number before it otherwise is a day, "Sat 26 Noon" under a month. */
+const START = `(?:(?:${CLOCK_RANGE}|${CLOCK})${TIME_ZONE}|(?:12(?::00)?\\s*)?noon|tba|tbd)`;
 /**
- * A start time, which says nothing about who played: `9:00 AM`, `9am`, `18:30`, beside spaces or
- * the commas of a line read whole.
+ * A start time, which says nothing about who played: `9:00 AM`, `9am`, `18:30`; a range, `9:00-11:00
+ * AM` or `9-11 AM`; with its time zone, `6:30 PM EDT`; `Noon`; or `TBA`, a start not set yet: beside
+ * spaces or the commas of a line read whole. Read as names, the zone, the range and the word were
+ * part of the team after them, "EDT Falcons" for every away team of a site that prints the zone.
  */
-const TIME =
-  /(?:^|[\s,])\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)(?=[\s,]|$)|(?:^|[\s,])\d{1,2}:\d{2}(?=[\s,]|$)/gi;
-const ONLY_TIME = /^\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)$|^\d{1,2}:\d{2}$/i;
+const TIME = new RegExp(`(?:^|[\\s,])${START}(?=[\\s,]|$)`, "gi");
+const ONLY_TIME = new RegExp(`^${START}$`, "i");
 /**
  * Where it is played, at the end of a line: `Field 3`, `- Fld 2`, `@ Diamond B`. A bracketed end,
  * "(Blue)", is left alone, since it is as often part of a team's name as a place.
@@ -124,6 +140,8 @@ const isAsideCell = (value: string): boolean =>
 const TRAILING_SCORE = /\s(\d{1,2})\s*[-–—]\s*(\d{1,2})$/;
 /** The same shape at the end of a name, as an age span is written: "Falcons 9-10". */
 const ENDS_LIKE_A_SCORE = /\s\d{1,2}\s*[-–—]\s*\d{1,2}$/;
+/** A side's own runs written after its name, "Falcons 7": the name, then the runs. */
+const SIDE_RUNS = /^(.*\S)\s+(\d{1,2})$/;
 const SCORE_CELL = /^(\d{1,2})\s*[-–—]\s*(\d{1,2})$/;
 /**
  * What stands between the two sides of a line: "@" or "at" puts the host second, "vs" or "v" puts
@@ -224,12 +242,18 @@ type Game = { day: string; away: string; home: string; runs?: [number, number]; 
  * "April 10, 2027 Falcons @ Wolves" and "Sat, Apr 17, 2027,9:00 AM,Comets @ Rockets" start on one
  * day each. Split at every comma, the first was a day without its year and a game for a team called
  * "2027 Falcons", and a table row put "2027" in its Away column (found by Codex on #456).
+ *
+ * A line with no comma past its day is split at its bars, as sites print "Sat Apr 12 | 9:00 AM |
+ * Falcons @ Wolves | Riverside Park", whose place was read into the home team's name. Not a line
+ * with commas, whose cells those are: a bar there is in a name, "Aces | Blue" in a CSV's cell.
  */
 const cellsOf = (line: string, delimiter: string): string[] => {
   const leading = delimiter === "," ? LEADING_DAY.exec(line) : null;
-  if (!leading?.[0].includes(",")) return splitCells(line, delimiter);
-  const rest = line.slice(leading[0].length).replace(/^\s*,/, "");
-  return [leading[0], ...(rest.trim() === "" ? [] : splitCells(rest, delimiter))];
+  const day = leading?.[0].includes(",") ? leading[0] : undefined;
+  const rest = day === undefined ? line : line.slice(day.length).replace(/^\s*[,|]/, "");
+  const by = delimiter === "," && rest.includes("|") && !rest.includes(",") ? "|" : delimiter;
+  if (day === undefined) return splitCells(rest, by);
+  return [day, ...(rest.trim() === "" ? [] : splitCells(rest, by))];
 };
 
 /**
@@ -288,7 +312,7 @@ const readLine = (
   const marker = markers[0];
   if (markers.length > 1 || !marker) return "skip";
   if (day === null) return "skip";
-  const first = clampScheduleName(rest.slice(0, marker.index));
+  let first = clampScheduleName(rest.slice(0, marker.index));
   let second = clampScheduleName(rest.slice((marker.index ?? 0) + marker[0].length));
   // Both sides ending alike, "Falcons 9-10 @ Wolves 9-10", is an age span written on each name,
   // not a final score on the second: it goes back on the name it came off. Not where the second
@@ -297,6 +321,25 @@ const readLine = (
   if (runs && ENDS_LIKE_A_SCORE.test(first) && !ENDS_LIKE_A_SCORE.test(second)) {
     second = clampScheduleName(second + scoreWritten);
     runs = undefined;
+  }
+  /*
+   * Each side's runs after its name, "Falcons 7 @ Wolves 5", which stayed on the names as two teams
+   * called "Falcons 7" and "Wolves 5", with no score. Read as runs only where both sides end in a
+   * number, the names left are two names and the two numbers differ: "Team 1 @ Team 2" is two
+   * squads of one name, and "Cubs 10 @ Reds 10" an age or a squad written on each, as "9-10" on
+   * both is. Nothing on each, "Falcons 0 @ Wolves 0", is runs, as "0-0" is: no team is named 0.
+   */
+  const firstRuns = runs ? null : SIDE_RUNS.exec(first);
+  const secondRuns = runs ? null : SIDE_RUNS.exec(second);
+  if (firstRuns && secondRuns) {
+    const [, firstName = "", firstScore = ""] = firstRuns;
+    const [, secondName = "", secondScore = ""] = secondRuns;
+    const [own, other] = [Number(firstScore), Number(secondScore)];
+    if (pasteNameKey(firstName) !== pasteNameKey(secondName) && (own !== other || own === 0)) {
+      first = firstName;
+      second = secondName;
+      runs = [own, other];
+    }
   }
   const hostSecond = /@|at/i.test(marker[0]);
   const [away, home] = hostSecond ? [first, second] : [second, first];

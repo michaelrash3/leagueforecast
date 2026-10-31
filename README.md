@@ -4485,15 +4485,24 @@ where the first team is; rows laid out in cells, as a spreadsheet or a calendar 
 (`4/10/2027,9:00 AM,Falcons @ Wolves,Field 1`), the game read from its own cell and a place or a
 game number left out; and a table with no header, read away then home and marked as a guess. A line
 that is only a date, or a date with a start time ("Sat 4/12 9:00 AM"), dates the games under it;
-start times, "9 AM" as well as "9:00 AM", and fields are passed over, and a score at the end of a
-line is read in the order the teams were written, unless both names end alike ("Falcons 9-10 @
-Wolves 9-10"), which is an age span. A line with two markers, a TBD side, a game cancelled, rained
-out, postponed or suspended, or a day no calendar has ("Apr 31", never rolled on to May 1) is listed
-as left out rather than guessed at. A date with no year is placed in the year the paste wrote (on
-the date, in a heading, or in a title such as "Spring 2027 Schedule"), else in the squad year the
-season is filed under in Team Rankings, else the one its name says ("Fall 2026" is squad year 2027,
-and "2026 Fall - 2027 Spring" is 2027, `seasonNames.ts`), else the one being played today, with
-August to December in the year before.
+start times and fields are passed over: "9 AM" as well as "9:00 AM", a range ("9:00-11:00 AM",
+"9-11 AM"; a range of bare hours only with its AM or PM, since "9-11" alone is as likely a score or a
+day), a US time zone after the time ("6:30 PM EDT", "7 PM (CT)"), "Noon", and "TBA" for a start not
+set yet, which a site printing the zone had made "EDT Falcons" of every away team. A score at the end
+of a line is read in the order the teams were written, unless both names end alike ("Falcons 9-10 @
+Wolves 9-10"), which is an age span; so is one written beside each side ("Falcons 7 @ Wolves 5"),
+where both sides end in a number, the names left are two names and the numbers differ: "Team 1 @
+Team 2" is two squads of one name, and "Cubs 10 @ Reds 10" a number written on each, while "Falcons
+0 @ Wolves 0" is a 0-0, as nothing else can be. A line with no comma past its day is split at its
+bars, as sites print "Sat Apr 12 | 9:00 AM | Falcons @ Wolves | Riverside Park", and read as cells,
+the place left out; a CSV's cells are its commas, so a bar there stays in a name, and a line with no
+cell wholly a day, a time or a field is read whole, "Aces | Blue @ Wolves" included. A line with two
+markers, a TBD side, a game cancelled, rained out, postponed or suspended, or a day no calendar has
+("Apr 31", never rolled on to May 1) is listed as left out rather than guessed at. A date with no
+year is placed in the year the paste wrote (on the date, in a heading, or in a title such as "Spring
+2027 Schedule"), else in the squad year the season is filed under in Team Rankings, else the one its
+name says ("Fall 2026" is squad year 2027, and "2026 Fall - 2027 Spring" is 2027, `seasonNames.ts`),
+else the one being played today, with August to December in the year before.
 
 Every game is looked over before anything is added, with a Swap on each row; on a phone each game is
 a small block, its sides one under the other, so the Swap is on screen. Names are told apart as the
