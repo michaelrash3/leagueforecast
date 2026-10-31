@@ -5,7 +5,7 @@ import {
   type LeagueFixture,
   type LeagueScoutBridge,
   type LeagueTeamLink,
-} from "../lib/teamRankings";
+} from "../lib/teamRankings/leagueBridge";
 import { clubPickOption, pickableClubs, type ClubPickOption } from "../lib/leagueLinkOptions";
 import {
   BRIDGE_RULES_NOW,

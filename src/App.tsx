@@ -61,7 +61,7 @@ import { useSeasons } from "./hooks/useSeasons";
 import { useSeasonFiles, type ImportedSeason } from "./hooks/useSeasonFiles";
 import { useSeasonState, type SeasonState } from "./hooks/useSeasonState";
 import { useScoutBridge } from "./hooks/useScoutBridge";
-import { finalScoresKey, leagueFixturesOf } from "./lib/teamRankings";
+import { finalScoresKey, leagueFixturesOf } from "./lib/teamRankings/leagueBridge";
 import { LoadingPanel } from "./components/LoadingPanel";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import {

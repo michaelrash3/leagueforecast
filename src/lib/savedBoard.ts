@@ -1,5 +1,5 @@
 import { idbGet, idbSet } from "./idb";
-import { isRankingRow } from "./live/views/boardShape";
+import { isRankingRow } from "./live/views/rankingRow";
 import type { ScoutRankingRow, SeasonSegment } from "./teamRankings";
 
 /**

@@ -61,7 +61,7 @@ import {
   unknownStateCountOf,
   unrankedLevelNoteFor,
 } from "../../lib/teamRankings/boardDisplay";
-import { filterRankingsByState, statesInUse } from "../../lib/teamRankings/names";
+import { filterRankingsByState, statesInUse } from "../../lib/teamRankings/rosterNames";
 import { coerceAgeGroups, loadAgeGroups } from "../../lib/teamRankingsStorage";
 import type { SeasonMeta } from "../../lib/storage";
 import { button, card } from "../../styles/tokens";

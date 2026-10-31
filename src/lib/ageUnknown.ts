@@ -1,6 +1,6 @@
 import { daysSince } from "./date";
 import { coerceAgelessEvidence, type AgelessEvidence } from "./agelessEvidence";
-import { ageFitsBand, ageLevelFromLooseName } from "./gameChangerApi";
+import { ageFitsBand, ageLevelFromLooseName } from "./gcAge";
 import type { GcImportOutcome } from "./gameChangerImport";
 
 /**

@@ -64,18 +64,10 @@ export const WEEKLY_ROTATION: RefreshDay[] = [
   { day: 6, label: "Saturday", ageLevels: [14, 15] },
 ];
 
-/**
- * How much comes round at once.
- *
- * `rotation` is the week spread by level. `daily` offers every level every day, and is the default
- * because a rating is only as current as its newest game.
- */
-export type RefreshCadence = "rotation" | "daily";
-
-export const DEFAULT_REFRESH_CADENCE: RefreshCadence = "daily";
-
-export const isRefreshCadence = (value: unknown): value is RefreshCadence =>
-  value === "rotation" || value === "daily";
+/* The cadence is a module of its own, which the pool's store reads at start. */
+import { DEFAULT_REFRESH_CADENCE, type RefreshCadence } from "./refreshCadence";
+export { DEFAULT_REFRESH_CADENCE, isRefreshCadence } from "./refreshCadence";
+export type { RefreshCadence } from "./refreshCadence";
 
 export const refreshDayFor = (day: Weekday): RefreshDay =>
   WEEKLY_ROTATION.find((entry) => entry.day === day) ?? {

@@ -6,7 +6,8 @@
 import { displayName } from "./format";
 import { ageLevelFromName } from "./gameChangerApi";
 import { createTeamId } from "./sim";
-import { findSimilarTeam, pasteNameKey, squadNameKey, teamNameKey } from "./teamRankings";
+import { findSimilarTeam } from "./teamRankings/rosterNames";
+import { pasteNameKey, squadNameKey, teamNameKey } from "./teamRankings/names";
 import type { GameLog, Matchup, TeamBase } from "./types";
 import { blankLog } from "./util";
 

@@ -112,6 +112,7 @@ src/
     scheduleText.ts        # reads pasted text / CSV into games, entirely on the device
     leagueScheduleText.ts  # the same for a league's own schedule, home and away kept
     teamRankings.ts        # age groups, ratings, name matching, rename/merge
+    teamRankings/leagueBridge.ts  # which club each League team is, and what results it is handed
     teamRankingsStorage.ts # the pool's IndexedDB store, with a synchronous cache in front
     teamRankingsCompact.ts # the tuple-and-dictionary storage format
     live/                  # what a page knows (allKnown.ts), the views built from it (views/),
@@ -9413,6 +9414,38 @@ shared handlers with recorded provider responses and require no deployed credent
     starts its section's load, the Games section's starts once the page is idle, a load that fails
     is that section's Try again and fetches afresh, and the scouting report stays on screen while
     the tournament panel's code loads.
+- **Team Rankings' code leaves League Standings' first download.** A bundler puts a module whole
+  wherever anything reaches it, and League Standings' start read a few lines from modules that were
+  otherwise Team Rankings': the age a name states from the GameChanger client (`gameChangerApi.ts`),
+  the bridge and a pick's helpers from the rating code (`teamRankings.ts`), the cleaning and keys of
+  a name, what counts toward a rating, a saved board's row check, the board rules' version, a pull
+  log's version, the refresh cadence, a kept season's reader, the stored "Not this team" list and a
+  club's movement on its page. Each of those is now a module of its own (`gcAge.ts`,
+  `gcFetchErrors.ts`, `teamRankings/leagueBridge.ts`, `live/views/rankingRow.ts`,
+  `live/views/boardRules.ts`, `pullTrackerVersion.ts`, `refreshCadence.ts`, `archivedSeason.ts`,
+  `notThisTeamStored.ts`, `movement.ts`), which the module it came from re-exports; `names.ts` and
+  `games.ts` keep their start's part instead, and what only Team Rankings runs of them moved into
+  `teamRankings/rosterNames.ts` and `teamRankings/gameRows.ts`, which `teamRankings.ts` re-exports
+  beside them. The modules the start loads, and League Standings' own views, import the new ones.
+  A pull's tracker is made by the pull and handed to the pool's slot with its claim (`beginPull`),
+  so the slot, which League Standings reads, stays one module and the tracker leaves it. Some of
+  Team Rankings' code is still there: the readers the pool's store and its backup check what they
+  keep with, which load with the store (`teamRankingsStorage.ts`).
+  - **Measured** (gzipped, `npm run bundle:check`, 31 October 2026): the first download went from
+    251.8 KB to 221.2 KB, with nothing removed and nothing computed differently. What left is
+    fetched where it runs: opening Team Rankings went from 60.3 KB to 84.1 KB, and the Import and
+    Setup sections, which pull and tidy, from 57.8 to 67.7 KB and from 68.9 to 75.9 KB. A first
+    visit straight to Team Rankings fetches 305.3 KB, against 418.0 KB before either change.
+  - **The numbers did not move.** `src/lib/__tests__/bootSplitPins.test.ts`, written before
+    anything moved, pins what one pool works out (the bridge's results, the forecast reading them,
+    a board, a matchup, ages, names, which games count and the tidy's stamp), and it holds with the
+    board, rating, forecast and parity pins already in the suite; every moved declaration is the
+    same text it was, an `export` added where its old module reads it back.
+  - **Guarded** by the bundle check, which reads the build's source maps and fails naming any of
+    the modules left holding only Team Rankings' code (`TEAM_RANKINGS_ONLY` in
+    `scripts/bundleBudget.mjs`) that the first download holds again, since one static import from
+    anything the page loads at start would bring a whole module back and the first download's own
+    line has room to hide it.
 - **League Standings works out only what is on screen** (2.2). Every number it
   shows is read from the games marked final, so its calculations are keyed on
   those scores alone (`finalLogsOf`, held by `useSeasonState`), which stay the same

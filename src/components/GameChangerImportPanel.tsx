@@ -142,6 +142,7 @@ import { readStoredSeason } from "../lib/storage";
 import { runPoolCommand } from "../lib/live/runPoolCommand";
 import { settleRunLists } from "../lib/pullLists";
 import {
+  createPullTracker,
   liveSummary,
   pullSummaryCsv,
   pullTeamsCsv,
@@ -308,6 +309,12 @@ Team Name,Team ID,Age Group,Season,City,State
 "9u Astros 9U",hH8l9MBjxg7U,9U,Fall 2026,Baileyton,AL`;
 
 const nowIso = () => new Date().toISOString();
+
+/** Claims the pool for a pull starting now, with the tracker that records it (`beginPull`). */
+const newPullSession = () => {
+  const startedAt = nowIso();
+  return beginPull(startedAt, createPullTracker(startedAt));
+};
 
 /**
  * The clock, behind a function.
@@ -935,7 +942,7 @@ export function GameChangerImportPanel({
      * end. Six claims would be six chances for something else to take the slot in between and
      * leave half a pool refreshed.
      */
-    const session = part?.session ?? beginPull(nowIso());
+    const session = part?.session ?? newPullSession();
     if (session && part === undefined) {
       /*
        * Seeded here rather than at mount: the slot is claimed, so nothing else can write the pool
@@ -1465,7 +1472,7 @@ export function GameChangerImportPanel({
      * moments where a tidy could take the slot between two sections and leave the pool half
      * refreshed, with the cursor saying the rest was done.
      */
-    const session = beginPull(nowIso());
+    const session = newPullSession();
     if (!session) {
       const holder = livePull();
       showToast(
