@@ -88,11 +88,20 @@ const sameGame = (one: GameSeen | undefined, two: GameSeen | undefined) =>
     one.final === two.final &&
     one.detail === two.detail);
 
-/** `seen` with each game and team that differs from `was` to `now` read as it does in `now`. */
-const laidOver = (seen: SeasonSeen, was: SeasonSeen, now: SeasonSeen): SeasonSeen => {
+/**
+ * `seen` with each game and team that differs from `was` to `now` read as it does in `now`; with
+ * `unmoved`, only those `seen` still reads as `was` does.
+ */
+const laidOver = (
+  seen: SeasonSeen,
+  was: SeasonSeen,
+  now: SeasonSeen,
+  unmoved = false
+): SeasonSeen => {
   let games = seen.games;
   for (const id of new Set([...Object.keys(was.games), ...Object.keys(now.games)])) {
     if (sameGame(was.games[id], now.games[id])) continue;
+    if (unmoved && !sameGame(seen.games[id], was.games[id])) continue;
     games = games === seen.games ? { ...games } : games;
     const next = now.games[id];
     if (next) games[id] = next;
@@ -101,6 +110,7 @@ const laidOver = (seen: SeasonSeen, was: SeasonSeen, now: SeasonSeen): SeasonSee
   let teams = seen.teams;
   for (const id of new Set([...Object.keys(was.teams), ...Object.keys(now.teams)])) {
     if (was.teams[id] === now.teams[id]) continue;
+    if (unmoved && seen.teams[id] !== was.teams[id]) continue;
     teams = teams === seen.teams ? { ...teams } : teams;
     const name = now.teams[id];
     if (name !== undefined) teams[id] = name;
@@ -149,6 +159,20 @@ export const sameSeen = (one: SeasonSeen, two: SeasonSeen): boolean =>
 export const keptWith = (kept: SeasonSeen, was: SeasonSeen, now: SeasonSeen): SeasonSeen => {
   const laid = laidOver(kept, was, now);
   return sameRace(was.race, now.race) ? laid : { ...laid, race: now.race };
+};
+
+/**
+ * `seen` with what a list told taken as seen, the list drawn from `from` to `to`: each game and
+ * team it listed read as in `to`, and the race too where it told of the race. For the big card's
+ * Got it, which stands in the list's place while it is up (`SinceLastLook`): what arrived after
+ * the list was drawn is still news, and what `seen` has taken as seen since (an edit here, a Got it
+ * in another tab) stays as it is, never put back to what the list said.
+ */
+export const seenAsListed = (seen: SeasonSeen, from: SeasonSeen, to: SeasonSeen): SeasonSeen => {
+  const laid = laidOver(seen, from, to, true);
+  return sameRace(from.race, to.race) || !sameRace(seen.race, from.race)
+    ? laid
+    : { ...laid, race: to.race };
 };
 
 /**

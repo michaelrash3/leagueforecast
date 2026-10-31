@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import { Ago, CountUp, Move } from "../SinceParts";
+import type { DigestListed } from "../../hooks/useSeasonDigest";
 import type { GameLog, Matchup } from "../../lib/types";
 import {
   changesSince,
@@ -24,13 +25,26 @@ export type LookInput = {
   predictions: readonly { gameId: string; teamAId: string; pA: number }[];
   followed: string | null;
   withGold: boolean;
+  /**
+   * What the list of other devices' changes says as this render draws it (`useSeasonDigest`). The
+   * card stands in its place while it is up, so it keeps this as it is worked out and hands it
+   * back at Got it, for only that to be taken as seen.
+   */
+  listed?: DigestListed | null;
 };
 
 /** A look older than this is compared with; a newer one is a visit still going on. */
 const VISIT_GAP_MS = 60 * 60 * 1000;
 
-/** What the open season's visit settled on: the changes to tell, and a look to keep, if any. */
-type Held = { seasonId: string; changes: LookChanges | null; keep?: LookSnapshot };
+/**
+ * What the open season's visit settled on: what to tell, with the look it was worked out from and
+ * the list as it stood then, both kept for Got it; or a look to keep at once, if any.
+ */
+type Held = {
+  seasonId: string;
+  told?: { changes: LookChanges; look: LookSnapshot; listed: DigestListed | null };
+  keep?: LookSnapshot;
+};
 
 const lookAt = (input: LookInput, at: number) =>
   takeLook(
@@ -45,18 +59,22 @@ const decide = (input: LookInput, at: number): Held => {
   const now = lookAt(input, at);
   const prev = readLook(input.seasonId);
   // The first visit has nothing to compare with, so it only keeps where the season stands.
-  if (!prev) return { seasonId: input.seasonId, changes: null, keep: now };
-  if (now.at - prev.at < VISIT_GAP_MS) return { seasonId: input.seasonId, changes: null };
+  if (!prev) return { seasonId: input.seasonId, keep: now };
+  if (now.at - prev.at < VISIT_GAP_MS) return { seasonId: input.seasonId };
   const games = lookGames(input.matchups, input.logs);
   const changes = changesSince(prev, now, input.rows, games, input.followed);
   return changes
-    ? { seasonId: input.seasonId, changes }
-    : { seasonId: input.seasonId, changes: null, keep: now };
+    ? { seasonId: input.seasonId, told: { changes, look: now, listed: input.listed ?? null } }
+    : { seasonId: input.seasonId, keep: now };
 };
 
 /**
  * Compares the season with the last look once per season opened, and holds what changed until it
  * is put away. Nothing is read or written but this device's own storage.
+ *
+ * The card is what the season had come to as it was worked out, and stays so while it is up. Got
+ * it keeps that look, not the season as it stands at the press: a final another device sent while
+ * the card was up was kept as seen, never shown, and the next visit was told nothing of it.
  */
 export function useSinceLastLook(input: LookInput | undefined) {
   const [held, setHeld] = useState<Held | null>(null);
@@ -70,13 +88,19 @@ export function useSinceLastLook(input: LookInput | undefined) {
     if (held?.keep) saveLook(held.seasonId, held.keep);
   }, [held]);
 
-  if (!input || !held?.changes || held.seasonId !== input.seasonId) return null;
+  if (!input || !held?.told || held.seasonId !== input.seasonId) return null;
+  const seasonId = held.seasonId;
+  const told = held.told;
   return {
-    changes: held.changes,
-    /** Keeps the season as it stands now, so the next visit is told only what comes after. */
-    dismiss: () => {
-      saveLook(input.seasonId, lookAt(input, Date.now()));
-      setHeld({ seasonId: input.seasonId, changes: null });
+    changes: told.changes,
+    /**
+     * Keeps the look the card was worked out from, so the next visit is told what came after it,
+     * and gives back what the list said then.
+     */
+    dismiss: (): DigestListed | null => {
+      saveLook(seasonId, told.look);
+      setHeld({ seasonId });
+      return told.listed;
     },
   };
 }
@@ -226,7 +250,8 @@ export function SinceLastLookCard({
  * The card as the Dashboard draws it, fetched with this file as the Dashboard opens. It tells the
  * Dashboard whether it is up (`onShown`), so the list of other devices' changes stays where it is
  * and is only hidden meanwhile: drawn in the card's place until this file landed, the list was
- * drawn afresh once it did, and a Got it pressed on it as first drawn did nothing.
+ * drawn afresh once it did, and a Got it pressed on it as first drawn did nothing. Put away, it
+ * hands `onDismiss` what the list said as the card was worked out (`LookInput.listed`).
  */
 export function SinceLastLook({
   look,
@@ -234,7 +259,7 @@ export function SinceLastLook({
   onShown,
 }: {
   look: LookInput;
-  onDismiss: () => void;
+  onDismiss: (listed: DigestListed | null) => void;
   onShown: (shown: boolean) => void;
 }) {
   const lastLook = useSinceLastLook(look);
@@ -246,12 +271,6 @@ export function SinceLastLook({
   }, [shown, onShown]);
   if (!lastLook) return null;
   return (
-    <SinceLastLookCard
-      changes={lastLook.changes}
-      onDismiss={() => {
-        lastLook.dismiss();
-        onDismiss();
-      }}
-    />
+    <SinceLastLookCard changes={lastLook.changes} onDismiss={() => onDismiss(lastLook.dismiss())} />
   );
 }

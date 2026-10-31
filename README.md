@@ -4625,14 +4625,18 @@ turned down); each result since, with the chance the team was given while the ga
 play; the upset of the stretch, the new final whose winner had been given the least chance, under
 one in two; and who passed the team and whom it passed. With no team followed it gives the new
 results' count, the upset and the biggest climb. The card stands in the list's place while it is
-up, and **Got it** puts both away.
+up, and **Got it** puts both away as they stood when the card came up: the card is what the season
+had come to as it was worked out, and stays so while it is up. What another device changed after
+that is listed once the card is put away (`seenAsListed`), and the next visit's card tells what
+moved since it came up. Got it used to keep the season as it stood at the press, so a final that
+arrived while the card was up was taken as seen, and neither the card nor the list ever told it.
 
 - **A look, one per season, on this device only** (`lf_last_look_v1_<season>`): each team's place
   and Gold odds, the games final, and the chance each game still to play was given, which nothing
   else keeps once the game is final. The first visit only keeps one; later, a look an hour old or
-  more is compared with, and kept again at **Got it**, or at once when nothing a person would want
-  told moved (no new final, no place changed, the Gold odds within a point). Left without Got it,
-  the card is there the next time.
+  more is compared with, and the look the card was worked out from is kept at **Got it**, or at
+  once when nothing a person would want told moved (no new final, no place changed, the Gold odds
+  within a point). Left without Got it, the card is there the next time.
 - **Taken once the forecast describes the season:** while the Gold odds are still being worked
   out after the latest scores, a look would keep the odds from before them.
 - **Fetched as the Dashboard opens**, a file of its own (3.4 KB with the pieces it shares with

@@ -3746,6 +3746,8 @@ export default function App() {
                         onOpenTeam: (teamId) =>
                           openFindingTarget({ kind: "team", id: teamId, label: "" }),
                         onAcknowledge: digest.acknowledge,
+                        listed: digest.listed,
+                        onAcknowledgeListed: digest.acknowledgeListed,
                       }}
                       ourTeam={
                         // Not locked: the team followed is this browser's own pick, never a setting
