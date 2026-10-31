@@ -11,7 +11,10 @@ export type OurTeamSummary = {
   place: number;
   of: number;
   record: string;
-  /** Gold %, in a league with a cut line, and how far the last result moved it. */
+  /**
+   * Gold %, in a league with a cut line, and how far the last result moved it, where it moved it
+   * `GOLD_MOVE_SHOWN` points or more.
+   */
   goldPct?: number;
   goldChange?: number;
   /** Its next game: who, when, the chance of winning it, and where a win or a loss leaves it. */
@@ -55,6 +58,15 @@ export const needsLines = (
   });
 
 /**
+ * The least move in Gold % the card reports. The last step of the trend is drawn paired
+ * (`buildTrendStates`), and still came 0.48 to 0.66 points from a long run's on synthetic leagues,
+ * so a smaller move is as likely the simulation's as the result's. It was shown from a twentieth of
+ * a point: of the 209 moves that showed on 40 eight-team leagues, the 3 the wrong way were all
+ * under two points.
+ */
+export const GOLD_MOVE_SHOWN = 2;
+
+/**
  * The line a family reads at the field, for the one team they follow.
  *
  * Everything in it is already worked out for the team's drawer — the place, the Gold odds and the
@@ -79,6 +91,7 @@ export const ourTeamSummary = (
   const trend = team.goldTrend;
   const last = trend[trend.length - 1];
   const before = trend[trend.length - 2];
+  const moved = last !== undefined && before !== undefined ? last - before : 0;
   const swing = options.swings[0];
   return {
     teamId: team.id,
@@ -87,9 +100,7 @@ export const ourTeamSummary = (
     of: teamCount,
     record: recordText(team),
     ...(options.hasCutLine ? { goldPct: team.goldPct } : {}),
-    ...(options.hasCutLine && last !== undefined && before !== undefined
-      ? { goldChange: last - before }
-      : {}),
+    ...(options.hasCutLine && Math.abs(moved) >= GOLD_MOVE_SHOWN ? { goldChange: moved } : {}),
     ...(swing
       ? {
           next: {
