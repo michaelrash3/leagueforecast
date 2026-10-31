@@ -9,7 +9,13 @@ import {
 } from "../sim";
 import { buildPredictionEngine, type ExternalResult } from "../predictionEngine";
 import { isFinal } from "../util";
-import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../types";
+import {
+  DEFAULT_SETTINGS,
+  TREND_ITERATIONS,
+  type GameLog,
+  type Matchup,
+  type TeamBase,
+} from "../types";
 import { dateInSquadYear, dedupeLeagueFixtures, inSegment, type ScoutGame } from "../teamRankings";
 
 /**
@@ -188,6 +194,43 @@ describe("the seasons behind the Gold-odds trend", () => {
     expect(built3.map((state) => state.teams.reduce((sum, t) => sum + t.games, 0) / 2)).toEqual([
       1, 2, 3,
     ]);
+  });
+});
+
+/**
+ * Each point of the line as the worker simulates it, at the trend's own seasons, pinned to the
+ * digit: what a change to how the points are drawn moves, and what it leaves alone.
+ */
+describe("the trend's points, pinned", () => {
+  const { matchups, logs, completed } = season();
+  const states = buildTrendStates(bases, matchups, logs, completed, {
+    states: 8,
+    goldCutoff: 2,
+    settings,
+  });
+  const points = () => {
+    const odds = states.map((state) =>
+      simulateGoldOdds(state.teams, state.remaining, TREND_ITERATIONS, state.seedText, 2, settings)
+    );
+    return Object.fromEntries(
+      bases.map((team) => [
+        team.id,
+        odds.map((point) => Number((point[team.id] ?? 0).toFixed(3))).join(" "),
+      ])
+    );
+  };
+
+  it("draws every point as it always has", () => {
+    expect(points()).toMatchInlineSnapshot(`
+      {
+        "A": "100 100 100 100 100 100 100 100",
+        "B": "25.833 23.833 21.167 6.167 13 0 0 0",
+        "C": "30.833 22.167 19.833 35.5 39.167 39 40.333 22.167",
+        "D": "28.5 22.333 18.667 21.833 7 7.333 10 24.333",
+        "E": "7.833 24.5 20.167 16.167 18.667 32.333 40.5 43.167",
+        "F": "7 7.167 20.167 20.333 22.167 21.333 9.167 10.333",
+      }
+    `);
   });
 });
 
