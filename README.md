@@ -6045,7 +6045,10 @@ of them failed and the GiB-seconds they spent against the day's cap; the same of
 the last day before it that had a run, since the nightly runs a few hours into a
 New York day and a save just after midnight, or a day of refusals at a cap,
 moves the ledger on; the month's runs, failures, GiB-seconds and vCPU-seconds
-against its caps; then the failures in a row, a pause, and a run reserved and
+against its caps; the edits' own month; the questions the server spent compute on
+and left unanswered, on the ledger's day and the last day before it that had any,
+where there were some ("Questions to the cloud are going unanswered" raises its
+alarm past 20 a day); then the failures in a row, a pause, and a run reserved and
 not yet settled. A ledger that cannot be read says so on its own line and leaves
 the night's colour alone, as do failed rebuilds: they are not the refresh's
 work. This is what tells whether a week of dry runs went well before `mode` is
@@ -6308,6 +6311,14 @@ would have done"):
   gives each year's numbers. The copy stays as it was, its views unpublished, for a person to
   look at what GameChanger answered. The next night that saves, or has nothing to save, closes
   it. A pull a person starts saves what it files: the cap is the unattended night's.
+  The games that go with a club the owner's 40-run rule deletes (below, `lopsidedDrops`) do not
+  count toward the games' line, since that is the rule at work and not an answer gone wrong; the
+  clubs themselves still count toward the clubs' line, so a sweep gone wrong is still held. Lists,
+  the miner's hand-offs among them, never sweep, so the nightly meets every year they bring in
+  first: on 31 October 2026 it held its save, night after night, for the 1,646 of 2026's 16,036
+  games the rule's 40 deletions in that year took with them (a research read that day found the
+  tidy alone took nothing, and the rule 53 clubs across every year, all pulled). The night's log
+  says how many clubs the rule deleted and how many games went with them, counts only.
 - **The nightly's answers stopped reading as schedules** (`ingestCanary.ts`): of the games
   GameChanger listed that night, fewer than half could be filed, out of 500 or more. A cancelled
   game, or one with no date, is a few in a hundred; a change in how GameChanger writes a game
@@ -6323,6 +6334,20 @@ The two before them are read by their own step before the alarm (`scripts/upkeep
 whatever became of the refresh, which hands each as a word (`billing=on` or `off`,
 `dispatch=fine`, `refused` or `expires` and a day); it never fails the run, and it
 prints neither the key nor the token.
+
+And one on the cloud's questions, the owner's of 31 October 2026:
+
+- **Questions to the cloud are going unanswered** (`unansweredWord`): the nightly, dry or live,
+  read the ledger it already reads for the rebuilds and found more than 20 questions in a New York
+  day that the server spent compute on and could not answer (`dayUnanswered`, counted in the
+  write that charges each, "Rebuilds after saves" below), on the nightly's day or the day before:
+  the day before is kept as `lastUnanswered`, since a question charged after midnight moves the
+  ledger on before the nightly reads it. A device asks such a question again on its own at most
+  three times a season a day (`useScoutBridge`), so that many is a server that cannot answer, a
+  worker out of memory say, and not one member's bad minute. It says the day and the count, handed
+  over as `unanswered=over` with them, or `fine`. The first nightly to find neither day past 20
+  closes it; a ledger not read, or not one this build reads, leaves it as it is, and a day before
+  the day before was judged by the nightly after it.
 
 An issue is public, as the repository is, so it says when (UTC, to the minute),
 what failed in a word or two, and the run's link, and nothing from the log. The
@@ -6993,7 +7018,20 @@ October 2026 it went into the rebuilds' totals: a Setup question the server gave
 again and again by the device for a day, each try a cold load of the whole pool on an 8 GiB
 instance, and October's vCPU-seconds passed their cap with no rebuild run, so every save waited
 for the first of November. An edit is never refused for its caps; past them only the questions
-that refit a year are (`capsSpent`). October's totals were left as they stood, which keeps the
+that refit a year are (`capsSpent`). Every question's charge already reads the ledger and writes
+it back, and two things ride on that one read and write, with none of their own. Its reply says
+the edits' month as the charge left the ledger, the New York month and whether either of its
+totals is at its cap (`editMonth`, `editMonthOf`), and an unanswered question's error says the
+same in its details: League Standings makes no timer retry of its bridge question while that
+month is spent, until New York's month turns ("What Team Rankings has, asked of the server", in
+"League Standings in the cloud" below), and nothing a person asks is refused for it. A charge the ledger was slow to take (five seconds), or
+could not take, says nothing, which a device reads as not known, as it reads a reply from a
+server before this. And a question the server spent compute on and left unanswered, a worker out
+of memory say, is counted for its New York day (`dayUnanswered`, emptied on a new day as the
+day's totals are, the last day before that had any kept as `lastUnanswered`), for the nightly's
+alarm ("When a run fails"). One turned away before its turn spent nothing, so its charge writes
+nothing, and counting it would be a write of its own: it is not counted, unless it was a new
+instance's first call, which is charged the instance's start-up all the same and so is counted. October's totals were left as they stood, which keeps the
 rebuilds deferred for the rest of that month: raising a cap in `ops/rebuild` lets the next save
 start one, since the launcher lifts a deferral whose budget has room again (`requestRebuildJob`).
 The nightly says the edits' month and, while the job is deferred, why (its budget, a run still going, or failures in a row) and until when; only a budget's deferral is lifted by a raised cap. A field set to
@@ -8224,9 +8262,25 @@ functions the device would run, over the cloud's pool):
   out is never thrown away for another about the same teams: a change noted
   meanwhile is asked about once its answer is in, and being shown anew asks
   nothing while one is out. An answer for teams or scores since changed is
-  dropped. A question unanswered is asked again after 5 s, 30 s, 2 minutes and
-  10 minutes, then every half hour until one is answered (every 2 minutes until 16 Oct 2026,
-  when a pool the server could not answer in time made each try a cold 8 GiB load). The last bridge for a season, the bridge alone
+  dropped. A question unanswered is asked again on a timer after 5 s, 30 s and 2
+  minutes, then after 10 minutes and every half hour, but the timer sends at most
+  three a season a New York day on the device (`RETRIES_A_DAY`, the day's count
+  kept under `lf_bridge_retries_v1` with its day, so a reload sends none of the
+  day's again, and held by the page where storage will not keep it); past them the
+  waits go on sending nothing, so the next day's three are made with nothing else
+  asking. A retry that falls due while the page is hidden is not sent then: being
+  shown sends it, in place of what being shown would ask, so the two never ask
+  twice, and a change that asks anew meanwhile drops it. And while the server's
+  replies say the edits' month is spent (`editMonth`, "Rebuilds after saves"),
+  answered or not, the timer sends none until New York's month turns or a reply
+  says it is not spent; a reply that says nothing of it, from a server before
+  this or a charge the ledger was slow to take, is not known and changes nothing.
+  The sign-in, coming online, the page shown anew and every change still ask as
+  they did, whatever the timer has sent. Until 31 October 2026 the half hour
+  repeated with no end, hidden or not: one page left open with a server that
+  could not answer sent 48 cold 8 GiB loads a day, about 23,000 GiB-seconds at a
+  minute each (the sweep's reckoning of 30 October 2026); and every 2 minutes
+  until 16 Oct 2026. The last bridge for a season, the bridge alone
   and never the clubs, about 2,400 characters, with the very question it answered
   as JSON (compared as written, since a reload holds no array of the visit before
   to compare by identity) and the copy, version, moment asked and rules it came
@@ -9446,7 +9500,10 @@ them, and changing the signed-in account discards its saved snapshot.
 Transient status reads and import starts reconnect automatically, with delays capped
 at 30 seconds and at most five tries again (`MAX_RECONNECTS`), after which the card says what
 went wrong and offers to try again. A question or a warm-up the server gave up on (`aborted`,
-or past its time) is not asked again on its own at all: each try is a cold load of the whole
-pool. Sign-in and permission refusals remain actionable. Unkeyed edits are
+or past its time) is not sent again by the call (`GAVE_UP`): each try is a cold load of the whole
+pool, and a card that asked one offers to ask again. League Standings' bridge question alone is
+asked again on its own, on a timer at most three times a season a New York day, never while the
+page is hidden, and never while the server says the edits' month is spent ("What Team Rankings
+has, asked of the server"). Sign-in and permission refusals remain actionable. Unkeyed edits are
 not blindly repeated after an uncertain save, because doing that could duplicate an
 edit. Import starts are safe to retry by their persistent job identity.
