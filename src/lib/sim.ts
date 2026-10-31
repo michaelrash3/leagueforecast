@@ -1509,15 +1509,27 @@ const playOwed = (
   byId: Map<string, Team>,
   owed: OwedPlay,
   settings: Settings,
-  draws: SeasonDraws
+  draws: SeasonDraws,
+  /**
+   * In a paired run, as `playOut` takes it, with each owed game's key at its place: each owed game
+   * draws a stream of its own too. Drawn from the run's one stream, a tie drawn in one point and
+   * not the other (a tie takes one number, a margin three) moved every owed draw after it, in that
+   * season and the ones after, so the step on a league's first tie was two runs' worth of chance.
+   */
+  paired?: { draws: SeasonDraws; seed: number; season: number; games: readonly number[] }
 ): void => {
   // The league's totals as the scheduled games left them, which booking keeps the counted ones.
   const tally = leagueTallyOf(season, settings);
   byId.set(OWED_OPPONENT, owed.side);
-  for (const game of owed.games) {
+  for (const [at, game] of owed.games.entries()) {
     const prediction = predictGame(game, season, settings, byId, tally);
     const margin = drawMargin(
-      draws,
+      paired
+        ? {
+            ...paired.draws,
+            random: gameStream(paired.seed, paired.season, paired.games[at] ?? 0),
+          }
+        : draws,
       prediction.awayWinPct,
       prediction.awayScore - prediction.homeScore,
       true
@@ -1768,6 +1780,7 @@ export const simulateGoldOddsRun = (
         draws: { ...draws, tieAlwaysDrawn: true as const },
         seed: hashSeed(seedText),
         games: remaining.map((game) => hashSeed(game.id)),
+        owed: owed ? owed.games.map((game) => hashSeed(game.id)) : [],
       }
     : undefined;
 
@@ -1782,7 +1795,15 @@ export const simulateGoldOddsRun = (
       results,
       pairing && { ...pairing, season: i }
     );
-    if (owed) playOwed(season, byId, owed, settings, pairing?.draws ?? draws);
+    if (owed)
+      playOwed(
+        season,
+        byId,
+        owed,
+        settings,
+        draws,
+        pairing && { draws: pairing.draws, seed: pairing.seed, season: i, games: pairing.owed }
+      );
 
     let followedIn = false;
     // The same order the cut is read from, so the places are counted with no draw added and the
