@@ -4703,6 +4703,11 @@ subscription and sending to it, which the app does not have.
   switch back to an id nor a restore that puts another season under the open one shows what
   was kept of the season before.
 - League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose, and with `GROQ_API_KEY` Groq does when Gemini cannot; see [AI league story](#ai-league-story). No key is required for the app to work.
+- **A score is written half a second after the last keystroke**, and at once if the page moves
+  on first: another season opened, the page hidden or closed, or the turn given to another tab
+  (below). It goes into the season it was typed in, written before a switch moves the season saves
+  go into, and only the games changed are written, over what storage holds then
+  (`mergeHeldScores`). A score typed in that half second was lost with the switch or the page.
 - **One tab writes League Standings** (`tabTurn.ts`, the owner's choice of 26 October 2026).
   Every tab saves whole seasons from what it read when it opened, into the season storage names
   active, so two tabs of one browser, or a tab and the installed app, undid each other's scores,

@@ -46,12 +46,13 @@ const setup = (
     confirm?: boolean;
     seasonLabel?: string;
     beforeDelete?: (id: string) => Promise<boolean>;
+    beforeSwitch?: () => void;
   } = {}
 ) => {
   const loadActiveSeason = vi.fn();
   const showToast = vi.fn();
   const requestConfirmation = vi.fn().mockResolvedValue(over.confirm ?? true);
-  const { beforeDelete } = over;
+  const { beforeDelete, beforeSwitch } = over;
   const hook = renderHook(
     ({ seasonLabel }: { seasonLabel: string }) =>
       useSeasons({
@@ -60,6 +61,7 @@ const setup = (
         showToast,
         requestConfirmation,
         ...(beforeDelete ? { beforeDelete } : {}),
+        ...(beforeSwitch ? { beforeSwitch } : {}),
       }),
     { initialProps: { seasonLabel: over.seasonLabel ?? "" } }
   );
@@ -79,6 +81,19 @@ describe("switching between seasons", () => {
     expect(getActiveSeasonId()).toBe(other.id);
     expect(loadActiveSeason).toHaveBeenCalledTimes(1);
     expect(toastText(showToast)).toContain("Fall 2026");
+  });
+
+  it("has what the season on screen still holds written while saves still go into it", () => {
+    const other = createSeason("Fall 2026");
+    const from = getActiveSeasonId();
+    const writtenInto: string[] = [];
+    const { result } = setup({ beforeSwitch: () => writtenInto.push(getActiveSeasonId()) });
+
+    act(() => result.current.switchTo(other.id));
+
+    // A save goes into the season storage names active, which the switch moves.
+    expect(writtenInto).toEqual([from]);
+    expect(getActiveSeasonId()).toBe(other.id);
   });
 
   it("does nothing at all when that season is already the one on screen", () => {
