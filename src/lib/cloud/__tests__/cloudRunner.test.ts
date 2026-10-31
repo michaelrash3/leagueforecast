@@ -714,6 +714,39 @@ describe("a pull run on the cloud copy", () => {
       expect(routerGone()).toEqual({ marked: false, club: false, games: 0, refused: true });
     });
 
+    it("reports no deletion where the save that stood deleted none (Codex on #495)", async () => {
+      // While GameChanger answers, the phone says the Router is real. The first try files onto the
+      // copy as read and deletes it; its save meets the phone's and the run files again, sparing it.
+      const cloud = memoryCloud();
+      await seed(cloud, undefined, { seasons: [] });
+      const phoneSaysReal = async () => {
+        const saved = await commitChanges({
+          store: cloud.store,
+          base: cloud.manifest()!,
+          changes: [{ key: "league_forecast_gc_real_clubs_v1", value: [ROUTER], at: 2 }],
+          device: "phone",
+          now: "2026-09-29T13:00:30.000Z",
+        });
+        if (!saved.ok) throw new Error("phone");
+      };
+      let first = true;
+      const answers: CloudPullDeps["fetchTeams"] = async (ids) => {
+        if (first) {
+          first = false;
+          await phoneSaysReal();
+        }
+        return routerAnswers(ids);
+      };
+      const result = await runCloudPull(
+        leg([ROUTER]),
+        deps(cloud, "2026-09-29T13:01:00.000Z", { fetchTeams: answers })
+      );
+      expect(result).toMatchObject({ end: "finished", replays: 1 });
+      expect(result.deleted).toBeUndefined();
+      await marksInCopy(cloud);
+      expect(routerGone()).toMatchObject({ club: true, refused: false });
+    });
+
     it("counts once a game between two clubs the 40-run rule deletes (Codex on #495)", async () => {
       const PAIR = ["gcROUTPAIR01", "gcROUTPAIR02"] as const;
       const names = ["Router Pair One", "Router Pair Two"] as const;

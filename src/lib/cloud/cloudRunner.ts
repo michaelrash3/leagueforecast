@@ -989,8 +989,11 @@ const fileAndSave = async (
     } finally {
       onCloudPoolWrite(null);
     }
+    // This try's alone: a try whose save met another device's files again, and may delete none.
     if (filed.deleted && filed.deleted.clubs.length > 0) {
       result.deleted = { clubs: filed.deleted.clubs.length, games: filed.deleted.games.length };
+    } else {
+      delete result.deleted;
     }
     result.filed = filed.outcomes.filter((outcome) => !outcome.skip).length;
     result.gamesAdded = filed.outcomes.reduce((sum, outcome) => sum + outcome.gamesAdded, 0);
