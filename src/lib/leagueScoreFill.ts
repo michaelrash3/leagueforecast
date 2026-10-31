@@ -92,7 +92,10 @@ export type LeagueFillRow = {
   /** What the pool calls each side, given only when it differs from the league's own name. */
   poolAwayName?: string;
   poolHomeName?: string;
-  /** The pool game the runs came from. Absent when nothing could be singled out. */
+  /**
+   * The pool game the row was read off: the runs', or one that fits either way round, which gives
+   * no runs. Absent when nothing could be singled out.
+   */
   scoutGameId?: string;
   /** GameChanger's own ids, when the result came from a pull rather than something typed. */
   gcTeamId?: string;
