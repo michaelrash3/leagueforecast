@@ -670,6 +670,25 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
     });
   });
 
+  it("builds the same boards from seasons an older build left at the first layout", async () => {
+    const { cloud, manifest } = await copyWith({ seasons: [{ name: "no id" }] });
+    const live = memoryLive();
+    const atFirst = DOCS.map((doc) => ({ ...doc, fields: { ...doc.fields, schema: 1 } }));
+    const result = await publishCopyViews({
+      copyStore: cloud.store,
+      liveStore: live.store,
+      manifest,
+      today: FIXTURE_TODAY,
+      now: () => T,
+      locale: "en-US",
+      leagueDocs: docsList(atFirst),
+    });
+    expect(result).toMatchObject({ ok: true, boards: 33 });
+    for (const { key, value } of boardsWith(storedSeason)) {
+      expect(await decode(live, key)).toEqual(JSON.parse(JSON.stringify(value)));
+    }
+  });
+
   it("publishes nothing when a season's document changed before the commit", async () => {
     const { cloud, manifest } = await copyWith(LEAGUE);
     const live = memoryLive();

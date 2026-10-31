@@ -7935,7 +7935,7 @@ The document holds the season record by record rather than as one value:
 
 | Field                            | What it holds                                                                  |
 | -------------------------------- | ------------------------------------------------------------------------------ |
-| `schema`                         | The layout's version, 1. A device reads and writes no document of a later one. |
+| `schema`                         | The layout's version, 2. A device reads and writes no document of a later one. |
 | `rev`                            | The write the document is at: 1 when made, one more with every write.          |
 | `name`, `createdAt`, `updatedAt` | As the season's entry in the switcher has them.                                |
 | `teams`, `teamOrder`             | Each team under its id, and the teams' ids in the season's order.              |
@@ -7962,6 +7962,24 @@ season's document is named the same way. A record found under a key that is not
 its own id's, or under a key `encodeKey` would never write, is left unread, and
 every record is checked by the same validators storage reads with, so nothing
 reaches a device unchecked.
+
+**The layout's version.** A device writes a changed record whole, as its build
+reads one, so a build that predates a field drops it from every record it
+writes: a phone still on a build from before games kept their start erased the
+start of any game it moved or edited, for every device. So the version goes up
+with every field a season's document holds (`leagueDocSchema.test.ts` lists each
+one, and fails until it does), and a device reads and writes no document of a
+later layout than its build's: the season is read-only there, saying a newer
+version saved it, until the page reloads. Layout 2 is a game's start
+(`Matchup.startTs`) and a set team list (`Settings.teamsLocked`). Both sides of
+every comparison are stamped with the build's own layout, so until 31 October
+2026 no write carried one and every season stayed at 1, open to the builds that
+drop a start. A season of an earlier layout is raised by the first write a device
+of a later build sends it, in that write (`writesFor`), never by a write of its
+own, which would cost one for each season opened. The servers read with the same
+version (`docToSeason`), so the functions go out with the app or before it: a
+server older than a raised season stops on it (`newer-league`) until it is
+deployed.
 
 The rules (`firestore.rules`, tried on the emulator by `npm run test:rules`) let
 the accounts on the list read, list, make and change seasons, and nobody else

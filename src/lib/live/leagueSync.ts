@@ -436,7 +436,8 @@ export const startLeagueSync = ({
         // Made elsewhere a moment before, met here for the first time inside the write; or made
         // elsewhere since under a deleted season's id, before the listener has said so.
         if (otherSeason(watch, local, theirs)) return { write: null, result: { kind: "apart" } };
-        const changes = writesFor(theirs, read.rev, layOver(known, local, theirs), savedAt);
+        const merged = layOver(known, local, theirs);
+        const changes = writesFor(theirs, read.rev, merged, savedAt, read.schema);
         return changes.length > 0
           ? { write: { changes }, result: { kind: "sent", rev: read.rev + 1, changes } }
           : { write: null, result: { kind: "none" } };

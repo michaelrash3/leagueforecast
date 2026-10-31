@@ -1724,6 +1724,19 @@ describe("League Standings in the copy", () => {
     // Not for a question that refits nothing.
     await runQuery({ pool: cache, store: cloud.store, leagueDocs, query: RENAME });
     expect(listed).toBe(3);
+    // Seasons an older build left at the first layout answer as they do at this build's.
+    const atFirst = docs.map((doc) => ({ ...doc, fields: { ...doc.fields, schema: 1 } }));
+    const answerFrom = async (from: Parameters<typeof runQuery>[0]["leagueDocs"]) => {
+      const run = await runQuery({
+        pool: cache,
+        store: cloud.store,
+        leagueDocs: from,
+        query: WHAT_IF,
+      });
+      if (!run.ok) throw new Error(run.why);
+      return run.answer;
+    };
+    expect(await answerFrom(listing(atFirst))).toEqual(await answerFrom(listing(docs)));
     // A season a newer build saved, and a listing that fails: refused, not thrown out of.
     const [first, ...rest] = docs;
     if (!first) throw new Error("no documents");
