@@ -245,17 +245,21 @@ describe("the trend's points, pinned", () => {
   /*
    * Pinned before the last two points were paired: the six before them are as they were to the
    * digit, and the last two moved, C's from 40.333 and 22.167, D's from 10 and 24.333, E's from
-   * 40.5 and 43.167 (a step of +2.7 that is -0.5 paired) and F's from 9.167 and 10.333.
+   * 40.5 and 43.167 (a step of +2.7 that is -0.5 paired) and F's from 9.167 and 10.333. Then the
+   * paired run came to draw the tie in every game and to key each game from numbers, and the last
+   * two moved again, nothing before them: C's from 41 and 22.667, D's from 9.833 and 28.167, E's
+   * from 39.667 and 39.167 (a step of +1.7 now, still under the card's two points) and F's from 9.5
+   * and 10. This league has no ties: the draw added is thrown away, and the numbers drawn changed.
    */
   it("draws the points before the last two as it always has, and the last two paired", () => {
     expect(points()).toMatchInlineSnapshot(`
       {
         "A": "100 100 100 100 100 100 100 100",
         "B": "25.833 23.833 21.167 6.167 13 0 0 0",
-        "C": "30.833 22.167 19.833 35.5 39.167 39 41 22.667",
-        "D": "28.5 22.333 18.667 21.833 7 7.333 9.833 28.167",
-        "E": "7.833 24.5 20.167 16.167 18.667 32.333 39.667 39.167",
-        "F": "7 7.167 20.167 20.333 22.167 21.333 9.5 10",
+        "C": "30.833 22.167 19.833 35.5 39.167 39 40.833 20.5",
+        "D": "28.5 22.333 18.667 21.833 7 7.333 8.5 26.833",
+        "E": "7.833 24.5 20.167 16.167 18.667 32.333 42.333 44",
+        "F": "7 7.167 20.167 20.333 22.167 21.333 8.333 8.667",
       }
     `);
   });

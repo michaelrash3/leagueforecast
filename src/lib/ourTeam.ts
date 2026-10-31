@@ -59,9 +59,9 @@ export const needsLines = (
 
 /**
  * The least move in Gold % the card reports. The last step of the trend is drawn paired
- * (`buildTrendStates`), and still came 0.57 to 0.75 points from a long run's on synthetic leagues,
+ * (`buildTrendStates`), and still came 0.48 to 0.66 points from a long run's on synthetic leagues,
  * so a smaller move is as likely the simulation's as the result's. It was shown from a twentieth of
- * a point: of the 217 moves that showed on 40 eight-team leagues, the 9 the wrong way were all
+ * a point: of the 209 moves that showed on 40 eight-team leagues, the 3 the wrong way were all
  * under two points.
  */
 export const GOLD_MOVE_SHOWN = 2;

@@ -1214,6 +1214,15 @@ export type SeasonDraws = {
   tieShare: number;
   /** How far one game's margin falls from the predicted one: a normal curve's width, in runs. */
   spread: number;
+  /**
+   * A paired run's (`simulateGoldOddsRun`): every game that may end level makes the tie draw,
+   * whatever the share. Its two points draw each game from one stream, and where the result
+   * between them was the league's first tie, the point before, with no share to draw at, made a
+   * draw fewer a game than the point after: every game drew apart, and the step was two runs'
+   * chance again. On four synthetic eight-team leagues, 30 seeds each, the step spread 2.27 points
+   * from seed to seed, where on a win it spread 0.85; drawn every game, 1.05 (0.87 on a win).
+   */
+  tieAlwaysDrawn?: true;
 };
 
 /**
@@ -1268,7 +1277,8 @@ export const seasonDraws = (
  * tie, which only a game that may end level is drawn. The away side wins exactly as often as
  * `awayWinPct` says; the margin is then the normal curve around `predicted`, the predicted margin,
  * on that side of level: the second draw placed within the part of the curve that side's margins
- * fill. Two draws a game, three where the league has had ties, whatever the game comes to.
+ * fill. Two draws a game, three where the league has had ties or the run is paired
+ * (`SeasonDraws.tieAlwaysDrawn`), whatever the game comes to.
  */
 export const drawMargin = (
   draws: SeasonDraws,
@@ -1276,7 +1286,9 @@ export const drawMargin = (
   predicted: number,
   mayTie: boolean
 ): number => {
-  if (mayTie && draws.tieShare > 0 && draws.random() < draws.tieShare) return 0;
+  if (mayTie && (draws.tieShare > 0 || draws.tieAlwaysDrawn) && draws.random() < draws.tieShare) {
+    return 0;
+  }
   const awayWins = draws.random() < awayWinPct;
   const level = normalCdf(-predicted / draws.spread);
   const placed = draws.random();
@@ -1324,14 +1336,22 @@ const playOut = (
   draws: SeasonDraws,
   /** Where given, how each game went, at its place (`HOME_WON`, `AWAY_WON` or `TIED`). */
   results?: Uint8Array,
-  /** In a paired run, the run's seed and this season's number: each game draws its own stream. */
-  paired?: { seed: number; season: number }
+  /**
+   * In a paired run, its draws (`SeasonDraws.tieAlwaysDrawn`), its seed, this season's number and
+   * each game's key at its place: each game draws a stream of its own (`gameStream`).
+   */
+  paired?: { draws: SeasonDraws; seed: number; season: number; games: readonly number[] }
 ): void => {
   const tally = leagueTallyOf(season, settings);
   for (const [at, game] of remaining.entries()) {
     const prediction = predictGame(game, season, settings, byId, tally);
     const margin = drawMargin(
-      paired ? { ...draws, random: gameStream(paired.seed, paired.season, game.id) } : draws,
+      paired
+        ? {
+            ...paired.draws,
+            random: gameStream(paired.seed, paired.season, paired.games[at] ?? 0),
+          }
+        : draws,
       prediction.awayWinPct,
       prediction.awayScore - prediction.homeScore,
       true
@@ -1405,22 +1425,29 @@ export const makeRandom = (seed: number) => {
   };
 };
 
+/** murmur3's finalizer: every bit of a 32-bit key moved by every other. */
+const mix32 = (key: number): number => {
+  let mixed = Math.imul(key ^ (key >>> 16), 0x85ebca6b);
+  mixed = Math.imul(mixed ^ (mixed >>> 13), 0xc2b2ae35);
+  return (mixed ^ (mixed >>> 16)) >>> 0;
+};
+
 /**
  * One game's draws in one season of a paired run (`simulateGoldOddsRun`): a stream of its own,
- * keyed to the run's seed, the season and the game, so two runs of one seed draw a game they both
- * play alike, whatever else either plays. The key's hash is mixed (murmur3's finalizer) before it
- * seeds the stream: keys a letter apart, as one season's games are, hash to seeds a fixed step
- * apart, whose first draws stand a fixed distance apart, and two games of a season drew together.
- * Measured on 40 synthetic leagues, 30 seeds each, against plain runs: unmixed, the paired step's
- * mean sat more than three standard errors from the plain one's for 46 of 280 teams; mixed, for
- * none.
+ * keyed to the run's seed, the season and the game (`game`, its id's `hashSeed`, worked out once a
+ * run), so two runs of one seed draw a game they both play alike, whatever else either plays.
+ *
+ * The key is mixed (murmur3's finalizer, `mix32`) before it seeds the stream: keys a letter apart,
+ * as one season's games are, seeded first draws a fixed distance apart, and two games of a season
+ * drew together. Measured on 40 synthetic leagues, 30 seeds each, against plain runs: unmixed, the
+ * paired step's mean sat more than three standard errors from the plain one's for 46 of 280 teams;
+ * mixed, for none, and with the key as it is now for none of 320. It is put together from numbers,
+ * the season stepped by the golden ratio (`0x9e3779b9`) and mixed in with the seed, then the game:
+ * a text built and hashed for every game of every season made a paired run a quarter slower than a
+ * plain one, 102 ms against 81 for 600 seasons of 120 games, where it is 83 now.
  */
-export const gameStream = (seed: number, season: number, gameId: string): (() => number) => {
-  let key = hashSeed(`${seed}:${season}:${gameId}`);
-  key = Math.imul(key ^ (key >>> 16), 0x85ebca6b);
-  key = Math.imul(key ^ (key >>> 13), 0xc2b2ae35);
-  return makeRandom((key ^ (key >>> 16)) >>> 0);
-};
+export const gameStream = (seed: number, season: number, game: number): (() => number) =>
+  makeRandom(mix32(mix32(seed ^ Math.imul(season + 1, 0x9e3779b9)) ^ game));
 
 /**
  * A text that changes exactly when the forecast's inputs do: which games are final, and what they
@@ -1567,7 +1594,14 @@ export const simulateGoldOddsRun = (
   const inIfAway = new Array<number>(following ? remaining.length : 0).fill(0);
   const inIfHome = new Array<number>(following ? remaining.length : 0).fill(0);
   const draws = seasonDraws(teams, settings, random);
-  const pairSeed = hashSeed(seedText);
+  // A paired run's draws: the tie drawn in every game, and each game's key hashed once a run.
+  const pairing = paired
+    ? {
+        draws: { ...draws, tieAlwaysDrawn: true as const },
+        seed: hashSeed(seedText),
+        games: remaining.map((game) => hashSeed(game.id)),
+      }
+    : undefined;
 
   for (let i = 0; i < iterations; i += 1) {
     const { season, byId } = scratchSeason(teams);
@@ -1578,7 +1612,7 @@ export const simulateGoldOddsRun = (
       settings,
       draws,
       results,
-      paired ? { seed: pairSeed, season: i } : undefined
+      pairing && { ...pairing, season: i }
     );
 
     let followedIn = false;

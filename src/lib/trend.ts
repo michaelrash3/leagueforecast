@@ -43,8 +43,8 @@ export type TrendState = {
  * Measured on 40 synthetic eight-team leagues against 24,000 seasons a point: 1.6 points of error,
  * where a team not in the game truly moved 0.9 on average; of 235 moves shown, 26 were of 2 points
  * or more where the true move was under 1, and 26 went the wrong way. So the last two points are
- * drawn from the last one's seed, paired, and the same leagues came to 0.75 points of error, with
- * 4 such moves in 217 and 9 the wrong way. One seed alone came to 1.43: the point before has one
+ * drawn from the last one's seed, paired, and the same leagues came to 0.66 points of error, with
+ * 2 such moves in 209 and 3 the wrong way. One seed alone came to 1.43: the point before has one
  * more game to play, and on one stream every draw after it moved.
  */
 export const buildTrendStates = (

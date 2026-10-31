@@ -4404,10 +4404,14 @@ its own keyed to the season and the game (`gameStream`), every season played, so
 alike every game they share and their difference is what the result did. Each point drawn from its
 own seed, the step was two runs' worth of chance: on 40 synthetic eight-team leagues, measured
 against 24,000 seasons a point, it was 1.6 points out where a team not in the game truly moved 0.9,
-and 26 of the 235 moves shown went the wrong way. Paired, it is 0.75 out, and of the moves of two
+and 26 of the 235 moves shown went the wrong way. Paired, it is 0.66 out, and of the moves of two
 points or more none went the wrong way. One seed on one stream was not enough (1.43): the point
-before the result has that game still to play, and every draw after it moved. Only those two points
-moved; the six before them are as they were to the digit.
+before the result has that game still to play, and every draw after it moved. Every game of a paired
+run makes the tie draw, in a league that has had no tie too (`SeasonDraws.tieAlwaysDrawn`): the
+point before a league's first tie has no share of ties to draw at, made a draw fewer each game than
+the point after, and the step on that result was two runs' chance again: from seed to seed on four
+synthetic leagues it spread 2.27 points, where on a win it spread 0.85; drawn every game, 1.05
+(0.87 on a win). Only those two points moved; the six before them are as they were to the digit.
 
 When the team is linked to a Team Rankings club, the card also gives the club's place
 on its board — "37th of 1,812 nationally (▲3) · top 3% · 4th of 160 in OH · 9U 2027 ·
