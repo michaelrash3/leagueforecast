@@ -133,6 +133,13 @@ const DIST = "dist";
  * fetched as the Dashboard opens, with a limit set as the small views' were, 1.5 KB above what it
  * measured; it builds the season's games from the records App holds rather than App building them,
  * which had put the first download at 255.0 KB.
+ * The first download went the other way on 30 Oct 2026, 248.0 KB against 254.9 KB on main (247,951
+ * bytes against 254,912), with nothing removed and nothing fetched later: the logic the page loads
+ * at start is one boot chunk (`bootChunk.ts`), where the bundler had cut it into the entry chunk and
+ * 23 files of what it shares with later views, each compressed afresh and carrying its own imports
+ * and exports. The entry chunk keeps the components, 41.7 KB, so its line now has room it did not;
+ * the first download's line, which holds both, is the one that binds. Team Rankings went from 166.2
+ * KB to 165.3 KB with it, and each League view by 0 to 0.4 KB.
  */
 const BUDGET = {
   firstDownload: 255_000,

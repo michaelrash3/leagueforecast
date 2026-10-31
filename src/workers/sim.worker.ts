@@ -1,8 +1,8 @@
 /// <reference lib="webworker" />
 import {
   simulateBracketOdds,
-  simulateGoldOdds,
   simulateGoldOddsRun,
+  simulateTrendPoint,
   type BracketOddsResult,
   type GoldSwing,
 } from "../lib/sim";
@@ -25,7 +25,8 @@ export type TrendRequest = {
   kind: "trend";
   id: number;
   teamIds: string[];
-  states: { teams: Team[]; remaining: Matchup[]; seedText: string }[];
+  /** The trend's points (`TrendState`), the last two paired. */
+  states: { teams: Team[]; remaining: Matchup[]; seedText: string; paired?: true }[];
   iterations: number;
   cutoff: number;
   settings: Settings;
@@ -137,14 +138,7 @@ ctx.onmessage = (event: MessageEvent<WorkerRequest>) => {
   });
   req.states.forEach((state) => {
     if (canceled.has(req.id)) return;
-    const odds = simulateGoldOdds(
-      state.teams,
-      state.remaining,
-      req.iterations,
-      state.seedText,
-      req.cutoff,
-      req.settings
-    );
+    const odds = simulateTrendPoint(state, req.iterations, req.cutoff, req.settings);
     req.teamIds.forEach((id) => {
       const series = trend[id];
       if (series) series.push(odds[id] ?? 0);

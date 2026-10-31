@@ -6,10 +6,17 @@ import {
   rankOptionsFromSettings,
   rankTeams,
   simulateGoldOdds,
+  simulateTrendPoint,
 } from "../sim";
 import { buildPredictionEngine, type ExternalResult } from "../predictionEngine";
 import { isFinal } from "../util";
-import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../types";
+import {
+  DEFAULT_SETTINGS,
+  TREND_ITERATIONS,
+  type GameLog,
+  type Matchup,
+  type TeamBase,
+} from "../types";
 import { dateInSquadYear, dedupeLeagueFixtures, inSegment, type ScoutGame } from "../teamRankings";
 
 /**
@@ -176,6 +183,29 @@ describe("the seasons behind the Gold-odds trend", () => {
     expect(played).toEqual([33, 34, 35, 36, 37, 38, 39, 40]);
   });
 
+  /*
+   * The Our Team card says how far the last result moved the Gold %, the last step of this line,
+   * and the step was two runs' worth of chance: each point drawn from its own seed, the measured
+   * error 1.6 points against a true move of 0.9 where the team was not in the game. The last two
+   * points are drawn from one seed, paired, so their difference is what the result did.
+   */
+  it("draws its last two points from one seed, paired, and the rest each from its own", () => {
+    const last = built[built.length - 1]!;
+    const before = built[built.length - 2]!;
+    expect(before.seedText).toBe(last.seedText);
+    expect([before.paired, last.paired]).toEqual([true, true]);
+    const earlier = built.slice(0, -2);
+    expect(earlier.every((state) => state.paired === undefined)).toBe(true);
+    expect(new Set(built.map((state) => state.seedText)).size).toBe(built.length - 1);
+    // One point has no step, and nothing to pair.
+    const one = buildTrendStates(bases, matchups, logs, completed.slice(0, 1), {
+      states: 8,
+      goldCutoff: 2,
+      settings,
+    });
+    expect(one.map((state) => state.paired)).toEqual([undefined]);
+  });
+
   it("draws what it has when fewer games have been played than the window holds", () => {
     const few = completed.slice(0, 3);
     const built3 = buildTrendStates(bases, matchups, logs, few, {
@@ -188,6 +218,50 @@ describe("the seasons behind the Gold-odds trend", () => {
     expect(built3.map((state) => state.teams.reduce((sum, t) => sum + t.games, 0) / 2)).toEqual([
       1, 2, 3,
     ]);
+  });
+});
+
+/**
+ * Each point of the line as the worker simulates it, at the trend's own seasons, pinned to the
+ * digit: what a change to how the points are drawn moves, and what it leaves alone.
+ */
+describe("the trend's points, pinned", () => {
+  const { matchups, logs, completed } = season();
+  const states = buildTrendStates(bases, matchups, logs, completed, {
+    states: 8,
+    goldCutoff: 2,
+    settings,
+  });
+  const points = () => {
+    const odds = states.map((state) => simulateTrendPoint(state, TREND_ITERATIONS, 2, settings));
+    return Object.fromEntries(
+      bases.map((team) => [
+        team.id,
+        odds.map((point) => Number((point[team.id] ?? 0).toFixed(3))).join(" "),
+      ])
+    );
+  };
+
+  /*
+   * Pinned before the last two points were paired: the six before them are as they were to the
+   * digit, and the last two moved, C's from 40.333 and 22.167, D's from 10 and 24.333, E's from
+   * 40.5 and 43.167 (a step of +2.7 that is -0.5 paired) and F's from 9.167 and 10.333. Then the
+   * paired run came to draw the tie in every game and to key each game from numbers, and the last
+   * two moved again, nothing before them: C's from 41 and 22.667, D's from 9.833 and 28.167, E's
+   * from 39.667 and 39.167 (a step of +1.7 now, still under the card's two points) and F's from 9.5
+   * and 10. This league has no ties: the draw added is thrown away, and the numbers drawn changed.
+   */
+  it("draws the points before the last two as it always has, and the last two paired", () => {
+    expect(points()).toMatchInlineSnapshot(`
+      {
+        "A": "100 100 100 100 100 100 100 100",
+        "B": "25.833 23.833 21.167 6.167 13 0 0 0",
+        "C": "30.833 22.167 19.833 35.5 39.167 39 40.833 20.5",
+        "D": "28.5 22.333 18.667 21.833 7 7.333 8.5 26.833",
+        "E": "7.833 24.5 20.167 16.167 18.667 32.333 42.333 44",
+        "F": "7 7.167 20.167 20.333 22.167 21.333 8.333 8.667",
+      }
+    `);
   });
 });
 

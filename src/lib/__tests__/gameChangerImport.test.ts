@@ -934,6 +934,13 @@ describe("one squad holding several GameChanger ids", () => {
   });
   const fall = { season: "fall" as const, year: 2026 };
   const spring = { season: "spring" as const, year: 2027 };
+  /**
+   * The Raptors pulled as well, with nothing on file of their own: two ids' one game proves them one
+   * squad only against a pulled third club (`mergeSameSquadIds`), since a name nobody pulled is a
+   * stand-in, which any number of teams can be.
+   */
+  const withRaptors = (pool: GcImportState) =>
+    importGcSchedule(sched("gcRAPTORS000", "Raptors 11U", [], fall), pool).state;
 
   it("leaves a state the owner cleared clear when it folds two ids", () => {
     let pool = importGcSchedule(
@@ -954,6 +961,7 @@ describe("one squad holding several GameChanger ids", () => {
       ),
       pool
     ).state;
+    pool = withRaptors(pool);
     // Each half cleared in turn, the other in Kentucky: whichever survives keeps the clear.
     const yeagers = pool.teams.filter((team) => team.name === "Yeager Davis");
     yeagers.forEach((cleared) => {
@@ -965,6 +973,7 @@ describe("one squad holding several GameChanger ids", () => {
             : { ...team, state: "KY" }
       );
       const settled = mergeSameSquadIds({ ...pool, teams });
+      expect(settled.merged).toBe(1);
       const [survivor] = settled.state.teams.filter((team) => team.name === "Yeager Davis");
       if (survivor?.id === cleared.id) expect(survivor).not.toHaveProperty("state");
       else expect(survivor?.state).toBe("KY");
@@ -1006,6 +1015,7 @@ describe("one squad holding several GameChanger ids", () => {
       ),
       pool
     ).state;
+    pool = withRaptors(pool);
     // Two ids, two teams, the same 8-2 twice: the table would show the club twice at 1-0.
     expect(pool.teams.filter((team) => team.name === "Yeager Davis")).toHaveLength(2);
 
@@ -1041,6 +1051,7 @@ describe("one squad holding several GameChanger ids", () => {
       ),
       pool
     ).state;
+    pool = withRaptors(pool);
     const raptors = pool.teams.find((team) => team.name === "Raptors")!;
     const scrimmage: ScoutGame = {
       id: "gc_gcRAPTORS000_x1",
@@ -1075,6 +1086,7 @@ describe("one squad holding several GameChanger ids", () => {
       ),
       pool
     ).state;
+    pool = withRaptors(pool);
     const yeagers = pool.teams.filter((team) => team.name === "Yeager Davis").map((t) => t.id);
     // The Owls' copy of a game against the Hawks holds two rows of the Hawks' schedule, one filed
     // against each Yeager id by name and claimed (`FoldedRow.filedAgainst`).
@@ -4022,10 +4034,10 @@ describe("poolSignature", () => {
     // r8 since the tidy learned to file a stand-in onto a lone namesake in a bordering state.
     // This digit is meant to move on exactly that kind of change: it is what makes a pool nobody
     // has touched read as unseen, once, so the new rule reaches what is already filed.
-    expect(before).toBe(`r35|1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(before).toBe(`r37|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r35|0|0|0|");
+    expect(poolSignature(empty)).toBe("r37|0|0|0|");
   });
 
   /*
@@ -5026,6 +5038,12 @@ describe("applying several folds at once", () => {
         sched(`gcSPRG0000${tag}`, name, `Raptors ${at} 11U`, spring),
         pool
       ).state;
+      // The squad's opponent pulled too, with nothing on file of its own: a game against a pulled
+      // third club is what proves two ids one squad (`mergeSameSquadIds`).
+      pool = importGcSchedule(
+        { ...sched(`gcRAPT0000${tag}`, `Raptors ${at} 11U`, "", fall), games: [] },
+        pool
+      ).state;
     });
     return pool;
   };
@@ -5082,7 +5100,9 @@ describe("applying several folds at once", () => {
 
   it("keeps both GameChanger ids on every survivor, and one copy of each game", () => {
     const settled = mergeSameSquadIds(messy());
-    const clubs = settled.state.teams.filter((team) => team.gcTeams?.length);
+    const clubs = settled.state.teams.filter((team) =>
+      team.gcTeams?.some((link) => !link.teamId.startsWith("gcRAPT"))
+    );
     expect(clubs).toHaveLength(3);
     clubs.forEach((club) => expect(club.gcTeams).toHaveLength(2));
     // Three clubs, one 8-2 apiece — not the six rows the two ids filed between them.
@@ -5092,7 +5112,10 @@ describe("applying several folds at once", () => {
   it("drops a game both sides of which turned out to be the same club", () => {
     // Two ids of one squad listed each other: after the fold it is a club playing itself.
     const pool = messy();
-    const [a, b] = pool.teams.filter((team) => team.gcTeams?.length);
+    // The first squad's two ids, found by the GameChanger ids its fixture gave them.
+    const [a, b] = ["gcFALL000000", "gcSPRG000000"].map((gcId) =>
+      pool.teams.find((team) => team.gcTeams?.some((link) => link.teamId === gcId))
+    );
     const withSelf: GcImportState = {
       ...pool,
       games: [

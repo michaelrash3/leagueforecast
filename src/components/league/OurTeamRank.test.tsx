@@ -102,6 +102,30 @@ describe("the Our team card", () => {
     record: "5-2",
   };
 
+  it("says how far the last result moved the Gold %, where the summary has a move", () => {
+    const { rerender } = render(
+      <OurTeamCard
+        summary={{ ...summary, goldPct: 45.4, goldChange: -2.4 }}
+        teams={[{ id: "L-HIVE", name: "Example Hive" }]}
+        onPick={() => {}}
+        onEnterScore={() => {}}
+      />
+    );
+    const region = screen.getByRole("region", { name: "Our team" });
+    expect(region).toHaveTextContent("45% Gold (−2.4 pts on the last result)");
+    // A move too small to be told from the simulation's own is left out of the summary (`ourTeam.ts`).
+    rerender(
+      <OurTeamCard
+        summary={{ ...summary, goldPct: 45.4 }}
+        teams={[{ id: "L-HIVE", name: "Example Hive" }]}
+        onPick={() => {}}
+        onEnterScore={() => {}}
+      />
+    );
+    expect(region).toHaveTextContent("45% Gold");
+    expect(region).not.toHaveTextContent("on the last result");
+  });
+
   it("says where the club stands nationally and in its state, and as of when", () => {
     render(
       <OurTeamCard

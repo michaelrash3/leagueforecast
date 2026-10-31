@@ -8,6 +8,7 @@ import {
   keptWith,
   sameRace,
   sameSeen,
+  seenAsListed,
   seenOf,
   type Change,
   type RaceSeen,
@@ -16,6 +17,12 @@ import {
 import type { SeasonState, SeasonStore } from "../lib/seasonStore";
 
 type Race = Record<string, RaceSeen>;
+
+/**
+ * What the list says as drawn: the look it is measured from and the season as it stood, for the
+ * big card, which stands in the list's place while it is up, to take only that as seen.
+ */
+export type DigestListed = { seasonId: string; from: SeasonSeen; to: SeasonSeen };
 
 type Held = {
   seasonId: string;
@@ -93,7 +100,12 @@ export function useSeasonDigest({
   followed: string | null;
   oddsMove: number;
   heard: boolean;
-}): { changes: Change[]; acknowledge: () => void } {
+}): {
+  changes: Change[];
+  acknowledge: () => void;
+  listed: DigestListed | null;
+  acknowledgeListed: (listed: DigestListed) => void;
+} {
   const [open, setOpen] = useState(() => store.get());
   const [held, setHeld] = useState<Held>(() => heldFor(open.id, open.season));
   // The open season's last settled forecast, kept while the next is worked out.
@@ -266,5 +278,22 @@ export function useSeasonDigest({
       raceOwed: false,
     }));
   }, [store, shownRace]);
-  return { changes, acknowledge };
+  const listed = useMemo(
+    () =>
+      held.seasonId === open.id ? { seasonId: held.seasonId, from: held.seen, to: now } : null,
+    [held, open.id, now]
+  );
+  /*
+   * The big card's Got it: what the list said as the card came up in its place, and nothing that
+   * came while the card was up. Taking the season as it stood at the press, it put away another
+   * device's final that arrived meanwhile, which no card or list then ever told.
+   */
+  const acknowledgeListed = useCallback((shown: DigestListed) => {
+    setHeld((was) => {
+      if (was.seasonId !== shown.seasonId) return was;
+      const seen = seenAsListed(was.seen, shown.from, shown.to);
+      return seen === was.seen && was.looked ? was : { ...was, seen, looked: true };
+    });
+  }, []);
+  return { changes, acknowledge, listed, acknowledgeListed };
 }

@@ -6,11 +6,18 @@ import {
   movedGames,
   movesToApply,
   planLeagueScoreFill,
+  startsFromFill,
   summarizeLeagueFill,
   type LeagueFillPlan,
   type LeagueScoreFillInput,
 } from "../leagueScoreFill";
-import { LEAGUE_GAME_PREFIX, type AgeGroup, type ScoutGame, type ScoutTeam } from "../teamRankings";
+import {
+  cleanTeamName,
+  LEAGUE_GAME_PREFIX,
+  type AgeGroup,
+  type ScoutGame,
+  type ScoutTeam,
+} from "../teamRankings";
 import type { GameLog, Matchup, TeamBase } from "../types";
 import { blankLog } from "../util";
 
@@ -391,6 +398,190 @@ describe("planLeagueScoreFill", () => {
     expect(plan.rows.map((row) => row.matchupId)).toEqual(["g1", "g2"]);
   });
 
+  /*
+   * Two league teams of one name to the pool, told apart only by an aside or an age: the pool
+   * cleans both off ("Heat 9U (Coach A)" is stored as "Heat"), so either team matches either club,
+   * and the side was taken as the pool listed it, which is the pulled club first and nothing to do
+   * with who was at home. Placeholder names. The away team lost 3-8 in every case below.
+   */
+  describe("two teams one name apart", () => {
+    const listing = (id: string, listed: string): ScoutTeam => ({
+      id,
+      name: cleanTeamName(listed),
+      gcTeams: [{ teamId: `gc-${id}`, name: listed, ageGroupId: "ag1" }],
+    });
+    const heatClubs = [listing("P-A", "Heat 9U (Coach A)"), listing("P-B", "Heat 9U (Coach B)")];
+    const heat = (link: boolean): TeamBase[] => [
+      { id: "HA", name: "Heat (Coach A)", ...(link ? { scoutTeamId: "P-A" } : {}) },
+      { id: "HB", name: "Heat (Coach B)", ...(link ? { scoutTeamId: "P-B" } : {}) },
+    ];
+    // Coach A's team at Coach B's; the pool lists Coach B's club first, as its pull's.
+    const heatGame = (over: Partial<LeagueScoreFillInput> = {}) =>
+      planLeagueScoreFill(
+        input({
+          teams: heat(true),
+          matchups: [matchup("g1", "9/12", "HA", "HB")],
+          scoutTeams: heatClubs,
+          scoutGames: [scoutGame("s1", "P-B", "P-A", 8, 3, "2026-09-12")],
+          ...over,
+        })
+      );
+    const runs = (plan: LeagueFillPlan) =>
+      plan.rows.map((row) => [row.action, row.awayRuns, row.homeRuns]);
+
+    it("puts the score the right way round where both teams are linked to their clubs", () => {
+      expect(heatClubs.map((club) => club.name)).toEqual(["Heat", "Heat"]);
+      expect(runs(heatGame())).toEqual([["fill", 3, 8]]);
+      expect(defaultFillSelection(heatGame())).toEqual(["g1"]);
+      // Listed the other way, as before.
+      const listedFirst = heatGame({
+        scoutGames: [scoutGame("s1", "P-A", "P-B", 3, 8, "2026-09-12")],
+      });
+      expect(runs(listedFirst)).toEqual([["fill", 3, 8]]);
+    });
+
+    it("tells the clubs apart by their GameChanger names where neither team is linked", () => {
+      expect(runs(heatGame({ teams: heat(false) }))).toEqual([["fill", 3, 8]]);
+      expect(
+        runs(
+          heatGame({
+            teams: heat(false),
+            scoutGames: [scoutGame("s1", "P-A", "P-B", 3, 8, "2026-09-12")],
+          })
+        )
+      ).toEqual([["fill", 3, 8]]);
+    });
+
+    it("tells two ages apart, linked or by their GameChanger names", () => {
+      const wolvesClubs = [listing("W9", "Wolves 9U"), listing("W10", "Wolves 10U")];
+      const wolves = (link: boolean): TeamBase[] => [
+        { id: "W9T", name: "Wolves 9U", ...(link ? { scoutTeamId: "W9" } : {}) },
+        { id: "W10T", name: "Wolves 10U", ...(link ? { scoutTeamId: "W10" } : {}) },
+      ];
+      // The 9U at the 10U, which won 8-3; the pool lists the 10U first.
+      const wolvesGame = (link: boolean) =>
+        planLeagueScoreFill(
+          input({
+            teams: wolves(link),
+            matchups: [matchup("g1", "9/12", "W9T", "W10T")],
+            scoutTeams: wolvesClubs,
+            scoutGames: [scoutGame("s1", "W10", "W9", 8, 3, "2026-09-12")],
+          })
+        );
+      expect(runs(wolvesGame(true))).toEqual([["fill", 3, 8]]);
+      expect(runs(wolvesGame(false))).toEqual([["fill", 3, 8]]);
+    });
+
+    it("says it cannot tell when nothing tells the two clubs apart, and fills nothing", () => {
+      // Two clubs known by the name alone: either way round fits as well as the other.
+      const bare: ScoutTeam[] = [
+        { id: "P-A", name: "Heat" },
+        { id: "P-B", name: "Heat" },
+      ];
+      const plan = heatGame({ teams: heat(false), scoutTeams: bare });
+      expect(plan.rows).toMatchObject([
+        { matchupId: "g1", action: "ambiguous", awayRuns: 0, homeRuns: 0 },
+      ]);
+      expect(plan.rows[0]!.detail).toContain("either way round");
+      expect(defaultFillSelection(plan)).toEqual([]);
+      expect(applyLeagueScoreFill(plan, ["g1"], {}, 6).filled).toBe(0);
+      // The result is this game's, the way round aside, so it is not counted as unused.
+      expect(plan.unusedResults).toBe(0);
+      expect(plan.unmatched).toBe(0);
+    });
+
+    /*
+     * What the Can't tell row promises: link the teams to their clubs in Settings and it fills. A
+     * side linked counts for more than both names alike, so the links settle what names cannot,
+     * even one link alone; no other case here would notice a link that counted for no more.
+     */
+    it("fills the way round the Settings links say where nothing else tells the clubs apart", () => {
+      const bare: ScoutTeam[] = [
+        { id: "P-A", name: "Heat" },
+        { id: "P-B", name: "Heat" },
+      ];
+      const plan = heatGame({ scoutTeams: bare });
+      expect(runs(plan)).toEqual([["fill", 3, 8]]);
+      expect(defaultFillSelection(plan)).toEqual(["g1"]);
+      const listedFirst = heatGame({
+        scoutTeams: bare,
+        scoutGames: [scoutGame("s1", "P-A", "P-B", 3, 8, "2026-09-12")],
+      });
+      expect(runs(listedFirst)).toEqual([["fill", 3, 8]]);
+      // Coach A's team alone linked: one link still outweighs two names alike.
+      const oneLinked = heatGame({
+        teams: [
+          { id: "HA", name: "Heat (Coach A)", scoutTeamId: "P-A" },
+          { id: "HB", name: "Heat (Coach B)" },
+        ],
+        scoutTeams: bare,
+      });
+      expect(runs(oneLinked)).toEqual([["fill", 3, 8]]);
+    });
+
+    /*
+     * The result fits the game either way round, so the game is the pool's game whichever it is:
+     * when it started is known, and where the league already has the score one way round, that is
+     * the way, with nothing to do. Can't tell lost both, the start never reaching the schedule.
+     */
+    it("keeps what an either-way result settles: its start, and a score already recorded", () => {
+      const bare: ScoutTeam[] = [
+        { id: "P-A", name: "Heat" },
+        { id: "P-B", name: "Heat" },
+      ];
+      const START = "2026-09-12T15:00:00Z";
+      const timed = [
+        scoutGame("s1", "P-B", "P-A", 8, 3, "2026-09-12", {
+          startTs: START,
+          event: "Placeholder Fall League",
+        }),
+      ];
+      const game = (over: Partial<LeagueScoreFillInput>) =>
+        heatGame({ teams: heat(false), scoutTeams: bare, scoutGames: timed, ...over });
+      const blank = game({});
+      expect(blank.rows).toMatchObject([
+        {
+          action: "ambiguous",
+          scoutGameId: "s1",
+          startTs: START,
+          event: "Placeholder Fall League",
+        },
+      ]);
+      expect(startsFromFill(blank, [matchup("g1", "9/12", "HA", "HB")])).toEqual({ g1: START });
+      // Recorded either way round, it is the league's own score: nothing to fill.
+      const final = (away: string, home: string) => ({
+        g1: { ...blankLog("6"), awayRuns: away, homeRuns: home, isFinal: true },
+      });
+      expect(runs(game({ logs: final("3", "8") }))).toEqual([["unchanged", 3, 8]]);
+      expect(runs(game({ logs: final("8", "3") }))).toEqual([["unchanged", 8, 3]]);
+      // A score that is neither way round is still nothing to write over, and says so.
+      const other = game({ logs: final("5", "2") });
+      expect(runs(other)).toEqual([["ambiguous", 0, 0]]);
+      expect(other.rows[0]!.detail).toContain("Already recorded as 5–2 and marked final");
+      expect(other.rows[0]!.detail).not.toContain("it fills");
+    });
+
+    it("takes the way round both names fit over one that fits them only loosely", () => {
+      // Comets at Comets Elite, which won 8-3 and is listed first: as listed, each name is only
+      // close to the other club's; turned round, both are exact.
+      const plan = planLeagueScoreFill(
+        input({
+          teams: [
+            { id: "CO", name: "Comets" },
+            { id: "CE", name: "Comets Elite" },
+          ],
+          matchups: [matchup("g1", "9/12", "CO", "CE")],
+          scoutTeams: [
+            { id: "S-CE", name: "Comets Elite" },
+            { id: "S-CO", name: "Comets" },
+          ],
+          scoutGames: [scoutGame("s1", "S-CE", "S-CO", 8, 3, "2026-09-12")],
+        })
+      );
+      expect(runs(plan)).toEqual([["fill", 3, 8]]);
+    });
+  });
+
   it("skips a game with no date on either side, since the day is what ties them together", () => {
     expect(
       planLeagueScoreFill(input({ matchups: [matchup("g1", "", "ACES", "BEAR")] })).rows
@@ -626,6 +817,49 @@ describe("games between the league's clubs that the schedule does not have", () 
     ]);
   });
 
+  /*
+   * A day of the league's own clubs alone is the league's for a start, which has no schedule to say
+   * which of them the league played that day (`tournamentReason`). Fill has one: where it has
+   * either club playing another of its games that day, a second meeting is as likely a scrimmage
+   * as a doubleheader's second game is, and it started ticked, to go in final at a tap.
+   */
+  it("are offered unticked on a day the schedule has either club playing another game", () => {
+    const plan = planLeagueScoreFill(
+      input({
+        teams: linked,
+        matchups: [matchup("g1", "5/1", "ACES", "BEAR"), matchup("g2", "5/15", "BEAR", "CUBS")],
+        scoutGames: [
+          scoutGame("s1", "S-ACES", "S-BEAR", 7, 3, "2026-05-01"),
+          // The same day, the Aces against the Cubs: not on the schedule, which has the Aces at
+          // the Bears.
+          scoutGame("s2", "S-ACES", "S-CUBS", 2, 1, "2026-05-01"),
+          scoutGame("s3", "S-BEAR", "S-CUBS", 4, 6, "2026-05-15"),
+          // A day the schedule has nobody playing, two of the league's games on it: the league's.
+          scoutGame("s4", "S-ACES", "S-BEAR", 5, 4, "2026-05-08"),
+          scoutGame("s5", "S-ACES", "S-CUBS", 3, 2, "2026-05-08"),
+          // The home side's scheduled game, the Cubs hosting the Bears, does the same.
+          scoutGame("s6", "S-ACES", "S-CUBS", 1, 0, "2026-05-15"),
+        ],
+      })
+    );
+    expect(plan.rows.map((row) => [row.matchupId, row.action])).toEqual([
+      ["g1", "fill"],
+      ["g2", "fill"],
+    ]);
+    expect(plan.missing?.map((game) => [game.scoutGameId, game.tournament])).toEqual([
+      [
+        "s2",
+        "One of the two has another game on the schedule that day, so this one was likely a scrimmage.",
+      ],
+      ["s4", undefined],
+      ["s5", undefined],
+      [
+        "s6",
+        "One of the two has another game on the schedule that day, so this one was likely a scrimmage.",
+      ],
+    ]);
+  });
+
   it("leave out a game the schedule already has that day, matched or not, and one unlinked", () => {
     const plan = planLeagueScoreFill(
       input({
@@ -826,6 +1060,28 @@ describe("games the schedule has, played on another day", () => {
     expect(
       missingGamesToAdd(plan, schedule, ["s9"], [], 6, (i) => `n${i}`, ["s9"]).matchups
     ).toEqual([]);
+  });
+
+  /*
+   * A start belongs to its day. Moved with only its date changed, a game kept the old day's start:
+   * shown at 9:00 AM on its make-up day, and listed first that day by an instant from another.
+   */
+  it("moves a game at the pool game's start, never at its old day's", () => {
+    const timed = [
+      { ...matchup("g1", "9/20", "ACES", "BEAR"), startTs: "2026-09-20T14:00:00.000Z" },
+      matchup("g2", "9/21", "BEAR", "CUBS"),
+    ];
+    const atNoon = { ...plan, missing: [{ ...played, startTs: "2026-09-27T17:00:00.000Z" }] };
+    const moves = movesToApply(atNoon, movedGames(atNoon, timed, {}, []), timed, ["s9"], 6, {});
+    expect(timed.map((game) => moves.moved(game))).toEqual([
+      { ...timed[0], date: "9/27", startTs: "2026-09-27T17:00:00.000Z" },
+      timed[1],
+    ]);
+    // A pool game with no start leaves the moved game none: the old day's was never its.
+    const untimed = movesToApply(plan, movedGames(plan, timed, {}, []), timed, ["s9"], 6, {});
+    expect(untimed.moved(timed[0]!)).toEqual(matchup("g1", "9/27", "ACES", "BEAR"));
+    // A game not moved comes back as it was.
+    expect(untimed.moved(timed[1]!)).toBe(timed[1]);
   });
 
   it("fills a moved game onto what was typed against it, leaving everything but runs as it was", () => {

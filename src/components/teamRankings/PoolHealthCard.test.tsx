@@ -71,7 +71,25 @@ describe("seeing what the pool is made of", () => {
     await look(user);
 
     expect(await screen.findByText(/results against a stand-in/i)).toBeInTheDocument();
-    expect(screen.getByText("Stand-ins")).toBeInTheDocument();
+    // The tile counts bracket slots alone, and a stand-in on this card is a slot or a club known
+    // only by name, so it is called what it counts.
+    expect(screen.getByText("TBD slots")).toBeInTheDocument();
+    expect(screen.queryByText("Stand-ins")).toBeNull();
+  });
+
+  it("says the share of the played games against a stand-in, and what exactly it counts", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(withStandIn());
+    await openSetup(user);
+    await look(user);
+
+    // Two games played, one of them a club against a slot.
+    const label = await screen.findByText("Played against a stand-in");
+    const value = label.nextElementSibling;
+    expect(value).toHaveTextContent(/^50\.0%/);
+    expect(value).toHaveTextContent(
+      "1 of the 2 played games, every squad year: a club on one side, a slot or a club known only by name on the other"
+    );
   });
 
   it("says how many could be settled right now", async () => {

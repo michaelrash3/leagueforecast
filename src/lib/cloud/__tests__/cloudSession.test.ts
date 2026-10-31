@@ -1477,7 +1477,7 @@ describe("League Standings before this device's first meeting (1.6e review)", ()
       seasons,
       entryOf: () => ({ id: "fall", name: fallHere.name, createdAt: fallHere.createdAt }),
       bases,
-      persist: () => undefined,
+      persist: () => true,
       editing: () => false,
       onState: () => undefined,
     });

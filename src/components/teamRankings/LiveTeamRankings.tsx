@@ -1052,6 +1052,7 @@ function LiveBoard({
             }
             rankings={rows}
             rankingsStale={false}
+            myTeamSettled={board.checked}
             {...(label ? { standInNote: label } : {})}
             nationalTop={rows.slice(0, NATIONAL_TOP)}
             stateTopRows={stateTopRows}

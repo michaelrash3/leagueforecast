@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
 import {
   simulateBracketOdds,
-  simulateGoldOdds,
   simulateGoldOddsRun,
+  simulateTrendPoint,
   type BracketOddsResult,
   type GoldSwing,
 } from "../lib/sim";
@@ -23,7 +23,8 @@ type OddsInput = {
 
 type TrendInput = {
   teamIds: string[];
-  states: { teams: Team[]; remaining: Matchup[]; seedText: string }[];
+  /** The trend's points (`TrendState`), the last two paired. */
+  states: { teams: Team[]; remaining: Matchup[]; seedText: string; paired?: true }[];
   iterations: number;
   cutoff: number;
   settings: Settings;
@@ -194,7 +195,8 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
       JSON.stringify([
         input.teamIds,
         // Each point's ratings too, for the reason `ratingsKey` gives: a pull moves them and no seed.
-        input.states.map((s) => [s.seedText, ratingsKey(s.teams)]),
+        // And whether it is paired, which changes how it is drawn and nothing else in the key.
+        input.states.map((s) => [s.seedText, ratingsKey(s.teams), s.paired ?? false]),
         input.iterations,
         input.cutoff,
         input.settings,
@@ -237,14 +239,7 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
         series[tid] = [];
       });
       input.states.forEach((state) => {
-        const odds = simulateGoldOdds(
-          state.teams,
-          state.remaining,
-          input.iterations,
-          state.seedText,
-          input.cutoff,
-          input.settings
-        );
+        const odds = simulateTrendPoint(state, input.iterations, input.cutoff, input.settings);
         input.teamIds.forEach((tid) => {
           const row = series[tid];
           if (row) row.push(odds[tid] ?? 0);

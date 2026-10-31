@@ -71,7 +71,14 @@ import {
   type ModelSweep,
 } from "../src/lib/modelSweep.ts";
 import type { PairedReading } from "../src/lib/scoutBacktest.ts";
-import { standInReport, type StandInReport, type StandInWhy } from "../src/lib/standInReport.ts";
+import {
+  share,
+  STAND_IN_WHYS,
+  standInReport,
+  standInShareLines,
+  standInWhyLines,
+  type StandInReport,
+} from "../src/lib/standInReport.ts";
 import {
   filedByName,
   leaningOf,
@@ -342,8 +349,6 @@ const sayNamed = (lines: string[], heading: string) => {
 
 const started = Date.now();
 const since = () => `${((Date.now() - started) / 1000).toFixed(1)} s`;
-const share = (part: number, whole: number) =>
-  whole === 0 ? "-" : `${((100 * part) / whole).toFixed(1)}%`;
 const fixed = (value: number, places = 4) => (Number.isFinite(value) ? value.toFixed(places) : "-");
 
 /** A setting against the shipped one: lower is better, so a positive `by` is a gain. */
@@ -401,28 +406,8 @@ const describeStandIns = (report: StandInReport) => {
   say(
     `\n${"=".repeat(78)}\nStand-ins: clubs known only by name, and bracket slots\n${"=".repeat(78)}`
   );
-  say(
-    `  The year's games: ${report.games}; with a stand-in on a side: ${report.withStandIn}` +
-      ` (${share(report.withStandIn, report.games)}).`
-  );
-  say(
-    `  Played: ${report.played}; with a stand-in: ${report.playedWithStandIn}` +
-      ` (${share(report.playedWithStandIn, report.played)}).`
-  );
-  say(
-    `  Stand-ins holding a game: ${report.nameOnly} known only by name, ${report.placeholders} bracket slots.`
-  );
-  say(
-    `  Of those known only by name: ${report.withNamesake} share a name with a club pulled this year` +
-      ` (${share(report.withNamesake, report.nameOnly)}), ${report.withoutNamesake} have none.`
-  );
-  const bucket = (label: string, b: StandInReport["onPage"]) =>
-    say(`    ${label}: ${b.clubs} clubs, holding ${b.games} games (${b.played} played)`);
-  say("  The clubs known only by name, by where a pulled club of the same name is:");
-  bucket("on a page they played on (likely the same club, not joined)", report.onPage);
-  bucket("only on another page", report.elsewhere);
-  bucket("nowhere (a club nobody has pulled)", report.unmatched);
-  say(`  Played games against a bracket slot nobody resolved: ${report.slotPlayed}.`);
+  // The numbers in the words the nightly says them in too (`standInShareLines`).
+  standInShareLines(report).forEach((line) => say(line));
   if (report.top.length > 0) {
     say(
       `  The ${report.top.length} holding the most games: ${report.top.map((club) => club.games).join(", ")}.`
@@ -436,21 +421,8 @@ const describeStandIns = (report: StandInReport) => {
     ),
     "The stand-ins known only by name holding the most games:"
   );
-  const reasons: Array<[StandInWhy, string]> = [
-    [
-      "oneSameState",
-      "one pulled club of the name on its page, in the namers' state (should have joined)",
-    ],
-    ["oneOtherState", "one on its page, in another state"],
-    ["several", "several of the name on its page"],
-    ["nearOne", "none of the name on its page, one spelled near it"],
-    ["nearSeveral", "none of the name on its page, several spelled near it"],
-    ["elsewhere", "a namesake only on another page"],
-    ["unmatched", "nothing of the name or near it (never pulled)"],
-  ];
-  say("  Why each club known only by name was not joined to a pulled club:");
-  for (const [reason, label] of reasons) bucket(label, report.why[reason]);
-  for (const [reason, label] of reasons) {
+  standInWhyLines(report).forEach((line) => say(line));
+  for (const [reason, label] of STAND_IN_WHYS) {
     sayNamed(
       report.topWhy[reason].map(
         (club) =>
@@ -710,6 +682,18 @@ const measureLopsided = (source: Source) => {
   );
   for (const year of radius) say(`  The tidy alone, ${radiusWords(year)}.`);
   say(`  (the tidy done at ${since()})`);
+  // What the tidy alone does to each year's share of games against a stand-in, in the nightly's
+  // words, so a tidy-rules change can be read on the copy as the stand-in rules were.
+  for (const { year } of radius) {
+    say(`  ${year}, before the tidy:`);
+    standInShareLines(standInReport(pool.teams, pool.games, pool.ageGroups, year, 0)).forEach(
+      (line) => say(`  ${line}`)
+    );
+    say(`  ${year}, after the tidy alone:`);
+    standInShareLines(
+      standInReport(tidied.state.teams, tidied.state.games, tidied.state.ageGroups, year, 0)
+    ).forEach((line) => say(`  ${line}`));
+  }
 };
 
 /* -------------------------------------------------------------------------------------- run */

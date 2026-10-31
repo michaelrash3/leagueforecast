@@ -48,6 +48,13 @@ type RankingsSectionProps = {
   segment: { name: string; played: number; otherName: string; otherPlayed: number } | null;
   rankings: ScoutRankingRow[];
   rankingsStale: boolean;
+  /**
+   * Whether the rows are the board to compare with the last visit (`MyTeamSince`), where that is
+   * not simply that they are not being refitted: the live board's, once the network has vouched
+   * for the board drawn, not the one this account kept and drew first. The Refitting labels still
+   * read `rankingsStale`.
+   */
+  myTeamSettled?: boolean;
   nationalTop: ScoutRankingRow[];
   stateTopRows: ScoutRankingRow[];
   visibleRankings: ScoutRankingRow[];
@@ -142,6 +149,7 @@ export function RankingsSection({
   segment,
   rankings,
   rankingsStale,
+  myTeamSettled = !rankingsStale,
   nationalTop,
   stateTopRows,
   visibleRankings,
@@ -285,7 +293,7 @@ export function RankingsSection({
               nextUnread={myTeamNextUnread}
               {...(onScoutNext ? { onScout: onScoutNext } : {})}
               {...(myExpected ? { expected: myExpected } : {})}
-              settled={!rankingsStale}
+              settled={myTeamSettled}
             />
           )}
           <ThisWeekCard
