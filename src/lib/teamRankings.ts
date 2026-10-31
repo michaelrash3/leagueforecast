@@ -4162,6 +4162,11 @@ type LeagueTeamLinks = {
   leagueIdByScoutId: Map<string, string>;
   /** The league team each guessed name key went to. */
   leagueIdByName: Map<string, string>;
+  /**
+   * The clubs under a moved pick's id (`movedScoutTeamId`): the clubs the picks are not. The name
+   * match passes them by, and so must anything that reads a club as its league team by its name.
+   */
+  movedAway: Set<string>;
 };
 
 /**
@@ -4267,6 +4272,7 @@ const linkLeagueTeams = (
 
   const rows: ScoutLinkRow[] = [];
   const leagueIdByScoutId = new Map<string, string>();
+  const movedAway = new Set<string>();
   /** The league teams still open to a name match, once every answer has been read. */
   const unanswered: { team: LeagueTeamLink; key: string; not?: string }[] = [];
 
@@ -4279,6 +4285,7 @@ const linkLeagueTeams = (
       // picked by: that club is not used, and the name match recovers as for a pick gone, never
       // onto the club the id now names.
       unanswered.push({ team, key: teamNameKey(team.name), not: moved });
+      movedAway.add(moved);
       rows.push({ ...base, how: "none", movedScoutTeamId: moved });
       return;
     }
@@ -4354,7 +4361,7 @@ const linkLeagueTeams = (
     row.suggestedName = scoutById.get(only)?.name;
   });
 
-  return { linked, scoutById, rows, leagueIdByScoutId, leagueIdByName };
+  return { linked, scoutById, rows, leagueIdByScoutId, leagueIdByName, movedAway };
 };
 
 /**
@@ -4392,7 +4399,7 @@ export const leagueScoutBridge = (
    */
   seasonFixtures: LeagueFixture[]
 ): LeagueScoutBridge => {
-  const { linked, scoutById, rows, leagueIdByScoutId, leagueIdByName } = linkLeagueTeams(
+  const { linked, scoutById, rows, leagueIdByScoutId, leagueIdByName, movedAway } = linkLeagueTeams(
     seasonId,
     ageGroups,
     teams,
@@ -4406,6 +4413,9 @@ export const leagueScoutBridge = (
   const ratingId = (scoutTeamId: string): string => {
     const explicit = leagueIdByScoutId.get(scoutTeamId);
     if (explicit) return explicit;
+    // The club a moved pick is not, though it bears the name a namesake was guessed by: its
+    // results are its own, never the league team's (Codex, on #503).
+    if (movedAway.has(scoutTeamId)) return `${SCOUT_ID_PREFIX}${scoutTeamId}`;
     const team = scoutById.get(scoutTeamId);
     const matched = team ? leagueIdByName.get(teamNameKey(team.name)) : undefined;
     return matched ?? `${SCOUT_ID_PREFIX}${scoutTeamId}`;

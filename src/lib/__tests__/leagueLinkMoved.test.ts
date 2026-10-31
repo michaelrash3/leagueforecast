@@ -162,6 +162,35 @@ describe("a League pick whose club's id now names another club", () => {
     });
   });
 
+  it("keeps the club the pick is not out of the forecast's results, where a namesake is guessed", () => {
+    // Codex on #503: two clubs called just what the league calls its team, one under the pick's
+    // id (another club now, with another GameChanger team) and one guessed by the name. The
+    // forecast's results took both clubs' games, the club the pick is not among them.
+    const base = roster(["Rays", "Other Opponent"]);
+    const inPlace: ScoutTeam = {
+      ...base[0]!,
+      id: "S-RIVE",
+      gcTeams: [{ teamId: "gcSomeoneElse", name: "Rays", ageGroupId: AGE.id }],
+    };
+    const opponent = idOf(base, "Other Opponent");
+    const played = [
+      game("old", "S-RIVE", opponent, [12, 1]),
+      game("new", idOf(base, "Rays"), opponent, [3, 2]),
+    ];
+    const bridge = bridgeOf([...base, inPlace], played, [RAYS]);
+    expect(bridge.rows[0]).toMatchObject({
+      how: "guessed",
+      scoutTeamId: idOf(base, "Rays"),
+      movedScoutTeamId: "S-RIVE",
+    });
+    const raysResults = bridge.results.filter(
+      (result) => result.home === "RAYS" || result.away === "RAYS"
+    );
+    // The guessed club's 3-2 is the Rays'; the 12-1 of the club in the pick's place is not.
+    expect(raysResults).toHaveLength(1);
+    expect(raysResults[0]).toMatchObject({ home: "RAYS", homeMargin: 1 });
+  });
+
   it("carries neither the league's games nor Fill's scores onto that namesake either", () => {
     // The namesake in the Rays' place again, with a 12-1 of its own on the season's page.
     const inPlace = roster(["Rays", "Other Opponent"]).map((team) =>
