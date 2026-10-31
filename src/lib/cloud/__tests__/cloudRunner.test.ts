@@ -7,6 +7,7 @@ import {
 } from "../../gameChangerApi";
 import type { FetchGcTeamsOptions } from "../../gameChangerClient";
 import { localDayKey } from "../../gameChangerSchedule";
+import { tidyPool } from "../../gameChangerImport";
 import {
   cloudPoolKeys,
   flushPoolWrites,
@@ -671,6 +672,228 @@ describe("a pull run on the cloud copy", () => {
       await runCloudPull(leg([]), deps(cloud, "2026-09-30T13:00:00.000Z", nobody));
       await marksInCopy(cloud);
       expect(routerGone()).toEqual({ marked: false, club: false, games: 0, refused: true });
+    });
+
+    /*
+     * The nightly's cap and the owner's 40-run rule together (31 October 2026): a squad year a list
+     * brought in meets the sweep first at the nightly, which held its save for the 1,646 games the
+     * rule's 40 deletions took with them. What the rule deletes is the rule at work, not an answer
+     * gone wrong, so its clubs' games do not count toward the 5% line; the clubs themselves still
+     * count toward the 2% one, so a sweep gone wrong is held as before.
+     */
+    const listOf = (teamIds: string[]): CloudPullJob => ({
+      kind: "list",
+      entries: teamIds.map((teamId) => ({ teamId })),
+      seasonYears: [2027],
+    });
+
+    it("saves a capped night whose only big loss is a club the 40-run rule deletes, and says so", async () => {
+      const long = schedule(ROUTER, "Router", [
+        game("r0", "Owls", 41, 0),
+        ...Array.from({ length: 80 }, (_, at) => ({
+          ...game(`r${at + 1}`, `Opponent ${at}`, 5, 3),
+          id: `r${at + 1}`,
+        })),
+      ]);
+      const answers = async (ids: string[]) =>
+        new Map(ids.map((id) => [id, { ok: true, schedule: long } as GcTeamResponse]));
+      const cloud = memoryCloud();
+      await seed(cloud, undefined, { seasons: [] });
+      // The long season comes in by a list, which never sweeps; the nightly meets it first.
+      const listed = await runCloudPull(
+        listOf([ROUTER]),
+        deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams: answers })
+      );
+      expect(listed).toMatchObject({ end: "finished", filed: 1 });
+      const night = await runCloudPull(
+        leg([]),
+        deps(cloud, "2026-09-30T07:17:00.000Z", { cap: true })
+      );
+      expect(night.end).toBe("finished");
+      expect(night.deleted).toEqual({ clubs: 1, games: 81 });
+      await marksInCopy(cloud);
+      expect(routerGone()).toEqual({ marked: false, club: false, games: 0, refused: true });
+    });
+
+    it("does not count a game the deletion stood back up against its stand-in (Codex on #495)", async () => {
+      // The namesake join put the Hustle in for the stand-in the Ridge's own row named. Deleting the
+      // Hustle stands that row back up against the stand-in, so the game stays in the pool; only the
+      // Hustle's 45-0 goes. Invented clubs, as in the commands' own test of the join.
+      const groups: AgeGroup[] = [
+        { id: "ag12", name: "12U 2027", ageLevel: 12, year: 2027, seasonIds: [] },
+        { id: "ag13", name: "13U 2027", ageLevel: 13, year: 2027, seasonIds: [] },
+      ];
+      const pulledClub = (id: string, name: string, page: string): ScoutTeam => ({
+        id,
+        name,
+        state: "IN",
+        gcTeams: [{ teamId: `gc${id}`, name, ageGroupId: page, ageLevel: Number(page.slice(2)) }],
+      });
+      const own = (
+        clubId: string,
+        gameId: string,
+        against: string,
+        page: string,
+        score: number[]
+      ) => ({
+        id: `gc_gc${clubId}_${gameId}`,
+        teamAId: clubId,
+        teamBId: against,
+        teamAScore: score[0]!,
+        teamBScore: score[1]!,
+        ageGroupId: page,
+        date: "2026-10-03",
+        ageLevelA: Number(page.slice(2)),
+        season: "Fall 2026",
+        startTs: gameId === "h2" ? "2026-10-03T18:00:00.000Z" : "2026-10-03T14:00:00.000Z",
+        source: { kind: "gamechanger" as const, teamId: `gc${clubId}`, gameId },
+      });
+      const tidied = tidyPool({
+        ageGroups: groups,
+        teams: [
+          pulledClub("RIDGE", "North Ridge Bombers", "ag12"),
+          pulledClub("HUSTLE", "Lakeshore Hustle", "ag13"),
+          { id: "S-HUSTLE", name: "Lakeshore Hustle", nameOnly: true },
+          { id: "S-RIDGE", name: "NR - Ridge Bombers", nameOnly: true },
+          { id: "S-OWLS", name: "Owls", nameOnly: true },
+        ],
+        games: [
+          own("RIDGE", "r1", "S-HUSTLE", "ag12", [4, 11]),
+          own("HUSTLE", "h1", "S-RIDGE", "ag13", [11, 4]),
+          own("HUSTLE", "h2", "S-OWLS", "ag13", [45, 0]),
+        ],
+      });
+      expect(tidied.namesakeJoined).toBe(1);
+      const cloud = memoryCloud();
+      await seed(
+        cloud,
+        () => {
+          saveAgeGroups(groups);
+          saveScoutTeams(tidied.state.teams);
+          saveScoutGames(tidied.state.games);
+        },
+        { seasons: [] }
+      );
+      const night = await runCloudPull(
+        leg([]),
+        deps(cloud, "2026-10-04T07:17:00.000Z", { cap: true })
+      );
+      expect(night.end).toBe("finished");
+      expect(night.deleted).toEqual({ clubs: 1, games: 1 });
+      resetTeamRankingsStore();
+      await loadPoolFrom(cloud.store);
+      expect(loadScoutGames().map((game) => game.id)).toEqual(["gc_gcRIDGE_r1"]);
+    });
+
+    it("reports no deletion where the save that stood deleted none (Codex on #495)", async () => {
+      // While GameChanger answers, the phone says the Router is real. The first try files onto the
+      // copy as read and deletes it; its save meets the phone's and the run files again, sparing it.
+      const cloud = memoryCloud();
+      await seed(cloud, undefined, { seasons: [] });
+      const phoneSaysReal = async () => {
+        const saved = await commitChanges({
+          store: cloud.store,
+          base: cloud.manifest()!,
+          changes: [{ key: "league_forecast_gc_real_clubs_v1", value: [ROUTER], at: 2 }],
+          device: "phone",
+          now: "2026-09-29T13:00:30.000Z",
+        });
+        if (!saved.ok) throw new Error("phone");
+      };
+      let first = true;
+      const answers: CloudPullDeps["fetchTeams"] = async (ids) => {
+        if (first) {
+          first = false;
+          await phoneSaysReal();
+        }
+        return routerAnswers(ids);
+      };
+      const result = await runCloudPull(
+        leg([ROUTER]),
+        deps(cloud, "2026-09-29T13:01:00.000Z", { fetchTeams: answers })
+      );
+      expect(result).toMatchObject({ end: "finished", replays: 1 });
+      expect(result.deleted).toBeUndefined();
+      await marksInCopy(cloud);
+      expect(routerGone()).toMatchObject({ club: true, refused: false });
+    });
+
+    it("counts once a game between two clubs the 40-run rule deletes (Codex on #495)", async () => {
+      const PAIR = ["gcROUTPAIR01", "gcROUTPAIR02"] as const;
+      const names = ["Router Pair One", "Router Pair Two"] as const;
+      // Each a 41-0 win of its own, and one meeting both schedules list: three games in all.
+      const answers = async (asked: string[]) =>
+        new Map(
+          asked.map((id) => {
+            const at = PAIR.indexOf(id as (typeof PAIR)[number]);
+            const meeting =
+              at === 0
+                ? game(`${id}-m`, names[1], 6, 4)
+                : { ...game(`${id}-m`, names[0], 4, 6), id: `${id}-m` };
+            return [
+              id,
+              {
+                ok: true,
+                schedule: schedule(id, names[at] ?? id, [
+                  { ...game(`${id}-r`, `Owls ${at}`, 41, 0), id: `${id}-r`, date: "2026-09-21" },
+                  meeting,
+                ]),
+              } as GcTeamResponse,
+            ];
+          })
+        );
+      const cloud = memoryCloud();
+      await seed(cloud, undefined, { seasons: [] });
+      await runCloudPull(
+        listOf([...PAIR]),
+        deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams: answers })
+      );
+      const meetings = loadScoutGames().filter((row) =>
+        [row.teamAId, row.teamBId].every((club) =>
+          loadScoutTeams().some(
+            (team) =>
+              team.id === club &&
+              team.gcTeams?.some((link) => PAIR.includes(link.teamId as (typeof PAIR)[number]))
+          )
+        )
+      ).length;
+      const night = await runCloudPull(
+        leg([]),
+        deps(cloud, "2026-09-30T07:17:00.000Z", { cap: true })
+      );
+      expect(night.deleted?.clubs).toBe(2);
+      expect(night.deleted?.games).toBe(2 + meetings);
+    });
+
+    it("still holds a capped night whose 40-run deletions take more than 2% of a year's clubs", async () => {
+      const ids = Array.from({ length: 25 }, (_, at) => `gcROUT${String(at).padStart(6, "0")}`);
+      const answers = async (asked: string[]) =>
+        new Map(
+          asked.map((id) => [
+            id,
+            {
+              ok: true,
+              schedule: schedule(id, `Router ${id.slice(-3)}`, [
+                game(`${id}-r`, `Owls ${id.slice(-3)}`, 41, 0),
+              ]),
+            } as GcTeamResponse,
+          ])
+        );
+      const cloud = memoryCloud();
+      await seed(cloud, undefined, { seasons: [] });
+      await runCloudPull(
+        listOf(ids),
+        deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams: answers })
+      );
+      const version = cloud.manifest()?.version;
+      const night = await runCloudPull(
+        leg([]),
+        deps(cloud, "2026-09-30T07:17:00.000Z", { cap: true })
+      );
+      expect(night.end).toBe("held");
+      expect(night.held?.[0]?.clubsRemoved).toBeGreaterThanOrEqual(25);
+      expect(night.deleted).toEqual({ clubs: 25, games: 25 });
+      expect(cloud.manifest()?.version).toBe(version);
     });
 
     /*

@@ -33,6 +33,7 @@ import { appendFileSync } from "node:fs";
 import type { CloudStore } from "../src/lib/cloud/cloudEngine.ts";
 import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
 import { heldWord, radiusWords } from "../src/lib/cloud/blastRadius.ts";
+import { LOPSIDED_MARGIN } from "../src/lib/autoRemoved.ts";
 import { heardNothing, runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.ts";
 import { ingestWord, ingestWords } from "../src/lib/cloud/ingestCanary.ts";
 import { failureWords } from "../src/lib/cloud/firestoreRest.ts";
@@ -261,6 +262,12 @@ const main = async (): Promise<void> => {
   console.log(
     `Ended ${result.end} in ${since()}: ${result.asked} teams asked, ${result.answered} answered, ${result.failed} not; ${result.filed} filed, ${result.gamesAdded} games added and ${result.gamesUpdated} updated.`
   );
+  // Counts only: the log is public, and the clubs are in Pool health's own list until they go.
+  if (result.deleted) {
+    console.log(
+      `  ${result.end === "held" ? "Would have deleted" : "Deleted"} for a game won or lost by ${LOPSIDED_MARGIN} or more: ${result.deleted.clubs} clubs, and ${result.deleted.games} games that went with them.`
+    );
+  }
   if (result.changed.length > 0) {
     const what = dry
       ? `would have saved ${result.changed.length} values (${dry.pieces()} new pieces, ${mb(dry.bytes())} gzipped)`
