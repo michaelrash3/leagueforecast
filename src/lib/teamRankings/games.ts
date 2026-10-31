@@ -451,6 +451,21 @@ const offFixturesOf = (
 };
 
 /**
+ * A game's two scores in the order of its clubs' ids, each club a copy stood in for read as the one
+ * it stood for (`as`), or "" for a game not scored. A fixture's rows all name the same two clubs,
+ * either way round, so a copy filed from the other seat reads as the league's row does, and who won
+ * stays in it: read lower score first, a doubleheader won 5-1 and lost 1-5 was one score twice, and
+ * the one game's copy gave both games its start.
+ */
+const scoreByClubs = (game: ScoutGame, as?: ReadonlyMap<string, string>): string => {
+  const { teamAScore: a, teamBScore: b } = game;
+  if (a === undefined || b === undefined) return "";
+  const sideA = as?.get(game.teamAId) ?? game.teamAId;
+  const sideB = as?.get(game.teamBId) ?? game.teamBId;
+  return sideA <= sideB ? `${a}-${b}` : `${b}-${a}`;
+};
+
+/**
  * Collapses a league-derived game and the stored game that is the same real fixture down to one
  * row.
  *
@@ -541,12 +556,40 @@ export const dedupeLeagueFixtures = (
   });
 
   const dropped = new Set<number>();
+  /*
+   * The starts each league row kept in place of dropped copies is offered by them, by the row's
+   * index and each start's minute. A row takes one where it has none of its own and every offer
+   * gives the same minute. Dropped with the copy, the start left the league's game untimed, and a
+   * club's list read the day's games in stored order.
+   */
+  const offered = new Map<number, Map<number, string>>();
+  const offer = (index: number, copy: ScoutGame) => {
+    const minute = startMinuteOf(copy.startTs);
+    if (minute === undefined || games[index]!.startTs !== undefined) return;
+    const minutes = offered.get(index) ?? new Map<number, string>();
+    if (!minutes.has(minute)) minutes.set(minute, copy.startTs!);
+    offered.set(index, minutes);
+  };
   byFixture.forEach(({ league, stored }) => {
     // A fixture only one source knows about is not a duplicate of anything.
     if (league.length === 0 || stored.length === 0) return;
 
     if (league.every((index) => isScoutGamePlayed(games[index]!))) {
       stored.forEach((index) => dropped.add(index));
+      /*
+       * Each league row is offered the starts of the copies giving its score, where no other league
+       * game of the fixture has that score. A doubleheader the league typed with no starts keeps
+       * each game's from its own copy; two games of one score are not told apart by it, with one
+       * game's copy in the pool or both, which is which being no guess to make.
+       */
+      const scores = league.map((index) => scoreByClubs(games[index]!));
+      league.forEach((index, at) => {
+        const score = scores[at];
+        if (!score || scores.indexOf(score) !== scores.lastIndexOf(score)) return;
+        stored.forEach((copy) => {
+          if (scoreByClubs(games[copy]!, standsFor.get(copy)) === score) offer(index, games[copy]!);
+        });
+      });
       return;
     }
 
@@ -558,8 +601,18 @@ export const dedupeLeagueFixtures = (
   });
 
   if (roster) {
-    leagueCopiesFiledAgainstNobody(games, roster, dropped).forEach((index) => dropped.add(index));
+    // A copy filed against a slot has the schedule's time, which the slot's name spells out, and
+    // offers it to the league's game it is a copy of as a copy by fixture does.
+    slotCopiesOf(games, roster, dropped).forEach((rows, index) => {
+      dropped.add(index);
+      rows.forEach((row) => offer(row, games[index]!));
+    });
   }
+  /** Starts given to league rows kept, by index, from the copies dropped in their place. */
+  const startsGiven = new Map<number, string>();
+  offered.forEach((minutes, index) => {
+    if (minutes.size === 1) startsGiven.set(index, [...minutes.values()][0]!);
+  });
 
   // The common case is a pool with nothing to collapse; hand back the same array so callers that
   // memoize on identity are not re-run for a list that did not change.
@@ -569,6 +622,8 @@ export const dedupeLeagueFixtures = (
   if (dropped.size === 0) return games;
   return games.flatMap((game, index) => {
     if (dropped.has(index)) return [];
+    const startTs = startsGiven.get(index);
+    if (startTs) return [{ ...game, startTs }];
     const as = standsFor.get(index);
     if (!as) return [game];
     return [
@@ -608,8 +663,19 @@ export const leagueCopiesFiledAgainstNobody = (
   games: readonly ScoutGame[],
   roster: LeagueRowReader,
   skip: ReadonlySet<number> = new Set()
-): Set<number> => {
-  const paired = new Set<number>();
+): Set<number> => new Set(slotCopiesOf(games, roster, skip).keys());
+
+/**
+ * `leagueCopiesFiledAgainstNobody`'s pairing, each stored row it pairs by index to the league rows
+ * it is a copy of: the one league game, as read off each page of its pool that claims its season.
+ * The collapse gives those rows the copy's start (`dedupeLeagueFixtures`).
+ */
+const slotCopiesOf = (
+  games: readonly ScoutGame[],
+  roster: LeagueRowReader,
+  skip: ReadonlySet<number>
+): Map<number, number[]> => {
+  const paired = new Map<number, number[]>();
   const poolOf = roster.poolOf ?? samePage;
   const clubDay = (ageGroupId: string, clubId: string, day: string) =>
     `${poolOf(ageGroupId)}|${clubId}|${day}`;
@@ -636,6 +702,8 @@ export const leagueCopiesFiledAgainstNobody = (
    * two rows of 513 Force's that fit it are two games of one score and neither is taken.
    */
   const rowsFor = new Map<string, number[]>();
+  /** The league rows each fit is, by index: one, or the one game on each page of its pool. */
+  const leagueOf = new Map<string, Set<number>>();
   games.forEach((game, index) => {
     if (skip.has(index) || game.id.startsWith(LEAGUE_GAME_PREFIX)) return;
     // Read before the date, which is the costly part: nearly every row in a nationwide pool is
@@ -666,7 +734,11 @@ export const leagueCopiesFiledAgainstNobody = (
         const result = scoreSeenBy(league, clubId);
         if (!result || result.own !== seen.own || result.opponent !== seen.opponent) return;
         if (roster.standsInFor(sideId, opponentId)) {
-          fits.add(`${poolOf(league.ageGroupId)}|${league.id}|${clubId}`);
+          const fit = `${poolOf(league.ageGroupId)}|${league.id}|${clubId}`;
+          fits.add(fit);
+          const rows = leagueOf.get(fit);
+          if (rows) rows.add(leagueIndex);
+          else leagueOf.set(fit, new Set([leagueIndex]));
         }
       });
     });
@@ -676,8 +748,8 @@ export const leagueCopiesFiledAgainstNobody = (
     if (bucket) bucket.push(index);
     else rowsFor.set(fit!, [index]);
   });
-  rowsFor.forEach((rows) => {
-    if (rows.length === 1) paired.add(rows[0]!);
+  rowsFor.forEach((rows, fit) => {
+    if (rows.length === 1) paired.set(rows[0]!, [...(leagueOf.get(fit) ?? [])]);
   });
   return paired;
 };

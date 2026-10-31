@@ -628,11 +628,16 @@ last visit, on a line of what moved for the club since then: its place nationall
 state then and now, each running from one to the other (shown at once where motion is turned
 down), its record and its rating, until **Got it** (`myTeamLook.ts`, `MyTeamSince.tsx`). A look
 is kept per club in this browser only (`lf_my_team_look_v1_<club>`): the places, record, rating
-and the half of the season the board is for. The first visit only keeps one; a later one
+and the half of the season the board is for, for the twelve clubs looked at last, the rest let go
+as a look is kept (none was ever removed before). The first visit only keeps one; a later one
 compares with a look an hour old or more, and keeps a new one at Got it, or at once when nothing
 moved (the same places and record, the rating within a twentieth of a run). A look from the
 other half of the season is a new start, since the fall and spring boards count different games,
-and none is taken while the board is being refitted to the latest games. Most visits have
+and none is taken while the board is being refitted to the latest games. On the cloud's board,
+which draws the board this account kept before the network's, none is taken until the network has
+vouched for the board on screen (`checked`): decided on the kept one, the line said nothing of an
+overnight climb, kept the old places as seen that day and told the climb a visit late. Offline the
+network never vouches, so the line waits for a visit that reaches it. Most visits have
 nothing new, so the line's own file is fetched only when there is: with it in the tab, opening
 Team Rankings measured 167.1 KB gzipped against 165.4 KB before, and 166.2 KB without. Nothing is
 read from or written to the cloud. League Standings' Dashboard has the same idea as a card of its
@@ -4457,15 +4462,39 @@ list and is not shown. The lists a phone reads carry it to the minute: a club ca
 a page's Games list as `times` beside its games (so a reader from before them still takes each
 game's seven fields), both in whole minutes since 1970. A card's game is found for an edit by
 everything else it shows (`cardFixture`), so a card from before the start, or one carrying it in
-its own form, still names the stored game.
+its own form, still names the stored game. A League Standings game comes in with the start its
+season keeps (`deriveLeagueScoutGames`), and a league's scored game kept in place of a pulled copy
+of it takes the copy's start where it has none (`dedupeLeagueFixtures`): the copies giving its
+score, read from either seat with who won kept, all at one minute, and no other league game of
+that day between the two having that score, since two games of one score are not told apart by
+it, whether one game's copy is in the pool or both. A club's own copy filed against a slot ("TBD-
+09/25/26, 7:15 PM", `leagueCopiesFiledAgainstNobody`) gives the league's game it folds into its
+start the same way. Both came in untimed, so a league doubleheader was listed second game first
+and the later game named as next. No rating reads a start. The Weekly's streaks do, reading a
+club's games in playing order, but the seeded fixture's whole boards with every league game timed,
+the Weekly's included, are its boards with none, to the digit (`leagueStartsBoards.test.ts`).
 
 League Standings keeps each game's start too (`Matchup.startTs`, data schema 9): from a start's
 draft (Team Rankings clubs or a GameChanger organization), on a game Fill adds, and on every game
-Fill matches that has none (`startsFromFill`; a start changes no score, so it is given whether or
-not the score is ticked). The Schedule, the Dashboard's upcoming games, the Playoff machine and
-each team's next game go by day and then start, and the Schedule and the Dashboard show the start
-in the device's own time ("5/3 · 10:30 AM"). The forecast's own order of the games left is not
-changed, so no odds move. A game typed in has no start and is listed after the day's timed games.
+Fill matches that has none, or has one on another day both than its date and than the pool game's
+start, read in the device's time (`startsFromFill`; a start changes no score, so it is given
+whether or not the score is ticked). In the league's own zone the two readings are one. Further
+east either alone takes a start of the game's own day for another's: against the date, a
+morning's in the Americas, the next day in Sydney; against the pool's start, one of two starts
+hours apart, which fall on two days in Tokyo. So a start either reading puts on the game's day is
+kept (`leagueGameTimes.test.ts` reads Fill's starts in nine zones, Los Angeles to Auckland, and a
+start left from the evening before where the league plays). A start is its day's: a game given
+another day in the Schedule lets go of its start, and one Fill moves to the day it was played
+takes the pool game's start, or none (`movesToApply`). Kept, the moved game showed the old day's
+time and was listed by it among the new day's games, and Fill never gave it another. The
+Schedule, the Dashboard's upcoming games, the Playoff machine, each team's next game and the
+Forecast's notes that name one ("Eliminated if the Bears beat them next", and the rival's game a
+team needs help from, `clinchingPaths.ts`) go by day and then start (`inPlayingOrder`, which
+breaks a day's tie by start since 31 October 2026; the notes read the schedule's stored order
+until then, a round robin's pairings, its dates typed in after), and the Schedule and the
+Dashboard show the start in the device's own time ("5/3 · 10:30 AM"). The forecast's own order of
+the games left is not changed, so no odds move. A game typed in has no start and is listed after
+the day's timed games.
 
 ## A season's team list, then its schedule
 
@@ -4678,17 +4707,29 @@ turned down); each result since, with the chance the team was given while the ga
 play; the upset of the stretch, the new final whose winner had been given the least chance, under
 one in two; and who passed the team and whom it passed. With no team followed it gives the new
 results' count, the upset and the biggest climb. The card stands in the list's place while it is
-up, and **Got it** puts both away.
+up, and **Got it** puts both away as they stood when the card came up: the card is what the season
+had come to as it was worked out, and stays so while it is up. What another device changed after
+that is listed once the card is put away (`seenAsListed`), and the next visit's card tells what
+moved since it came up. Got it used to keep the season as it stood at the press, so a final that
+arrived while the card was up was taken as seen, and neither the card nor the list ever told it.
 
 - **A look, one per season, on this device only** (`lf_last_look_v1_<season>`): each team's place
   and Gold odds, the games final, and the chance each game still to play was given, which nothing
   else keeps once the game is final. The first visit only keeps one; later, a look an hour old or
-  more is compared with, and kept again at **Got it**, or at once when nothing a person would want
-  told moved (no new final, no place changed, the Gold odds within a point). Left without Got it,
-  the card is there the next time.
+  more is compared with, and the look the card was worked out from is kept at **Got it**, or at
+  once when nothing a person would want told moved (no new final, no place changed, the Gold odds
+  within a point). Left without Got it, the card is there the next time.
+- **One season's, by the moment it was made.** The look is kept apart from what goes with its
+  season ([Data + persistence](#data--persistence)), and keeps when its season was made
+  (`createdAt`, read in the card's own file, so the first download carries none of it): a look of
+  a season made at another moment than the one now under its id (a deleted season's, or this
+  device's before a restore or a cloud merge put another under the id) is no look, and the season
+  starts afresh.
+  Compared with it, every final of the season now under the id was told as new. A look kept before
+  looks said so reads as the season's.
 - **Taken once the forecast describes the season:** while the Gold odds are still being worked
   out after the latest scores, a look would keep the odds from before them.
-- **Fetched as the Dashboard opens**, a file of its own (3.4 KB with the pieces it shares with
+- **Fetched as the Dashboard opens**, a file of its own (3.5 KB with the pieces it shares with
   Team Rankings' My Team card), so the Dashboard's own load and the first download carry only its
   place. Nothing is read from or written to the cloud.
 
@@ -4754,7 +4795,10 @@ subscription and sending to it, which the app does not have.
   lets go of what was kept of it. The page reads the team followed and the findings put aside
   again for each season it opens, told apart by id and the moment it was made, so neither a
   switch back to an id nor a restore that puts another season under the open one shows what
-  was kept of the season before.
+  was kept of the season before. The Dashboard's big card keeps its look of a season under a key
+  of its own (`lf_last_look_v1_<season>`), which none of this clears or moves: the look says when
+  its season was made, and one of a season made at another moment is read as none ([Since you last
+  looked](#since-you-last-looked)), so a season moved by a merge starts that card afresh.
 - League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose, and with `GROQ_API_KEY` Groq does when Gemini cannot; see [AI league story](#ai-league-story). No key is required for the app to work.
 - **A score is written half a second after the last keystroke**, and at once if the page moves
   on first: another season opened, the page hidden or closed, or the turn given to another tab
@@ -6623,7 +6667,10 @@ feature ideas that day, and says more of the week than the moves (`theWeekly.ts`
 - the game of the week ahead: of the games still to play in the next seven days between two
   clubs of the board's top 50, the one whose odds are nearest even, the higher pair on a tie;
 - the winning streaks still running, five wins or more, the three longest: each club's games
-  of the board's half that count, read back from its latest until one it did not win;
+  of the board's half that count, in playing order as its form line reads them (`byGameTime`, a
+  game with no start after the day's timed ones; its own sort put that game first, and a day's
+  second game listed with no time cut the run after it short), read back from its latest until
+  one it did not win;
 - the page's own club's week: its record in the week's games that count, on any page of its
   rating pool, and its best win by the beaten club's place.
 

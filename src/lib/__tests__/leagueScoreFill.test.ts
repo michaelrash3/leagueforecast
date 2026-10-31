@@ -1062,6 +1062,28 @@ describe("games the schedule has, played on another day", () => {
     ).toEqual([]);
   });
 
+  /*
+   * A start belongs to its day. Moved with only its date changed, a game kept the old day's start:
+   * shown at 9:00 AM on its make-up day, and listed first that day by an instant from another.
+   */
+  it("moves a game at the pool game's start, never at its old day's", () => {
+    const timed = [
+      { ...matchup("g1", "9/20", "ACES", "BEAR"), startTs: "2026-09-20T14:00:00.000Z" },
+      matchup("g2", "9/21", "BEAR", "CUBS"),
+    ];
+    const atNoon = { ...plan, missing: [{ ...played, startTs: "2026-09-27T17:00:00.000Z" }] };
+    const moves = movesToApply(atNoon, movedGames(atNoon, timed, {}, []), timed, ["s9"], 6, {});
+    expect(timed.map((game) => moves.moved(game))).toEqual([
+      { ...timed[0], date: "9/27", startTs: "2026-09-27T17:00:00.000Z" },
+      timed[1],
+    ]);
+    // A pool game with no start leaves the moved game none: the old day's was never its.
+    const untimed = movesToApply(plan, movedGames(plan, timed, {}, []), timed, ["s9"], 6, {});
+    expect(untimed.moved(timed[0]!)).toEqual(matchup("g1", "9/27", "ACES", "BEAR"));
+    // A game not moved comes back as it was.
+    expect(untimed.moved(timed[1]!)).toBe(timed[1]);
+  });
+
   it("fills a moved game onto what was typed against it, leaving everything but runs as it was", () => {
     // Hits, strikeouts, errors and walks typed by hand for the rained-out game, at seven innings,
     // but no runs: only runs keep a game from moving, so it is still paired.

@@ -115,7 +115,12 @@ describe("the list while the card's file is fetched", () => {
     );
   });
 
-  it("is hidden while the card is up, and the card's Got it puts both away", async () => {
+  /*
+   * The card's Got it takes as seen what the list said as the card came up, which the card stood
+   * for. Taking the season as it stood at the press, it put away unshown another device's final
+   * that came while the card was up, and no card or list ever told of it.
+   */
+  it("is hidden while the card is up, and lists what came meanwhile once the card is put away", async () => {
     // A last visit two days ago, with every team in another place than now.
     saveLook(getActiveSeasonId(), {
       v: 1,
@@ -134,6 +139,14 @@ describe("the list while the card's file is fetched", () => {
     expect(screen.getAllByRole("heading", { name: "Since you last looked" })).toHaveLength(1);
 
     await user.click(within(card).getByRole("button", { name: "Got it" }));
+    await waitFor(() => expect(card).not.toBeInTheDocument());
+    const panel = (await screen.findByRole("heading", { name: "Since you last looked" })).closest(
+      "section"
+    );
+    if (!panel) throw new Error("No panel");
+    expect(panel).toHaveTextContent("Aces at Bears: final, 4–2.");
+
+    await user.click(within(panel).getByRole("button", { name: "Got it" }));
     await waitFor(() =>
       expect(screen.queryByRole("heading", { name: "Since you last looked" })).toBeNull()
     );

@@ -1,4 +1,4 @@
-import { shiftIsoDay } from "./date";
+import { byGameTime, shiftIsoDay } from "./date";
 import {
   countsTowardRating,
   inSegment,
@@ -107,10 +107,6 @@ export const isUpset = (
   return chance !== undefined && chance < UPSET_CHANCE;
 };
 
-/** Oldest first, by day and then start, so a club's latest game is its last. */
-const byWhen = (a: ScoutGame, b: ScoutGame): number =>
-  (a.date ?? "").localeCompare(b.date ?? "") || (a.startTs ?? "").localeCompare(b.startTs ?? "");
-
 /** The half of a year a board is fitted on, as `inSegment` reads one: none for the whole year. */
 export type WeeklyHalf = { year: number | undefined; segment: SeasonSegment | undefined };
 
@@ -205,7 +201,12 @@ export const theWeekly = (
   }
   const streaks: WeeklyStreak[] = [];
   for (const [teamId, list] of played) {
-    list.sort(byWhen);
+    /*
+     * Oldest first, so a club's latest game is its last, in playing order (`byGameTime`) as its
+     * form line reads it. A sort of its own read starts as text and put a game with no start
+     * first in its day, so a day's second game listed with no time came before the first.
+     */
+    list.sort(byGameTime);
     let wins = 0;
     for (let at = list.length - 1; at >= 0; at -= 1) {
       const game = list[at]!;

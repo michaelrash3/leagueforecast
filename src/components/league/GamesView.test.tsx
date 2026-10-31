@@ -217,6 +217,30 @@ describe("the date on a game", () => {
     ) => (typeof open)[];
     expect(update([open])[0]?.date).toBe("6/9");
   });
+
+  /*
+   * A start is its day's. Kept through a date typed for another day, the moved game showed the old
+   * day's time and was listed by it among the new day's games.
+   */
+  it("lets go of the start when the game is moved to another day, and keeps it on the same day", async () => {
+    const user = userEvent.setup();
+    const timed = { ...open, startTs: "2026-05-01T14:00:00.000Z" };
+    const { spies } = renderGamesView({ teams, scoreboardGames: [timed] });
+    const field = screen.getByLabelText("Date for Rays vs Jays");
+    type Update = (prev: (typeof timed)[]) => (typeof timed)[];
+
+    await user.clear(field);
+    await user.type(field, "05/01");
+    await user.tab();
+    const same = spies.setMatchups.mock.calls[0]?.[0] as Update;
+    expect(same([timed])[0]).toEqual(timed);
+
+    await user.clear(field);
+    await user.type(field, "5/8");
+    await user.tab();
+    const moved = spies.setMatchups.mock.calls[1]?.[0] as Update;
+    expect(moved([timed])[0]).toEqual({ ...open, date: "5/8" });
+  });
 });
 
 describe("adding a game", () => {
