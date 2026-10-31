@@ -6027,7 +6027,10 @@ of them failed and the GiB-seconds they spent against the day's cap; the same of
 the last day before it that had a run, since the nightly runs a few hours into a
 New York day and a save just after midnight, or a day of refusals at a cap,
 moves the ledger on; the month's runs, failures, GiB-seconds and vCPU-seconds
-against its caps; then the failures in a row, a pause, and a run reserved and
+against its caps; the edits' own month; the questions the server spent compute on
+and left unanswered, on the ledger's day and the last day before it that had any,
+where there were some ("Questions to the cloud are going unanswered" raises its
+alarm past 20 a day); then the failures in a row, a pause, and a run reserved and
 not yet settled. A ledger that cannot be read says so on its own line and leaves
 the night's colour alone, as do failed rebuilds: they are not the refresh's
 work. This is what tells whether a week of dry runs went well before `mode` is
@@ -6305,6 +6308,20 @@ The two before them are read by their own step before the alarm (`scripts/upkeep
 whatever became of the refresh, which hands each as a word (`billing=on` or `off`,
 `dispatch=fine`, `refused` or `expires` and a day); it never fails the run, and it
 prints neither the key nor the token.
+
+And one on the cloud's questions, the owner's of 31 October 2026:
+
+- **Questions to the cloud are going unanswered** (`unansweredWord`): the nightly, dry or live,
+  read the ledger it already reads for the rebuilds and found more than 20 questions in a New York
+  day that the server spent compute on and could not answer (`dayUnanswered`, counted in the
+  write that charges each, "Rebuilds after saves" below), on the nightly's day or the day before:
+  the day before is kept as `lastUnanswered`, since a question charged after midnight moves the
+  ledger on before the nightly reads it. A device asks such a question again on its own at most
+  three times a season a day (`useScoutBridge`), so that many is a server that cannot answer, a
+  worker out of memory say, and not one member's bad minute. It says the day and the count, handed
+  over as `unanswered=over` with them, or `fine`. The first nightly to find neither day past 20
+  closes it; a ledger not read, or not one this build reads, leaves it as it is, and a day before
+  the day before was judged by the nightly after it.
 
 An issue is public, as the repository is, so it says when (UTC, to the minute),
 what failed in a word or two, and the run's link, and nothing from the log. The
@@ -6975,7 +6992,19 @@ October 2026 it went into the rebuilds' totals: a Setup question the server gave
 again and again by the device for a day, each try a cold load of the whole pool on an 8 GiB
 instance, and October's vCPU-seconds passed their cap with no rebuild run, so every save waited
 for the first of November. An edit is never refused for its caps; past them only the questions
-that refit a year are (`capsSpent`). October's totals were left as they stood, which keeps the
+that refit a year are (`capsSpent`). Every question's charge already reads the ledger and writes
+it back, and two things ride on that one read and write, with none of their own. Its reply says
+the edits' month as the charge left the ledger, the New York month and whether either of its
+totals is at its cap (`editMonth`, `editMonthOf`), and an unanswered question's error says the
+same in its details: League Standings makes no timer retry of its bridge question while that
+month is spent, until New York's month turns ("What Team Rankings has, asked of the server", in
+"League Standings in the cloud" below), and nothing a person asks is refused for it. A charge the ledger was slow to take (five seconds), or
+could not take, says nothing, which a device reads as not known, as it reads a reply from a
+server before this. And a question the server spent compute on and left unanswered, a worker out
+of memory say, is counted for its New York day (`dayUnanswered`, emptied on a new day as the
+day's totals are, the last day before that had any kept as `lastUnanswered`), for the nightly's
+alarm ("When a run fails"). One turned away before its turn spent nothing, so its charge writes
+nothing, and counting it would be a write of its own: it is not counted. October's totals were left as they stood, which keeps the
 rebuilds deferred for the rest of that month: raising a cap in `ops/rebuild` lets the next save
 start one, since the launcher lifts a deferral whose budget has room again (`requestRebuildJob`).
 The nightly says the edits' month and, while the job is deferred, why (its budget, a run still going, or failures in a row) and until when; only a budget's deferral is lifted by a raised cap. A field set to

@@ -5,7 +5,9 @@
 #
 # A night that fails opens an issue on this repository, or comments on the one already open, and
 # the next live night that succeeds closes it; the rebuilds after saves get one of their own while
-# their ledger shows failures in a row or a pause (`scripts/alarm.ts`, README "When a run fails").
+# their ledger shows failures in a row or a pause, and so do the cloud's questions while the same
+# ledger counts more than 20 left unanswered in a day (`scripts/alarm.ts`, README "When a run
+# fails").
 #
 # Once a week, as of its Monday, the first run of the week (by the members' day it starts on) that
 # finds it not yet made also re-measures where a rating starts, on the pool it has just published
@@ -112,5 +114,6 @@ jobs:
           CLOSED_LEVEL: ${{ steps.refresh.outputs.closedLevel }}
           HELD: ${{ steps.refresh.outputs.held }}
           INGEST: ${{ steps.refresh.outputs.ingest }}
+          UNANSWERED: ${{ steps.refresh.outputs.unanswered }}
           BILLING: ${{ steps.upkeep.outputs.billing }}
           DISPATCH: ${{ steps.upkeep.outputs.dispatch }}
