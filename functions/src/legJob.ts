@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import process from "node:process";
 import { firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
 import { importLease, watchLease } from "../../src/lib/cloud/importLease";
+import { memoryFields, memoryUseOf } from "../../src/lib/cloud/memoryUse";
 import { JOB_ID } from "../../src/lib/cloud/pullJobs";
 import { restJobDocs } from "../../src/lib/cloud/pullJobRunner";
 import { LEG_TRIES, legFailed, runLeg } from "./legRun";
@@ -103,3 +104,12 @@ if (setup?.kind === "unleased") {
     await lease.release().catch(() => undefined);
   }
 }
+// What the run held at its end and at most, its leg's worker thread included, as the nightly says
+// it (`memoryUse.ts`): a leg loads the whole pool, which grows with every night.
+console.log(
+  JSON.stringify({
+    event: "leg-memory",
+    leg,
+    ...memoryFields(memoryUseOf(process.memoryUsage().rss, process.resourceUsage().maxRSS)),
+  })
+);

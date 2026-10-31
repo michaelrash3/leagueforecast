@@ -123,6 +123,8 @@ const pins = (matchups: Matchup[], gamesPerTeam: number, exact = true) => {
     paths: clinchingPathsForTeams(rows, remaining, CUTOFF, settings, () => [], {
       limit: 8,
       exactLimit: 15,
+      // Every game today, as the clinching paths' own tests read them: the stored order stands.
+      daysFromToday: () => 0,
     }).map((path) => `${path.teamId} ${path.status}: ${path.notes.join(" ")}`),
   };
 };

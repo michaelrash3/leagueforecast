@@ -33,9 +33,15 @@ import { appendFileSync } from "node:fs";
 import type { CloudStore } from "../src/lib/cloud/cloudEngine.ts";
 import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
 import { heldWord, radiusWords } from "../src/lib/cloud/blastRadius.ts";
-import { LOPSIDED_MARGIN } from "../src/lib/autoRemoved.ts";
 import { heardNothing, runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.ts";
 import { ingestWord, ingestWords } from "../src/lib/cloud/ingestCanary.ts";
+import { memoryUseOf, memoryWords, type MemoryUse } from "../src/lib/cloud/memoryUse.ts";
+import {
+  stageMemory,
+  storedStandInLines,
+  sweptLines,
+  tidyLines,
+} from "../src/lib/cloud/nightlyReport.ts";
 import { failureWords } from "../src/lib/cloud/firestoreRest.ts";
 import {
   nightlyEndsTurn,
@@ -50,7 +56,11 @@ import {
   publishFailedRun,
   type CopyPublish,
 } from "../src/lib/live/publishCopy.ts";
-import { describeRebuilds, rebuildsTrouble } from "../src/lib/live/rebuildReport.ts";
+import {
+  describeRebuilds,
+  rebuildsTrouble,
+  unansweredWord,
+} from "../src/lib/live/rebuildReport.ts";
 import { remeasureAfterPublish } from "../src/lib/live/closedLevelWeekly.ts";
 import {
   loadAgeGroups,
@@ -85,6 +95,10 @@ if (limit !== undefined && !(Number.isInteger(limit) && limit > 0)) {
 
 const started = Date.now();
 const since = (): string => `${Math.round((Date.now() - started) / 1000)} s`;
+
+/** What the process holds now and the most it has held (`memoryUse.ts`). */
+const memoryNow = (): MemoryUse =>
+  memoryUseOf(process.memoryUsage().rss, process.resourceUsage().maxRSS);
 
 /**
  * `store` with its writes counted and not made: what a dry run saves, which is nothing, and what
@@ -139,17 +153,23 @@ const output = (name: string, value: string): void => {
  * since a night that failed is when it is most wanted. Said and never judged: the rebuilds are not
  * this run's work, and a night turned red by them would read as a refresh that failed. Whether
  * they are failing goes to the workflow as a word (`rebuildsTrouble`), for the alarm of their own
- * it raises or settles (`runAlarms.ts`); a ledger not read hands over nothing, which leaves that
- * alarm as it is.
+ * it raises or settles (`runAlarms.ts`), and so does whether a day past or this one has had more
+ * than 20 questions the cloud could not answer (`unansweredWord`), from the same read of the
+ * ledger; a ledger not read hands over nothing, which leaves both alarms as they are.
  */
 const tellRebuilds = async (): Promise<void> => {
   if (!readLedger) return;
   try {
     const ledger = await readLedger();
     const job = await (readRebuildJob?.() ?? Promise.resolve(null)).catch(() => null);
-    for (const line of describeRebuilds(ledger, job)) console.log(line);
+    // Whether the pulls run on GitHub, as the workflow tells it: then the boards' publish there
+    // has taken the rebuilds' place, and a deferral of theirs holds no save back.
+    const onGithub = process.env.PULLS_ON_GITHUB === "true";
+    for (const line of describeRebuilds(ledger, job, Date.now(), onGithub)) console.log(line);
     const trouble = rebuildsTrouble(ledger);
     if (trouble) output("rebuilds", trouble);
+    const unanswered = unansweredWord(ledger, todayIsoDay());
+    if (unanswered) output("unanswered", unanswered);
   } catch (error) {
     console.log(`The rebuilds' ledger could not be read: ${failureWords(error)}`);
   }
@@ -178,8 +198,12 @@ const main = async (): Promise<void> => {
     }).`
   );
 
+  // The memory after each step, said as the next begins, so a night that runs out of memory has
+  // already said what each step before it held (`stageMemory`).
+  const memory = stageMemory(memoryNow, (line) => console.log(line));
   let lastTenth = -1;
   const onStage = (stage: CloudPullStage): void => {
+    memory.stage(stage.stage);
     if (stage.stage === "fetching") {
       const tenth = stage.total === 0 ? 10 : Math.floor((10 * stage.done) / stage.total);
       if (tenth === lastTenth) return;
@@ -252,15 +276,14 @@ const main = async (): Promise<void> => {
     }
   }
 
+  memory.done();
   console.log(
     `Ended ${result.end} in ${since()}: ${result.asked} teams asked, ${result.answered} answered, ${result.failed} not; ${result.filed} filed, ${result.gamesAdded} games added and ${result.gamesUpdated} updated.`
   );
-  // Counts only: the log is public, and the clubs are in Pool health's own list until they go.
-  if (result.deleted) {
-    console.log(
-      `  ${result.end === "held" ? "Would have deleted" : "Deleted"} for a game won or lost by ${LOPSIDED_MARGIN} or more: ${result.deleted.clubs} clubs, and ${result.deleted.games} games that went with them.`
-    );
-  }
+  // What the tidy changed, step by step, then what the sweep after it deleted, took off the boards
+  // and put back (`nightlyReport.ts`). Counts only: the log is public, and the clubs are in Pool
+  // health's own lists until they go.
+  for (const line of [...tidyLines(result.tidy), ...sweptLines(result)]) console.log(line);
   if (result.changed.length > 0) {
     const what = dry
       ? `would have saved ${result.changed.length} values (${dry.pieces()} new pieces, ${mb(dry.bytes())} gzipped)`
@@ -292,6 +315,16 @@ const main = async (): Promise<void> => {
     console.log(`  Read: ${ingestWords(result.ingest)}.`);
     output("ingest", ingestWord(result.ingest));
   }
+  // How much of the squad year leans on a stand-in once the tidy and the sweep are done, off the
+  // pool the store holds, and only when it holds a copy (`CloudPullResult.manifest`), as the views
+  // are built. Said and never judged: a number to watch, not the night's work.
+  if (result.manifest) {
+    try {
+      for (const line of storedStandInLines(todayIsoDay())) console.log(line);
+    } catch (error) {
+      console.log(`  The stand-ins were not counted: ${failureWords(error)}`);
+    }
+  }
   // Built from the copy the store now holds, and only when it holds one (`CloudPullResult.manifest`).
   let published: CopyPublish | null = null;
   if (result.manifest) {
@@ -315,11 +348,12 @@ const main = async (): Promise<void> => {
       console.log(`Publishing the views stopped: ${failureWords(error)}`);
       process.exitCode = 1;
     }
+    memory.after("publishing the views");
   }
   // Once a week, as of its Monday, where a rating starts, re-measured on the pool the boards were
   // just built from, League as the publish read it (`remeasureAfterPublish`).
   if (result.manifest) {
-    await remeasureAfterPublish({
+    const weekly = await remeasureAfterPublish({
       views: published,
       day,
       live,
@@ -335,6 +369,7 @@ const main = async (): Promise<void> => {
       log: (line) => console.log(line),
       now: () => new Date().toISOString(),
     });
+    if (weekly) memory.after("re-measuring where a rating starts");
   }
   // Backups the owner staged for the server that nothing used within a day (`uploads.ts`).
   try {
@@ -349,9 +384,7 @@ const main = async (): Promise<void> => {
   } catch (error) {
     console.log(`  The staged backups were not swept: ${failureWords(error)}`);
   }
-  console.log(
-    `  Memory at the end: ${mb(process.memoryUsage().rss)} (at most ${mb(process.resourceUsage().maxRSS * 1024)}).`
-  );
+  console.log(`  Memory at the end: ${memoryWords(memoryNow())}.`);
   if (
     result.end === "gave-up" ||
     result.end === "copy-kept-changing" ||

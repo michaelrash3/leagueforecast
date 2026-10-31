@@ -59,6 +59,20 @@ describe("the Dashboard's line about the team this browser follows", () => {
     expect(summary).not.toHaveProperty("next");
   });
 
+  /*
+   * A move under two points is as likely the simulation's own as the result's: on synthetic
+   * leagues, with the last two points paired, the card's step still came 0.57 to 0.75 points from
+   * a long run's, and every move it showed the wrong way was under two.
+   */
+  it("leaves out a move of less than two points", () => {
+    const moved = (last: number) =>
+      ourTeamSummary(team({ goldTrend: [60, 70.2, last] }), 8, { hasCutLine: true, swings: [] });
+    expect(moved(72.1)).not.toHaveProperty("goldChange");
+    expect(moved(68.3)).not.toHaveProperty("goldChange");
+    expect(moved(72.2)?.goldChange).toBeCloseTo(2, 9);
+    expect(moved(68.2)?.goldChange).toBeCloseTo(-2, 9);
+  });
+
   it("has no move to report before the trend has two points", () => {
     expect(
       ourTeamSummary(team({ goldTrend: [81.4] }), 8, { hasCutLine: true, swings: [] })

@@ -120,6 +120,8 @@ const league = (
     clinchingPathsForTeams(rows, remaining, 2, settings, () => [], {
       limit: 8,
       exactLimit: 15,
+      // Every game today, as the clinching paths' own tests read them: the stored order stands.
+      daysFromToday: () => 0,
     }).map((path) => `${path.teamName} ${path.status}: ${path.notes.join(" ")}`);
   const odds = (iterations: number, follow?: string) =>
     simulateGoldOddsRun(live, remaining, iterations, "owed", 2, settings, follow);

@@ -303,7 +303,7 @@ describe("the one issue an alarm keeps", () => {
 
   it("has a distinct title for each alarm", () => {
     expect(new Set(Object.values(ALARM_TITLES)).size).toBe(Object.keys(ALARM_TITLES).length);
-    expect(Object.keys(ALARM_TITLES)).toHaveLength(9);
+    expect(Object.keys(ALARM_TITLES)).toHaveLength(10);
   });
 });
 
@@ -603,6 +603,71 @@ describe("the nightly's held save and its reading of the answers", () => {
       title: ALARM_TITLES.ingest,
       body: expect.stringMatching(
         /^The nightly found that only 30 of the 3,000 games GameChanger listed could be filed, under half: GameChanger may have changed how it writes a game/
+      ),
+    });
+  });
+});
+
+/*
+ * The questions the cloud spent compute on and could not answer, counted in the edits' ledger and
+ * handed over by the nightly as `over <day> <count>` past 20 in a day, or `fine`
+ * (`unansweredWord`). Read whatever the run, as the rebuilds' are: the ledger is none of the
+ * refresh's work.
+ */
+describe("which alarm the questions left unanswered raise or settle", () => {
+  const dry = { outcome: "success", event: "workflow_dispatch", mode: "dry-run" };
+
+  it("raises it for a day past 20, dry run or live, and settles it once the nightly finds none", () => {
+    expect(nightlyVerdicts({ ...dry, unanswered: "over 2026-10-30 47" })).toEqual([
+      { kind: "unanswered", failing: true, said: "47 questions went unanswered on 2026-10-30" },
+    ]);
+    expect(
+      nightlyVerdicts({
+        outcome: "success",
+        event: "schedule",
+        mode: "live",
+        unanswered: "over 2026-10-31 21",
+      })
+    ).toContainEqual({
+      kind: "unanswered",
+      failing: true,
+      said: "21 questions went unanswered on 2026-10-31",
+    });
+    expect(nightlyVerdicts({ ...dry, unanswered: "fine" })).toEqual([
+      { kind: "unanswered", failing: false },
+    ]);
+  });
+
+  it("leaves it as it is for a ledger not read, or a word it cannot read", () => {
+    for (const unanswered of [
+      "",
+      "over",
+      "over 2026-10-30",
+      "over 2026-10-30 x",
+      "over 26-10-30 47",
+      "over 2026-10-30 -4",
+      "under 2026-10-30 47",
+    ]) {
+      expect(nightlyVerdicts({ ...dry, unanswered }), unanswered).toEqual([]);
+    }
+  });
+
+  it("says it in its own words, from the day and the count alone, and closes in them", () => {
+    const [verdict] = nightlyVerdicts({ ...dry, unanswered: "over 2026-10-30 1234" });
+    expect(alarmStep(verdict!, [], RUN)).toMatchObject({
+      do: "open",
+      title: ALARM_TITLES.unanswered,
+      body: expect.stringMatching(
+        /^The nightly found that 1,234 questions went unanswered on 2026-10-30, past the 20 a day that open this issue: /
+      ),
+    });
+    expect(
+      alarmStep({ kind: "unanswered", failing: false }, [issue(7, ALARM_TITLES.unanswered)], RUN)
+    ).toMatchObject({
+      do: "close",
+      issue: 7,
+      body: expect.stringMatching(
+        /^The nightly found no day past 20 questions unanswered, so this is closed\./
       ),
     });
   });

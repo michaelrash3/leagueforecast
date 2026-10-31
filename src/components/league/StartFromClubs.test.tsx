@@ -1,9 +1,9 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { StartAnswer, StartQuery } from "../../lib/leagueStart";
+import type { StartAnswer, StartDraft, StartQuery } from "../../lib/leagueStart";
 import { EmptyState } from "./EmptyState";
-import { START_UNREAD, StartFromClubs, type StartAsker } from "./StartFromClubs";
+import { clubsDraftLead, START_UNREAD, StartFromClubs, type StartAsker } from "./StartFromClubs";
 
 /* Starting a season from its clubs on Team Rankings (3.7). Placeholder names throughout. */
 
@@ -31,12 +31,12 @@ const DRAFT = {
 };
 
 /** Answers each step as the pool would, and keeps what it was asked. */
-const asker = () => {
+const asker = (draft: StartDraft = DRAFT) => {
   const asked: StartQuery[] = [];
   const ask: StartAsker = (query) => {
     asked.push(query);
     const answer: StartAnswer = query.clubs
-      ? { pages: PAGES, clubs: null, draft: DRAFT }
+      ? { pages: PAGES, clubs: null, draft }
       : query.page
         ? { pages: PAGES, clubs: CLUBS, draft: null }
         : { pages: PAGES, clubs: null, draft: null };
@@ -108,6 +108,86 @@ describe("starting a season from its clubs on Team Rankings", () => {
     expect(season.matchups).toEqual([
       expect.objectContaining({ date: "9/13", away: owls.id, home: hive.id }),
     ]);
+  });
+
+  /** Picks the first two clubs and finds their games, as a person would. */
+  const findTheirGames = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(await screen.findByRole("button", { name: "Add Placeholder S-A" }));
+    await user.click(screen.getByRole("button", { name: "Add Placeholder S-B" }));
+    await user.click(screen.getByRole("button", { name: "Find their games" }));
+  };
+
+  /*
+   * The review told a person to untick what was not the league's while every game a club played on
+   * a day it played anybody else started unticked, and its button started an empty season at a tap.
+   */
+  it("says how many games start unticked and why, as the boxes below stand", async () => {
+    const user = userEvent.setup();
+    open(asker().ask);
+    await findTheirGames(user);
+    expect(
+      await screen.findByText(
+        /^2 games among these clubs\. 1 starts unticked, since it looks like a tournament game \(it says why\): tick it if it is the league's\. Untick any other that is not, and swap a game whose home side is the other one/
+      )
+    ).toBeTruthy();
+  });
+
+  it("asks before starting a season with none of its games, and starts it once told to", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn();
+    const reason = "Entered under Placeholder Classic.";
+    const allUnticked: StartDraft = {
+      games: DRAFT.games.map((game) => ({ ...game, tournament: reason })),
+      outside: 0,
+    };
+    open(asker(allUnticked).ask, onCreate);
+    await findTheirGames(user);
+    expect(
+      await screen.findByText(
+        /^2 games among these clubs, which all start unticked, since they look like tournament games \(each says why\): tick the ones that are the league's, and swap/
+      )
+    ).toBeTruthy();
+    const start = screen.getByRole("button", { name: "Start the season: 2 teams, 0 games" });
+    await user.click(start);
+    expect(onCreate).not.toHaveBeenCalled();
+    expect(screen.getByText(/^Start with 0 of 2 games\?/)).toBeTruthy();
+    // Not yet: the question goes, and nothing is started.
+    await user.click(screen.getByRole("button", { name: "Back to the games" }));
+    expect(screen.queryByText(/^Start with 0 of 2 games\?/)).toBeNull();
+    expect(onCreate).not.toHaveBeenCalled();
+    await user.click(start);
+    await user.click(screen.getByRole("button", { name: "Start with no games" }));
+    expect(onCreate).toHaveBeenCalledTimes(1);
+    expect(onCreate.mock.calls[0]![0].matchups).toEqual([]);
+  });
+
+  it("starts at once with a game ticked, the question gone", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn();
+    const allUnticked: StartDraft = {
+      games: DRAFT.games.map((game) => ({ ...game, tournament: "Entered under Placeholder Cup." })),
+      outside: 0,
+    };
+    open(asker(allUnticked).ask, onCreate);
+    await findTheirGames(user);
+    await user.click(
+      await screen.findByRole("button", { name: "Start the season: 2 teams, 0 games" })
+    );
+    expect(screen.getByText(/^Start with 0 of 2 games\?/)).toBeTruthy();
+    const keep = screen.getByRole("checkbox", {
+      name: "Keep Placeholder S-A at Placeholder S-B, 2026-09-13",
+    });
+    await user.click(keep);
+    expect(screen.queryByText(/^Start with 0 of 2 games\?/)).toBeNull();
+    // The words above say how the boxes started, which a tick leaves true; "all unticked" did not.
+    expect(screen.getByText(/^2 games among these clubs, which all start unticked/)).toBeTruthy();
+    // Unticked again, it is asked again only when the button is pressed.
+    await user.click(keep);
+    expect(screen.queryByText(/^Start with 0 of 2 games\?/)).toBeNull();
+    await user.click(keep);
+    await user.click(screen.getByRole("button", { name: "Start the season: 2 teams, 1 game" }));
+    expect(onCreate).toHaveBeenCalledTimes(1);
+    expect(onCreate.mock.calls[0]![0].matchups).toHaveLength(1);
   });
 
   it("starts again on another page, with nothing of the last one's picked", async () => {
@@ -221,6 +301,42 @@ describe("starting a season from its clubs on Team Rankings", () => {
   it("says where to begin when Team Rankings has no page yet", async () => {
     open(() => Promise.resolve({ pages: [], clubs: null, draft: null }));
     expect(await screen.findByText("Team Rankings has no pages yet.")).toBeTruthy();
+  });
+});
+
+describe("what the review says above a start's games", () => {
+  const game = (gameId: string, tournament?: string) => ({
+    gameId,
+    date: "2026-09-13",
+    away: "S-A",
+    home: "S-B",
+    ...(tournament ? { tournament } : {}),
+  });
+
+  it("says each way the boxes can stand, and what is outside the days", () => {
+    expect(clubsDraftLead({ games: [], outside: 0 })).toBe(
+      "Team Rankings has no games among these clubs in those days. The season starts with its teams and no games, and games can be added on the Schedule."
+    );
+    // How the boxes start, which a tick or an untick since leaves true.
+    expect(clubsDraftLead({ games: [game("g1"), game("g2")], outside: 1 })).toBe(
+      "2 games among these clubs, which all start ticked. Untick a game that is not the league's, and swap a game whose home side is the other one: GameChanger's schedules do not say which side was at home. 1 more is outside those days."
+    );
+    expect(clubsDraftLead({ games: [game("g1")], outside: 0 })).toBe(
+      "1 game among these clubs, which starts ticked. Untick a game that is not the league's, and swap a game whose home side is the other one: GameChanger's schedules do not say which side was at home."
+    );
+    expect(
+      clubsDraftLead({ games: [game("g1", "Entered under Placeholder Cup.")], outside: 0 })
+    ).toBe(
+      "1 game among these clubs, which starts unticked, since it looks like a tournament game (it says why): tick it if it is the league's, and swap a game whose home side is the other one: GameChanger's schedules do not say which side was at home."
+    );
+    expect(
+      clubsDraftLead({
+        games: [game("g1", "x"), game("g2", "y"), game("g3")],
+        outside: 3,
+      })
+    ).toBe(
+      "3 games among these clubs. 2 start unticked, since they look like tournament games (each says why): tick the ones that are the league's. Untick any other that is not, and swap a game whose home side is the other one: GameChanger's schedules do not say which side was at home. 3 more are outside those days."
+    );
   });
 });
 

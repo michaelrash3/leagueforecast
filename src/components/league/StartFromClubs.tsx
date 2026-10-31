@@ -100,6 +100,39 @@ export const orgStartNote = (
   return `${name}: ${plural(picked, "club", "clubs")} on ${pageName}, all picked.${notYet}`;
 };
 
+const SWAP =
+  "swap a game whose home side is the other one: GameChanger's schedules do not say which side was at home.";
+
+/**
+ * What the review says above a start's games, as their boxes stand when it opens (`startChoices`):
+ * how many there are, how many start unticked as a tournament's and so are to be ticked where they
+ * are the league's, and what else to check. It said to untick what was not the league's whatever
+ * the boxes showed, over a draft whose every game started unticked. Worded as how the boxes start,
+ * which stays true as they are ticked: "all unticked" stood over a box ticked since.
+ */
+export const clubsDraftLead = (draft: StartDraft): string => {
+  const total = draft.games.length;
+  const outside =
+    draft.outside > 0
+      ? ` ${draft.outside} more ${draft.outside === 1 ? "is" : "are"} outside those days.`
+      : "";
+  if (total === 0)
+    return `Team Rankings has no games among these clubs in those days. The season starts with its teams and no games, and games can be added on the Schedule.${outside}`;
+  const games = plural(total, "game", "games");
+  const unticked = draft.games.filter((game) => game.tournament).length;
+  const one = unticked === 1;
+  const why = one
+    ? "since it looks like a tournament game (it says why): tick it if it is the league's"
+    : "since they look like tournament games (each says why): tick the ones that are the league's";
+  const lead =
+    unticked === 0
+      ? `${games} among these clubs, ${total === 1 ? "which starts ticked" : "which all start ticked"}. Untick a game that is not the league's, and ${SWAP}`
+      : unticked === total
+        ? `${games} among these clubs, ${one ? "which starts unticked" : "which all start unticked"}, ${why}, and ${SWAP}`
+        : `${games} among these clubs. ${unticked} ${one ? "starts" : "start"} unticked, ${why}. Untick any other that is not, and ${SWAP}`;
+  return `${lead}${outside}`;
+};
+
 /**
  * Starting a League Standings season from its clubs on Team Rankings (3.7): a page, the league's
  * clubs on it, the days to look in, and the games among them to look over, each kept or left out
@@ -469,14 +502,7 @@ export function StartFromClubs({
               onChoose={choose}
               nameOf={nameOf}
               teams={picked.length}
-              lead={
-                (draft.games.length === 0
-                  ? "Team Rankings has no games among these clubs in those days. The season starts with its teams and no games, and games can be added on the Schedule."
-                  : `${draft.games.length} game${draft.games.length === 1 ? "" : "s"} among these clubs. Untick a game that is not the league's, and swap a game whose home side is the other one: GameChanger's schedules do not say which side was at home.`) +
-                (draft.outside > 0
-                  ? ` ${draft.outside} more ${draft.outside === 1 ? "is" : "are"} outside those days.`
-                  : "")
-              }
+              lead={clubsDraftLead(draft)}
               onStart={create}
             />
           )}

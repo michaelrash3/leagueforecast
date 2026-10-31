@@ -96,6 +96,8 @@ const pathOf = (rows: TeamWithProjection[], id: string, remaining: Matchup[], cu
     cutoff,
     settings,
     swings: [],
+    // Every game today's: the order of a team's games is not what these tests are about.
+    daysFromToday: () => 0,
   });
 
 describe("a tie on points at the cut line", () => {

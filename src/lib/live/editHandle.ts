@@ -8,8 +8,10 @@ import {
   capsSpent,
   chargeEdit,
   coerceLedger,
+  editMonthOf,
   runCost,
   updateLedger,
+  type EditMonth,
   type LedgerStore,
 } from "./rebuildLedger";
 
@@ -64,10 +66,14 @@ export type EditReply =
     }
   | { ok: false; why: EditRefusal };
 
-/** What the device is told of a question: the answer, of which copy and version, or why none. */
+/**
+ * What the device is told of a question: the answer, of which copy and version, or why none; and
+ * the edits' month as the question's charge left the ledger (`EditMonth`), absent where the charge
+ * was slow or failed, which a device reads as not known.
+ */
 export type QueryReply =
-  | { ok: true; copy: string; version: number; answer: QueryAnswer }
-  | { ok: false; why: QueryRefusal };
+  | { ok: true; copy: string; version: number; answer: QueryAnswer; editMonth?: EditMonth }
+  | { ok: false; why: QueryRefusal; editMonth?: EditMonth };
 
 type Line = Record<string, string | number | boolean>;
 
@@ -133,30 +139,44 @@ const messageOf = (error: unknown): string =>
  * instance is billed once for the time its calls overlap, and the turns are what fill it. A charge
  * that cannot be written, or that the ledger is slow to take, is said in the line rather than
  * holding or failing the answer, whose work is done.
+ *
+ * What it hands back is the edits' month as the charge left the ledger (`editMonthOf`): the
+ * charge is already a read of the ledger and a write back, so this costs neither a read nor a
+ * write more. Null where it was slow, failed, or found no ledger: not known. A question to be left
+ * `unanswered` is counted in the same write (`chargeEdit`).
  */
 const charge = async (
   { ledger, today, size, startupS, charges, wait = sleep }: Deps,
   busyMs: number,
-  line: Line
-): Promise<void> => {
+  line: Line,
+  unanswered = false
+): Promise<EditMonth | null> => {
   const used = runCost(busyMs / 1000 + startupS(), size);
   line.gibs = used.gibs;
   const charged = charges(async () => {
-    const done = await updateLedger(ledger, (current) => ({
-      next: chargeEdit(current, today(), used),
-      answer: null,
-    }));
+    const done = await updateLedger(ledger, (current) => {
+      const next = chargeEdit(current, today(), used, unanswered);
+      return { next, answer: next && editMonthOf(next) };
+    });
     if ("contended" in done) throw new Error("Other writers had the ledger on every try.");
-  }).then(
-    () => null,
-    (error: unknown) => messageOf(error)
-  );
+    return { month: done.answer };
+  }).catch((error: unknown) => ({ error: messageOf(error) }));
   const outcome = await Promise.race([
     charged,
-    wait(CHARGE_WAIT_MS).then(() => "The ledger was slow; the charge was left to finish."),
+    wait(CHARGE_WAIT_MS).then(() => ({
+      error: "The ledger was slow; the charge was left to finish.",
+    })),
   ]);
-  if (outcome !== null) line.chargeError = outcome;
+  if ("error" in outcome) {
+    line.chargeError = outcome.error;
+    return null;
+  }
+  return outcome.month;
 };
+
+/** The edits' month for a reply, where the charge said it. */
+const monthSaid = (month: EditMonth | null): { editMonth?: EditMonth } =>
+  month ? { editMonth: month } : {};
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -340,14 +360,15 @@ export const NOT_ANSWERED =
 /**
  * A question (`runQuery`), answered by the worker that keeps the pool, in its turn with the edits,
  * and charged as an edit is: it brings the pool up as one does. It changes nothing, so a turn that
- * failed, or never came, is only a question to ask again (`notAnswered`).
+ * failed, or never came, is only a question to ask again (`notAnswered`), which the function
+ * answers as an error (`aborted`) with the edits' month in its details, as a reply carries it.
  */
 export const handleQuery = async ({
   ask,
   worker,
   ...deps
 }: Deps & { ask: QueryAsk; worker: Pick<EditWorker, "query"> }): Promise<
-  { line: Line } & ({ reply: QueryReply } | { notAnswered: string })
+  { line: Line } & ({ reply: QueryReply } | { notAnswered: string; editMonth?: EditMonth })
 > => {
   const line: Line = { kind: ask.query.kind };
   if (REFITTING.has(ask.query.kind)) {
@@ -361,21 +382,32 @@ export const handleQuery = async ({
   try {
     turned = await worker.query(ask, deps.signal ? { signal: deps.signal } : {});
   } catch (error) {
-    await charge(deps, error instanceof TurnFailed ? error.busyMs : 0, line);
-    return { notAnswered: NOT_ANSWERED, line: { ...line, end: "threw", error: messageOf(error) } };
+    const month = await charge(deps, error instanceof TurnFailed ? error.busyMs : 0, line, true);
+    return {
+      notAnswered: NOT_ANSWERED,
+      ...monthSaid(month),
+      line: { ...line, end: "threw", error: messageOf(error) },
+    };
   }
-  await charge(deps, turned.ran ? turned.busyMs : 0, line);
-  if (!turned.ran) return { notAnswered: NOT_ANSWERED, line: { ...line, end: turned.why } };
+  const month = await charge(deps, turned.ran ? turned.busyMs : 0, line, !turned.ran);
+  if (!turned.ran) {
+    return { notAnswered: NOT_ANSWERED, ...monthSaid(month), line: { ...line, end: turned.why } };
+  }
   const { result: asked, memory } = turned;
   Object.assign(line, {
     heapUsedMb: Math.round(memory.heapUsedMb),
     rssMb: Math.round(memory.rssMb),
     heapLimitMb: Math.round(memory.heapLimitMb),
   });
-  if (!asked.ok) return { reply: { ok: false, why: asked.why }, line: { ...line, end: asked.why } };
+  if (!asked.ok) {
+    return {
+      reply: { ok: false, why: asked.why, ...monthSaid(month) },
+      line: { ...line, end: asked.why },
+    };
+  }
   const { copy, version, answer, cold, fetched, loadMs, answerMs } = asked;
   return {
-    reply: asJson({ ok: true, copy, version, answer }),
+    reply: asJson({ ok: true, copy, version, answer, ...monthSaid(month) }),
     line: { ...line, end: "answered", copy, version, cold, fetched, loadMs, answerMs },
   };
 };

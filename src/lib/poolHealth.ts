@@ -28,7 +28,10 @@ export type PoolHealth = {
   nameOnly: number;
   /** A bracket slot, a "TBD": names nobody. */
   placeholders: number;
-  /** Games where one side is a stand-in rather than a club. */
+  /**
+   * Games where one side is a stand-in rather than a club, and the other a club: a game between two
+   * stand-ins is not one. Of `played`, the share the card says (`PoolHealthView`).
+   */
   standInGames: number;
   /** Of those, the ones with a result — the ones worth settling. */
   standInPlayed: number;

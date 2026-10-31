@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import nightlyWorkflow from "../../../../.github/workflows/nightly.yml?raw";
+import nightlyScript from "../../../../scripts/nightly.ts?raw";
 import { deferralDetail } from "../rebuildJobControl";
-import { describeRebuilds, rebuildsTrouble } from "../rebuildReport";
+import { describeRebuilds, rebuildsTrouble, unansweredWord } from "../rebuildReport";
 
 /*
  * What the nightly says of the rebuilds after saves (`rebuildReport.ts`): the switch, the runs,
@@ -171,6 +173,53 @@ describe("the nightly's lines on the rebuilds", () => {
   });
 });
 
+/*
+ * Where the pulls run on GitHub (the dispatch token set, `rebuildsRun` false), no rebuild runs on
+ * Google: a save's boards go out by the boards' publish on GitHub within minutes, and a rebuild's
+ * task deferred to a later month publishes through it when it comes. The deferral is then nothing
+ * a save waits for, and through the second half of October 2026 the nightly said "saves wait for
+ * then" of a deferral to 1 November that no save was waiting on.
+ */
+describe("the nightly's line on a deferral, where the pulls run on GitHub", () => {
+  const now = Date.parse("2026-10-30T10:51:00Z");
+  const ledger = { on: true, mode: "live", month: "2026-10" };
+  const deferred = (why: "month-cap" | "busy" | "failing") => {
+    const until = new Date("2026-11-01T04:01:00.000Z");
+    return { deferredUntil: until.toISOString(), detail: deferralDetail(why, until) };
+  };
+
+  it("says the boards' publish on GitHub replaces them, and that no save waits", () => {
+    for (const why of ["month-cap", "busy", "failing"] as const) {
+      const lines = describeRebuilds(ledger, deferred(why), now, true);
+      expect(lines).toContain(
+        "  Replaced by the boards' publish on GitHub, which publishes each save: none waits for the deferral until 2026-11-01T04:01:00.000Z."
+      );
+      expect(lines.join("\n")).not.toMatch(/wait for then|a cap raised|Held back|Waiting until/);
+    }
+  });
+
+  it("says the deferral as before where the pulls are on Google, or nothing where there is none", () => {
+    expect(describeRebuilds(ledger, deferred("month-cap"), now, false)).toContain(
+      "  Held back by their budget until 2026-11-01T04:01:00.000Z: saves wait for then, or for a cap raised in ops/rebuild."
+    );
+    expect(describeRebuilds(ledger, deferred("month-cap"), now)).toEqual(
+      describeRebuilds(ledger, deferred("month-cap"), now, false)
+    );
+    expect(describeRebuilds(ledger, null, now, true).join("\n")).not.toMatch(/Replaced/);
+  });
+
+  it("is told by the workflow whether the dispatch token is set, and hands it on", () => {
+    const refresh = nightlyWorkflow
+      .split(/^(?= {6}- )/m)
+      .find((step) => /id: refresh\b/.test(step));
+    expect(refresh).toMatch(
+      /^ {10}PULLS_ON_GITHUB: \$\{\{ secrets\.PULL_DISPATCH_TOKEN != '' \}\}$/m
+    );
+    expect(nightlyScript).toMatch(/const onGithub = process\.env\.PULLS_ON_GITHUB === "true";/);
+    expect(nightlyScript).toMatch(/describeRebuilds\(ledger, job, Date\.now\(\), onGithub\)/);
+  });
+});
+
 describe("the rebuilds' trouble, as the nightly hands it to the alarm", () => {
   it("is a pause wherever the ledger shows one, whatever the failures since", () => {
     expect(rebuildsTrouble({ on: true, failures: 3, pausedDay: "2027-04-15" })).toBe("paused");
@@ -200,5 +249,117 @@ describe("the rebuilds' trouble, as the nightly hands it to the alarm", () => {
   it("is not known for a ledger this build cannot read", () => {
     expect(rebuildsTrouble({ on: true, mode: "Live" })).toBeNull();
     expect(rebuildsTrouble("ledger")).toBeNull();
+  });
+});
+
+/*
+ * The questions the edit function spent compute on and could not answer (`dayUnanswered`), counted
+ * in the ledger each question's charge already writes, and the alarm the nightly raises past 20 a
+ * day from the ledger it already reads.
+ */
+describe("the nightly's line on the questions left unanswered", () => {
+  it("says the ledger's day's count and the last day before it that had any", () => {
+    const line = (raw: Record<string, unknown>) =>
+      describeRebuilds({ on: true, month: "2026-10", ...raw }).filter((said) =>
+        said.includes("unanswered")
+      );
+    expect(
+      line({
+        day: "2026-10-31",
+        dayUnanswered: 47,
+        lastUnanswered: { day: "2026-10-30", count: 3 },
+      })
+    ).toEqual([
+      "  Questions left unanswered after a turn: 47 on 2026-10-31; before that, 3 on 2026-10-30.",
+    ]);
+    expect(line({ day: "2026-10-31", dayUnanswered: 1_234 })).toEqual([
+      "  Questions left unanswered after a turn: 1,234 on 2026-10-31.",
+    ]);
+    expect(line({ day: "2026-10-31", lastUnanswered: { day: "2026-10-29", count: 25 } })).toEqual([
+      "  Questions left unanswered after a turn: 0 on 2026-10-31; before that, 25 on 2026-10-29.",
+    ]);
+    // None, as nearly every night: nothing said.
+    expect(line({ day: "2026-10-31" })).toEqual([]);
+  });
+});
+
+describe("the questions left unanswered, as the nightly hands them to the alarm", () => {
+  const TODAY = "2026-10-31";
+
+  it("is over, with the day and its count, past 20 on the nightly's day or the day before", () => {
+    expect(unansweredWord({ on: true, day: TODAY, dayUnanswered: 21 }, TODAY)).toBe(
+      "over 2026-10-31 21"
+    );
+    expect(unansweredWord({ on: true, day: "2026-10-30", dayUnanswered: 47 }, TODAY)).toBe(
+      "over 2026-10-30 47"
+    );
+    // A charge after New York's midnight empties the day's count before the nightly reads it; the
+    // day before is kept, and judged.
+    expect(
+      unansweredWord(
+        {
+          on: true,
+          day: TODAY,
+          dayUnanswered: 2,
+          lastUnanswered: { day: "2026-10-30", count: 47 },
+        },
+        TODAY
+      )
+    ).toBe("over 2026-10-30 47");
+    // The day with more is said.
+    expect(
+      unansweredWord(
+        {
+          on: true,
+          day: TODAY,
+          dayUnanswered: 30,
+          lastUnanswered: { day: "2026-10-30", count: 25 },
+        },
+        TODAY
+      )
+    ).toBe("over 2026-10-31 30");
+    // Across a month's turn the day before is still the day before.
+    expect(unansweredWord({ on: true, day: TODAY, dayUnanswered: 21 }, "2026-11-01")).toBe(
+      "over 2026-10-31 21"
+    );
+    // The edits are charged whatever the rebuilds' switch says, so their count is read either way.
+    expect(unansweredWord({ on: false, day: TODAY, dayUnanswered: 21 }, TODAY)).toBe(
+      "over 2026-10-31 21"
+    );
+  });
+
+  it("is fine at 20 and under, and for a day an earlier nightly judged", () => {
+    expect(unansweredWord({ on: true, day: TODAY, dayUnanswered: 20 }, TODAY)).toBe("fine");
+    expect(unansweredWord({ on: true }, TODAY)).toBe("fine");
+    expect(
+      unansweredWord(
+        {
+          on: true,
+          day: TODAY,
+          dayUnanswered: 20,
+          lastUnanswered: { day: "2026-10-30", count: 20 },
+        },
+        TODAY
+      )
+    ).toBe("fine");
+    // Two days back or more: the nightly of the day after it judged it, and its alarm stood then.
+    expect(unansweredWord({ on: true, day: "2026-10-29", dayUnanswered: 400 }, TODAY)).toBe("fine");
+    expect(
+      unansweredWord(
+        {
+          on: true,
+          day: TODAY,
+          dayUnanswered: 0,
+          lastUnanswered: { day: "2026-10-28", count: 400 },
+        },
+        TODAY
+      )
+    ).toBe("fine");
+  });
+
+  it("is nothing for no ledger, or one this build cannot read, which leaves the alarm as it is", () => {
+    expect(unansweredWord(null, TODAY)).toBe("");
+    expect(unansweredWord(undefined, TODAY)).toBe("");
+    expect(unansweredWord({ on: true, dayUnanswered: "lots" }, TODAY)).toBe("");
   });
 });

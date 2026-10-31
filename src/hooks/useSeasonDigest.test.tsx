@@ -104,6 +104,47 @@ describe("useSeasonDigest", () => {
     expect(view.result.current.changes).toEqual([]);
   });
 
+  it("takes as seen at a card's Got it only what the list said as the card came up", () => {
+    const { store, view } = mount("s1", season());
+    act(() => view.result.current.acknowledge());
+    act(() => store.apply(season({ g1: final("4", "2") })));
+    // The big card comes up in the list's place, standing for what the list says then.
+    const listed = view.result.current.listed;
+    expect(listed).toBeTruthy();
+    expect(kinds(view.result.current.changes)).toEqual(["final"]);
+    // Another device's final arrives while the card is up, and then the card is put away.
+    act(() => store.apply(season({ g1: final("4", "2"), g2: final("1", "3") })));
+    act(() => {
+      if (listed) view.result.current.acknowledgeListed(listed);
+    });
+    expect(view.result.current.changes).toMatchObject([{ kind: "final", gameId: "g2" }]);
+    expect(readSeen("s1")?.games.g1?.final).toBe("4-2");
+    expect(readSeen("s1")?.games.g2?.final).toBe("");
+  });
+
+  it("keeps the race at a card's Got it on a list drawn with no forecast", () => {
+    const alive = { status: "Alive" as const, gold: 50 };
+    const first = mount("s1", season(), { race: race(alive, alive) });
+    act(() => first.view.result.current.acknowledge());
+    first.view.unmount();
+
+    // Opened again with the cut line off, so no forecast: another device's final is the news.
+    const later = mount("s1", season(), { race: null });
+    act(() => later.store.apply(season({ g1: final("4", "2") })));
+    const listed = later.view.result.current.listed;
+    expect(listed?.to.race).toBeNull();
+    act(() => {
+      if (listed) later.view.result.current.acknowledgeListed(listed);
+    });
+    expect(later.view.result.current.changes).toEqual([]);
+    // The cut line back on: the forecast is measured from the race last seen, so the clinch and
+    // the elimination it brings are news, not where the race starts.
+    later.view.rerender({
+      race: race({ status: "Clinched", gold: 100 }, { status: "Eliminated", gold: 0 }),
+    });
+    expect(kinds(later.view.result.current.changes)).toEqual(["clinched", "eliminated"]);
+  });
+
   it("keeps the last look on the device, so news that came while away is still news", () => {
     const first = mount("s1", season({ g1: final("4", "2") }));
     act(() => first.view.result.current.acknowledge());

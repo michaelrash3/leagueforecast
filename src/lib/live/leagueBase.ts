@@ -81,8 +81,13 @@ export const storedBases: BaseKeeper = {
         })
       );
     } catch {
-      // Storage full: the next visit meets the cloud without a base, and keeps everything either
-      // side holds, which loses nothing.
+      /*
+       * Storage full. The base kept before goes too, so the next visit meets the cloud without one
+       * and keeps everything either side holds, which loses nothing. Left, it was older than the
+       * season storage had just taken, and a score corrected on another device since read as one
+       * changed back here, and was changed back in the cloud.
+       */
+      storedBases.remove(docId);
     }
   },
   remove: (docId) => {
