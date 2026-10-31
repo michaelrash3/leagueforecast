@@ -129,30 +129,42 @@ export type LeagueMissingGame = {
  */
 /**
  * The starts Fill can give the league's games: for each game it matched to the pool's, the pool
- * game's start, where the league's game has none yet, or has one that falls on another day than
- * its date (in this device's time). A start orders a day's games and is shown on the Schedule; it
- * changes no score, so a game takes it whether or not its score was ticked.
+ * game's start, where the league's game has none yet, or has one that falls on another day both
+ * than its date and than the pool game's start. A start orders a day's games and is shown on the
+ * Schedule; it changes no score, so a game takes it whether or not its score was ticked.
  *
  * A start on another day is one a game kept when it was moved without it being dropped, by a
  * version from before starts went with their day or by another device's: never given again, it
  * showed the old day's time on the new day and listed the game by it there for good.
+ *
+ * Days are read in this device's time, as the Schedule shows a start. Where the device is in the
+ * league's zone, the date and the pool's start (its game was played on the date) are one reading.
+ * Further east they part: a morning in the Americas is the next day in Sydney, so read against the
+ * date alone, a start of the game's own day was taken for another's and written over on every
+ * Fill; and 10 AM and 2 PM in New York fall on two days in Tokyo, so read against the pool's start
+ * alone, one replaced the other. A start both put on another day, which a device east of the
+ * league reads of one late in the league's evening where the pool's is earlier that day, takes the
+ * pool's: that game's own start, never another day's.
  */
 export const startsFromFill = (
   plan: LeagueFillPlan,
   schedule: readonly Matchup[]
 ): Record<string, string> => {
-  const startDay = (startTs: string) => {
+  const dayOf = (startTs: string) => {
     const at = Date.parse(startTs);
     return Number.isFinite(at) ? toMMDD(new Date(at)) : "";
   };
-  const untimed = new Set(
-    schedule
-      .filter((game) => !game.startTs || startDay(game.startTs) !== normalizeDateInput(game.date))
-      .map((game) => game.id)
-  );
+  const byId = new Map(schedule.map((game) => [game.id, game]));
   const starts: Record<string, string> = {};
   for (const row of plan.rows) {
-    if (row.startTs && untimed.has(row.matchupId)) starts[row.matchupId] = row.startTs;
+    const game = byId.get(row.matchupId);
+    if (!row.startTs || !game) continue;
+    if (game.startTs) {
+      const day = dayOf(game.startTs);
+      const poolDay = dayOf(row.startTs);
+      if (!poolDay || day === normalizeDateInput(game.date) || day === poolDay) continue;
+    }
+    starts[row.matchupId] = row.startTs;
   }
   return starts;
 };
