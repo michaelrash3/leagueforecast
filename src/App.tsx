@@ -575,7 +575,10 @@ export default function App() {
   }, [showToast, poolFilledHere]);
   const recordSaveResult = useCallback(
     (ok: boolean, _label: string, errorMessage: string) => {
-      if (!ok) showToast(errorMessage, { tone: "error" });
+      // Nothing said of a save refused for the turn another window has (`tabTurn.ts`): the banner
+      // says so. League kept live lays other devices' changes over the season there, and the save
+      // of each one was said to have found storage full.
+      if (!ok && !tabTurn()?.readOnly()) showToast(errorMessage, { tone: "error" });
     },
     [showToast]
   );
@@ -722,7 +725,7 @@ export default function App() {
     recordSaveResult(saveMatchups(matchups), "schedule", "Could not save schedule (storage full).");
   }, [matchups, recordSaveResult]);
 
-  // The scores as last written, by identity: what a flush as the turn goes has still to write.
+  // The scores as last written, by identity: what a flush of the scores held has still to write.
   const savedLogs = useRef(logs);
   useEffect(() => {
     const saveTimer = window.setTimeout(() => {
@@ -733,24 +736,39 @@ export default function App() {
     return () => window.clearTimeout(saveTimer);
   }, [logs, recordSaveResult]);
 
-  // Written at once when this tab gives the turn away (`tabTurn.ts`): to a tab asking with Use
-  // here, or, in the moment before this tab's channel code arrived, to a tab already writing or
-  // one opened before it. The half second above would end with this tab read-only, the score
-  // refused, and the other tab reading the season again without it.
-  useEffect(
-    () =>
-      beforeTabYields(() => {
-        // Only a score still held: written again, the scores as this tab read them could undo
-        // one the other tab saved since, and would have it read the season again for nothing.
-        if (logs === savedLogs.current) return false;
-        // And only the games this tab changed, over what storage holds now (`mergeHeldScores`).
-        const saved = saveLogs(mergeHeldScores(loadLogs(), savedLogs.current, logs));
-        recordSaveResult(saved, "scores", "Could not save scores (storage full).");
-        if (saved) savedLogs.current = logs;
-        return saved;
-      }),
-    [logs, recordSaveResult]
-  );
+  /*
+   * A score still held, written at once: when this tab gives the turn away (`tabTurn.ts`), to a
+   * tab asking with Use here, or, in the moment before this tab's channel code arrived, to a tab
+   * already writing or one opened before it; before another season opens (`beforeSwitch`); and as
+   * the page is hidden or closed, the last moments a browser promises a page. The half second
+   * above would end with the score refused as this tab went read-only, the other tab reading the
+   * season again without it, or with the score not written at all. Read from the store, which
+   * holds a keystroke the page has still to draw (`useSeasonState`).
+   */
+  const writeHeldScores = useCallback((): boolean => {
+    const held = seasonStore.get().season.logs;
+    // Only a score still held: written again, the scores as this tab read them could undo
+    // one the other tab saved since, and would have it read the season again for nothing.
+    if (held === savedLogs.current) return false;
+    // And only the games this tab changed, over what storage holds now (`mergeHeldScores`).
+    const saved = saveLogs(mergeHeldScores(loadLogs(), savedLogs.current, held));
+    recordSaveResult(saved, "scores", "Could not save scores (storage full).");
+    if (saved) savedLogs.current = held;
+    return saved;
+  }, [seasonStore, recordSaveResult]);
+  useEffect(() => {
+    const onHidden = () => {
+      if (document.visibilityState === "hidden") writeHeldScores();
+    };
+    const stopYield = beforeTabYields(writeHeldScores);
+    document.addEventListener("visibilitychange", onHidden);
+    window.addEventListener("pagehide", writeHeldScores);
+    return () => {
+      stopYield();
+      document.removeEventListener("visibilitychange", onHidden);
+      window.removeEventListener("pagehide", writeHeldScores);
+    };
+  }, [writeHeldScores]);
 
   useEffect(() => {
     recordSaveResult(
@@ -844,6 +862,7 @@ export default function App() {
     showToast,
     requestConfirmation,
     beforeDelete: beforeSeasonDelete,
+    beforeSwitch: writeHeldScores,
   });
   const activeSeasonId = seasons.activeId;
   /*
