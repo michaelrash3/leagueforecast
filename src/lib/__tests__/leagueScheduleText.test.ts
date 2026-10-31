@@ -467,6 +467,164 @@ describe("parseLeagueSchedule", () => {
     });
   });
 
+  /*
+   * Lines sites print that the reader took apart wrongly, as it read them before it knew time
+   * zones, Noon and TBA, time ranges, a score written beside each side, or a bar between cells; and
+   * lines beside them it reads rightly and must go on reading so. Each read on its own, the last
+   * under a day's heading. Placeholder names.
+   */
+  it("reads the lines sites print around a game", () => {
+    const lines = [
+      "Sat 4/12 6:30 PM EDT Falcons @ Wolves",
+      "4/12 6:30 PM ET Comets @ Rockets",
+      "4/12 7 PM (CDT) Bears @ Lions",
+      "4/12 Noon Falcons @ Wolves",
+      "4/12 12 Noon Comets @ Rockets",
+      "4/12 TBA Bears @ Lions",
+      "4/12 9:00-11:00 AM Falcons @ Wolves",
+      "4/12 9-11 AM Comets @ Rockets",
+      "4/12 9:00 AM - 11:00 AM Bears @ Lions",
+      "4/12 Falcons 7 @ Wolves 5",
+      "4/12 Comets 2 vs Rockets 11 Final",
+      "4/12 Team 1 @ Team 2",
+      "4/12 Falcons 7 @ Wolves",
+      "Sat Apr 12 | 9:00 AM | Falcons @ Wolves | Riverside Park - Field 2",
+      "Sat, Apr 12 | 11:00 AM | Comets @ Rockets | Field 3",
+      "4/12 Aces | Blue @ Wolves",
+      "10/3 TBD @ Wolves",
+    ];
+    const readings = Object.fromEntries(
+      lines.map((line) => {
+        const { rows, skipped } = read([line]);
+        return [line, skipped.length > 0 ? "skipped" : rows];
+      })
+    );
+    const underHeading = read(["Saturday, April 12", "9-11 AM Comets @ Rockets"]);
+    expect({ readings, underHeading }).toMatchInlineSnapshot(`
+      {
+        "readings": {
+          "10/3 TBD @ Wolves": "skipped",
+          "4/12 12 Noon Comets @ Rockets": [
+            {
+              "away": "12 Noon Comets",
+              "date": "4/12",
+              "home": "Rockets",
+            },
+          ],
+          "4/12 6:30 PM ET Comets @ Rockets": [
+            {
+              "away": "ET Comets",
+              "date": "4/12",
+              "home": "Rockets",
+            },
+          ],
+          "4/12 7 PM (CDT) Bears @ Lions": [
+            {
+              "away": "(CDT) Bears",
+              "date": "4/12",
+              "home": "Lions",
+            },
+          ],
+          "4/12 9-11 AM Comets @ Rockets": [
+            {
+              "away": "9-11 AM Comets",
+              "date": "4/12",
+              "home": "Rockets",
+            },
+          ],
+          "4/12 9:00 AM - 11:00 AM Bears @ Lions": [
+            {
+              "away": "Bears",
+              "date": "4/12",
+              "home": "Lions",
+            },
+          ],
+          "4/12 9:00-11:00 AM Falcons @ Wolves": [
+            {
+              "away": "9:00-11:00 AM Falcons",
+              "date": "4/12",
+              "home": "Wolves",
+            },
+          ],
+          "4/12 Aces | Blue @ Wolves": [
+            {
+              "away": "Aces | Blue",
+              "date": "4/12",
+              "home": "Wolves",
+            },
+          ],
+          "4/12 Comets 2 vs Rockets 11 Final": [
+            {
+              "away": "Rockets 11",
+              "date": "4/12",
+              "home": "Comets 2",
+            },
+          ],
+          "4/12 Falcons 7 @ Wolves": [
+            {
+              "away": "Falcons 7",
+              "date": "4/12",
+              "home": "Wolves",
+            },
+          ],
+          "4/12 Falcons 7 @ Wolves 5": [
+            {
+              "away": "Falcons 7",
+              "date": "4/12",
+              "home": "Wolves 5",
+            },
+          ],
+          "4/12 Noon Falcons @ Wolves": [
+            {
+              "away": "Noon Falcons",
+              "date": "4/12",
+              "home": "Wolves",
+            },
+          ],
+          "4/12 TBA Bears @ Lions": "skipped",
+          "4/12 Team 1 @ Team 2": [
+            {
+              "away": "Team 1",
+              "date": "4/12",
+              "home": "Team 2",
+            },
+          ],
+          "Sat 4/12 6:30 PM EDT Falcons @ Wolves": [
+            {
+              "away": "EDT Falcons",
+              "date": "4/12",
+              "home": "Wolves",
+            },
+          ],
+          "Sat Apr 12 | 9:00 AM | Falcons @ Wolves | Riverside Park - Field 2": [
+            {
+              "away": "Falcons",
+              "date": "4/12",
+              "home": "Wolves | Riverside Park",
+            },
+          ],
+          "Sat, Apr 12 | 11:00 AM | Comets @ Rockets | Field 3": [
+            {
+              "away": "Comets",
+              "date": "4/12",
+              "home": "Rockets",
+            },
+          ],
+        },
+        "underHeading": {
+          "rows": [
+            {
+              "away": "AM Comets",
+              "date": "9/11",
+              "home": "Rockets",
+            },
+          ],
+          "skipped": [],
+        },
+      }
+    `);
+  });
+
   it("reads a header printed again partway down as a header", () => {
     expect(
       read([
