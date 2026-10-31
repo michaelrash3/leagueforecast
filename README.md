@@ -5944,6 +5944,16 @@ that finds nothing new writes nothing. A leg of Refresh now sweeps as the nightl
 does; a leg of a pasted list never does, and a pasted list with nothing new to
 pull writes nothing at all, so the night's refresh sweeps what the lists filed.
 
+The log says what the tidy changed, a line for each step that changed anything,
+in the tidy's own words (`describeTidy`), under how many passes it took, or that
+it changed nothing; then the clubs the 40-run rule deleted and the games that went
+with them, and beside that line the marks of clubs plainly made up the sweep put
+on and still stand, and those it lifted, by GameChanger team
+(`nightlyReport.ts`). A club the rule deletes loses its mark with it, so it is
+counted once, on the deletion's line. The run hands back the tidy's counts, never
+the pool it tidied, so nothing that names a club can reach the log. A night with
+nothing to pull runs no tidy and says none.
+
 What it replaces it keeps, as an earlier version of the copy: the cloud panel's
 **Earlier versions** lists it, and **Bring back** undoes a bad night on every
 device. Six are kept, for 30 days at most.
