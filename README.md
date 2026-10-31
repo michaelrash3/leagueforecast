@@ -6290,6 +6290,14 @@ would have done"):
   gives each year's numbers. The copy stays as it was, its views unpublished, for a person to
   look at what GameChanger answered. The next night that saves, or has nothing to save, closes
   it. A pull a person starts saves what it files: the cap is the unattended night's.
+  The games that go with a club the owner's 40-run rule deletes (below, `lopsidedDrops`) do not
+  count toward the games' line, since that is the rule at work and not an answer gone wrong; the
+  clubs themselves still count toward the clubs' line, so a sweep gone wrong is still held. Lists,
+  the miner's hand-offs among them, never sweep, so the nightly meets every year they bring in
+  first: on 31 October 2026 it held its save, night after night, for the 1,646 of 2026's 16,036
+  games the rule's 40 deletions in that year took with them (a research read that day found the
+  tidy alone took nothing, and the rule 53 clubs across every year, all pulled). The night's log
+  says how many clubs the rule deleted and how many games went with them, counts only.
 - **The nightly's answers stopped reading as schedules** (`ingestCanary.ts`): of the games
   GameChanger listed that night, fewer than half could be filed, out of 500 or more. A cancelled
   game, or one with no date, is a few in a hundred; a change in how GameChanger writes a game

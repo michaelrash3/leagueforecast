@@ -105,16 +105,27 @@ export const poolYears = (pool: {
  * holds nowhere, and a club of the year before it that the pool after holds nowhere, unless it was
  * known only by name and the pool after holds every game of the year it stood in. A game or club
  * that moved to another year is not taken away. In year order.
+ *
+ * `deletedByRule` are the games that went with a club the owner's 40-run rule deleted
+ * (`lopsidedDrops`): the rule at work, not an answer gone wrong, so they do not count toward the
+ * games' line. The clubs still count toward the clubs' line, so a sweep gone wrong is held as
+ * before. On 31 October 2026 the nightly held its save, night after night, for the 1,646 of 2026's
+ * 16,036 games the rule's first pass over that year took with its 40 clubs: lists bring a year in
+ * and never sweep, so the nightly meets every such year first (research run 41154783200, one read:
+ * the tidy alone took nothing, and the rule deleted 53 clubs in all, 40 of them that year's).
  */
 export const blastRadius = (
   before: PoolYears,
-  after: { games: ReadonlySet<string>; clubs: ReadonlySet<string> }
+  after: { games: ReadonlySet<string>; clubs: ReadonlySet<string> },
+  deletedByRule: ReadonlySet<string> = new Set()
 ): YearRadius[] =>
   [...before.entries()]
     .sort(([a], [b]) => a - b)
     .map(([year, held]) => {
       let gamesRemoved = 0;
-      for (const id of held.games) if (!after.games.has(id)) gamesRemoved += 1;
+      for (const id of held.games) {
+        if (!after.games.has(id) && !deletedByRule.has(id)) gamesRemoved += 1;
+      }
       let clubsRemoved = 0;
       for (const id of held.clubs) {
         if (after.clubs.has(id)) continue;
