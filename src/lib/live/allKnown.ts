@@ -12,6 +12,7 @@ import {
   type SeasonSegment,
 } from "../teamRankings";
 import { type AutoRemovals } from "../autoRemoved";
+import { NO_RETIRED, type RetiredIds } from "../teamRankings/retiredIds";
 import { removedClubIds } from "../removedClubs";
 import { withoutClubs } from "../unrealClubs";
 
@@ -92,6 +93,10 @@ export type AllKnown = {
  * It goes after the league pass, which links League Standings teams off the stored games as they
  * are, so a club the league links is still found, and with no club to leave out everything is
  * exactly as it was. Required, so no caller can forget the marks and draw a board with the club.
+ *
+ * A league team's club is minted under no id the stored roster has let go of (`retired`), as a
+ * stored club is not: under a folded club's id, a pick of the folded club found it, and the
+ * league's games went onto it.
  */
 export const deriveAllKnown = ({
   ageGroups,
@@ -99,6 +104,7 @@ export const deriveAllKnown = ({
   yearGames,
   readSeason,
   autoRemoved,
+  retired = NO_RETIRED,
 }: {
   ageGroups: AgeGroup[];
   /** The stored roster, as `loadScoutTeams` decodes it. */
@@ -108,8 +114,10 @@ export const deriveAllKnown = ({
   readSeason: SeasonReader;
   /** The clubs taken off as plainly made up, by GameChanger id (`loadAutoRemoved`). */
   autoRemoved: AutoRemovals;
+  /** The ids the stored roster has let go of, as `loadRetiredIds` reads them off it. */
+  retired?: RetiredIds;
 }): AllKnown => {
-  const pass = leaguePass(ageGroups, scoutTeams, yearGames, readSeason);
+  const pass = leaguePass(ageGroups, scoutTeams, yearGames, readSeason, retired);
   // Taken off as plainly made up, unless a League Standings team links it.
   const marked = removedClubIds(scoutTeams, ageGroups, autoRemoved);
   const removed = new Set([...marked].filter((id) => !pass.linked.has(id)));
@@ -140,7 +148,8 @@ const leaguePass = (
   ageGroups: AgeGroup[],
   scoutTeams: ScoutTeam[],
   yearGames: ScoutGame[],
-  readSeason: SeasonReader
+  readSeason: SeasonReader,
+  retired: RetiredIds = NO_RETIRED
 ) => {
   let teams = scoutTeams;
   const derivedGames: ScoutGame[] = [];
@@ -156,7 +165,7 @@ const leaguePass = (
     });
     // The page's squad year supplies the year a League Standings date does not carry.
     const year = ageGroupYear(group);
-    const derived = deriveLeagueScoutGames(group.id, seasons, teams, year, stored);
+    const derived = deriveLeagueScoutGames(group.id, seasons, teams, year, stored, retired);
     teams = derived.teams;
     derivedGames.push(...derived.games);
     derived.pickedClubIds.forEach((id) => picked.add(id));

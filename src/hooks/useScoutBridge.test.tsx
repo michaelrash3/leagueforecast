@@ -251,6 +251,14 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     expect(result.current.candidatesFor("Owls")).toEqual([]);
   });
 
+  it("asks with the GameChanger id kept beside a pick, which the server follows the club by", async () => {
+    const { asked, asker } = server();
+    const picked = [{ id: "lt1", name: "Rays", scoutTeamId: "S-R", scoutGcTeamId: "gcRAYS" }];
+    setup({ asker, teams: picked });
+    await settle();
+    expect(asked).toEqual([{ kind: "league.bridge", season: "s1", teams: picked, fixtures: [] }]);
+  });
+
   it("asks nothing while held back for the live board's first draw, and asks once let go", async () => {
     const { asked, asker } = server();
     const { result, rerender } = setup({ asker, held: true, signedIn: true });

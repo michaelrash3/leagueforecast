@@ -23,6 +23,7 @@ import {
   encodeScoutTeams,
 } from "../../teamRankingsCompact";
 import { countedByHalf } from "../../teamRankings/halves";
+import type { RetiredIds } from "../../teamRankings/retiredIds";
 import type { AutoRemovals } from "../../autoRemoved";
 import { daysBefore, pastBoardAsOf, rankLineStep, type PastBoard } from "../../rankMovement";
 import { theWeekly, type Weekly } from "../../theWeekly";
@@ -245,6 +246,11 @@ export type BuildInput = {
   readSeason: SeasonReader;
   /** The clubs taken off as plainly made up (`loadAutoRemoved`), which no board shows. */
   autoRemoved: AutoRemovals;
+  /**
+   * The ids the stored roster has let go of (`loadRetiredIds`), which no club made for a league
+   * team is minted as (`deriveAllKnown`).
+   */
+  retired?: RetiredIds;
   /** The day the members are in, as an ISO day. Never the server's own. */
   today: string;
   /**
@@ -295,6 +301,7 @@ function* boardBuildSteps({
   gamesOfYear,
   readSeason,
   autoRemoved,
+  retired,
   today,
   past = true,
 }: BuildInput): Generator<BoardBuildStep, BoardsBuilt, PageBoard[] | undefined> {
@@ -308,6 +315,7 @@ function* boardBuildSteps({
       yearGames: gamesOfYear(year),
       readSeason,
       autoRemoved,
+      retired,
     });
     known.set(year, derived);
     return derived;

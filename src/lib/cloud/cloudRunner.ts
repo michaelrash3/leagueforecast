@@ -15,6 +15,7 @@ import {
 import {
   createGcImporter,
   poolSignature,
+  SHIPPED_TIDY_RULES,
   stampFromNewerRules,
   tidyChangedAnything,
   tidyPool,
@@ -52,6 +53,7 @@ import {
   loadNotThisTeam,
   loadOrgMembership,
   loadRealClubs,
+  loadRetiredIds,
   loadRefreshLog,
   loadScoutGames,
   loadScoutTeams,
@@ -647,6 +649,8 @@ const fileScheduleSource = async (
           seasonYearsFor: new Set(loadAgeUnknown().map((entry) => entry.teamId)),
         }
       : {}),
+    // The ids the copy's pool let go of, which no club the pull makes is minted as.
+    retired: loadRetiredIds(),
   });
   const claimed = new Map(
     job.kind === "list" ? job.entries.map((entry) => [entry.teamId, entry]) : []
@@ -707,7 +711,15 @@ const fileScheduleSource = async (
   }
   await onTidy?.();
   const spared = sparedByTidy(importer.state, seasons);
-  const tidy = tidyPool(importer.state, watchTidy, loadKeptApart(), refused, spared);
+  const tidy = tidyPool(
+    importer.state,
+    watchTidy,
+    loadKeptApart(),
+    refused,
+    spared,
+    SHIPPED_TIDY_RULES,
+    loadRetiredIds()
+  );
   saveTidyStamp(poolSignature(tidy.state));
   const filed = tidyChangedAnything(tidy) ? tidy.state : importer.state;
   const kept = persistPool(filed, undefined);

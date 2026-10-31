@@ -53,6 +53,7 @@ const LINK_ROW: Shape = {
     scoutTeamId: { optional: "id" },
     suggestedName: { optional: "string" },
     staleScoutTeamId: { optional: "id" },
+    movedScoutTeamId: { optional: "id" },
     conflictWith: { optional: { list: "id" } },
     ambiguousCount: { optional: "count" },
     sharedOpponents: { optional: "count" },

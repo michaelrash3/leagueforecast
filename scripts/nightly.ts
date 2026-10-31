@@ -54,6 +54,7 @@ import { remeasureAfterPublish } from "../src/lib/live/closedLevelWeekly.ts";
 import {
   loadAgeGroups,
   loadAutoRemoved,
+  loadRetiredIds,
   loadScoutGamesForYear,
   loadScoutTeams,
   resetTeamRankingsStore,
@@ -322,6 +323,7 @@ const main = async (): Promise<void> => {
         teams: loadScoutTeams(),
         gamesOfYear: loadScoutGamesForYear,
         autoRemoved: loadAutoRemoved(),
+        retired: loadRetiredIds(),
       }),
       keep: (record) => opened.writeClosedLevel(record),
       handWord: (word) => output("closedLevel", word),

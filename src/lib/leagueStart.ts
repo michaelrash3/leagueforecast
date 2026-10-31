@@ -181,23 +181,28 @@ const leagueDate = (day: string): string =>
  * its score entered and final where it was played. A team named like another gets the other's
  * id with a number, as a typed list does (`createTeamId`). A start whose clubs are not Team
  * Rankings' own (a GameChanger organization's teams, `gcOrgSchedule.ts`) names the club each is
- * through `linkOf`, and a team with none is linked to nothing.
+ * through `linkOf`, and a team with none is linked to nothing. `gcOf` is a GameChanger id the club
+ * carries, kept beside the link (`TeamBase.scoutGcTeamId`) so the link follows the club should the
+ * pool give its id to another.
  */
 export const seasonFromStart = (
   clubs: readonly { id: string; name: string }[],
   draft: StartDraft,
   choices: readonly StartChoice[],
   defaultInnings: number,
-  linkOf: (clubId: string) => string | undefined = (clubId) => clubId
+  linkOf: (clubId: string) => string | undefined = (clubId) => clubId,
+  gcOf: (clubId: string) => string | undefined = () => undefined
 ): BuiltSeason => {
   const taken = new Set<string>();
   const teamOf = new Map<string, TeamBase>();
   const teams: TeamBase[] = clubs.map((club) => {
     const scoutTeamId = linkOf(club.id);
+    const scoutGcTeamId = scoutTeamId === undefined ? undefined : gcOf(club.id);
     const team = {
       id: createTeamId(displayName(club.name), taken),
       name: club.name,
       ...(scoutTeamId === undefined ? {} : { scoutTeamId }),
+      ...(scoutGcTeamId === undefined ? {} : { scoutGcTeamId }),
     };
     teamOf.set(club.id, team);
     return team;

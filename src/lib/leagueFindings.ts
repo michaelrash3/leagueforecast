@@ -42,6 +42,7 @@ export type FindingCode =
   | "duplicate-team-name"
   | "cut-line"
   | "link-gone"
+  | "link-moved"
   | "link-shared"
   | "link-ambiguous";
 
@@ -606,6 +607,22 @@ export const auditLeague = ({
         affectsForecast: settings.useScoutResults,
       },
       gone.map((row) => row.staleScoutTeamId ?? "")
+    );
+  }
+  const moved = links.filter((row) => row.movedScoutTeamId);
+  if (moved.length) {
+    add(
+      {
+        code: "link-moved",
+        severity: "review",
+        summary: `${plural(moved.length, "team")} linked to a club whose place in Team Rankings another club has now`,
+        detail:
+          "Each was picked as a GameChanger team the club in its place no longer carries, and no one club carries it now: after a merge, a deletion or Team Rankings started again, the link would have named another club. That club is not used: each falls back to a guess from its name, as a link to a club gone does.",
+        suggestion: "Pick the club again under Team Rankings links in Settings.",
+        targets: [scoutTarget, ...moved.map((row) => teamTarget(row.leagueTeamId))],
+        affectsForecast: settings.useScoutResults,
+      },
+      moved.map((row) => row.movedScoutTeamId ?? "")
     );
   }
   const shared = links.filter((row) => row.conflictWith?.length);

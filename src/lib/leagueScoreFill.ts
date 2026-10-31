@@ -6,6 +6,7 @@ import {
   LEAGUE_GAME_PREFIX,
   scoreSeenBy,
   teamNameKey,
+  withPicksRead,
   type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
@@ -259,7 +260,7 @@ type Alignment = {
  */
 export const planLeagueScoreFill = ({
   seasonId,
-  teams,
+  teams: picked,
   matchups,
   logs,
   ageGroups,
@@ -267,6 +268,9 @@ export const planLeagueScoreFill = ({
   scoutGames,
   today = todayIsoDay(),
 }: LeagueScoreFillInput): LeagueFillPlan => {
+  // Each pick as the bridge reads it (`readPick`): a club whose id the pool has given to another
+  // club is followed by its GameChanger id, or linked to none, never to the club the id now names.
+  const teams = withPicksRead(picked, scoutTeams);
   // The link already exists: an age group names the League Standings seasons that belong to it.
   // Reusing it means the two halves cannot disagree about which games are the same season's.
   const claiming = ageGroups.filter((group) => group.seasonIds.includes(seasonId));

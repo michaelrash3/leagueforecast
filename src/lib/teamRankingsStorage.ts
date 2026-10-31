@@ -52,10 +52,13 @@ import {
   decodePoolTeams,
   encodeScoutGames,
   encodeScoutTeams,
+  idsOfStored,
   isFilledString,
   markPlaceholders,
+  retiredOfStored,
   storedGamesStats,
 } from "./teamRankingsCompact";
+import { mergeRetired, NO_RETIRED, retireIds, type RetiredIds } from "./teamRankings/retiredIds";
 
 /**
  * The readers of a stored pool live with the codec now, so the workers can decode a compact pool
@@ -270,6 +273,8 @@ const MIGRATED_KEY = "league_forecast_pool_in_idb_v1";
 const cache = new Map<string, unknown>();
 /** The pool decoded from the cache's compact form, once per version of it; see `loadScoutTeams`. */
 let decodedTeams: { source: unknown; teams: ScoutTeam[] } | null = null;
+/** The ids the stored roster let go of, read from the same value; see `loadRetiredIds`. */
+let readRetired: { source: unknown; retired: RetiredIds } | null = null;
 /**
  * One year's games, decoded, for as long as that year's stored value is the one it was decoded
  * from. A single slot on purpose: the view shows one year at a time, and pinning every year ever
@@ -863,6 +868,7 @@ export const emptyPoolStore = async (): Promise<EmptiedPool> => {
   await Promise.all(left.map((key) => (io.remove ? io.remove(key) : io.set(key, null))));
   cache.clear();
   decodedTeams = null;
+  readRetired = null;
   const kept = await Promise.all((await io.keys()).map((key) => io.get(key)));
   return kept.every((value) => value === null || value === undefined) ? "done" : "incomplete";
 };
@@ -874,6 +880,7 @@ export const resetTeamRankingsStore = (): void => {
   // which is never the identity they hold - but a reset should not keep a pool's worth of objects
   // alive until somebody happens to ask.
   decodedTeams = null;
+  readRetired = null;
   decodedYear = null;
   migratingGames = false;
   pendingWrites.clear();
@@ -958,11 +965,32 @@ export const loadScoutTeams = (): ScoutTeam[] => {
  * new. Seeded on acceptance only: a refused write leaves the cache holding the old compact value,
  * and a seed keyed on the new one would simply never be hit.
  */
-export const saveScoutTeams = (teams: ScoutTeam[]): boolean => {
-  const encoded = encodeScoutTeams(teams);
+export const saveScoutTeams = (teams: ScoutTeam[], more: RetiredIds = NO_RETIRED): boolean => {
+  /*
+   * Every id the stored roster held that this one does not is let go of here (`retiredIds.ts`),
+   * whichever fold, deletion or restore took it: worked out from what the store held, so no path
+   * that drops a club has to remember to say so, and written in the same value. `more` is a
+   * backup's own, laid beside the store's.
+   */
+  const before = readValue(TEAMS_KEY);
+  const kept = new Set(teams.map((team) => team.id));
+  const retired = retireIds(mergeRetired(retiredOfStored(before), more), idsOfStored(before), kept);
+  const encoded = encodeScoutTeams(teams, retired);
   const accepted = writeValue(TEAMS_KEY, encoded);
-  if (accepted) decodedTeams = { source: encoded, teams: markPlaceholders(teams) };
+  if (accepted) {
+    decodedTeams = { source: encoded, teams: markPlaceholders(teams) };
+    readRetired = { source: encoded, retired };
+  }
   return accepted;
+};
+
+/** The ids the stored roster has let go of, by family (`retiredIds.ts`), read once per version. */
+export const loadRetiredIds = (): RetiredIds => {
+  const source = readValue(TEAMS_KEY);
+  if (readRetired && readRetired.source === source) return readRetired.retired;
+  const retired = retiredOfStored(source);
+  readRetired = { source, retired };
+  return retired;
 };
 
 /* -------------------------------------------------------------------- the games, by squad year */

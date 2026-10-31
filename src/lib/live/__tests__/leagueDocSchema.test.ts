@@ -55,7 +55,10 @@ const score = (away: string, home: string, more: Partial<GameLog> = {}): GameLog
   ...more,
 });
 
-/** A season holding every field a season's document can: each record's, and every setting's. */
+/**
+ * A season holding every field a season's document can, each record's and every setting's, but
+ * the GameChanger id beside a pick, which the test after the pin adds.
+ */
 const FULL: SeasonSnapshot = {
   id: "season-2",
   name: "Spring 2027",
@@ -120,6 +123,22 @@ describe("a season written to its document and read back", () => {
     expect(await hashValue(records)).toBe(
       "452f891214e2c78fbd6a0aac62916f7b46939ed3bf81c4df4a6c9e413064455c"
     );
+  });
+
+  it("keeps the GameChanger id beside a pick, and a pick without one as the pin above has it", () => {
+    // Pinned before the id joined a team's record, so FULL leaves it out and the pin stands.
+    const picked: SeasonSnapshot = {
+      ...FULL,
+      teams: FULL.teams.map((team) =>
+        team.id === "ACES" ? { ...team, scoutGcTeamId: "gcACES000001" } : team
+      ),
+    };
+    const doc = stored(seasonToDoc(picked, 3));
+    expect(doc.teams).toMatchObject({
+      ACES: { id: "ACES", name: "Aces", scoutTeamId: "S-ACES", scoutGcTeamId: "gcACES000001" },
+    });
+    const read = docToSeason(doc, DOC_ID);
+    expect(read.ok && read.season).toEqual(picked);
   });
 });
 
@@ -253,7 +272,7 @@ const LAYOUT_NOW = {
     "bracketLogs",
     "settings",
   ]),
-  team: fieldsOf<TeamBase>()(["id", "name", "scoutTeamId"]),
+  team: fieldsOf<TeamBase>()(["id", "name", "scoutTeamId", "scoutGcTeamId"]),
   game: fieldsOf<Matchup>()(["id", "date", "away", "home", "startTs"]),
   score: fieldsOf<GameLog>()([
     "awayRuns",
@@ -313,8 +332,10 @@ const LAYOUTS: readonly { schema: number; fingerprint: string }[] = [
   // As the documents were first made (1.6e): every field above but the two the next one added.
   { schema: 1, fingerprint: "f22db85e5d46778257c5b414dd76139845652eb11eb03f7a8a2017f77cd950ad" },
   // A season says its team list is set (`Settings.teamsLocked`), and a game keeps its start
-  // (`Matchup.startTs`), which an older build's move or edit of the game erased.
-  { schema: 2, fingerprint: "0dc4042495b2f5fd317c1fb5a8b71fd69261193920c21a32978f818b9643128b" },
+  // (`Matchup.startTs`), which an older build's move or edit of the game erased; and a team's pick
+  // keeps the GameChanger id of the club it picked (`TeamBase.scoutGcTeamId`), added before any
+  // build wrote layout 2, so one raise covers the three.
+  { schema: 2, fingerprint: "50b8d72d81216e39951467dc6e311599aad3630608da160011e0e27d7e850af3" },
 ];
 
 /** Order-free, so a list tidied into another order is not taken for a new layout. */

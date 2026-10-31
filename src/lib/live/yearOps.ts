@@ -6,6 +6,7 @@ import {
   loadAgeGroups,
   loadArchiveIndex,
   loadAutoRemoved,
+  loadRetiredIds,
   loadScoutGames,
   loadScoutGamesForYear,
   loadScoutTeams,
@@ -83,6 +84,7 @@ export const planYearArchive = (year: number, seasons: SeasonReader, at: string)
     yearGames: loadScoutGamesForYear(year),
     readSeason: seasons,
     autoRemoved: loadAutoRemoved(),
+    retired: loadRetiredIds(),
   });
   return {
     stored,

@@ -5,6 +5,7 @@ import {
   namesNobody,
   teamNameKey,
 } from "./teamRankings/names";
+import type { TakenIds } from "./teamRankings/retiredIds";
 import { ageGroupLevel, ageGroupYear } from "./teamRankings/seasons";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "./teamRankings/types";
 
@@ -242,7 +243,7 @@ const reusableStandIn = (
  * page), one that no roster will, the id the name reads as with when it was asked and a few random
  * letters after it.
  */
-export const mintStandInId = (name: string, taken?: ReadonlySet<string>): string => {
+export const mintStandInId = (name: string, taken?: TakenIds): string => {
   const read = buildScoutTeam(name, taken ?? new Set()).id;
   return taken
     ? read

@@ -12,6 +12,7 @@ import {
 import { deriveAllKnown, gamesOnPages, type AllKnown, type SeasonReader } from "./live/allKnown";
 import { asWorkerSees, ratingPools } from "./live/views/board";
 import { countedByHalf, defaultSegmentFor, segmentWorthShowing } from "./teamRankings/halves";
+import type { RetiredIds } from "./teamRankings/retiredIds";
 import {
   ageGroupYear,
   fitScoutYearFor,
@@ -237,6 +238,8 @@ export type FewOutsideInput = {
   gamesOfYear: (year: number | undefined) => ScoutGame[];
   readSeason: SeasonReader;
   autoRemoved: AutoRemovals;
+  /** The ids the stored roster let go of (`loadRetiredIds`), as the boards are built with them. */
+  retired?: RetiredIds;
   /** The day the boards are for, as an ISO day. */
   today: string;
 };
@@ -258,7 +261,7 @@ export type FewOutsideInput = {
  * fits no more than the boards do.
  */
 export function* openedBoardsOf(input: FewOutsideInput): Generator<FitBoards> {
-  const { ageGroups, teams, gamesOfYear, readSeason, autoRemoved, today } = input;
+  const { ageGroups, teams, gamesOfYear, readSeason, autoRemoved, retired, today } = input;
   const byId = new Map<string, AgeGroup>();
   ageGroups.forEach((group) => {
     if (!byId.has(group.id)) byId.set(group.id, group);
@@ -276,6 +279,7 @@ export function* openedBoardsOf(input: FewOutsideInput): Generator<FitBoards> {
       yearGames: gamesOfYear(year),
       readSeason,
       autoRemoved,
+      retired,
     });
     // As the boards' facts are built (`PageFacts.places`): a map of the roster, the last id wins.
     const states = new Map(all.teams.map((team) => [team.id, team.state || undefined]));

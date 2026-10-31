@@ -6,6 +6,7 @@ import { DATA_SCHEMA, type CloudManifest } from "../../cloud/cloudManifest";
 import { LEAGUE_PART } from "../../cloud/cloudPlan";
 import { loadPoolFrom, memoryIo } from "../../cloud/cloudRunner";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../teamRankings";
+import { wasRetired } from "../../teamRankings/retiredIds";
 import { decodePoolGames, encodeScoutGames, encodeScoutTeams } from "../../teamRankingsCompact";
 import {
   cloudPoolKeys,
@@ -17,6 +18,7 @@ import {
   loadRealClubs,
   loadOrgMembership,
   loadRefreshCadence,
+  loadRetiredIds,
   loadScoutGamesForYear,
   loadScoutTeams,
   readCloudPoolValue,
@@ -1146,9 +1148,12 @@ describe("games added by their clubs' names, resolved on the server", () => {
     ],
   };
 
-  it("resolves the names against the cloud's clubs, adds a club it lacks, and is undone exactly", async () => {
+  it("resolves the names against the cloud's clubs, adds a club it lacks, and is undone, letting its id go", async () => {
     const cloud = await copyOfPool();
     const before = new Map(cloud.manifest()!.parts.map((part) => [part.key, part.hash]));
+    await reopen(cloud);
+    const rosterBefore = loadScoutTeams();
+    resetTeamRankingsStore();
     const cache = editPool();
     const done = await edit(cache, cloud.store, IMPORT);
     if (!done.ok) throw new Error(done.why);
@@ -1178,10 +1183,19 @@ describe("games added by their clubs' names, resolved on the server", () => {
         teamBScore: undefined,
       },
     ]);
-    // Its Undo takes the games back out, and the club they brought.
+    // Its Undo takes the games back out, and the club they brought, whose id the roster lets go of
+    // with it, so no club is minted under it again (`retiredIds.ts`): every other value as it was.
     const undone = await edit(editPool(), cloud.store, done.inverse);
     if (!undone.ok) throw new Error(undone.why);
-    expect(new Map(cloud.manifest()!.parts.map((part) => [part.key, part.hash]))).toEqual(before);
+    const after = new Map(cloud.manifest()!.parts.map((part) => [part.key, part.hash]));
+    expect({ ...Object.fromEntries(after), [TEAMS_KEY]: "" }).toEqual({
+      ...Object.fromEntries(before),
+      [TEAMS_KEY]: "",
+    });
+    await pool?.drop();
+    await reopen(cloud);
+    expect(loadScoutTeams()).toEqual(rosterBefore);
+    expect(clubZ && wasRetired(loadRetiredIds(), clubZ.id)).toBe(true);
   });
 
   it("knows League Standings' clubs: asked about, and adopted by name rather than made again", async () => {

@@ -133,6 +133,65 @@ describe("picking which club a league team is", () => {
     expect(LEAGUE_CANDIDATES_MAX).toBe(TEAM_SEARCH_LIMIT);
   });
 
+  it("keeps the GameChanger id of the club picked beside the pick, from either list", async () => {
+    // A club's id is the pool's own and can come to name another club; its GameChanger id is
+    // never another team's, so the pick keeps one to follow the club by (`readPick`).
+    const user = userEvent.setup();
+    /** What picking the club of `age` hands on, off a panel drawn afresh. */
+    const picked = async (age: string, wide = false) => {
+      const onPick = vi.fn();
+      const { unmount } = renderPanel({
+        onPick,
+        candidatesFor: () => [
+          candidate("S-9", 9),
+          { ...candidate("S-10", 10), gcIds: ["gc10fall", "gc10spring"] },
+        ],
+        wideOptions: () =>
+          [
+            wideClub("S-9", 9),
+            {
+              ...wideClub("S-10", 10),
+              gcTeams: [{ teamId: "gc10wide", name: "Stix Navy", ageGroupId: "ag10" }],
+            },
+          ].map(clubPickOption),
+      });
+      if (wide) {
+        await user.click(screen.getByRole("checkbox", { name: /search every gamechanger club/i }));
+      }
+      const options = await optionsInPicker(user);
+      await user.click(
+        within(options.find((option) => option.textContent?.includes(age))!).getByRole("button")
+      );
+      unmount();
+      return onPick.mock.calls;
+    };
+    expect(await picked("10U")).toEqual([["L-A", "S-10", "gc10fall"]]);
+    // A club GameChanger has no id for keeps none.
+    expect(await picked("9U")).toEqual([["L-A", "S-9", undefined]]);
+    // And off the wide list, as a member's phone has it from the server.
+    expect(await picked("10U", true)).toEqual([["L-A", "S-10", "gc10wide"]]);
+  });
+
+  it("says a pick whose place another club has now has moved, and to pick again", () => {
+    renderPanel({
+      bridge: {
+        ...bridge,
+        rows: [
+          {
+            leagueTeamId: "L-A",
+            leagueTeamName: "Stix Navy",
+            how: "none",
+            movedScoutTeamId: "S-9",
+          },
+        ],
+      },
+    });
+    expect(screen.getByText("Moved")).toBeInTheDocument();
+    expect(
+      screen.getByText(/no one club carries the GameChanger team you picked/)
+    ).toBeInTheDocument();
+  });
+
   it("says what it is and is not offering, rather than leaving it to be inferred", () => {
     renderPanel();
 
