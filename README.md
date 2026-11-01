@@ -7137,6 +7137,76 @@ first and the counts of the rest on the members' day and on the page's busiest.
 was broken in turn and seen to fail a test, 31 of 31, three only after a test was
 added: the order, and a club entry too long.
 
+**League Standings' answers** (from 1 November 2026, the sweep's item 23). A member's
+device holds no pool, so League Standings asked the 8 GiB edit function what Team
+Rankings has for the open season (`league.bridge`) whenever it opened, came back or saw
+a final entered, and Fill's plan (`league.fill`) at every press, each a question that
+can be a cold load of the whole pool. The publish already reads every season and holds
+the pool, so beside the boards each season whose document there is gets a view of its
+own (`views/league.ts`, `league:{season's document id}`): the bridge and the plan its
+two questions get, worked out by the very functions the edit function answers them with
+(`leagueBridgeFor`, `leagueFillFor`), from the questions a device holding the season as
+its document holds it asks (`bridgeQuestionOf`, `fillQuestionOf`), on the members' day
+the boards are built for. The clubs each team could be are not in it: they stay a
+question, asked as the link panel opens, as do the wide picker's clubs, a league start,
+edits, previews and what-ifs. League read from the copy's part has no documents, and no
+views.
+
+Each answer carries a fingerprint of what it was worked out from, and a device takes it
+only where it is the very answer its own question would get (`views/leagueShape.ts`):
+
+- **The bridge**: the SHA-256 of the question's season, teams and schedule with the runs
+  left out (`shape`), and the finals at the fixtures the bridge can turn on, whatever the
+  score (`finals`, `finalsTheBridgeReads`): those a club's own row filed against nobody
+  could be a copy of (the slot pass of `leagueScoutBridge`); a fixture's final reaches
+  nothing else the bridge works out. So a final entered since anywhere else is taken
+  exactly, without asking, and one entered where the bridge would pair it with a pool row
+  is asked about, so no final is counted twice. On the seeded fixture none of the three
+  seasons' 49 fixtures is one of these; `bridgeFinalsRead.test.ts` tries every other final
+  every way that could pair a row, on the fixture and on a slot case, and finds the bridge
+  the same to the last field.
+- **Fill's plan**: the SHA-256 of its season, teams, games and the runs of those games, in
+  the schedule's order (`print`), since a device's scores and a document's come in their
+  own orders; a score typed since, or corrected, asks.
+- **The day**: an answer holds from the meta's members' day, which no view in it was built
+  after, until the first day a scored game it reads is dated (`until`): the only thing
+  either reads of a day is whether a scored game is dated ahead of it. The bridge is held to
+  New York's day, which the edit function works it out on; Fill to the device's, which its
+  question carries.
+- **The pool's side** is the view's entry in the meta, the copy and version of the publish
+  that last vouched for it, which every publish stamps afresh at no cost; in the view it
+  would make every season's a new upload on every save. A view from before a save this
+  device's own edit made of something the answers read (a club folded, a season put on a
+  page: `ownEdits.ts`, noted by `callEdit`) is not taken, and an answer heard this visit
+  from a later save of the same copy is not replaced by an older publish's.
+
+The device reads the meta, one document, and the season's view only when a publish
+changed it (`publishedLeague.ts`, kept on the device by its fingerprint as a board is, in
+the one cache the live board uses, `browserViewCache`), behind `leagueAsk.ts`'s import, so
+League Standings' first download carries none of it. A view that does not answer the
+season as it stands, none published, or a device offline asks as before, timer retries,
+their cap of three a day and the copy's manifest for an answer on hand included. That read
+of the meta is the one thing added: an answer taken saves a question, its charge's read and
+write in the ledger and, on a cold instance, a load of the pool; one not taken has cost a
+document's read for nothing, as every bridge does from the deploy until the first publish
+after it.
+
+On the seeded fixture (300 clubs a page) the three seasons' views are 10,102, 17,802 and
+7,136 bytes of JSON, 1,560, 2,384 and 1,358 gzipped, one piece each, and 584 bytes of the
+meta (2,000 clubs a page: 14,575, 14,566 and 8,711; 2,254, 2,202 and 1,537). Publishing the
+same again writes nothing; a republish after one season's score changed writes that season's
+view, one piece, beside the boards the score moved and the meta written anyway, and the
+other two not at all (`leagueViews.test.ts`); a season renamed writes none. Working the
+three seasons' answers out takes a publish 51 ms at 300 clubs a page and 352 ms at 2,000
+(8,520 and 58,105 games; Node, median of five), on GitHub, where the publishes run. The family has
+a version of its own (`LEAGUE_VIEW_VERSION`, 1), so no `LIVE_SCHEMA`, `BOARD_RULES` or
+`BOARD_SHAPE` rose: an older device leaves the views unread, an older publisher leaves them
+as they are, and the deploy's republish has nothing to do for them; they first go out with
+the next publish. `leagueAnswersPin.test.ts` pinned each season's two answers on the fixture
+before any of this, and `leagueViews.test.ts` holds every view to them, to the digit, and to
+what the questions answer for the season changed every way above. Each guard was broken in
+turn and seen to fail a test.
+
 Readers fetch while a server writes, so publishing keeps four rules
 (`publishViews`, `sweepViews`):
 
@@ -7176,7 +7246,8 @@ its save did not change is reused rather than unchanged: the nightly of 30
 October 2026 built 109 views and said 86 uploaded and 0 unchanged, the 23 it
 reused in no count. The log of each server that publishes (`viewsReport.ts`)
 now says the reused beside the uploads, and the four counts by family (boards,
-buckets of club cards, Find a team lists, Games lists), so a night shows which
+buckets of club cards, Find a team lists, Games lists, and from 1 November 2026
+League Standings answers), so a night shows which
 kinds of view it changed. Uploads and views differ where two views share one
 JSON: the seeded fixture's 33 boards went up on 29 uploads.
 

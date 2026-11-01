@@ -3,6 +3,7 @@ import type { FamilyCounts } from "../src/lib/live/viewStore.ts";
 import { BOARD_FAMILY } from "../src/lib/live/views/boardShape.ts";
 import { CLUB_FAMILY } from "../src/lib/live/views/clubShape.ts";
 import { GAMES_FAMILY } from "../src/lib/live/views/gamesShape.ts";
+import { LEAGUE_FAMILY } from "../src/lib/live/views/leagueShape.ts";
 import { SEARCH_FAMILY } from "../src/lib/live/views/searchShape.ts";
 
 /*
@@ -38,6 +39,7 @@ const FAMILIES: ReadonlyArray<readonly [string, string]> = [
   [CLUB_FAMILY, "buckets of club cards"],
   [SEARCH_FAMILY, "Find a team lists"],
   [GAMES_FAMILY, "Games lists"],
+  [LEAGUE_FAMILY, "League Standings answers"],
 ];
 
 /**
@@ -73,7 +75,7 @@ export const viewsLines = (views: CopyPublish, dry: boolean): string[] => {
   if (!views.ok) return [`The views were not published: ${REFUSED[views.reason]}.`];
   const { publish, sweep, fits } = views;
   return [
-    `Views: ${views.boards} boards, ${views.clubs} buckets of club cards, ${views.searches} Find a team lists and ${views.games} Games lists built in ${Math.round(views.buildMs / 1000)} s; ${publish.uploaded} ${dry ? "would have been " : ""}uploaded (${publish.pieces} pieces, ${mb(publish.bytes)} gzipped), ${publish.reused} reused, ${publish.unchanged} unchanged, ${publish.refused} refused as older, ${publish.removed} taken out, ${publish.retired} retired; the meta (${(publish.metaBytes / 1000).toFixed(1)} KB) ${publish.wrote ? (dry ? "would have been written" : "written") : "already said all of it"}.`,
+    `Views: ${views.boards} boards, ${views.clubs} buckets of club cards, ${views.searches} Find a team lists, ${views.games} Games lists and ${views.leagues} seasons' League Standings answers built in ${Math.round(views.buildMs / 1000)} s; ${publish.uploaded} ${dry ? "would have been " : ""}uploaded (${publish.pieces} pieces, ${mb(publish.bytes)} gzipped), ${publish.reused} reused, ${publish.unchanged} unchanged, ${publish.refused} refused as older, ${publish.removed} taken out, ${publish.retired} retired; the meta (${(publish.metaBytes / 1000).toFixed(1)} KB) ${publish.wrote ? (dry ? "would have been written" : "written") : "already said all of it"}.`,
     `  By family${dry ? ", had the run been live" : ""}: ${familyWords(publish.families)}.`,
     `  Board fits: ${fits.boards} of the ${views.boards} boards carry one, ${mb(fits.bytes)} of JSON in all and ${(fits.largest / 1000).toFixed(1)} KB on the largest.`,
     sweep.ok

@@ -31,7 +31,7 @@ import {
   type LiveMiss,
   type LiveRead,
 } from "../lib/live/liveClient";
-import { openViewCache, type ViewCache } from "../lib/live/viewCache";
+import { browserViewCache, type ViewCache } from "../lib/live/viewCache";
 import type { LiveMeta, LiveReader } from "../lib/live/viewStore";
 import {
   boardKey,
@@ -68,7 +68,7 @@ export const browserLiveSources = (): LiveSources =>
   (browserSources ??= {
     uid: () => loadCloudState().uid,
     reader: liveReader,
-    cache: openViewCache(),
+    cache: browserViewCache(),
     seen: copySeen,
     owed: copyOwed,
     now: () => new Date().toISOString(),
