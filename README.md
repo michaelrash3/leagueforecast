@@ -9433,9 +9433,10 @@ shared handlers with recorded provider responses and require no deployed credent
   `teamRankings/rosterNames.ts` and `teamRankings/gameRows.ts`, which `teamRankings.ts` re-exports
   beside them. The modules the start loads, and League Standings' own views, import the new ones.
   A pull's tracker is made by the pull and handed to the pool's slot with its claim (`beginPull`),
-  so the slot, which League Standings reads, stays one module and the tracker leaves it. Some of
-  Team Rankings' code is still there: the readers the pool's store and its backup check what they
-  keep with, which load with the store (`teamRankingsStorage.ts`).
+  so the slot, which League Standings reads, stays one module and the tracker leaves it; the claim
+  will not compile without one, so no pull is claimed without its log. Some of Team Rankings' code
+  is still there: the readers the pool's store and its backup check what they keep with, which
+  load with the store (`teamRankingsStorage.ts`).
   - **Measured** (gzipped, `npm run bundle:check`, 31 October 2026): the first download went from
     251.8 KB to 221.2 KB, with nothing removed and nothing computed differently. What left is
     fetched where it runs: opening Team Rankings went from 60.3 KB to 84.1 KB, and the Import and

@@ -12,13 +12,8 @@ import {
   type WorkerRequest,
   type WorkerResponse,
 } from "../workers/tidyProtocol";
-import {
-  beginPull,
-  beginTidy,
-  forceReleasePool,
-  isPoolBusy,
-  resetPullSession,
-} from "../lib/pullSession";
+import { beginTidy, forceReleasePool, isPoolBusy, resetPullSession } from "../lib/pullSession";
+import { beginTrackedPull } from "../test/pulls";
 
 /**
  * The tidy itself, made to fail where a test says so: on the page its code is fetched as it is
@@ -76,7 +71,7 @@ describe("tidying the pool", () => {
    * settled and a resume skipping them for good.
    */
   it("refuses while a pull is running, rather than racing its saves", async () => {
-    beginPull("2026-09-17T08:00:00.000Z");
+    beginTrackedPull("2026-09-17T08:00:00.000Z");
     const { result } = renderHook(() => usePoolTidy());
     expect(await result.current.tidy(withStandIn())).toBeNull();
   });
@@ -91,7 +86,7 @@ describe("tidying the pool", () => {
     const { result } = renderHook(() => usePoolTidy());
     await result.current.tidy(withStandIn());
     expect(isPoolBusy()).toBe(false);
-    expect(beginPull("2026-09-17T08:05:00.000Z")).not.toBeNull();
+    expect(beginTrackedPull("2026-09-17T08:05:00.000Z")).not.toBeNull();
   });
 
   it("gives the slot back even when the pool is one it cannot read", async () => {
@@ -104,7 +99,7 @@ describe("tidying the pool", () => {
 
   it("does not claim the pool to look at it", async () => {
     // Inspecting reads and writes nothing, so it has no business blocking a pull.
-    beginPull("2026-09-17T08:00:00.000Z");
+    beginTrackedPull("2026-09-17T08:00:00.000Z");
     const { result } = renderHook(() => usePoolTidy());
     const looked = await result.current.inspect(withStandIn(), "", new Set());
     expect(looked?.health.games).toBe(2);
@@ -146,7 +141,7 @@ describe("a tidy whose panel goes away", () => {
     await expect(pending).resolves.toBeNull();
     expect(isPoolBusy()).toBe(false);
     // And the next pull is free to start, which is the whole point.
-    expect(beginPull("2026-09-17T09:00:00.000Z")).not.toBeNull();
+    expect(beginTrackedPull("2026-09-17T09:00:00.000Z")).not.toBeNull();
   });
 
   it("settles an inspection the same way, rather than leaving it hanging", async () => {
@@ -216,7 +211,7 @@ describe("a tidy whose work fails", () => {
     });
     expect(result.current.busy).toBeNull();
     expect(isPoolBusy()).toBe(false);
-    expect(beginPull("2026-09-17T09:00:00.000Z")).not.toBeNull();
+    expect(beginTrackedPull("2026-09-17T09:00:00.000Z")).not.toBeNull();
   });
 });
 

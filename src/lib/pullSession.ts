@@ -162,9 +162,11 @@ export const livePull = (): PullSession | null => live;
  * Claims the slot for a new run, or returns null because something already has it.
  *
  * Null is a refusal and not a failure: the caller should say so and leave the running job alone.
- * A pull hands over the tracker it records itself on (`createPullTracker(startedAt)`).
+ * A pull hands over the tracker it records itself on (`createPullTracker(startedAt)`). Required,
+ * since a pull claimed without one would keep no log, and `lastPullLog` would go on answering
+ * with the pull before it.
  */
-export const beginPull = (startedAt: string, tracker?: PullTracker): PullSession | null =>
+export const beginPull = (startedAt: string, tracker: PullTracker): PullSession | null =>
   claim("pull", startedAt, tracker);
 
 /**
