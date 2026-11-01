@@ -45,6 +45,7 @@ import {
   deriveAllKnown,
   gamesOnPages,
   leagueLinkedClubsOf,
+  retiredWithPicks,
   type LeagueSeasonData,
   type SeasonReader,
 } from "../src/lib/live/allKnown.ts";
@@ -93,6 +94,7 @@ import {
   loadAutoRemoved,
   loadKeptApart,
   loadNotThisTeam,
+  loadRetiredIds,
   loadScoutGames,
   loadScoutGamesForYear,
   loadScoutTeams,
@@ -672,7 +674,18 @@ const measureLopsided = (source: Source) => {
   // And the tidy the nightly runs after its filing, alone, on the pool as read: what it would take
   // away by year, as the nightly's cap counts it (`blastRadius`), so the two causes can be told apart.
   const { apart, refused } = source.tidyAnswers();
-  const tidied = tidyPool(pool, undefined, apart, refused, spared);
+  // Called as the nightly calls it (`runCloudPull`): the rules as shipped, and the ids the pool has
+  // let go of, raised over every club a League Standings pick names, so no slot or stand-in is
+  // minted as one of them.
+  const tidied = tidyPool(
+    pool,
+    undefined,
+    apart,
+    refused,
+    spared,
+    SHIPPED_TIDY_RULES,
+    retiredWithPicks(loadRetiredIds(), source.leagueRead ? source.readSeason : null, pool.teams)
+  );
   const radius = blastRadius(poolYears(pool), {
     games: new Set(tidied.state.games.map((game) => game.id)),
     clubs: new Set(tidied.state.teams.map((team) => team.id)),
