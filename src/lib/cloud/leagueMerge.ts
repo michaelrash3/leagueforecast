@@ -1,4 +1,5 @@
 import type { SeasonSnapshot } from "../storage";
+import type { TeamBase } from "../types";
 
 /**
  * League Standings from two devices, made one without losing either side's work.
@@ -238,6 +239,51 @@ const restoreNeeded = <T>(
 };
 
 /**
+ * The GameChanger id a side laid beside a team's pick of the same club, where that is all it
+ * changed of the team: an old pick given its club's id at a save of the device's own
+ * (`stampPicks`), or the same club picked again. Which club the team is did not change.
+ */
+const addedGcId = (base: TeamBase | undefined, side: TeamBase | undefined): string | undefined => {
+  if (!base || base.scoutGcTeamId !== undefined || !side?.scoutGcTeamId) return undefined;
+  const { scoutGcTeamId, ...rest } = side;
+  return same(rest, base) ? scoutGcTeamId : undefined;
+};
+
+/**
+ * The teams' sides with every id added beside the same pick taken back off (`addedGcId`), and the
+ * ids taken, by team, the preferred side's where both added one. Weighed as a change, an id laid
+ * over a score's save made the team this device's change too, and so beat another device's rename
+ * or new pick of it as a conflict, or brought back a team deleted there: no work of anybody's, it
+ * now loses to every one, and goes back on the merged team while the team is of the club it was
+ * laid beside.
+ */
+const withoutAddedGcIds = (
+  sides: Sides<TeamBase>,
+  prefer: Prefer
+): { sides: Sides<TeamBase>; added: Map<string, string> } => {
+  const added = new Map<string, string>();
+  const { base } = sides;
+  if (!base) return { sides, added };
+  const strip = (side: Keyed<TeamBase>): Keyed<TeamBase> => {
+    let byId: Map<string, TeamBase> | null = null;
+    for (const [id, team] of side.byId) {
+      const was = base.byId.get(id);
+      const gc = addedGcId(was, team);
+      if (gc === undefined || was === undefined) continue;
+      byId ??= new Map(side.byId);
+      byId.set(id, was);
+      added.set(id, gc);
+    }
+    return byId ? { order: side.order, byId } : side;
+  };
+  // The side not preferred first, so the preferred side's id is the one left where both added one.
+  const order = prefer === "local" ? (["cloud", "local"] as const) : (["local", "cloud"] as const);
+  const stripped: Sides<TeamBase> = { ...sides };
+  for (const side of order) stripped[side] = strip(sides[side]);
+  return { sides: stripped, added };
+};
+
+/**
  * One season both sides hold, merged inside: its records, then its name and settings. A record
  * both changed differently is settled toward `prefer` and counted in `counter`.
  */
@@ -248,7 +294,10 @@ export const mergeSeason = (
   prefer: Prefer,
   counter: Counter
 ): SeasonSnapshot => {
-  const teamSides = sidesOf(base, local, cloud, (season) => keyedList(season.teams));
+  const { sides: teamSides, added } = withoutAddedGcIds(
+    sidesOf(base, local, cloud, (season) => keyedList(season.teams)),
+    prefer
+  );
   const gameSides = sidesOf(base, local, cloud, (season) => keyedList(season.matchups));
   const logSides = sidesOf(base, local, cloud, (season) => keyedRecord(season.logs));
   const teams = mergeKeyed(teamSides.base, teamSides.local, teamSides.cloud, prefer, counter);
@@ -266,6 +315,13 @@ export const mergeSeason = (
     ),
     teamSides
   );
+  // Each id taken off goes back where the merged team is still of the club it was laid beside.
+  for (const [id, gc] of added) {
+    const team = teams.byId.get(id);
+    const was = teamSides.base?.byId.get(id);
+    if (team && team.scoutGcTeamId === undefined && team.scoutTeamId === was?.scoutTeamId)
+      teams.byId.set(id, { ...team, scoutGcTeamId: gc });
+  }
   const bracketLogs = mergeKeyed(
     base ? keyedRecord(base.bracketLogs) : null,
     keyedRecord(local.bracketLogs),

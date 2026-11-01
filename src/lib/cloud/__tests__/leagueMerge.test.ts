@@ -92,6 +92,42 @@ describe("merging League Standings two devices both changed", () => {
     expect(merged.value).toEqual(phone);
   });
 
+  it("counts no conflict for a GameChanger id laid beside the same pick, and keeps it", () => {
+    const picked = edit(base, "fall", (one) => ({
+      ...one,
+      teams: one.teams.map((t) => (t.id === "t2" ? { ...t, scoutTeamId: "S-ACES" } : t)),
+    }));
+    const stampTeam = (gc: string) => (one: SeasonSnapshot) => ({
+      ...one,
+      teams: one.teams.map((t) => (t.id === "t2" ? { ...t, scoutGcTeamId: gc } : t)),
+    });
+    const phone = edit(edit(picked, "fall", stampTeam("gcAces001")), "fall", (one) => ({
+      ...one,
+      logs: { g1: log(5, 3) },
+    }));
+    const laptop = edit(picked, "fall", (one) => ({
+      ...one,
+      teams: one.teams.map((t) => (t.id === "t2" ? { ...t, name: "Renamed" } : t)),
+    }));
+    const merged = mergeLeague(picked, phone, laptop, "local");
+    expect(merged.conflicts).toBe(0);
+    expect(seasonOf(merged.value, "fall").teams.find((t) => t.id === "t2")).toEqual({
+      id: "t2",
+      name: "Renamed",
+      scoutTeamId: "S-ACES",
+      scoutGcTeamId: "gcAces001",
+    });
+    // Laid on both sides, two ids are no conflict either: the preferred side's is kept.
+    const other = edit(picked, "fall", stampTeam("gcAces002"));
+    for (const prefer of ["local", "cloud"] as const) {
+      const both = mergeLeague(picked, phone, other, prefer);
+      expect(both.conflicts).toBe(0);
+      expect(seasonOf(both.value, "fall").teams.find((t) => t.id === "t2")?.scoutGcTeamId).toBe(
+        prefer === "local" ? "gcAces001" : "gcAces002"
+      );
+    }
+  });
+
   it("keeps a game added on one device and a team renamed on the other", () => {
     const phone = edit(base, "fall", (one) => ({
       ...one,

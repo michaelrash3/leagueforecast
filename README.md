@@ -5503,7 +5503,14 @@ merged, and whatever a merge had to replace is kept.
   entered on one device keeps the game another deleted, and a game its teams.
   Where both devices changed one
   record differently, the device that changed League Standings last wins it.
-  Two seasons that share only an id (every browser's first season is
+  A GameChanger id laid beside a team's pick of the same club, and nothing else
+  of the team changed (an old pick stamped, "How the two modes connect", or the
+  club picked again), is no change of which club the team is, and is weighed as
+  none (`addedGcId`): another device's rename, new pick or deletion of the team
+  is taken, uncounted, and the id goes back on the team while it is still of the
+  club the id was laid beside. Weighed as a change, a stamp laid over a score's
+  save beat a rename or a new pick made elsewhere, and brought back a team
+  deleted there. Two seasons that share only an id (every browser's first season is
   `default`) are kept apart: this device's takes a new one, and everything the
   device keeps of it beside the season, as [Data + persistence](#data--persistence)
   lists it, goes with it to the new id, leaving nothing under the old one, which
