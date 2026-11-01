@@ -179,6 +179,12 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
  * itself, the ranges the Gold odds draw a game within (`forecastGame`, `drawnMarginSpan`), is worked
  * out where the chance beside it already was, in the first download, 222.8 KB against 222.6 KB
  * (222,809 bytes against 222,563), less the engine's measured ranges, which went with it.
+ * Team Rankings to 87.0 KB the same day, 86.0 KB against 86.0 KB on main (86,036 bytes against
+ * 85,984): the line had 16 bytes left once #510 and #512 had spent its margin, and the simulation
+ * Team Rankings' opening shares with League Standings (`sim.ts`) gained the forecast a prediction
+ * card reads (`forecastGame`, `drawnMarginSpan`, `drawnRuns`), 52 bytes of it reaching that load.
+ * The line goes up by a whole kilobyte, so the next small change to the opening is not held up by
+ * bytes alone; it is still about half the 166.5 KB it stood at before the sections loaded on demand.
  */
 const BUDGET = {
   firstDownload: 255_000,
@@ -195,7 +201,7 @@ const BUDGET = {
     Settings: 13_700,
     "Seasons at a glance": 4_400,
     "Since you last looked": 4_500,
-    "Team Rankings": 86_000,
+    "Team Rankings": 87_000,
   },
   sections: {
     Games: 12_400,
