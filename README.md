@@ -5131,8 +5131,9 @@ does, and reads as gone.
 - **Watched clubs** (`lf_watch_v1`, `watchList.ts`): a club folded into another is
   watched as that club, two folded into one are one, and one whose id is another's
   now is named and not on the board while that club's own Watch is off; Stop takes
-  off a club as it is shown. 22 bytes an entry with one id and 15 for each id
-  more, 52 at most; five entries at most a page.
+  off a club as it is shown. The five a page are the clubs the card shows: two
+  folded into one count once, and the later of them goes as the next club is
+  watched. 22 bytes an entry with one id and 15 for each id more, 52 at most.
 - **My Team's look** (`lf_my_team_look_v1_<club>`, `myTeamLook.ts`): another club's
   look kept under the club's id is none of its own, and one kept under an id it no
   longer has is its own. 22 to 52 bytes a look, twelve looks at most. My Team
@@ -6459,12 +6460,15 @@ GameChanger id beside them (`TeamBase.scoutGcTeamId`) and how many do not, and o
 those, how many name a club carrying exactly one. No device gives these seasons' old
 picks one (a browser no member has signed in to stamps only its own, "How the two
 modes connect"), so that is what a stamp worked out by the server over the cloud's
-pool would give, and the rest wait for a person to pick the team again. A club's id is the pool's own, and Start
-again mints every one afresh, where GameChanger's is never another team's, so these
-say how much of what is remembered of clubs can be followed by it. It reads nothing
-of its own: the pool is the store's, which the views were built from, and the seasons
-are the documents the run's own reads already brought back (`tapLeagueDocs`), so it
-costs no read. Counts only, as every line of the log is. What devices keep of clubs
+pool would give, and the rest wait for a person to pick the team again. A club's id
+is the pool's own, and Start again mints every one afresh, where GameChanger's is
+never another team's, so these say how much of what is remembered of clubs can be
+followed by it. It reads nothing of its own: the pool is the store's, which the
+views were built from, and the seasons are the documents the run's own reads
+already brought back (`tapLeagueDocs`), so it costs no read; of those it keeps only
+each team's pick and the id beside it, taken as each read comes back, rather than
+holding the documents through filing, saving and publishing. Counts only, as every
+line of the log is. What devices keep of clubs
 (a watch list, saved fields, a look at My Team, a League team's club's place) never
 leaves them and is not counted.
 

@@ -117,9 +117,21 @@ describe("leagueTeamsOf", () => {
 });
 
 describe("tapLeagueDocs", () => {
-  it("hands on every read and keeps the last one's documents, reading nothing itself", async () => {
+  it("hands on every read and keeps the last one's picks alone, reading nothing itself", async () => {
     let reads = 0;
-    const docs = [{ id: "season-1", fields: {} }];
+    const docs = SEASONS.map((teams, at) => ({
+      id: `season-${at}`,
+      fields: seasonToDoc({
+        id: `season-${at}`,
+        name: `Season ${at}`,
+        createdAt: "2026-09-01T00:00:00.000Z",
+        teams,
+        matchups: [],
+        logs: {},
+        bracketLogs: {},
+        settings: DEFAULT_SETTINGS,
+      }) as unknown as Record<string, unknown>,
+    }));
     const tap = tapLeagueDocs(async () => {
       reads += 1;
       return docs;
@@ -129,6 +141,14 @@ describe("tapLeagueDocs", () => {
     expect(await tap.list()).toBe(docs);
     expect(await tap.list()).toBe(docs);
     expect(reads).toBe(2);
-    expect(tap.last()).toBe(docs);
+    // The club picked and the id beside it, and nothing else of the documents.
+    const picks = SEASONS.map((teams) =>
+      teams.map(({ scoutTeamId, scoutGcTeamId }) => ({
+        ...(scoutTeamId ? { scoutTeamId } : {}),
+        ...(scoutGcTeamId ? { scoutGcTeamId } : {}),
+      }))
+    );
+    expect(tap.last()).toEqual(picks);
+    expect(clubCensus(ROSTER, tap.last())).toEqual(clubCensus(ROSTER, SEASONS));
   });
 });

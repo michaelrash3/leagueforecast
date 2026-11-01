@@ -40,9 +40,12 @@ export type ClubCensus = {
   } | null;
 };
 
+/** What the census reads of a season's team: the club picked, and the GameChanger id beside it. */
+export type LeaguePick = Pick<TeamBase, "scoutTeamId" | "scoutGcTeamId">;
+
 export const clubCensus = (
   teams: readonly ScoutTeam[],
-  seasons: readonly (readonly TeamBase[])[] | null
+  seasons: readonly (readonly LeaguePick[])[] | null
 ): ClubCensus => {
   let oneGcId = 0;
   let severalGcIds = 0;
@@ -102,17 +105,24 @@ export const leagueTeamsOf = (docs: Awaited<ReturnType<LeagueDocsList>>): TeamBa
   });
 
 /**
- * `list` as it is, and the documents its last read handed back: what the census counts the picks
- * of, so it costs no read of its own.
+ * `list` as it is, and the picks of the seasons its last read handed back (`leagueTeamsOf`): what
+ * the census counts, so it costs no read of its own. The picks alone are kept, taken as each read
+ * comes back: the documents themselves, scores and all, would be held from the pull's read through
+ * filing, saving and publishing, the steps whose memory the run reports, and then to its end.
  */
 export const tapLeagueDocs = (
   list: LeagueDocsList
-): { list: LeagueDocsList; last: () => Awaited<ReturnType<LeagueDocsList>> | null } => {
-  let last: Awaited<ReturnType<LeagueDocsList>> | null = null;
+): { list: LeagueDocsList; last: () => LeaguePick[][] | null } => {
+  let last: LeaguePick[][] | null = null;
   return {
     list: async () => {
       const docs = await list();
-      last = docs;
+      last = leagueTeamsOf(docs).map((teams) =>
+        teams.map(({ scoutTeamId, scoutGcTeamId }) => ({
+          ...(scoutTeamId ? { scoutTeamId } : {}),
+          ...(scoutGcTeamId ? { scoutGcTeamId } : {}),
+        }))
+      );
       return docs;
     },
     last: () => last,

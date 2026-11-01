@@ -1,4 +1,4 @@
-import { act, screen, within } from "@testing-library/react";
+import { act, renderHook, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -11,6 +11,7 @@ import {
 import {
   forgetWatchList,
   toggleWatch,
+  useWatchList,
   WATCH_MAX,
   watchedNow,
   watchedOn,
@@ -222,6 +223,33 @@ describe("a watched club whose id no longer names it", () => {
     expect(watchedNow(watchedOn(PAGE), folded).map((club) => club.id)).toEqual(["S-Aces"]);
     expect(toggleWatch(PAGE, { id: "S-Aces", name: "Aces" }, folded)).toBe(true);
     expect(watchedOn(PAGE)).toEqual([]);
+  });
+
+  it("counts toward the five as the card shows it, two folded into one club as one", () => {
+    // Five kept, two of them since folded into the Aces: the card shows four.
+    toggleWatch(PAGE, { id: "S-Aces", name: "Aces", gc: ["gcAces001"] });
+    toggleWatch(PAGE, { id: "S-Aces2", name: "Aces Gold", gc: ["gcAcesGld"] });
+    ["Bears", "Cubs", "Ducks"].forEach((name) => toggleWatch(PAGE, { id: `S-${name}`, name }));
+    const folded = clubLookupOf([{ ...ACES, gcTeams: [link("gcAces001"), link("gcAcesGld")] }]);
+    expect(watchedNow(watchedOn(PAGE), folded)).toHaveLength(4);
+    const { result } = renderHook(() => useWatchList(PAGE, folded));
+    expect(result.current.full).toBe(false);
+    // So a fifth club shown can be watched, and the entry the fold made one with another goes.
+    act(() => {
+      expect(result.current.toggle({ id: "S-Eagles", name: "Eagles" })).toBe(true);
+    });
+    expect(watchedOn(PAGE).map((club) => club.id)).toEqual([
+      "S-Aces",
+      "S-Bears",
+      "S-Cubs",
+      "S-Ducks",
+      "S-Eagles",
+    ]);
+    expect(result.current.full).toBe(true);
+    expect(toggleWatch(PAGE, { id: "S-Foxes", name: "Foxes" }, folded)).toBe(false);
+    // Read with nothing to read them by, five kept are five.
+    const { result: plain } = renderHook(() => useWatchList(PAGE));
+    expect(plain.current.full).toBe(true);
   });
 
   it("is as it always was where it was kept with no GameChanger id, or nothing says otherwise", () => {

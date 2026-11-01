@@ -92,8 +92,10 @@ export const watchedNow = (
 
 /**
  * Watches a club on a page, or stops watching it: every club kept that `lookup` shows under its
- * id, so a club followed or shown gone stops as it is shown. A sixth is refused (false): the card
- * is a glance, and the owner's limit is five.
+ * id, so a club followed or shown gone stops as it is shown. A sixth club shown is refused
+ * (false): the card is a glance, and the owner's limit is five. Two kept that read as one club,
+ * both folded into it, are one on the card and count once, and the later of them goes as the next
+ * club is watched, so the limit is of the clubs the card shows.
  */
 export const toggleWatch = (
   pageId: string,
@@ -108,8 +110,15 @@ export const toggleWatch = (
     write({ ...store(), [pageId]: kept });
     return true;
   }
-  if (list.length >= WATCH_MAX) return false;
-  write({ ...store(), [pageId]: [...list, club] });
+  const seen = new Set<string>();
+  const shown = list.filter((one) => {
+    const id = shownClubId(one, lookup);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  if (shown.length >= WATCH_MAX) return false;
+  write({ ...store(), [pageId]: [...shown, club] });
   return true;
 };
 
@@ -148,5 +157,6 @@ export const useWatchList = (pageId: string, lookup: ClubLookup | null = null) =
     (club: Watched) => toggleWatch(pageId, club, lookup),
     [pageId, lookup]
   );
-  return { watched, toggle, full: kept.length >= WATCH_MAX };
+  // Full as the card is: two kept that read as one club are one there (`toggleWatch`).
+  return { watched, toggle, full: watched.length >= WATCH_MAX };
 };
