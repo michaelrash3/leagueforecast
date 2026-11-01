@@ -15,6 +15,8 @@ const CLUBS = ["S-A", "S-B", "S-C"].map((id) => ({
   id,
   label: `Placeholder ${id}`,
   detail: "Cincinnati, OH",
+  // A club GameChanger knows, whose id the season's team keeps beside its link.
+  ...(id === "S-A" ? { gcIds: ["gc-A"] } : {}),
 }));
 const DRAFT = {
   games: [
@@ -101,7 +103,12 @@ describe("starting a season from its clubs on Team Rankings", () => {
     const [season, page] = onCreate.mock.calls[0]!;
     expect(page).toEqual(PAGES[0]);
     expect(season.teams).toEqual([
-      { id: expect.any(String), name: "Placeholder S-A", scoutTeamId: "S-A" },
+      {
+        id: expect.any(String),
+        name: "Placeholder S-A",
+        scoutTeamId: "S-A",
+        scoutGcTeamId: "gc-A",
+      },
       { id: expect.any(String), name: "Placeholder S-B", scoutTeamId: "S-B" },
     ]);
     const [hive, owls] = season.teams;

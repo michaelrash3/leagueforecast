@@ -7,6 +7,7 @@ import {
   ageGroupYear,
   clubIsPickable,
   gcAgeLevels,
+  gcIdsForSeason,
   isScoutGamePlayed,
   type AgeGroup,
   type ScoutGame,
@@ -55,16 +56,32 @@ export const startClubs = (
   page: StartPage,
   ageGroups: AgeGroup[],
   teams: readonly ScoutTeam[]
-): ClubPickOption[] =>
-  teams
+): ClubPickOption[] => {
+  const startClub = startClubOf(page, ageGroups);
+  return teams
     .filter((team) => clubIsPickable(team, [page.ageLevel], [page.year], ageGroups))
-    .map((team) => startClub(team, page, ageGroups))
+    .map(startClub)
     .sort(byLabel);
+};
 
-/** A club as a start offers it on `page`: at the level it is filed at in the page's year. */
-const startClub = (team: ScoutTeam, page: StartPage, ageGroups: AgeGroup[]): ClubPickOption => {
-  const ageLevel = gcAgeLevels(team, page.year, ageGroups)[0];
-  return clubPickOption(ageLevel === undefined ? team : { ...team, ageLevel });
+/**
+ * A club as a start offers it on `page`: at the level it is filed at in the page's year, with its
+ * GameChanger team on the page first, the one the season's team keeps beside its link
+ * (`gcIdsForSeason`), since the season is made on that page.
+ */
+const startClubOf = (
+  page: StartPage,
+  ageGroups: AgeGroup[]
+): ((team: ScoutTeam) => ClubPickOption) => {
+  const gcIdsOf = gcIdsForSeason(new Set([page.id]), [page.year], ageGroups);
+  return (team) => {
+    const ageLevel = gcAgeLevels(team, page.year, ageGroups)[0];
+    return clubPickOption({
+      ...team,
+      ...(ageLevel === undefined ? {} : { ageLevel }),
+      gcIds: gcIdsOf(team),
+    });
+  };
 };
 
 const byLabel = (a: ClubPickOption, b: ClubPickOption) =>
@@ -181,23 +198,28 @@ const leagueDate = (day: string): string =>
  * its score entered and final where it was played. A team named like another gets the other's
  * id with a number, as a typed list does (`createTeamId`). A start whose clubs are not Team
  * Rankings' own (a GameChanger organization's teams, `gcOrgSchedule.ts`) names the club each is
- * through `linkOf`, and a team with none is linked to nothing.
+ * through `linkOf`, and a team with none is linked to nothing. `gcOf` is a GameChanger id the club
+ * carries, kept beside the link (`TeamBase.scoutGcTeamId`) so the link follows the club should the
+ * pool give its id to another.
  */
 export const seasonFromStart = (
   clubs: readonly { id: string; name: string }[],
   draft: StartDraft,
   choices: readonly StartChoice[],
   defaultInnings: number,
-  linkOf: (clubId: string) => string | undefined = (clubId) => clubId
+  linkOf: (clubId: string) => string | undefined = (clubId) => clubId,
+  gcOf: (clubId: string) => string | undefined = () => undefined
 ): BuiltSeason => {
   const taken = new Set<string>();
   const teamOf = new Map<string, TeamBase>();
   const teams: TeamBase[] = clubs.map((club) => {
     const scoutTeamId = linkOf(club.id);
+    const scoutGcTeamId = scoutTeamId === undefined ? undefined : gcOf(club.id);
     const team = {
       id: createTeamId(displayName(club.name), taken),
       name: club.name,
       ...(scoutTeamId === undefined ? {} : { scoutTeamId }),
+      ...(scoutGcTeamId === undefined ? {} : { scoutGcTeamId }),
     };
     teamOf.set(club.id, team);
     return team;
@@ -358,9 +380,7 @@ const answerOrgStart = (
   const offered = new Set(options.map((club) => club.id));
   // A club of the organization the page's picker would not offer (filed a level off in its year)
   // is offered too, since the organization says it is in the league.
-  const extra = mine
-    .filter((team) => !offered.has(team.id))
-    .map((team) => startClub(team, page, ageGroups));
+  const extra = mine.filter((team) => !offered.has(team.id)).map(startClubOf(page, ageGroups));
   const window =
     ask.from !== undefined && ask.to !== undefined
       ? { from: ask.from, to: ask.to }

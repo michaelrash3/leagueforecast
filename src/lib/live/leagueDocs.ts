@@ -27,8 +27,18 @@ import {
  * the maps, whole (`teamOrder`, `order`).
  */
 
-/** The version of this layout. A document of a later one is read by no device that predates it. */
-export const LEAGUE_DOC_SCHEMA = 1;
+/**
+ * The version of this layout. A document of a later one is read by no device that predates it.
+ *
+ * Raised with every field a season's document holds (`leagueDocSchema.test.ts`), since a device
+ * writes a changed record whole, as its build reads one: a build that predates a field drops it
+ * from every record it writes. 2: a season says its team list is set (`Settings.teamsLocked`), a
+ * game keeps its start (`Matchup.startTs`), which a build of layout 1 still open erased from any
+ * game it moved or edited, and a team's pick keeps the GameChanger id of the club it picked
+ * (`TeamBase.scoutGcTeamId`). A season already in the cloud is raised by the first write a device
+ * of this build sends it (`writesFor`), and only then: no write is made for the raise alone.
+ */
+export const LEAGUE_DOC_SCHEMA = 2;
 
 /** Where the seasons are. */
 export const LEAGUE_COLLECTION = "league";
@@ -206,8 +216,8 @@ const byId = (raw: unknown): Record<string, unknown> => {
 };
 
 export type LeagueDocRead =
-  /** `rev`: the write the document is at. */
-  | { ok: true; season: SeasonSnapshot; rev: number }
+  /** `rev`: the write the document is at; `schema`, the layout it was last written at. */
+  | { ok: true; season: SeasonSnapshot; rev: number; schema: number }
   /** `newer`: written by a later version of the app, which this one must not read or write. */
   | { ok: false; reason: "unreadable" | "newer" };
 
@@ -228,6 +238,7 @@ export const docToSeason = (raw: unknown, docId: string): LeagueDocRead => {
   return {
     ok: true,
     rev: raw.rev,
+    schema: raw.schema,
     season: {
       id,
       name: isString(raw.name) && raw.name.trim() ? raw.name.trim() : id,

@@ -1,4 +1,11 @@
-import { rankOptionsFromSettings, rankTeams, standingsPoints, withScore } from "./sim";
+import {
+  OWED_OPPONENT,
+  owedGames,
+  rankOptionsFromSettings,
+  rankTeams,
+  standingsPoints,
+  withScore,
+} from "./sim";
 import { RUN_SCORE_CAP, type Matchup, type Settings, type Team } from "./types";
 
 export type MagicResult = {
@@ -20,6 +27,20 @@ type OutcomeMode = "any" | "all";
 
 const remainingGamesFor = (teamId: string, remaining: Matchup[]) =>
   remaining.filter((g) => g.away === teamId || g.home === teamId);
+
+/**
+ * The games left to search, and so the ones counted against the limits the page asks the search
+ * within: the schedule's, then the ones each team still owes beyond it under the games-per-team
+ * setting (`owedGames`), against a stand-in that is never ranked (`rankOfTeam` counts only
+ * `teams`), so each can go either way, as the Standings' status reads them. Read once, by each
+ * answer below that is asked from outside; the search inside takes the list it is given, since a
+ * result booked onto a record without its games count (`after`) would read as one more game owed.
+ */
+export const withOwedGames = (
+  teams: Team[],
+  remaining: Matchup[],
+  settings: Settings
+): Matchup[] => [...remaining, ...owedGames(teams, remaining, settings)];
 
 const buildPointsMap = (teams: Team[], settings: Settings): PointsMap => {
   const out: PointsMap = {};
@@ -262,9 +283,10 @@ export const magicForGold = (
     };
 
   const effectiveSettings = { ...settings, goldCutoff: cutoff };
+  const games = withOwedGames(teams, remaining, settings);
 
   // A clinch is a claim about every tie going against the team: nothing else makes it one.
-  const sure = findMagic(teamId, teams, remaining, effectiveSettings, true);
+  const sure = findMagic(teamId, teams, games, effectiveSettings, true);
   if (sure === "clinched") {
     return {
       type: "clinched",
@@ -286,7 +308,7 @@ export const magicForGold = (
   }
 
   // Short of that, what the team can guarantee is a share of the last spot, and no more.
-  const share = findMagic(teamId, teams, remaining, effectiveSettings, false);
+  const share = findMagic(teamId, teams, games, effectiveSettings, false);
   if (share === "clinched") {
     return {
       type: "magic",
@@ -332,9 +354,10 @@ export const eliminationNumberForGold = (
   }
 
   const effectiveSettings = { ...settings, goldCutoff: cutoff };
+  const games = withOwedGames(teams, remaining, settings);
 
   // Eliminated is a claim about every tie going the team's way, and still falling short.
-  const out = findElimination(teamId, teams, remaining, effectiveSettings, false);
+  const out = findElimination(teamId, teams, games, effectiveSettings, false);
   if (out !== null) {
     return {
       type: "elimination",
@@ -348,7 +371,7 @@ export const eliminationNumberForGold = (
   }
 
   // Short of that, the losses after which only a tie won on the tiebreakers keeps the team in.
-  const onTheBreak = findElimination(teamId, teams, remaining, effectiveSettings, true);
+  const onTheBreak = findElimination(teamId, teams, games, effectiveSettings, true);
   if (onTheBreak !== null) {
     return {
       type: "elimination",
@@ -368,17 +391,8 @@ export const eliminationNumberForGold = (
    * can still be passed by others' wins. Safe is in at the cut in every branch where it loses out,
    * with every tie counted against it; anything short of that is out of its own hands.
    */
-  const myRemaining = remainingGamesFor(teamId, remaining).length;
-  const safe = solveCutoff(
-    teamId,
-    teams,
-    remaining,
-    effectiveSettings,
-    0,
-    myRemaining,
-    "all",
-    true
-  );
+  const myRemaining = remainingGamesFor(teamId, games).length;
+  const safe = solveCutoff(teamId, teams, games, effectiveSettings, 0, myRemaining, "all", true);
   return {
     type: "magic",
     ownWinsNeeded: 0,
@@ -399,7 +413,17 @@ export type NeededResult = {
   side: string;
   against: string;
   orTie: boolean;
+  /**
+   * Where the result is needed in games a team owes beyond the schedule (`owedGames`), against
+   * `OWED_OPPONENT`, how many of them: every one the team owes, since they are all against the same
+   * stand-in, so one is needed exactly when the rest are.
+   */
+  owed?: number;
 };
+
+/** In a game owed beyond the schedule (`owedGames`), the team that owes it; null in any other. */
+const owing = (game: Matchup): string | null =>
+  game.away === OWED_OPPONENT ? game.home : game.home === OWED_OPPONENT ? game.away : null;
 
 /**
  * The league after one game has gone a given way: only the records move. Asked only with games
@@ -489,13 +513,14 @@ const lastGameNeeds = (
   const possible = (winnerId: string | null) =>
     ways.some((way) => way.winnerId === winnerId && way.possible);
   const orTie = settings.tiePoints > 0 && possible(null);
+  const owed = owing(game) === null ? {} : { owed: 1 };
   return [
     [game.away, game.home],
     [game.home, game.away],
   ].flatMap(([side, against]) =>
     !side || !against || possible(against)
       ? []
-      : [{ gameId: game.id, date: game.date, side, against, orTie }]
+      : [{ gameId: game.id, date: game.date, side, against, orTie, ...owed }]
   );
 };
 
@@ -505,9 +530,12 @@ const lastGameNeeds = (
  * can go puts it in, even with every level finish going its way. Null where there is nothing to
  * need: in whatever happens, or out whatever happens.
  *
- * Exact, by the same search as the magic number, run once for each side of each game left; so it
- * is asked only as late in the season as the magic number is. With one game left there is no
- * level finish to leave to chance: every score it can end with is ranked (`lastGameNeeds`).
+ * Exact, by the same search as the magic number, run once for each side of each game left, the
+ * games owed beyond the schedule among them (`withOwedGames`); so it is asked only as late in the
+ * season as the magic number is. With one game left there is no level finish to leave to chance:
+ * every score it can end with is ranked (`lastGameNeeds`). So is a last game owed beyond the
+ * schedule: asked of the search below, with nothing after it, it read each team's place as it was
+ * before the game.
  */
 export const neededResults = (
   teamId: string,
@@ -518,19 +546,21 @@ export const neededResults = (
 ): NeededResult[] | null => {
   const effective = { ...settings, goldCutoff: cutoff };
   if (!teams.some((team) => team.id === teamId)) return null;
-  const [last, ...more] = remaining;
-  if (
-    last &&
-    more.length === 0 &&
-    teams.some((team) => team.id === last.away) &&
-    teams.some((team) => team.id === last.home)
-  )
+  const games = withOwedGames(teams, remaining, settings);
+  const [last, ...more] = games;
+  const known = (id: string) => id === OWED_OPPONENT || teams.some((team) => team.id === id);
+  if (last && more.length === 0 && known(last.away) && known(last.home))
     return lastGameNeeds(teamId, teams, last, cutoff, settings);
-  if (!solveCutoff(teamId, teams, remaining, effective, 0, 0, "any", false)) return null;
-  if (solveCutoff(teamId, teams, remaining, effective, 0, 0, "all", true)) return null;
+  if (!solveCutoff(teamId, teams, games, effective, 0, 0, "any", false)) return null;
+  if (solveCutoff(teamId, teams, games, effective, 0, 0, "all", true)) return null;
   const needed: NeededResult[] = [];
-  remaining.forEach((game) => {
-    const rest = remaining.filter((other) => other !== game);
+  const asked = new Set<string>();
+  games.forEach((game) => {
+    // A team's owed games are all against the one stand-in, so the first answers for every one.
+    const owes = owing(game);
+    if (owes !== null && asked.has(owes)) return;
+    if (owes !== null) asked.add(owes);
+    const rest = games.filter((other) => other !== game);
     const stillIn = (winnerId: string | null) =>
       solveCutoff(teamId, after(teams, game, winnerId), rest, effective, 0, 0, "any", false);
     const tieEnough = settings.tiePoints > 0 && stillIn(null);
@@ -540,7 +570,14 @@ export const neededResults = (
     ].forEach(([side, against]) => {
       // Needed where the other side winning leaves no way in.
       if (!side || !against || stillIn(against)) return;
-      needed.push({ gameId: game.id, date: game.date, side, against, orTie: tieEnough });
+      needed.push({
+        gameId: game.id,
+        date: game.date,
+        side,
+        against,
+        orTie: tieEnough,
+        ...(owes === null ? {} : { owed: games.filter((other) => owing(other) === owes).length }),
+      });
     });
   });
   return needed;

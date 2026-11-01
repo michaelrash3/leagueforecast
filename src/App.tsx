@@ -159,7 +159,7 @@ import { displayName, recordText } from "./lib/format";
 import { recapToMarkdown, recapToStoryBrief } from "./lib/insights";
 import { buildForecastSummaryRequest, buildLeagueSummaryRequest } from "./lib/leagueSummaryClient";
 import { AiHealthCheck } from "./components/aiHealthCheck";
-import { eliminationNumberForGold, magicForGold, neededResults } from "./lib/magic";
+import { eliminationNumberForGold, magicForGold, neededResults, withOwedGames } from "./lib/magic";
 import { backtestPredictions } from "./lib/backtest";
 import { buildPredictionEngine } from "./lib/predictionEngine";
 import { buildBracketProjection } from "./lib/bracket";
@@ -824,17 +824,20 @@ export default function App() {
     [teams, matchups, finalScores]
   );
 
-  /** Stores which Team Rankings club a league team is, or clears the answer. */
+  /**
+   * Stores which Team Rankings club a league team is, with a GameChanger id the club carries
+   * (`TeamBase.scoutGcTeamId`), or clears the answer. A pick of a club GameChanger has no id for
+   * keeps none, and never the one the team's last pick had.
+   */
   const setScoutLink = useCallback(
-    (leagueTeamId: string, scoutTeamId: string | undefined) => {
+    (leagueTeamId: string, scoutTeamId: string | undefined, scoutGcTeamId?: string) => {
       setTeams((prev) =>
-        prev.map((team) =>
-          team.id === leagueTeamId
-            ? scoutTeamId
-              ? { ...team, scoutTeamId }
-              : (({ scoutTeamId: _dropped, ...rest }) => rest)(team)
-            : team
-        )
+        prev.map((team) => {
+          if (team.id !== leagueTeamId) return team;
+          const { scoutTeamId: _was, scoutGcTeamId: _gc, ...rest } = team;
+          if (!scoutTeamId) return rest;
+          return { ...rest, scoutTeamId, ...(scoutGcTeamId ? { scoutGcTeamId } : {}) };
+        })
       );
     },
     [setTeams]
@@ -1036,6 +1039,16 @@ export default function App() {
     liveTeams.forEach((team) => map.set(team.id, team));
     return map;
   }, [liveTeams]);
+  /*
+   * The chance the away side wins a game, as every League screen gives it: the per-game model's,
+   * which the Schedule's pick, the Our team card, the team drawer and the Gold odds read. The
+   * Dashboard's list showed the prediction engine's own (sweep item 29), a second chance for the
+   * same game; it reads this now. Kept while the teams and settings are, so the list's memo holds.
+   */
+  const gameOdds = useCallback(
+    (game: Matchup) => predictGame(game, liveTeams, settings, liveById).awayWinPct,
+    [liveTeams, settings, liveById]
+  );
   const teamBaseById = useMemo(() => {
     const map = new Map<string, TeamBase>();
     teams.forEach((team) => map.set(team.id, team));
@@ -1089,6 +1102,15 @@ export default function App() {
         Math.max(0, Math.round(settings.regularSeasonGamesPerTeam || 0))
       ),
     [liveTeams, remainingGames, settings.regularSeasonGamesPerTeam]
+  );
+  /*
+   * How many games the exact search walks: the schedule's and those each team owes beyond it under
+   * games per team (`withOwedGames`), which the magic numbers, the needed results and the Gold
+   * Bracket paths play, so they wait on both.
+   */
+  const searchedCount = useMemo(
+    () => withOwedGames(liveTeams, remainingGames, settings).length,
+    [liveTeams, remainingGames, settings]
   );
   const projectionAnalysisEnabled = remainingGames.length <= PROJECT_STANDINGS_REMAINING_GAME_LIMIT;
   const exactScenarioAnalysisEnabled =
@@ -1641,13 +1663,17 @@ export default function App() {
         });
 
       if (!scenarios.length) {
+        // None on the schedule, but games owed under games per team are games left all the same.
+        const owed = remainingCounts[teamId] ?? 0;
         return [
-          `${teamName} have no remaining games; Gold Bracket status depends only on outside results.`,
+          owed > 0
+            ? `${teamName} have ${owed} game${owed === 1 ? "" : "s"} left that the schedule does not show yet.`
+            : `${teamName} have no remaining games; Gold Bracket status depends only on outside results.`,
         ];
       }
       return scenarios;
     },
-    [dashboardById, nextTwoSwingGames, goldCutoff]
+    [dashboardById, nextTwoSwingGames, goldCutoff, remainingCounts]
   );
 
   const formatGoldPct = useCallback((team: TeamWithProjection) => formatGoldPctValue(team), []);
@@ -2118,10 +2144,11 @@ export default function App() {
     const asked = askLeague({
       kind: "league.fill",
       season,
-      teams: teams.map(({ id, name, scoutTeamId }) => ({
+      teams: teams.map(({ id, name, scoutTeamId, scoutGcTeamId }) => ({
         id,
         name,
         ...(scoutTeamId === undefined ? {} : { scoutTeamId }),
+        ...(scoutGcTeamId === undefined ? {} : { scoutGcTeamId }),
       })),
       matchups: matchups.map(({ id, date, away, home }) => ({ id, date, away, home })),
       runs: Object.entries(logs).map(([id, log]) => ({
@@ -2847,7 +2874,7 @@ export default function App() {
     const team = ourTeamId ? dashboardById.get(ourTeamId) : undefined;
     if (!team) return null;
     const magic =
-      hasCutLine && remainingGames.length <= EXACT_MAGIC_REMAINING_GAME_LIMIT
+      hasCutLine && searchedCount <= EXACT_MAGIC_REMAINING_GAME_LIMIT
         ? magicForGold(team.id, dashboardRows, remainingGames, goldCutoff, settings).description
         : undefined;
     /*
@@ -2855,7 +2882,7 @@ export default function App() {
      * ties worth half a win, ten games left took 245 ms at worst against 1.5 s at fifteen.
      */
     const needed =
-      hasCutLine && remainingGames.length <= NEEDS_REMAINING_GAME_LIMIT
+      hasCutLine && searchedCount <= NEEDS_REMAINING_GAME_LIMIT
         ? neededResults(team.id, dashboardRows, remainingGames, goldCutoff, settings)
         : null;
     const needs = needed
@@ -2881,6 +2908,7 @@ export default function App() {
     dashboardById,
     dashboardRows,
     hasCutLine,
+    searchedCount,
     remainingGames,
     goldCutoff,
     settings,
@@ -2985,7 +3013,7 @@ export default function App() {
       titleRace: titleRaceBadgeForTeam(selectedTeam),
       clinchScenarios: clinchScenariosForTeam(selectedTeam.id),
       magic:
-        remainingGames.length <= EXACT_MAGIC_REMAINING_GAME_LIMIT
+        searchedCount <= EXACT_MAGIC_REMAINING_GAME_LIMIT
           ? magicForGold(selectedTeam.id, dashboardRows, remainingGames, goldCutoff, settings)
           : {
               type: "magic" as const,
@@ -2994,7 +3022,7 @@ export default function App() {
               description: `Exact magic number is paused until ${EXACT_MAGIC_REMAINING_GAME_LIMIT} or fewer games remain to keep team modals responsive.`,
             },
       elimination:
-        remainingGames.length <= EXACT_MAGIC_REMAINING_GAME_LIMIT
+        searchedCount <= EXACT_MAGIC_REMAINING_GAME_LIMIT
           ? eliminationNumberForGold(
               selectedTeam.id,
               dashboardRows,
@@ -3020,6 +3048,7 @@ export default function App() {
     titleRaceBadgeForTeam,
     clinchScenariosForTeam,
     dashboardRows,
+    searchedCount,
     remainingGames,
     goldCutoff,
     settings,
@@ -3753,9 +3782,7 @@ export default function App() {
                       seasonFinal={seasonFinal}
                       hasCutLine={hasCutLine}
                       engine={predictionEngine}
-                      gameOdds={(game) =>
-                        predictGame(game, liveTeams, settings, liveById).awayWinPct
-                      }
+                      gameOdds={gameOdds}
                       backtestResult={backtestResult}
                       teamsById={liveById}
                       matchups={matchups}

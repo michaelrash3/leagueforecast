@@ -12,7 +12,10 @@ import { BOARD_RULES } from "./views/boardShape";
  * question differently; read beside the boards' own (`BOARD_RULES`), since which games count, and so
  * the bridge's results, are theirs too.
  *
- * 1: the bridge kept with its copy, version and day (#446's successor).
+ * 1: the bridge kept with its copy, version and day (#446's successor). Not raised when each
+ * candidate's GameChanger ids came to list the season's own first (`gcIdsForSeason`): the rows and
+ * results are the same, a kept answer stands a day at most, and a raise would have every member's
+ * device ask again.
  */
 export const BRIDGE_RULES = 1;
 
@@ -53,6 +56,7 @@ const LINK_ROW: Shape = {
     scoutTeamId: { optional: "id" },
     suggestedName: { optional: "string" },
     staleScoutTeamId: { optional: "id" },
+    movedScoutTeamId: { optional: "id" },
     conflictWith: { optional: { list: "id" } },
     ambiguousCount: { optional: "count" },
     sharedOpponents: { optional: "count" },

@@ -6,6 +6,7 @@ import {
   docChanges,
   docToSeason,
   encodeKey,
+  LEAGUE_DOC_SCHEMA,
   seasonDocId,
   seasonToDoc,
   type LeagueDocChange,
@@ -97,20 +98,32 @@ export const layOver = (
   );
 
 /**
- * What to write to turn the document as it is, `remote` at write `rev`, into `merged`: each record,
- * setting and order that differs, and with them when it was saved, `now`, and the next write's
- * number, which the rules hold every write to; nothing at all when nothing differs.
+ * What to write to turn the document as it is, `remote` at write `rev` and layout `schema`, into
+ * `merged`: each record, setting and order that differs, and with them when it was saved, `now`,
+ * and the next write's number, which the rules hold every write to; nothing at all when nothing
+ * differs.
+ *
+ * A document of an earlier layout is raised to this build's in the same write. Nothing else could
+ * raise it: both sides of every diff are stamped with this build's layout (`seasonToDoc`), so no
+ * write carried one, and a season made before a field stayed open to the builds that drop it. Never
+ * a write of its own, which would cost a write for every season opened.
  */
 export const writesFor = (
   remote: SeasonSnapshot,
   rev: number,
   merged: SeasonSnapshot,
-  now: string
+  now: string,
+  schema: number
 ): LeagueDocChange[] => {
   const changes = changesBetween(remote, merged);
-  return changes.length === 0
-    ? []
-    : [...changes, { path: ["updatedAt"], value: now }, { path: ["rev"], value: rev + 1 }];
+  if (changes.length === 0) return [];
+  const raise = schema < LEAGUE_DOC_SCHEMA ? [{ path: ["schema"], value: LEAGUE_DOC_SCHEMA }] : [];
+  return [
+    ...changes,
+    ...raise,
+    { path: ["updatedAt"], value: now },
+    { path: ["rev"], value: rev + 1 },
+  ];
 };
 
 /**

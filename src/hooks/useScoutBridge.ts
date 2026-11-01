@@ -43,7 +43,7 @@ export type ScoutBridgeOptions = {
   /** Whether the setting lets stored results count towards the forecast. */
   useScoutResults: boolean;
   /** Stores which Team Rankings club a league team is, or clears the answer. */
-  onLink: (leagueTeamId: string, scoutTeamId: string | undefined) => void;
+  onLink: (leagueTeamId: string, scoutTeamId: string | undefined, scoutGcTeamId?: string) => void;
   /**
    * How a member whose device holds no pool asks the server instead (1.6e): the same bridge,
    * worked out from the cloud's pool with the same functions. Absent, this device's pool is read.
@@ -108,7 +108,7 @@ export type ScoutBridge = {
    * still stands is put to the server all the same, once, for them.
    */
   wantLinks: (wanted: boolean) => void;
-  setLink: (leagueTeamId: string, scoutTeamId: string | undefined) => void;
+  setLink: (leagueTeamId: string, scoutTeamId: string | undefined, scoutGcTeamId?: string) => void;
   /** Called when Team Rankings saves, so everything here is read again. */
   noteChange: () => void;
 };
@@ -490,10 +490,11 @@ export function useScoutBridge({
     const question: QueryOf<"league.bridge"> = {
       kind: "league.bridge",
       season: activeSeasonId,
-      teams: teams.map(({ id, name, scoutTeamId }) => ({
+      teams: teams.map(({ id, name, scoutTeamId, scoutGcTeamId }) => ({
         id,
         name,
         ...(scoutTeamId === undefined ? {} : { scoutTeamId }),
+        ...(scoutGcTeamId === undefined ? {} : { scoutGcTeamId }),
       })),
       fixtures: seasonFixtures,
     };

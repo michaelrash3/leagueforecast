@@ -288,4 +288,36 @@ describe("a paired run", () => {
      */
     expect(spread(true)).toBeLessThan(spread(false) * 0.6);
   });
+
+  it("pairs the games owed beyond the schedule too, each drawing a stream of its own", () => {
+    /*
+     * Every team owes six games beyond the schedule (nine a team, three on it), so most of what is
+     * left is owed. Drawn from the run's one stream, a tie drawn in one point and not the other
+     * moved every owed draw after it, in that season and the ones after, and the step on a
+     * league's first tie was two runs' worth of chance again (Codex, on #502).
+     */
+    const owing = { ...DEFAULT_SETTINGS, regularSeasonGamesPerTeam: 9 };
+    const tied = { ...logs, g1: final("4", "4") };
+    const before = calculateTeams(bases, all, logs, owing);
+    const after = calculateTeams(bases, all, tied, owing);
+    const afterLeft = all.filter((one) => !(one.id in tied));
+    const spread = (paired: boolean) => {
+      const steps = Array.from({ length: 30 }, (_, at) => {
+        const seed = `owed first tie ${at}`;
+        const run = (from: Team[], remaining: Matchup[], seedText: string) =>
+          simulateGoldOddsRun(from, remaining, 600, seedText, 2, owing, undefined, paired).odds;
+        const later = run(after, afterLeft, seed);
+        const sooner = run(before, left, paired ? seed : `${seed} own`);
+        return ["C", "D"].map((id) => (later[id] ?? 0) - (sooner[id] ?? 0));
+      });
+      const sd = (values: number[]) => {
+        const middle = mean(values);
+        return Math.sqrt(
+          values.reduce((sum, value) => sum + (value - middle) ** 2, 0) / (values.length - 1)
+        );
+      };
+      return mean([0, 1].map((side) => sd(steps.map((step) => step[side] ?? 0))));
+    };
+    expect(spread(true)).toBeLessThan(spread(false) * 0.6);
+  });
 });

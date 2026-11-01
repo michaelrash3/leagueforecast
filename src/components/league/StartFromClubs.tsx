@@ -278,7 +278,17 @@ export function StartFromClubs({
   const create = () => {
     if (!draft || !page) return;
     const teams = picked.map((id) => ({ id, name: nameOf(id) }));
-    onCreate(seasonFromStart(teams, draft, choices, innings), page);
+    onCreate(
+      seasonFromStart(
+        teams,
+        draft,
+        choices,
+        innings,
+        undefined,
+        (id) => clubById.get(id)?.gcIds?.[0]
+      ),
+      page
+    );
   };
 
   const retry =

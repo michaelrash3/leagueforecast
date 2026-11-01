@@ -24,7 +24,7 @@ import {
   type ArchivedSeason,
   type ArchiveEntry,
 } from "../../teamRankingsArchive";
-import { COMPACT_VERSION } from "../../teamRankingsCompact";
+import { COMPACT_VERSION, type CompactTeams } from "../../teamRankingsCompact";
 import {
   STORAGE_VERSION,
   type GameLog,
@@ -93,7 +93,7 @@ const SHAPES_NOW = {
       "bracketLogs",
       "settings",
     ]),
-    team: fieldsOf<TeamBase>()(["id", "name", "scoutTeamId"]),
+    team: fieldsOf<TeamBase>()(["id", "name", "scoutTeamId", "scoutGcTeamId"]),
     matchup: fieldsOf<Matchup>()(["id", "date", "away", "home", "startTs"]),
     log: fieldsOf<GameLog>()([
       "awayRuns",
@@ -143,6 +143,8 @@ const SHAPES_NOW = {
     recapGroupings: wordsOf<RecapGrouping>()(["game", "date", "week"]),
   },
   pool: {
+    // The roster's stored value itself, beside the rows it holds: the ids it let go of ride in it.
+    roster: fieldsOf<CompactTeams>()(["v", "g", "s", "p", "r", "h"]),
     ageGroup: fieldsOf<AgeGroup>()([
       "id",
       "name",
@@ -338,6 +340,10 @@ const SHAPES: readonly { schema: number; fingerprint: string }[] = [
   { schema: 8, fingerprint: "3a1afc9638ce1c856df0411e5119ec4b0c049e4946b92a383f82c6a2d511678a" },
   // A League game keeps its start (`Matchup.startTs`).
   { schema: 9, fingerprint: "f7478cdf292339f5449f49e6e974da17cb1d3d34aebe84a0f7954f698c4c27e0" },
+  // The roster keeps the highest counter it let go of in each family of ids (`CompactTeams.h`),
+  // listed with the roster value's own fields; a League pick keeps its club's GameChanger id
+  // (`TeamBase.scoutGcTeamId`).
+  { schema: 10, fingerprint: "299c45a1235c155944f212f1ff43175a67d63b03630f930f6a7f818aa2e1f6c8" },
 ];
 
 /** Order-free, so a list tidied into another order is not taken for a new shape. */

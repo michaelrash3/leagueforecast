@@ -43,8 +43,11 @@ type ScoutLinkPanelProps = {
   seasonLabel: string;
   /** Whether the setting below this one is letting any of it count right now. */
   countingOn: boolean;
-  /** `undefined` clears the pick and lets the guess speak again. */
-  onPick: (leagueTeamId: string, scoutTeamId: string | undefined) => void;
+  /**
+   * `undefined` clears the pick and lets the guess speak again. `scoutGcTeamId` is a GameChanger id
+   * the club picked carries, kept beside the pick so it follows the club (`readPick`).
+   */
+  onPick: (leagueTeamId: string, scoutTeamId: string | undefined, scoutGcTeamId?: string) => void;
 };
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
@@ -89,6 +92,13 @@ const noteFor = (
       tone: "red",
       label: "Gone",
       body: "The club you picked is no longer in Team Rankings — a reset, or a tidy that folded it into another. Pick it again.",
+    };
+  }
+  if (row.movedScoutTeamId) {
+    return {
+      tone: "red",
+      label: "Moved",
+      body: "The club linked here no longer carries the GameChanger team you picked it as, and no one club does now: that team was taken off it or its year deleted, or another club has its place. Nothing of it counts. Pick it again.",
     };
   }
   if (row.ambiguousCount) {
@@ -270,7 +280,13 @@ function ScoutLinkPanelInner({
                       <TeamSearchSelect
                         id={`scout-link-${row.leagueTeamId}`}
                         value={row.how === "picked" ? (row.scoutTeamId ?? "") : ""}
-                        onChange={(scoutTeamId) => onPick(row.leagueTeamId, scoutTeamId)}
+                        onChange={(scoutTeamId) =>
+                          onPick(
+                            row.leagueTeamId,
+                            scoutTeamId,
+                            options.find((option) => option.id === scoutTeamId)?.gcIds?.[0]
+                          )
+                        }
                         options={options}
                         placeholder={
                           row.how === "guessed" && row.suggestedName

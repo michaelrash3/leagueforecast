@@ -99,7 +99,7 @@ export type WeeklyClosedLevel = { year: number | null; check: ClosedLevelCheck }
  * its stored games alone would have scored it nothing or lost it to an older year.
  */
 export const weeklyClosedLevel = (input: Omit<BuildInput, "past">): WeeklyClosedLevel | null => {
-  const { ageGroups, teams, gamesOfYear, readSeason, autoRemoved, today } = input;
+  const { ageGroups, teams, gamesOfYear, readSeason, autoRemoved, retired, today } = input;
   const end = dayInstant(today);
   if (!Number.isFinite(end)) return null;
   const from = end - CLOSED_LEVEL_WEEKS * 7 * DAY;
@@ -114,6 +114,7 @@ export const weeklyClosedLevel = (input: Omit<BuildInput, "past">): WeeklyClosed
       yearGames: gamesOfYear(year),
       readSeason,
       autoRemoved,
+      retired,
     });
     knownOf.set(year, known);
     return known;

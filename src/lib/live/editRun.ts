@@ -17,6 +17,7 @@ import { LEAGUE_PART } from "../cloud/cloudPlan";
 import {
   loadAgeGroups,
   loadAutoRemoved,
+  loadRetiredIds,
   loadScoutGamesForYear,
   loadScoutTeams,
   readCloudPoolValue,
@@ -29,7 +30,7 @@ import { runBackupRestore } from "./backupRestore";
 import { NO_UPLOADS, type UploadReader, type UploadStore } from "../cloud/uploads";
 import type { EditPool, PoolEnsure } from "./poolCache";
 import { asksLeague, answerQuery, type PoolQuery, type QueryAnswer } from "./queries";
-import { deriveAllKnown, type SeasonReader } from "./allKnown";
+import { deriveAllKnown, retiredWithPicks, type SeasonReader } from "./allKnown";
 import { importOfNamed } from "./namedAdd";
 import { readCloudLeague, type CloudLeague, type LeagueDocsList } from "./cloudLeague";
 import { seasonReaderOf } from "./publishCopy";
@@ -386,12 +387,17 @@ const runServerCommand = async (
     const page = ageGroups.find((group) => group.id === command.page);
     if (!page) return { ok: false, why: "missing" };
     const roster = loadScoutTeams();
+    // The ids the roster let go of, which neither a club League Standings made nor one made for a
+    // name is minted as: adopted, either would go into the roster under it. With them, those of the
+    // clubs League Standings picks that the roster no longer holds (`retiredWithPicks`).
+    const retired = retiredWithPicks(loadRetiredIds(), read, roster);
     const known = deriveAllKnown({
       ageGroups,
       teams: roster,
       yearGames: loadScoutGamesForYear(ageGroupYear(page)),
       readSeason: read,
       autoRemoved: loadAutoRemoved(),
+      retired,
     });
     const made = importOfNamed({
       year: command.year,
@@ -399,6 +405,7 @@ const runServerCommand = async (
       named: command.games,
       known,
       roster,
+      retired,
     });
     if (!made.ok) return made;
     const run = runPoolCommand(made.command);

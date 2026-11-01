@@ -1,0 +1,126 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`League Standings with games owed beyond the schedule (pin) > nine games owed by every team 1`] = `
+{
+  "Aces' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Exact magic number is paused until 15 or fewer games remain to keep team modals responsive.E (Gold elimination)Exact elimination number is paused until 15 or fewer games remain to keep team modals responsive.",
+  "Bears' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Exact magic number is paused until 15 or fewer games remain to keep team modals responsive.E (Gold elimination)Exact elimination number is paused until 15 or fewer games remain to keep team modals responsive.",
+  "Comets' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Exact magic number is paused until 15 or fewer games remain to keep team modals responsive.E (Gold elimination)Exact elimination number is paused until 15 or fewer games remain to keep team modals responsive.",
+  "Dashboard": "RankTeamRatingRecordRun Diff/GSOSTrend
+#1Aces+2.73-0+5.0#4– Stable
+#2Bears-0.22-1-0.3#3– Stable
+#3Comets-0.91-2-1.7#2– Stable
+#4Ducks-1.60-3-3.0#1– Stable
+1 worth reviewing
+numbers: 1 4 3 -0 99% 0 100% 1 20 +2.0 1 1 +2.7 3 -0 +5.0 4 2 -0.2 2 -1 -0.3 3 3 -0.9 1 -2 -1.7 2 4 -1.6 0 -3 -3.0 1",
+  "Ducks' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Exact magic number is paused until 15 or fewer games remain to keep team modals responsive.E (Gold elimination)Exact elimination number is paused until 15 or fewer games remain to keep team modals responsive.",
+  "Forecast · Brackets": "1234Likely
+ACE911
+BEA69192–3
+COM1862192–4
+DUC18773–4
+Model score: 2-5 · 65% win chance for the bracket pick
+Model score: 5-6 · 54% win chance for the bracket pick
+Monte Carlo bracket over 4000 simulated seasons — the chance each team lands each seed, reaches the final, and wins the Gold Bracket.
+numbers: 2 2 1 1 1 2 2 2 -5 65% 2 2 1 1 1 2 2 5 -6 54% 4000 68% 99% 25% 76% 6% 20% 1% 5% 2",
+  "Forecast · Outlook": "TeamCurrent SeedProjected SeedRangeProjected RecordGold OddsRun Diff
+Aces#1#10#1–#13-099%±1%Stable+15
+Bears#2#20#2–#22-177%±2%Stable-1
+Comets#3#30#3–#31-220%±2%Stable-5
+Ducks#4#40#4–#40-35%±2%Stable-9
+Needs help from teams above the line.
+Needs help from teams above the line.
+numbers: 1 2 2 77% 3 3 20% 1 1 99% 4 4 5% 5 0% 25% 50% 75% 100% 1 1 0 1 1 3 -0 +1599% 1% 2 2 0 2 2 2 -1 -177% 2% 3 3 0 3 3 1 -2 -520% 2% 4 4 0 4 4 0 -3 -95% 2%",
+  "Forecast · Playoff machine": "Pick the winner of any game left and see where everyone lands. A pick plays out at the model's expected score unless you type one. Picks are kept only when you save them, on this device.
+numbers: ",
+  "Forecast · Season": "5/15Bears at Comets · 5-4Winner: BearsGold cut line held after 5/15.
+Winner: Bears
+5/15Aces at Ducks · 8-3Winner: AcesGold cut line held after 5/15.
+Winner: Aces
+5/8Bears at Ducks · 4-2Winner: BearsBears moved into GoldBears climbed #4 → #2Ducks fell #3 → #4
+Winner: Bears
+5/8Aces at Comets · 7-1Winner: AcesGold cut line held after 5/8.
+Winner: Aces
+5/1Comets at Ducks · 5-3Winner: CometsGold cut line held after 5/1.
+Winner: Comets
+5/1Aces at Bears · 6-2Winner: AcesComets moved into GoldBears fell #2 → #4
+Winner: Aces
+Winner accuracy
+numbers: 123345 15 85 15 6 5 15 5 -4 5 15.5 15 8 -3 5 15.5 8 4 -2 4 2 3 45 8 7 -1 5 8.5 1 5 -3 5 1.5 1 6 -2 2 4 6 0.215100% 100% 2.3 1 100% 0.215 0.250 0% 2 50 60% 5 100% 51% 60 70% 1 100% 68%",
+  "Standings": "SeedTeamRecordPtsDiffSOSGold %Playoff StatusTrend (Gold %)
+#1 · Comfortably inside the gold bracketACEAces3-03+15#499%SafeGold odds over recent completed games: 72% to 99%. Higher is better.
+#2 · Comfortably inside the gold bracketBEABears2-12-1#377%SafeGold odds over recent completed games: 28% to 77%. Higher is better.
+Gold Cut Line
+#3 · Chasing a gold bracket placeCOMComets1-21-5#220%ChasingGold odds over recent completed games: 50% to 18%. Higher is better.
+#4 · Chasing a gold bracket placeDUCDucks0-30-9#15%ChasingGold odds over recent completed games: 51% to 6%. Higher is better.
+numbers: 2 5 15 1 3 -0 3 +15 499% 2 2 -1 2 -1 377% 3 1 -2 1 -5 220% 4 0 -3 0 -9 15% 2%",
+}
+`;
+
+exports[`League Standings with games owed beyond the schedule (pin) > two owed by the Comets and the Ducks 1`] = `
+{
+  "Aces' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)1 more win clinches a Gold Bracket spot.E (Gold elimination)Its own losses cannot eliminate it, but other results still can.",
+  "Bears' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)2 more wins clinches a Gold Bracket spot.E (Gold elimination)Its own losses cannot eliminate it, but other results still can.",
+  "Comets' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Cannot mathematically clinch a Gold Bracket spot.E (Gold elimination)2 more losses would eliminate the team from the Gold Bracket.",
+  "Dashboard": "RankTeamRatingRecordRun Diff/GSOSTrend
+#1Aces+2.73-0+5.0#4– Stable
+#2Bears-0.22-1-0.3#3– Stable
+#3Comets-0.91-2-1.7#2– Stable
+#4Ducks-1.60-3-3.0#1– Stable
+Cannot mathematically clinch a Gold Bracket spot.
+Projected Winner
+Win Probability
+Projected Winner
+Win Probability
+1 worth reviewing
+numbers: 3 4 1 -2 10% −37.2 5 29 15% 0% 5 22 14% 0% 2 51 100 100% 5 22 3.3 6 12 35% 65% 2.5 -5.8 0 9 0 12 +2.7 -0.2 65% 5 29 3.3 6 12 65% 35% 5.8 -2.5 0 12 0 9 +2.7 -0.2 65% 1 1 20 +2.0 1 1 +2.7 3 -0 +5.0 4 2 -0.2 2 -1 -0.3 3 3 -0.9 1 -2 -1.7 2 4 -1.6 0 -3 -3.0 1",
+  "Ducks' panel": "Magic Numbers?Magic & Elimination NumbersMagic number (M) is the combined total of wins by this team plus losses by rivals that guarantees a Gold Bracket spot. Elimination number (E) is the combined total of losses and rival wins that would end its Gold chances. Reaching either clinches or eliminates regardless of other results.M (Gold clinch)Cannot mathematically clinch a Gold Bracket spot.E (Gold elimination)1 more loss would eliminate the team from the Gold Bracket.",
+  "Forecast · Brackets": "1234Likely
+ACE881–2
+BEA751–3
+COM842–3
+DUC914
+Model score: 2-5 · 65% win chance for the bracket pick
+Model score: 5-6 · 54% win chance for the bracket pick
+Monte Carlo bracket over 4000 simulated seasons — the chance each team lands each seed, reaches the final, and wins the Gold Bracket.
+numbers: 2 2 1 1 1 2 2 2 -5 65% 2 2 1 1 1 2 2 5 -6 54% 4000 66% 100% 30% 87% 3% 10% 1% 3% 2",
+  "Forecast · Outlook": "TeamCurrent SeedProjected SeedRangeProjected RecordGold OddsRun Diff
+Aces#1#10#1–#15-099%+±1%Stable+23
+Bears#2#20#2–#22-387%±2%Stable-9
+Comets#3#30#3–#31-210%±2%Stable-5
+Ducks#4#40#4–#40-34%±2%Stable-9
+Controls a Gold spot by winning out.
+At Aces: win protects the path (#2); loss still projects #2.
+Vs Aces: win protects the path (#2); loss still projects #2.
+Clinches with 1 win.
+Vs Bears: win protects the path (#1); loss still projects #1.
+At Bears: win protects the path (#1); loss still projects #1.
+Comets get help if Bears lose to Aces.
+Out after 2 more losses.
+Ducks get help if Bears lose to Aces.
+Out after 1 more loss.
+numbers: 1 2 2 87% 2 2 2 2 1 1 100% 1 1 1 1 1 3 3 10% 2 4 4 4% 1 5 0% 25% 50% 75% 100% 1 1 0 1 1 5 -0 +2399% 1% 2 2 0 2 2 2 -3 -987% 2% 3 3 0 3 3 1 -2 -510% 2% 4 4 0 4 4 0 -3 -94% 2%",
+  "Forecast · Playoff machine": "Pick the winner of any game left and see where everyone lands. A pick plays out at the model's expected score unless you type one. Picks are kept only when you save them, on this device.
+numbers: 5 22 5 29",
+  "Forecast · Season": "5/15Bears at Comets · 5-4Winner: BearsGold cut line held after 5/15.
+Winner: Bears
+5/15Aces at Ducks · 8-3Winner: AcesGold cut line held after 5/15.
+Winner: Aces
+5/8Bears at Ducks · 4-2Winner: BearsBears moved into GoldBears climbed #4 → #2Ducks fell #3 → #4
+Winner: Bears
+5/8Aces at Comets · 7-1Winner: AcesGold cut line held after 5/8.
+Winner: Aces
+5/1Comets at Ducks · 5-3Winner: CometsGold cut line held after 5/1.
+Winner: Comets
+5/1Aces at Bears · 6-2Winner: AcesComets moved into GoldBears fell #2 → #4
+Winner: Aces
+Winner accuracy
+numbers: 123345 15 85 15 6 5 15 5 -4 5 15.5 15 8 -3 5 15.5 8 4 -2 4 2 3 45 8 7 -1 5 8.5 1 5 -3 5 1.5 1 6 -2 2 4 6 0.215100% 100% 2.3 1 100% 0.215 0.250 0% 2 50 60% 5 100% 51% 60 70% 1 100% 68%",
+  "Standings": "SeedTeamRecordPtsDiffSOSGold %Playoff StatusTrend (Gold %)
+#1 · Comfortably inside the gold bracketACEAces3-03+15#499%+SafeGold odds over recent completed games: 75% to 100%. Higher is better.
+#2 · Comfortably inside the gold bracketBEABears2-12-1#387%SafeGold odds over recent completed games: 25% to 89%. Higher is better.
+Gold Cut Line
+#3 · Chasing a gold bracket placeCOMComets1-21-5#210%ChasingGold odds over recent completed games: 50% to 8%. Higher is better.
+#4 · Chasing a gold bracket placeDUCDucks0-30-9#14%ChasingGold odds over recent completed games: 50% to 2%. Higher is better.
+numbers: 2 5 15 1 3 -0 3 +15 499% 2 2 -1 2 -1 387% 3 1 -2 1 -5 210% 4 0 -3 0 -9 14% 2%",
+}
+`;

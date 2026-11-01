@@ -34,6 +34,12 @@ import {
   type ScoutGameSource,
   type ScoutTeam,
 } from "./teamRankings";
+import {
+  coerceRetired,
+  NO_RETIRED,
+  storedRetired,
+  type RetiredIds,
+} from "./teamRankings/retiredIds";
 import { isNumber, isRecord, isString } from "./validate";
 
 /** Bumped when the tuple layout changes in a way an older reader would misread. */
@@ -456,6 +462,12 @@ export type CompactTeams = {
   p?: string[];
   /** 0 id, 1 name, 2 flags, 3 state, 4 city, 5 links, 6 a picture (data schema 6 and before) */
   r: TeamRow[];
+  /**
+   * The highest counter let go of in each family of minted ids (`retiredIds.ts`), so a club folded
+   * or deleted never gives its id to the next club of its letters. Absent where the pool has let
+   * none go, so such a pool is written as it was before (data schema 10).
+   */
+  h?: Record<string, number>;
 };
 
 type TeamRow = (number | string | null | CompactLink[])[];
@@ -480,7 +492,10 @@ const NAME_ONLY = 4;
 /** The owner cleared the club's state, and the tidy leaves it so (`ScoutTeam.stateCleared`). */
 const STATE_CLEARED = 8;
 
-export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
+export const encodeScoutTeams = (
+  teams: ScoutTeam[],
+  retired: RetiredIds = NO_RETIRED
+): CompactTeams => {
   const groups = interner();
   const seasons = interner();
   const people = interner();
@@ -525,13 +540,32 @@ export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
   });
 
   // Left off entirely when no team has staff, so a pool typed in by hand is written as it was.
+  const h = storedRetired(retired);
   return {
     v: COMPACT_VERSION,
     g: groups.values,
     s: seasons.values,
     ...(people.values.length > 0 ? { p: people.values } : {}),
     r: rows,
+    ...(h ? { h } : {}),
   };
+};
+
+/** The ids a stored roster let go of (`CompactTeams.h`); none for an older value or the array form. */
+export const retiredOfStored = (raw: unknown): RetiredIds =>
+  isRecord(raw) && !Array.isArray(raw) ? coerceRetired(raw.h) : NO_RETIRED;
+
+/**
+ * The ids a stored roster holds, without decoding it: what a save reads to tell which ids it lets
+ * go of. Either way a roster was written, an unreadable row holding none.
+ */
+export const idsOfStored = (raw: unknown): string[] => {
+  const rows: unknown = Array.isArray(raw) ? raw : isRecord(raw) ? raw.r : undefined;
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row: unknown) => {
+    const id = Array.isArray(row) ? row[0] : isRecord(row) ? row.id : undefined;
+    return typeof id === "string" && id ? [id] : [];
+  });
 };
 
 /** A stored age source, or nothing for anything this app does not write. */

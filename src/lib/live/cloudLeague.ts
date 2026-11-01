@@ -4,7 +4,7 @@ import type { CloudManifest } from "../cloud/cloudManifest";
 import { hashValue } from "../cloud/cloudPack";
 import { LEAGUE_PART } from "../cloud/cloudPlan";
 import type { FirestoreRestDocuments } from "../cloud/firestoreRest";
-import type { LeagueSeasonData, SeasonReader } from "./allKnown";
+import { seasonsReader, type LeagueSeasonData, type SeasonReader } from "./allKnown";
 import { docToSeason, LEAGUE_COLLECTION } from "./leagueDocs";
 
 /**
@@ -79,7 +79,7 @@ export const readCloudLeague = async (list: LeagueDocsList): Promise<CloudLeague
   return {
     ok: true,
     from: "docs",
-    readSeason: (seasonId) => seasons.get(seasonId) ?? NOTHING,
+    readSeason: seasonsReader(seasons),
     print: await hashValue(held),
     seasons: held.length,
   };
@@ -105,7 +105,7 @@ export const seasonReaderOf = (league: unknown): SeasonReader | null => {
   const seasons = new Map(
     parsed.backup.seasons.map(({ id, teams, matchups, logs }) => [id, { teams, matchups, logs }])
   );
-  return (seasonId) => seasons.get(seasonId) ?? NOTHING;
+  return seasonsReader(seasons);
 };
 
 /**

@@ -8,6 +8,7 @@ import {
   loadAutoRemoved,
   loadDroppedClubs,
   loadNamedAges,
+  loadRetiredIds,
   loadScoutGames,
   loadScoutGamesForYear,
   loadScoutTeams,
@@ -263,6 +264,7 @@ export const publishCopyViews = async ({
     gamesOfYear: loadScoutGamesForYear,
     readSeason,
     autoRemoved: loadAutoRemoved(),
+    retired: loadRetiredIds(),
     today,
   };
   const built = buildCache

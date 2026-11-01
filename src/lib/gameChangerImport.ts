@@ -119,6 +119,7 @@ import { borderingStates, farApart, inOneRegion, onBorderMap } from "./stateBord
 import { namedAgeFor, type NamedAges } from "./namedAges";
 import { GC_PAIRING_EVIDENCE_LABEL, type GcPairingEvidence } from "./gcPairingEvidence";
 import { fillMissingStates } from "./clubStates";
+import { mintedIds, NO_RETIRED, type MintedIds, type RetiredIds } from "./teamRankings/retiredIds";
 
 /**
  * The lookups an import does, precomputed.
@@ -150,8 +151,11 @@ type ImportIndex = {
   gamePos: Map<string, number>;
   /** Where each team sits, for the same reason. */
   teamPos: Map<string, number>;
-  /** Every scout id in use, kept as the fold goes so minting a new one does not rescan the roster. */
-  usedTeamIds: Set<string>;
+  /**
+   * Every scout id in use, kept as the fold goes so minting a new one does not rescan the roster,
+   * and every one the stored pool let go of (`GcImportOptions.retired`), which none is minted as.
+   */
+  usedTeamIds: MintedIds;
   /** Games by pool, pair and date — the three things a match must agree on. */
   gamesByMatch: Map<string, ScoutGame[]>;
   teamsById: Map<string, ScoutTeam>;
@@ -250,7 +254,7 @@ const buildPoolKeyOf = (ageGroups: AgeGroup[]): ((ageGroupId: string) => string)
   return (ageGroupId: string) => keys.get(ageGroupId) ?? `g:${ageGroupId}`;
 };
 
-const buildIndex = (state: GcImportState): ImportIndex => {
+const buildIndex = (state: GcImportState, retired: RetiredIds = NO_RETIRED): ImportIndex => {
   const poolKeys = new Map<string, string>();
   const levels = new Map<string, number>();
   const years = new Map<string, number>();
@@ -267,7 +271,7 @@ const buildIndex = (state: GcImportState): ImportIndex => {
     gamesBySchedule: new Map(),
     gamePos: new Map(),
     teamPos: new Map(),
-    usedTeamIds: new Set(),
+    usedTeamIds: mintedIds([], retired),
     gamesByMatch: new Map(),
     teamsById: new Map(),
     teamByGcId: new Map(),
@@ -2229,6 +2233,12 @@ export type GcImportOptions = {
    * played only, as **Ask again** files them. Absent means every team the pull asks about.
    */
   seasonYearsFor?: ReadonlySet<string>;
+  /**
+   * The ids the stored pool has let go of (`loadRetiredIds`), which no club made here is minted
+   * as: a club folded or deleted would otherwise give its id to the next club of its letters, and
+   * whatever named it, a League Standings pick above all, would name that club instead.
+   */
+  retired?: RetiredIds;
 };
 
 const NOTHING_DELETED: DeletedGames = new Set<string>();
@@ -2246,7 +2256,7 @@ export const importGcSchedule = (
     teams: state.teams.slice(),
     games: state.games.slice(),
   };
-  const result = importOne(schedule, working, buildIndex(working), options);
+  const result = importOne(schedule, working, buildIndex(working, options.retired), options);
   // Nothing could be filed, so hand back exactly what came in rather than a copy of it.
   return result.outcome.issue ? { state, outcome: result.outcome } : result;
 };
@@ -3500,7 +3510,7 @@ export const createGcImporter = (
     teams: state.teams.slice(),
     games: state.games.slice(),
   };
-  const index = buildIndex(next);
+  const index = buildIndex(next, options.retired);
   return {
     add: (schedule) => {
       const result = importOne(schedule, next, index, options);
@@ -3526,7 +3536,7 @@ export const importGcSchedules = (
     teams: state.teams.slice(),
     games: state.games.slice(),
   };
-  const index = buildIndex(next);
+  const index = buildIndex(next, options.retired);
   const outcomes: GcImportOutcome[] = [];
   for (const schedule of schedules) {
     const result = importOne(schedule, next, index, options);
@@ -7387,7 +7397,9 @@ export const resettleOffLevel = (
    */
   refused: NotThisTeam = NO_REFUSALS,
   /** The rules still being measured (`TidyRules`), the refile's as well, so the two agree. */
-  rules: TidyRules = SHIPPED_TIDY_RULES
+  rules: TidyRules = SHIPPED_TIDY_RULES,
+  /** The ids the tidy's run has taken (`tidyPool`), which a stand-in or a slot made here adds to. */
+  minted?: MintedIds
 ): { state: GcImportState; resettled: number } => {
   const poolKeyOf = buildPoolKeyOf(state.ageGroups);
   const levelOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
@@ -7600,7 +7612,7 @@ export const resettleOffLevel = (
     return found;
   };
 
-  const used = new Set(state.teams.map((team) => team.id));
+  const used = minted ?? new Set(state.teams.map((team) => team.id));
   const added: ScoutTeam[] = [];
   /**
    * The stand-ins already here by squad year, level and name, and the states of the pulled clubs
@@ -8464,7 +8476,9 @@ const namedAfterSpared = (
  */
 export const dropNotATeam = (
   state: GcImportState,
-  real: ReadonlySet<string> = NONE_REAL
+  real: ReadonlySet<string> = NONE_REAL,
+  /** The ids the tidy's run has taken (`tidyPool`), which a slot made here adds to. */
+  minted?: MintedIds
 ): { state: GcImportState; dropped: number } => {
   const pageTeams = new Set(
     state.ageGroups.flatMap((group) => (group.myTeamId ? [group.myTeamId] : []))
@@ -8514,7 +8528,7 @@ export const dropNotATeam = (
   if (going.size === 0) return { state, dropped: 0 };
 
   const nameOf = new Map(state.teams.map((team) => [team.id, team.name]));
-  const used = new Set(state.teams.map((team) => team.id));
+  const used = minted ?? new Set(state.teams.map((team) => team.id));
   const slots: ScoutTeam[] = [];
   /** A slot of its own for each game kept off an old page, as the import makes one per game. */
   const slotFor = (clubId: string): string => {
@@ -9032,7 +9046,8 @@ const tidyOnce = (
   apart?: KeptApart,
   refused: NotThisTeam = NO_REFUSALS,
   real: ReadonlySet<string> = NONE_REAL,
-  rules: TidyRules = SHIPPED_TIDY_RULES
+  rules: TidyRules = SHIPPED_TIDY_RULES,
+  minted?: MintedIds
 ): Omit<PoolTidy, "passes" | "idle"> => {
   /*
    * Reported from here rather than from the passes themselves: each one is a pure function of a
@@ -9064,7 +9079,7 @@ const tidyOnce = (
   finished("highSchool", school.dropped, school.state);
   // And a page that is no team, for the same reason again.
   starting("notATeam", school.state);
-  const pages = dropNotATeam(school.state, real);
+  const pages = dropNotATeam(school.state, real, minted);
   finished("notATeam", pages.dropped, pages.state);
   // Then levels, because every pass after it compares them: a side whose level is about to be
   // worked out should be worked out before anything decides whether two rows mean one game.
@@ -9108,7 +9123,7 @@ const tidyOnce = (
   // After the fixture, which is better evidence than a level, and before the refile, which then
   // gets a look at whatever this had to leave as a stand-in.
   starting("resettled", moved.state);
-  const graded = resettleOffLevel(moved.state, refused, rules);
+  const graded = resettleOffLevel(moved.state, refused, rules, minted);
   finished("resettled", graded.resettled, graded.state);
   starting("refiled", graded.state);
   const placed = refileStandIns(graded.state, refused, rules);
@@ -9218,8 +9233,16 @@ export const tidyPool = (
    */
   real: ReadonlySet<string> = NONE_REAL,
   /** The rules still being measured (`TidyRules`); every caller but a measurement leaves them. */
-  rules: TidyRules = SHIPPED_TIDY_RULES
+  rules: TidyRules = SHIPPED_TIDY_RULES,
+  /** The ids the stored pool has let go of (`loadRetiredIds`), which no slot or stand-in is minted as. */
+  retired: RetiredIds = NO_RETIRED
 ): PoolTidy => {
+  // One record of the ids taken for the whole run: every one the pool began it with as well as
+  // those it let go of before, so a club a step folds or drops is not minted again by a later one.
+  const minted = mintedIds(
+    state.teams.map((team) => team.id),
+    retired
+  );
   const total: PoolTidy = {
     state,
     named: 0,
@@ -9247,7 +9270,7 @@ export const tidyPool = (
     passes: 0,
   };
   for (let pass = 0; pass < TIDY_MAX_PASSES; pass += 1) {
-    const step = tidyOnce(total.state, pass + 1, watch, apart, refused, real, rules);
+    const step = tidyOnce(total.state, pass + 1, watch, apart, refused, real, rules, minted);
     total.passes += 1;
     total.state = step.state;
     total.named += step.named;

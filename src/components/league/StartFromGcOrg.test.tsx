@@ -145,7 +145,13 @@ describe("a season from a GameChanger organization", () => {
     const [season, page] = onCreate.mock.calls[0] ?? [];
     expect(page).toEqual({ id: "", name: "9U 2027", ageLevel: 9, year: 2027 });
     expect(season.teams).toEqual([
-      expect.objectContaining({ name: "Placeholder Aces", scoutTeamId: "S-ACES" }),
+      // Linked to its club, with the organization's team it is beside the link.
+      {
+        id: expect.any(String),
+        name: "Placeholder Aces",
+        scoutTeamId: "S-ACES",
+        scoutGcTeamId: "AAAAAAAAAAA1",
+      },
       { id: expect.any(String), name: "Placeholder Bears" },
       { id: expect.any(String), name: "Placeholder Cubs" },
     ]);

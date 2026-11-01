@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { backtestPredictions } from "../../lib/backtest";
 import { buildPredictionEngine } from "../../lib/predictionEngine";
-import { calculateTeams } from "../../lib/sim";
+import { attachAdjustedRatings, calculateTeams, predictGame } from "../../lib/sim";
 import {
   DEFAULT_SETTINGS,
   type GameLog,
@@ -43,14 +43,17 @@ const matchups: Matchup[] = [
 const draw = (pitchMode: PitchMode, logs: Record<string, GameLog>) => {
   const settings = { ...DEFAULT_SETTINGS, pitchMode };
   const live = calculateTeams(teams, matchups, logs, settings);
+  const engine = buildPredictionEngine(live, matchups, logs, settings);
+  const rated = attachAdjustedRatings(live, engine.ratings);
   render(
     <DashboardView
-      engine={buildPredictionEngine(live, matchups, logs, settings)}
+      engine={engine}
       backtestResult={backtestPredictions([], [], {}, settings)}
       teamsById={new Map(live.map((team) => [team.id, team]))}
       matchups={matchups}
       setActiveView={vi.fn()}
       findings={[]}
+      gameOdds={(game) => predictGame(game, rated, settings).awayWinPct}
     />
   );
   const card = screen.getByRole("heading", { name: "Aces vs Bears" }).closest("article");
