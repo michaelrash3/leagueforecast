@@ -9418,7 +9418,10 @@ shared handlers with recorded provider responses and require no deployed credent
   - **Guarded** by `src/components/teamRankings/sectionsLoad.test.tsx`: a tab pointed at or focused
     starts its section's load, the Games section's starts once the page is idle, a load that fails
     is that section's Try again and fetches afresh, and the scouting report stays on screen while
-    the tournament panel's code loads and when it fails.
+    the tournament panel's code loads and when it fails. In the built app,
+    `e2e/teamRankingsSections.spec.ts` opens Team Rankings and finds none of its sections' code
+    fetched (read off the source maps, by module), draws each section from its own, and has Setup's
+    look at the pool answered by the tidy worker, with no page error and no worker failing.
 - **Team Rankings' code leaves League Standings' first download.** A bundler puts a module whole
   wherever anything reaches it, and League Standings' start read a few lines from modules that were
   otherwise Team Rankings': the age a name states from the GameChanger client (`gameChangerApi.ts`),
