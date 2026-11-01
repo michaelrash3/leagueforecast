@@ -60,8 +60,10 @@ const readAll = (): Record<string, SavedField[]> => {
 /**
  * A field's clubs as `lookup` reads them (`shownClubId`): each under the id of the club it is now,
  * followed or shown gone, and two folded into one club once. As kept with nothing to read them by.
+ * The panel reads its kept fields by this on each lookup it is handed, since another tab's fold
+ * changes the lookup while the panel stays open.
  */
-const shownField = (field: SavedField, lookup: ClubLookup | null): SavedField => {
+export const shownField = (field: SavedField, lookup: ClubLookup | null): SavedField => {
   if (!lookup || !field.gc) return field;
   const teamIds: string[] = [];
   const gc: string[][] = [];

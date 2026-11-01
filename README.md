@@ -5181,8 +5181,11 @@ does, and reads as gone.
   itself is the page's mark in the pool, which a fold moves to the club that stays.
 - **Saved tournament fields** (`lf_tournament_fields_v1`, `tournamentFields.ts`): a
   club folded into another is that club, and one whose id is another's now is not
-  ranked here and keeps its ids when saved again. 8 bytes a field, and 17 a club
-  with one id, 15 for each id more, 3 for a club with none.
+  ranked here and keeps its ids when saved again. Read again each time the roster
+  is, a fold in another tab while this one stays on Scouting among them, and so is
+  the field open on screen, by the ids each of its clubs carried, its name, pools
+  and bracket left as they were. 8 bytes a field, and 17 a club with one id, 15 for
+  each id more, 3 for a club with none.
 - **A League team's club's place** (`lf_league_club_ranks_v1`, `leagueClubRanks.ts`):
   read on League Standings where this device holds the pool (`useScoutBridge`'s
   `clubs`), followed where its club moved, so Scout opens the club the place was of,
