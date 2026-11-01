@@ -817,6 +817,93 @@ describe("charging an edit", () => {
   });
 });
 
+/*
+ * What the owner reads off the nightly to see what is asked of the edit function: each question's
+ * kind counted in the very write its charge makes (sweep item 23, phase 0), and in no other.
+ */
+describe("the month's questions, by kind", () => {
+  const cost = { gibs: 8, vcpuS: 2 };
+
+  it("counts each question that spent compute under its kind, in the write its charge makes", () => {
+    const once = chargeEdit(ledger(), TODAY, cost, false, "league.bridge");
+    expect(once).toEqual({
+      ...ledger(),
+      editMonthGiBs: 8,
+      editMonthVcpuS: 2,
+      editMonthAsked: { "league.bridge": 1 },
+    });
+    const more = chargeEdit(
+      chargeEdit(once, TODAY, cost, true, "health.summary"),
+      TODAY,
+      cost,
+      false,
+      "league.bridge"
+    );
+    expect(more?.editMonthAsked).toEqual({ "health.summary": 1, "league.bridge": 2 });
+    // An edit or a warm-up names no question, and counts none.
+    expect(chargeEdit(more, TODAY, cost)?.editMonthAsked).toEqual(more?.editMonthAsked);
+  });
+
+  it("counts none that spent nothing, whose charge writes nothing", () => {
+    const held = ledger({ editMonthAsked: { "import.status": 3 } });
+    expect(chargeEdit(held, TODAY, { gibs: 0, vcpuS: 0 }, false, "import.status")).toEqual(held);
+    expect(chargeEdit(held, TODAY, { gibs: 0, vcpuS: 0 }, true, "league.fill")).toEqual(held);
+  });
+
+  it("starts each month afresh, with the edits' month's totals", () => {
+    const held = ledger({ editMonthGiBs: 900, editMonthAsked: { "league.bridge": 40 } });
+    expect(chargeEdit(held, "2027-05-01", cost, false, "league.clubs")).toMatchObject({
+      month: "2027-05",
+      editMonthGiBs: 8,
+      editMonthAsked: { "league.clubs": 1 },
+    });
+    // A rebuild's reserve moves the month on too, and the month's questions go with it.
+    const reserved = reserveRun(held, "2027-05-01", "2027-05-01T09:00:00.000Z");
+    expect(reserved.ok && reserved.next.editMonthAsked).toBeUndefined();
+    // A new day of the same month keeps them.
+    expect(chargeEdit(held, "2027-04-16", cost)?.editMonthAsked).toEqual({ "league.bridge": 40 });
+  });
+
+  it("is read back as written, in key order, and none is a month with no question yet", async () => {
+    expect(coerceLedger({ on: true })).not.toHaveProperty("editMonthAsked");
+    const asked = ledger({ editMonthAsked: { "league.fill": 2, "health.summary": 7 } });
+    let written: Record<string, unknown> | null = null;
+    const store = restLedgerStore({
+      readAt: async () => (written ? { fields: written, token: "t1" } : null),
+      replace: async (_path, fields) => {
+        written = JSON.parse(JSON.stringify(fields)) as Record<string, unknown>;
+        return true;
+      },
+    });
+    await store.replace(null, asked);
+    const { raw } = await store.read();
+    const fields = raw as { editMonthAsked?: Record<string, number> };
+    expect(Object.keys(fields.editMonthAsked ?? {})).toEqual(["health.summary", "league.fill"]);
+    expect(coerceLedger(raw)).toEqual(asked);
+    // The store hands a map back in an order of its own: the same counts are the same ledger.
+    const turned = coerceLedger({ on: true, editMonthAsked: { b: 1, a: 2 } });
+    expect(JSON.stringify(turned?.editMonthAsked)).toBe('{"a":2,"b":1}');
+    // An empty record is no question asked yet, which is written as none.
+    expect(coerceLedger({ on: true, editMonthAsked: {} })).not.toHaveProperty("editMonthAsked");
+  });
+
+  it("is none where the field holds what it cannot, rather than a ledger with its guard lifted", () => {
+    const bad: unknown[] = [
+      5,
+      "league.bridge",
+      [],
+      null,
+      { "league.bridge": 1.5 },
+      { "league.bridge": -1 },
+      { "league.bridge": "2" },
+      { "league.bridge": null },
+    ];
+    for (const editMonthAsked of bad) {
+      expect(coerceLedger({ on: true, editMonthAsked }), JSON.stringify(editMonthAsked)).toBeNull();
+    }
+  });
+});
+
 describe("the edits' month as a charge leaves it", () => {
   it("is the month the ledger counts, spent at either of the edits' own caps", () => {
     expect(editMonthOf(ledger())).toEqual({ month: "2027-04", spent: false });

@@ -110,6 +110,15 @@ export type Ledger = {
   editMonthGiBs: number;
   editMonthVcpuS: number;
   /**
+   * The edit function's questions of `month` by kind (`QueryKind`), each counted in the write that
+   * charges it (`chargeEdit`): what the owner reads off the nightly to see what is asked, and so
+   * which answers are worth publishing rather than asking for. A question turned away before its
+   * turn spent nothing and writes nothing, so it is not counted, as `dayUnanswered` is not; a
+   * writer from before the field leaves it out of the ledger it writes back, so a month's counts
+   * start again from the deploy that brings it. Absent until the month's first; no cap reads it.
+   */
+  editMonthAsked?: Record<string, number>;
+  /**
    * The edit function's questions that went unanswered on `day` after spending compute (a worker
    * that ran out of memory with one, say), each counted in the write that charges it
    * (`chargeEdit`), and the last day before `day` that had any, with its count as it stood when the
@@ -205,6 +214,9 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
   const editMonthGiBs = given(raw.editMonthGiBs, 0);
   const editMonthVcpuS = given(raw.editMonthVcpuS, 0);
   if (!isCount(editMonthGiBs) || !isCount(editMonthVcpuS)) return null;
+  const asked = given(raw.editMonthAsked, {});
+  if (!isRecord(asked) || !Object.values(asked).every(isWhole)) return null;
+  const editMonthAsked = askedInOrder(asked as Record<string, number>);
   const dayUnanswered = given(raw.dayUnanswered, 0);
   if (!isWhole(dayUnanswered)) return null;
   const unanswered = given(raw.lastUnanswered, null);
@@ -272,6 +284,7 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
     monthFailed,
     editMonthGiBs,
     editMonthVcpuS,
+    ...(editMonthAsked ? { editMonthAsked } : {}),
     dayUnanswered,
     lastUnanswered,
     failures,
@@ -279,6 +292,26 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
     open,
     lastEndedAt,
   };
+};
+
+/**
+ * The month's questions by kind in key order, so two ledgers holding the same counts compare by
+ * their text whatever order a store handed the map back in; none for a month with none yet.
+ */
+const askedInOrder = (asked: Readonly<Record<string, number>>): Record<string, number> | null => {
+  const kinds = Object.entries(asked).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return kinds.length === 0 ? null : Object.fromEntries(kinds);
+};
+
+/**
+ * The month's questions as a field of the ledger, or no field: never one set to nothing, which
+ * would read back as a ledger this build cannot read.
+ */
+const askedField = (
+  asked: Readonly<Record<string, number>> | undefined
+): { editMonthAsked?: Record<string, number> } => {
+  const ordered = asked && askedInOrder(asked);
+  return ordered ? { editMonthAsked: ordered } : {};
 };
 
 /** The ledger's fields as written, in one order, so two ledgers compare by their text. */
@@ -312,6 +345,7 @@ const fieldsOf = (ledger: Ledger): Record<string, unknown> => ({
   monthFailed: ledger.monthFailed,
   editMonthGiBs: ledger.editMonthGiBs,
   editMonthVcpuS: ledger.editMonthVcpuS,
+  ...askedField(ledger.editMonthAsked),
   dayUnanswered: ledger.dayUnanswered,
   lastUnanswered: ledger.lastUnanswered && {
     day: ledger.lastUnanswered.day,
@@ -387,8 +421,10 @@ const rolledOver = (ledger: Ledger, today: string): Ledger => {
     next = { ...next, pausedDay: null, failures: 0 };
   }
   if (next.month !== monthOf(today)) {
+    // The month's questions go with its totals: a month with none yet holds no field for them.
+    const { editMonthAsked: _asked, ...kept } = next;
     next = {
-      ...next,
+      ...kept,
       month: monthOf(today),
       monthGiBs: 0,
       monthVcpuS: 0,
@@ -415,21 +451,27 @@ const rolledOver = (ledger: Ledger, today: string): Ledger => {
  *
  * A question the function went on to leave `unanswered` is counted in the same write
  * (`dayUnanswered`), where it spent compute: one that spent nothing changes nothing else, and its
- * charge writes nothing, so counting it would be a write of its own.
+ * charge writes nothing, so counting it would be a write of its own. So is every question by its
+ * kind (`asked`, `editMonthAsked`), under the same rule; an edit or a warm-up names none.
  */
 export const chargeEdit = (
   ledger: Ledger | null,
   today: string,
   used: RunCost,
-  unanswered = false
+  unanswered = false,
+  asked?: string
 ): Ledger | null => {
   if (!ledger) return null;
   const next = rolledOver(ledger, today);
   const spent = used.gibs > 0 || used.vcpuS > 0;
+  const kinds = next.editMonthAsked ?? {};
   return {
     ...next,
     editMonthGiBs: next.editMonthGiBs + used.gibs,
     editMonthVcpuS: next.editMonthVcpuS + used.vcpuS,
+    ...(asked !== undefined && spent
+      ? askedField({ ...kinds, [asked]: (kinds[asked] ?? 0) + 1 })
+      : {}),
     dayUnanswered: next.dayUnanswered + (unanswered && spent ? 1 : 0),
   };
 };

@@ -7389,7 +7389,7 @@ again and again by the device for a day, each try a cold load of the whole pool 
 instance, and October's vCPU-seconds passed their cap with no rebuild run, so every save waited
 for the first of November. An edit is never refused for its caps; past them only the questions
 that refit a year are (`capsSpent`). Every question's charge already reads the ledger and writes
-it back, and two things ride on that one read and write, with none of their own. Its reply says
+it back, and three things ride on that one read and write, with none of their own. Its reply says
 the edits' month as the charge left the ledger, the New York month and whether either of its
 totals is at its cap (`editMonth`, `editMonthOf`), and an unanswered question's error says the
 same in its details: League Standings makes no timer retry of its bridge question while that
@@ -7401,7 +7401,14 @@ of memory say, is counted for its New York day (`dayUnanswered`, emptied on a ne
 day's totals are, the last day before that had any kept as `lastUnanswered`), for the nightly's
 alarm ("When a run fails"). One turned away before its turn spent nothing, so its charge writes
 nothing, and counting it would be a write of its own: it is not counted, unless it was a new
-instance's first call, which is charged the instance's start-up all the same and so is counted. October's totals were left as they stood, which keeps the
+instance's first call, which is charged the instance's start-up all the same and so is counted.
+And every question is counted by its kind for the month (`editMonthAsked`, from 1 November 2026),
+under the same rule, emptied with the month's totals, and the nightly says the month's counts by
+kind, the most asked first ("Questions asked, 2026-11: league.bridge 1,204, ..."), kinds and counts
+only: until then nothing said which questions the edits' 96,053 GiB-seconds of October went on, and
+so which answers were worth publishing beside the boards rather than asking for (League Standings'
+answers, below). A writer from before the field leaves it out of the ledger it writes back, so a
+month's counts start again from the deploy that brings it. October's totals were left as they stood, which keeps the
 rebuilds deferred for the rest of that month: raising a cap in `ops/rebuild` lets the next save
 start one, since the launcher lifts a deferral whose budget has room again (`requestRebuildJob`).
 The nightly says the edits' month and, while the job is deferred, why (its budget, a run still going, or failures in a row) and until when; only a budget's deferral is lifted by a raised cap. A field set to

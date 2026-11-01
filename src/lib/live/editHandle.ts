@@ -143,19 +143,21 @@ const messageOf = (error: unknown): string =>
  * What it hands back is the edits' month as the charge left the ledger (`editMonthOf`): the
  * charge is already a read of the ledger and a write back, so this costs neither a read nor a
  * write more. Null where it was slow, failed, or found no ledger: not known. A question to be left
- * `unanswered` is counted in the same write (`chargeEdit`).
+ * `unanswered` is counted in the same write (`chargeEdit`), and so is every question by its kind
+ * (`asked`), which the nightly says the month's of.
  */
 const charge = async (
   { ledger, today, size, startupS, charges, wait = sleep }: Deps,
   busyMs: number,
   line: Line,
-  unanswered = false
+  unanswered = false,
+  asked?: QueryKind
 ): Promise<EditMonth | null> => {
   const used = runCost(busyMs / 1000 + startupS(), size);
   line.gibs = used.gibs;
   const charged = charges(async () => {
     const done = await updateLedger(ledger, (current) => {
-      const next = chargeEdit(current, today(), used, unanswered);
+      const next = chargeEdit(current, today(), used, unanswered, asked);
       return { next, answer: next && editMonthOf(next) };
     });
     if ("contended" in done) throw new Error("Other writers had the ledger on every try.");
@@ -378,18 +380,20 @@ export const handleQuery = async ({
       return { reply: { ok: false, why }, line: { ...line, end: why } };
     }
   }
+  const kind = ask.query.kind;
   let turned: Turned<QueryRun>;
   try {
     turned = await worker.query(ask, deps.signal ? { signal: deps.signal } : {});
   } catch (error) {
-    const month = await charge(deps, error instanceof TurnFailed ? error.busyMs : 0, line, true);
+    const busyMs = error instanceof TurnFailed ? error.busyMs : 0;
+    const month = await charge(deps, busyMs, line, true, kind);
     return {
       notAnswered: NOT_ANSWERED,
       ...monthSaid(month),
       line: { ...line, end: "threw", error: messageOf(error) },
     };
   }
-  const month = await charge(deps, turned.ran ? turned.busyMs : 0, line, !turned.ran);
+  const month = await charge(deps, turned.ran ? turned.busyMs : 0, line, !turned.ran, kind);
   if (!turned.ran) {
     return { notAnswered: NOT_ANSWERED, ...monthSaid(month), line: { ...line, end: turned.why } };
   }
