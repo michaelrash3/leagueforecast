@@ -1,6 +1,7 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { readSavedFields } from "../../lib/tournamentFields";
 import {
   ageGroup,
   game,
@@ -125,5 +126,78 @@ describe("the tournament field", () => {
       /Hill Hawks.*Bears/
     );
     expect(within(panel).getByRole("table", { name: "Tournament odds" })).toBeInTheDocument();
+  });
+
+  /*
+   * Each club of a saved field is kept with a GameChanger id it carried, and read by it off the
+   * pool: a club whose id is another club's now is not ranked here, never played as that club.
+   */
+  it("saves each club with its GameChanger id, and never plays another club under its id", async () => {
+    const link = (teamId: string) => ({ teamId, name: teamId, ageGroupId: "ag_10u_2027" });
+    const withIds = (kept?: Record<string, string>) => {
+      const base = pool();
+      return {
+        ...base,
+        teams: base.teams.map((one) => ({ ...one, gcTeams: [link(`gc${one.id.slice(2)}`)] })),
+        ...(kept ? { kept } : {}),
+      };
+    };
+    const user = userEvent.setup();
+    renderTeamRankings(withIds());
+    await user.click(screen.getByRole("tab", { name: /scouting/i }));
+    const panel = await screen.findByRole("region", { name: "Tournament field" });
+    const box = within(panel).getByRole("combobox", { name: /add a club/i });
+    for (const name of ["hawks", "bears"]) {
+      await user.click(box);
+      await user.type(box, name);
+      await user.keyboard("{Enter}");
+    }
+    await user.type(within(panel).getByPlaceholderText("Event name"), "Fall Classic");
+    await user.click(within(panel).getByRole("button", { name: "Save field" }));
+    expect(readSavedFields("ag_10u_2027")).toEqual([
+      {
+        name: "Fall Classic",
+        teamIds: ["S-HAW", "S-BEA"],
+        pools: 1,
+        advance: 4,
+        gc: ["gcHAW", "gcBEA"],
+      },
+    ]);
+  });
+
+  it("opens a field whose club's id is another club's now with that club not ranked here", async () => {
+    const link = (teamId: string) => ({ teamId, name: teamId, ageGroupId: "ag_10u_2027" });
+    const base = pool();
+    const user = userEvent.setup();
+    renderTeamRankings({
+      ...base,
+      teams: base.teams.map((one) => ({ ...one, gcTeams: [link(`gc${one.id.slice(2)}`)] })),
+      kept: {
+        lf_tournament_fields_v1: JSON.stringify({
+          ag_10u_2027: [
+            {
+              name: "Fall Classic",
+              // The Bears' id kept for a club it no longer names, and the Hawks kept as they are.
+              teamIds: ["S-HAW", "S-BEA"],
+              pools: 1,
+              advance: 4,
+              gc: ["gcHAW", "gcOldBears"],
+            },
+          ],
+        }),
+      },
+    });
+    await user.click(screen.getByRole("tab", { name: /scouting/i }));
+    const panel = await screen.findByRole("region", { name: "Tournament field" });
+    await user.selectOptions(within(panel).getByLabelText("Saved fields"), "Fall Classic");
+    const list = within(panel).getByRole("list", { name: "The field" });
+    expect(list).toHaveTextContent("Hill Hawks");
+    expect(list).not.toHaveTextContent("Bears");
+    expect(list).toHaveTextContent("Not ranked here");
+    expect(panel).toHaveTextContent("1 club is not ranked on this board");
+    // Saved again, the club shown gone keeps the GameChanger id it was kept with, which a club
+    // pulled back later is found by.
+    await user.click(within(panel).getByRole("button", { name: "Save field" }));
+    expect(readSavedFields("ag_10u_2027")[0]?.gc).toEqual(["gcHAW", "gcOldBears"]);
   });
 });

@@ -713,7 +713,14 @@ odds are each club's record and rating on the board, and, where the report's clu
 is ranked here, its projected margin and chance against each one (Us by, Our
 chance), from the same preview a matchup row's What if reads, so the table reads as
 the weekend from our bench and not only as odds. Fields are saved in this browser
-by name, per age group.
+by name, per age group, each club with a GameChanger id it carries on the page
+(`SavedField.gc`), and read by it on this device's copy (`readClub`): a club folded
+into another is that club, and one whose id is another club's now is not ranked
+here, never played as that club, and keeps its id when the field is saved again,
+so a club pulled back later is found by it. A field saved before, with no ids, is
+read as it always was. The cloud's board names its clubs by id alone, with no
+GameChanger ids on its rows, so it saves its fields with none (keeping those of a
+field it opens) and reads them as kept.
 
 The projection is the rating difference, capped at 14 runs, put through a
 logistic curve; no home-field term, because at this level which side is "home" is

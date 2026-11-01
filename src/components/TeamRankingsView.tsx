@@ -894,6 +894,18 @@ export function TeamRankingsView({
    * watched as that club and one whose id is another club's now is shown gone.
    */
   const clubLookup = useMemo(() => clubLookupOf(allKnown.teams), [allKnown.teams]);
+  // And a saved tournament field's (`tournamentFields.ts`), whose clubs are saved with the id each
+  // carries on this page.
+  const fieldClubs = useMemo(() => {
+    const byId = new Map(allKnown.teams.map((team) => [team.id, team]));
+    return {
+      lookup: clubLookup,
+      gcOf: (teamId: string) => {
+        const club = byId.get(teamId);
+        return club && pageGcId(club, selectedAgeGroupId, ageGroups);
+      },
+    };
+  }, [allKnown.teams, clubLookup, selectedAgeGroupId, ageGroups]);
   const watchList = useWatchList(selectedAgeGroupId, clubLookup);
   const { toggle: toggleWatch } = watchList;
   const watchCard = useMemo(
@@ -2808,6 +2820,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 reportForId={reportForId}
                 upcomingRows={upcomingRows}
                 placeOf={placeOf}
+                clubs={fieldClubs}
               />
             </ErrorBoundary>
           )}

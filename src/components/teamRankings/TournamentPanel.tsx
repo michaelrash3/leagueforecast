@@ -11,6 +11,7 @@ import { TeamSearchSelect, type TeamSearchOption } from "../TeamSearchSelect";
 import { formatRating } from "./RankingList";
 import { card } from "../../styles/tokens";
 import { nextWeekendOpponents } from "../../lib/nextWeekend";
+import type { ClubLookup } from "../../lib/teamRankings/leagueBridge";
 
 type TournamentPanelProps = {
   ageGroupId: string;
@@ -19,6 +20,12 @@ type TournamentPanelProps = {
   reportForId: string;
   upcomingRows: UpcomingMatchup[];
   placeOf: (teamId: string) => string | undefined;
+  /**
+   * What the page knows of its clubs' GameChanger ids: the clubs a saved field is read by
+   * (`readSavedFields`), and the id a club is saved with on this page (`pageGcId`). Left out, a
+   * field is read as kept and a club is saved with the id the field it came from kept, if any.
+   */
+  clubs?: { lookup: ClubLookup; gcOf: (teamId: string) => string | undefined };
 };
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
@@ -41,6 +48,7 @@ export function TournamentPanel({
   reportForId,
   upcomingRows,
   placeOf,
+  clubs,
 }: TournamentPanelProps) {
   const nameId = useId();
   const poolsId = useId();
@@ -51,7 +59,13 @@ export function TournamentPanel({
   const [pools, setPools] = useState(1);
   const [advance, setAdvance] = useState(4);
   // Keyed by age group where it is rendered, so these are always this age group's.
-  const [savedFields, setSavedFields] = useState<SavedField[]>(() => readSavedFields(ageGroupId));
+  const [savedFields, setSavedFields] = useState<SavedField[]>(() =>
+    readSavedFields(ageGroupId, clubs?.lookup ?? null)
+  );
+  // The GameChanger ids the field opened kept, by the id each club is shown under, so saving it
+  // again keeps them where the page cannot say (a club shown gone, or a page that holds no pool).
+  const [openedGc, setOpenedGc] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const gcOf = (teamId: string) => clubs?.gcOf(teamId) ?? openedGc.get(teamId) ?? "";
 
   const rowById = useMemo(() => new Map(rankings.map((row) => [row.teamId, row])), [rankings]);
   const options = useMemo(
@@ -115,12 +129,17 @@ export function TournamentPanel({
           disabled={!name.trim() || fieldIds.length === 0}
           onClick={() =>
             setSavedFields(
-              saveField(ageGroupId, {
-                name: name.trim(),
-                teamIds: fieldIds,
-                pools,
-                advance,
-              })
+              saveField(
+                ageGroupId,
+                {
+                  name: name.trim(),
+                  teamIds: fieldIds,
+                  pools,
+                  advance,
+                  ...(fieldIds.some((id) => gcOf(id)) ? { gc: fieldIds.map(gcOf) } : {}),
+                },
+                clubs?.lookup ?? null
+              )
             )
           }
         >
@@ -139,6 +158,14 @@ export function TournamentPanel({
                 if (!field) return;
                 setName(field.name);
                 setFieldIds(field.teamIds);
+                setOpenedGc(
+                  new Map(
+                    field.teamIds.flatMap((id, at): [string, string][] => {
+                      const kept = field.gc?.[at];
+                      return kept ? [[id, kept]] : [];
+                    })
+                  )
+                );
                 setPools(field.pools);
                 setAdvance(field.advance);
               }}
@@ -157,7 +184,9 @@ export function TournamentPanel({
           <button
             type="button"
             className={SMALL_BUTTON}
-            onClick={() => setSavedFields(deleteField(ageGroupId, name.trim()))}
+            onClick={() =>
+              setSavedFields(deleteField(ageGroupId, name.trim(), clubs?.lookup ?? null))
+            }
           >
             Delete saved
           </button>
