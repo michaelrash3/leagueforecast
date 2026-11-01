@@ -151,12 +151,14 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
  * Team Rankings came down on 31 Oct 2026, 60.3 KB against 166.2 KB on main (60,292 bytes against
  * 166,193), with nothing removed: each section's code is fetched as the section is first opened
  * (`teamRankings/sections.ts`), and the tidy's stamp (`tidyStamp.ts`) and the pool's packing for
- * the tidy worker (`tidyWire.ts`) are modules of their own, so the page fetches the tidy only to run
- * it with no worker. Its line comes down to 62.0 KB, 1.7 KB above what it measured, so what left
- * stays out. Each section is a line of its own below, set as the views' were, a tenth above what it
- * measured and at least 1.5 KB: Games 10.9 KB (10,882 bytes), Import, the GameChanger pull, 57.8
- * (57,776), Scouting 7.4 (7,442), its tournament panel 3.6 (3,610), Archive 2.3 (2,321) and Setup
- * 68.9 (68,918). The first download is 251.8 KB, as it was.
+ * the tidy worker (`tidyWire.ts`) are modules of their own, so opening the page no longer fetches
+ * the tidy: the Import and Setup sections do as they open, since they name its steps and read the
+ * pool through it, and the page does to run it with no worker. Its line comes down to 62.0 KB, 1.7
+ * KB above what it measured, so what left stays out. Each section is a line of its own below, set
+ * as the views' were, a tenth above what it measured and at least 1.5 KB: Games 10.9 KB (10,882
+ * bytes), Import, the GameChanger pull, 57.8 (57,776), Scouting 7.4 (7,442), its tournament panel
+ * 3.6 (3,610), Archive 2.3 (2,321) and Setup 68.9 (68,918). The first download is 251.8 KB, as it
+ * was.
  * The first download came down the same day, 221.2 KB against 251.8 KB on main (221,174 bytes
  * against 251,816), with nothing removed: modules whose few lines League Standings' start reads sat
  * beside a great deal only Team Rankings runs, and the first download carried all of it. Each was
@@ -234,7 +236,11 @@ const SECTIONS = {
  * Modules only Team Rankings runs, which League Standings' first download must not hold. Each of
  * these, or the module it was split from, held what the page reads at start beside what only Team
  * Rankings runs, and the first download carried all of it: the start's part is now a module of its
- * own, and these are what is left (README "Performance notes"). A static import of one of them from
+ * own, and these are what is left (README "Performance notes"). With them are the two modules that
+ * left the first download beside them, how much an old result still counts (`ratingRecency.ts`)
+ * and the words in a name that say it is no team (`teamNameRules.ts`), and the tidy
+ * (`gameChangerImport.ts`), which the first download never held and which is on its own about the
+ * room that line has: 35.0 KB (35,046 bytes) against 33.8. A static import of one of them from
  * anything the page loads at start brings the whole module back into the first download, and the
  * first download's own line, which has room, would not say so; this does, by name. Read off the
  * source maps, which list every module a file of the build holds, and each must be in some file of
@@ -253,6 +259,9 @@ const TEAM_RANKINGS_ONLY = [
   "src/lib/rankMovement.ts",
   "src/lib/teamRankings/rosterNames.ts",
   "src/lib/teamRankings/gameRows.ts",
+  "src/lib/ratingRecency.ts",
+  "src/lib/teamNameRules.ts",
+  "src/lib/gameChangerImport.ts",
 ];
 
 const gzipped = new Map();

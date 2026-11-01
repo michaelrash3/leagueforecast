@@ -9405,8 +9405,10 @@ shared handlers with recorded provider responses and require no deployed credent
   section's Try again, which fetches it afresh; the tournament panel, a chunk of its own, fails in a
   boundary of its own, so the report above it stays drawn. The tidy's stamp, which the page reads
   as it opens to decide whether a tidy is due, is a module of its own (`tidyStamp.ts`), as is the
-  pool's packing for the tidy worker (`tidyWire.ts`), so the page fetches the tidy and the
-  inspection only to run them itself, where it has no worker (`usePoolTidy`).
+  pool's packing for the tidy worker (`tidyWire.ts`), so opening the page fetches neither the tidy
+  nor the inspection. The Import and Setup sections fetch the tidy's module (`gameChangerImport.ts`)
+  as they open, worker or not, since they name its steps and read the pool through it; otherwise
+  the page fetches the two only to run them itself, where it has no worker (`usePoolTidy`).
   - **Measured** (gzipped, `npm run bundle:check`, 31 October 2026): opening Team Rankings went from
     166.2 KB to 60.3 KB, with nothing removed. A section's own first open fetches Games 10.9 KB,
     Import 57.8, Scouting 7.4 and its tournament panel 3.6, Archive 2.3 and Setup 68.9, each held to
@@ -9448,7 +9450,9 @@ shared handlers with recorded provider responses and require no deployed credent
     the modules left holding only Team Rankings' code (`TEAM_RANKINGS_ONLY` in
     `scripts/bundleBudget.mjs`) that the first download holds again, since one static import from
     anything the page loads at start would bring a whole module back and the first download's own
-    line has room to hide it.
+    line has room to hide it. The list holds the two modules that left with them too
+    (`ratingRecency.ts`, `teamNameRules.ts`), and the tidy (`gameChangerImport.ts`), which the
+    first download never held and which on its own is about that room, 35.0 KB against 33.8.
 - **League Standings works out only what is on screen** (2.2). Every number it
   shows is read from the games marked final, so its calculations are keyed on
   those scores alone (`finalLogsOf`, held by `useSeasonState`), which stay the same
