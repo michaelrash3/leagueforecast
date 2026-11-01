@@ -616,7 +616,7 @@ describe("the numbers worked out from one pool, pinned before the boot split", (
 
   it("tidies the pool and stamps it as it did", () => {
     const state = { ageGroups: groups, teams, games };
-    expect(poolSignature(state)).toMatchInlineSnapshot(`"r37|2|7|12|2026-10-26T12:00:00.000Z"`);
+    expect(poolSignature(state)).toMatchInlineSnapshot(`"r38|2|7|12|2026-10-26T12:00:00.000Z"`);
     expect([stampFromNewerRules("r999|1"), stampFromNewerRules(poolSignature(state))]).toEqual([
       true,
       false,
