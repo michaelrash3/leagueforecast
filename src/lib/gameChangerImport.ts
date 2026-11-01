@@ -120,6 +120,7 @@ import { namedAgeFor, type NamedAges } from "./namedAges";
 import { GC_PAIRING_EVIDENCE_LABEL, type GcPairingEvidence } from "./gcPairingEvidence";
 import { fillMissingStates } from "./clubStates";
 import { mintedIds, NO_RETIRED, type MintedIds, type RetiredIds } from "./teamRankings/retiredIds";
+import { joinNamedAs, sameNamedAs } from "./teamRankings/namedAs";
 
 /**
  * The lookups an import does, precomputed.
@@ -216,6 +217,8 @@ type ImportIndex = {
   levelOf: (ageGroupId: string) => number | undefined;
   /** Squad year of an age group, which a graduating class in a name is read against. */
   yearOf: (ageGroupId: string) => number | undefined;
+  /** The owner's answers (`answeredNamesakes`), made the first time a name asks them. */
+  answered?: AnsweredLookup;
 };
 
 const pairKeyOf = (game: ScoutGame): string =>
@@ -1653,6 +1656,29 @@ const opponentFromSameFixture = (
 type OpponentPlan = OpponentMatch | { create: Partial<ScoutTeam>; basis: "created" };
 
 /**
+ * The owner's answers as the import reads them (`answeredNamesakes`): a club's own games are the
+ * games standing on a row of its schedules or holding one folded in or on record, as the index
+ * keeps them up to date through the fold.
+ */
+const answeredFor = (index: ImportIndex): AnsweredLookup =>
+  (index.answered ??= answeredNamesakes(
+    index.teamsById.values(),
+    (teamId) => index.teamsById.get(teamId),
+    (club) => {
+      const ids = new Set<string>();
+      club.gcTeams?.forEach((link) => {
+        index.gamesBySchedule.get(link.teamId)?.forEach((id) => ids.add(id));
+        index.recordsBySchedule.get(link.teamId)?.forEach((id) => ids.add(id));
+      });
+      return [...ids].flatMap((id) => {
+        const game = index.gamesById.get(id);
+        return game ? [game] : [];
+      });
+    },
+    index.poolKeyOf
+  ));
+
+/**
  * The team an opponent name refers to. The game first, where the other club's own schedule holds
  * it. Failing that, a name — but only among teams already on this page, since a name on its own
  * says nothing across levels or seasons. Failing that, a new team, which is the honest answer for a
@@ -1774,6 +1800,26 @@ const planOpponent = (
   const anyLevel = index.teamIdsByPoolName.get(`${pool}\u0000${key}`) ?? named;
   const holder = clubHoldingThisGame(index, ownTeamId, anyLevel, game, refusedHere);
   if (holder) return { teamId: holder, basis: "name" };
+
+  /*
+   * Failing the game, the club the owner said this schedule's name is, by folding a stand-in of it
+   * into that club ("Same team as", `answeredNamesakes`): ahead of any reading of the name alone,
+   * since it is the owner's word on who this coach means by it, and held to the guards the tidy
+   * reads it by, which leaves the row where this files it.
+   */
+  const answered = answeredFor(index)(
+    {
+      schedule: sourceTeamId,
+      typed: key,
+      pool,
+      level: theirLevel,
+      date: game.date,
+      start: game.startTs,
+      namerId: ownTeamId,
+    },
+    refused
+  );
+  if (answered) return { teamId: answered.id, basis: "name" };
 
   /*
    * Failing that, one club of that name at that level in this pool — and a pool is one season year
@@ -6108,14 +6154,20 @@ export const pairSettledSquads = (
     );
     const fallback = (field: "name" | "state" | "city") =>
       folded.map((old) => old[field]).find(Boolean);
+    // The owner's answers for the squads paired away go with the squad they pair into
+    // (`ScoutTeam.namedAs`), as their links do.
+    const { namedAs: _held, ...unnamed } = team;
+    const joined = joinNamedAs([team.namedAs, ...folded.map((old) => old.namedAs)]);
+    const namedAs = sameNamedAs(joined, team.namedAs) ? team.namedAs : joined;
     return [
       {
-        ...team,
+        ...unnamed,
         ...(!team.name.trim() && fallback("name") ? { name: fallback("name") } : {}),
         ...(!team.state && fallback("state") ? { state: fallback("state") } : {}),
         ...(!team.city && fallback("city") ? { city: fallback("city") } : {}),
         ...(team.isMine || folded.some((old) => old.isMine) ? { isMine: true } : {}),
         ...(links.length ? { gcTeams: links } : {}),
+        ...(namedAs?.length ? { namedAs } : {}),
       },
     ];
   });
@@ -6491,6 +6543,13 @@ const applyFolds = (foldInto: ReadonlyMap<string, string>, state: GcImportState)
       if (!merged.isMine && from.isMine) merged = { ...merged, isMine: true };
     });
     if (gcTeams.length !== (team.gcTeams?.length ?? 0)) merged = { ...merged, gcTeams };
+    // The owner's answers for the squads folded away go with the club, as their ids do
+    // (`ScoutTeam.namedAs`).
+    const namedAs = joinNamedAs([team.namedAs, ...folded.map((from) => from.namedAs)]);
+    if (!sameNamedAs(namedAs, team.namedAs)) {
+      const { namedAs: _held, ...unnamed } = merged;
+      merged = namedAs ? { ...unnamed, namedAs } : unnamed;
+    }
     return [merged];
   });
 
@@ -7164,6 +7223,143 @@ export const inStateNamesakes = (
   };
 };
 
+/** A row a name filed, as the owner's answers are asked of it (`answeredNamesakes`). */
+type AnsweredRow = {
+  /** The schedule that wrote the name, the namer's own. */
+  schedule: string | undefined;
+  /** The name it wrote, as `teamNameKey` reads it. */
+  typed: string | undefined;
+  /** The squad year's pool key (`buildPoolKeyOf`). */
+  pool: string;
+  /** The level the name gave, or the page's. */
+  level: number | undefined;
+  date: string | undefined;
+  start: string | undefined;
+  /** The pulled club whose schedule wrote the name. */
+  namerId: string;
+};
+
+/** The owner's answers asked of a row, under whatever refusals the asker holds. */
+type AnsweredLookup = (row: AnsweredRow, refused: NotThisTeam) => ScoutTeam | undefined;
+
+/**
+ * The pulled club the owner said a name on a schedule is ("Same team as", `ScoutTeam.namedAs`): the
+ * one club holding that schedule's name as an answer at the row's level in its squad year, where it
+ * could have played the row as the in-state rule reads a club that could (`inStateNamesakes`): on a
+ * day no earlier than a week before its own first game of the year, and never where one of its own
+ * rows that day starts within the hour against another club. Not on a name alone: the owner's word
+ * on who the coach means by it stands where the two clubs are not neighbours, or not of one state,
+ * since the owner has seen the games. Read for every listing of the namer's, as its refusals are
+ * kept (`refusalsFor`): a club on GameChanger twice is one club writing the name.
+ *
+ * Never where the owner has said the name is not the club, on any of those listings
+ * (`notThisTeam.ts`), and that is read under the answer's own name: the name a press of Not this
+ * team on a row the answer filed refuses (`refusalsFor`), which no rename of the club, nor a fold
+ * of it into a club of another name, changes, so Not this team always wins. Read by the club's
+ * name, the refusal stopped counting once the club was renamed, and the tidy filed the refused rows
+ * back. Nor is a refusal of another name read: one of the club's own, given for a row the coach
+ * typed that way, says nothing of what the coach means by the answer's name, and read, it took
+ * back every answer the owner gave after it for that coach.
+ *
+ * The owner's case, from the sweep of 30 October 2026: a coach's "Bolts" of 12 September folded
+ * into the club it was, the same coach's "Bolts" of 19 September went to a new stand-in, and the
+ * owner had to answer again. Every road a name takes onto a club asks this of the same row and must
+ * agree, as with the in-state rule: the import's match (`planOpponent`), the refile, which files a
+ * stand-in's row onto the club, and the resettle, which leaves such a row on it.
+ *
+ * `ownGamesOf` gives each club's games holding a row of its own schedules, which the guards read.
+ * Built the first time a row asks, since most pools hold no answer.
+ */
+const answeredNamesakes = (
+  teams: Iterable<ScoutTeam>,
+  teamOf: (teamId: string) => ScoutTeam | undefined,
+  ownGamesOf: (club: ScoutTeam) => Iterable<ScoutGame>,
+  poolKeyOf: (ageGroupId: string) => string
+): AnsweredLookup => {
+  let answers: Map<string, string[]> | undefined;
+  return (row, refused) => {
+    const { schedule, typed, pool, level, date } = row;
+    if (schedule === undefined || !typed || date === undefined || level === undefined) {
+      return undefined;
+    }
+    if (!answers) {
+      const held = new Map<string, string[]>();
+      for (const team of teams) {
+        if (!team.gcTeams?.length) continue;
+        team.namedAs?.forEach((answer) =>
+          push(held, `${answer.schedule}\u0000${answer.name}`, team.id)
+        );
+      }
+      answers = held;
+    }
+    const byName = answers;
+    if (byName.size === 0) return undefined;
+    const schedules = new Set([
+      schedule,
+      ...(teamOf(row.namerId)?.gcTeams ?? []).map((link) => link.teamId),
+    ]);
+    const holders = new Set(
+      [...schedules].flatMap((each) => byName.get(`${each}\u0000${typed}`) ?? [])
+    );
+    const found = [...holders].flatMap((id) => {
+      const club = teamOf(id);
+      const listed = club?.gcTeams?.some(
+        (link) => poolKeyOf(link.ageGroupId) === pool && link.ageLevel === level
+      );
+      return club && listed && club.id !== row.namerId ? [club] : [];
+    });
+    if (found.length !== 1) return undefined;
+    const club = found[0]!;
+    if (isPlaceholderName(club.name) || namesNobody(club.name)) return undefined;
+    if ([...schedules].some((each) => refusesName(refused, each, typed, club))) return undefined;
+    const own = new Set((club.gcTeams ?? []).map((link) => link.teamId));
+    const ownClub = (id: string) => (own.has(id) ? club.id : undefined);
+    let first: string | undefined;
+    for (const game of ownGamesOf(club)) {
+      const inPool = poolKeyOf(game.ageGroupId) === pool;
+      const other = game.teamAId === club.id ? game.teamBId : game.teamAId;
+      for (const [, day] of ownRowDays(game, ownClub)) {
+        if (inPool && (first === undefined || day < first)) first = day;
+        // A club plays one game at a time (`ownClashes`).
+        if (day === date && other !== row.namerId && startsWithinTheHour(game.startTs, row.start)) {
+          return undefined;
+        }
+      }
+    }
+    // No first day is no limit, as the in-state rule reads it (`inItsSeason`).
+    const from = first === undefined ? undefined : isoDayFrom(first, -NAMED_BEFORE_OWN_DAYS);
+    return from === undefined || date >= from ? club : undefined;
+  };
+};
+
+/** The owner's answers as the tidy reads them off a pool (`answeredNamesakes`). */
+const answeredIn = (
+  state: GcImportState,
+  teamOf: (teamId: string) => ScoutTeam | undefined,
+  poolKeyOf: (ageGroupId: string) => string
+): AnsweredLookup => {
+  /** The games holding a row of each answered club's own schedules, by club: read once asked. */
+  let ownGames: Map<string, ScoutGame[]> | undefined;
+  const ownGamesOf = (club: ScoutTeam): ScoutGame[] => {
+    if (!ownGames) {
+      const byClub = new Map<string, ScoutGame[]>();
+      const clubOfSchedule = new Map<string, string>();
+      state.teams.forEach((team) => {
+        if (team.namedAs?.length) {
+          team.gcTeams?.forEach((link) => clubOfSchedule.set(link.teamId, team.id));
+        }
+      });
+      state.games.forEach((game) => {
+        const days = ownRowDays(game, (schedule) => clubOfSchedule.get(schedule));
+        new Set(days.map(([clubId]) => clubId)).forEach((clubId) => push(byClub, clubId, game));
+      });
+      ownGames = byClub;
+    }
+    return ownGames.get(club.id) ?? [];
+  };
+  return answeredNamesakes(state.teams, teamOf, ownGamesOf, poolKeyOf);
+};
+
 /**
  * Whether a pulled club's own schedules have a row that day starting within the hour of `start`
  * against a club other than `namerId`: a club plays one game at a time, so a name read as that club
@@ -7430,6 +7626,7 @@ export const resettleOffLevel = (
   const sole = soleNamesakes(state, poolKeyOf, pulled);
   const oneInState = inStateNamesakes(state, poolKeyOf, rules.inState, pulled);
   const theNamesake = oneNamesake(state, poolKeyOf, rules.namesake, pulled);
+  const answered = answeredIn(state, (teamId) => teamById.get(teamId), poolKeyOf);
 
   /**
    * What each pulled club's own schedules say of it: the levels its own rows were played at and the
@@ -7716,6 +7913,25 @@ export const resettleOffLevel = (
         ? { ...game, teamAId: slot.id }
         : { ...game, teamBId: slot.id };
     }
+    /*
+     * The club the owner said this schedule's name is (`answeredNamesakes`), which the import and the
+     * refile file such a row onto, though nothing of its own says it played that day and its region
+     * is not the namer's. Not where the owner has said it is not: the refusal of its own name a press
+     * of Not this team stores takes the answer back, and the row comes off below.
+     */
+    const answer = answered(
+      {
+        schedule: game.source.teamId,
+        typed: game.typedAs,
+        pool: poolKeyOf(game.ageGroupId),
+        level,
+        date: game.date,
+        start: game.startTs,
+        namerId: moverId,
+      },
+      refused
+    );
+    if (answer?.id === namedId) return game;
     const farOff = !levelFits(levels.get(namedId), level);
     /*
      * The owner's "Not this team" for the name on this schedule. The pool keeps no row's name, and
@@ -7890,6 +8106,7 @@ export const refileStandIns = (
   const sole = soleNamesakes(state, poolKeyOf, pulled);
   const oneInState = inStateNamesakes(state, poolKeyOf, rules.inState, pulled);
   const theNamesake = oneNamesake(state, poolKeyOf, rules.namesake, pulled);
+  const answered = answeredIn(state, (teamId) => teamById.get(teamId), poolKeyOf);
   let refiled = 0;
   const games = state.games.map((game) => {
     const a = teamById.get(game.teamAId);
@@ -7901,6 +8118,34 @@ export const refileStandIns = (
     const level = typed ?? levelOf.get(game.ageGroupId);
     const pool = poolKeyOf(game.ageGroupId);
     const key = teamNameKey(standIn.name);
+    /*
+     * The club the owner said the name is when this schedule wrote it before ("Same team as",
+     * `answeredNamesakes`), ahead of every reading of the name alone, as the import reads it
+     * (`planOpponent`); the resettle leaves the row where this files it. By the name the row typed
+     * (`typedAs`) and nothing else, as the resettle reads it: a stand-in made for a row taken off a
+     * club carries the club's name, not the row's. A row pulled before rows kept their typed name
+     * waits for its schedule's next pull to learn it. Read by its stand-in's name, it was filed onto
+     * the club here and taken off again by the resettle, which found no answer for it, onto a
+     * stand-in of the club's name; where the club held an answer under its own name, this filed it
+     * back every pass, and every tidy ran all six.
+     */
+    const own = puller.gcTeams.some((link) => link.teamId === game.source?.teamId);
+    const answer = answered(
+      {
+        schedule: own ? game.source?.teamId : undefined,
+        typed: game.typedAs,
+        pool,
+        level,
+        date: game.date,
+        start: game.startTs,
+        namerId: puller.id,
+      },
+      refused
+    );
+    if (answer) {
+      refiled += 1;
+      return standIn === a ? { ...game, teamAId: answer.id } : { ...game, teamBId: answer.id };
+    }
     const slot = `${pool}\u0000${key}\u0000${level}`;
     // Never the club on the row's other side: a squad naming its own club's other squad ("Texas
     // Takeover" on Texas Takeover 10U's own schedule) would be filed as playing itself.

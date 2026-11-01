@@ -1225,13 +1225,17 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
         // After the games are back on the club, so a stand-in made for them names nothing as it goes.
         taken.standIns.forEach((standIn) => back.push({ kind: "team.remove", teamId: standIn.id }));
       }
-      // Remembered, so no pull or tidy files the name onto the club again (`notThisTeam.ts`); the
+      // Remembered, so no pull or tidy files the name onto the club again (`notThisTeam.ts`): every
+      // name the games taken were filed under, each as its row typed it as well as the club's; the
       // undo forgets only what this one added, not a refusal given before.
       const refused = read.answers("notThisTeam");
       const teamById = new Map(teams.map((team) => [team.id, team]));
-      const added = refusalsFor(was, club, (id) => teamById.get(id)).filter(
-        (entry) => !refused.has(entry)
-      );
+      const added = refusalsFor(
+        was,
+        club,
+        (id) => teamById.get(id),
+        taken.moved.map((move) => move.was)
+      ).filter((entry) => !refused.has(entry));
       if (added.length > 0) {
         writes.push({ part: "answers", list: "notThisTeam", ids: new Set([...refused, ...added]) });
         back.push({ kind: "answers", list: "notThisTeam", add: [], remove: added });
