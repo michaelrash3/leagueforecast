@@ -2109,6 +2109,16 @@ export function TeamRankingsView({
     () => (openTeam ? clubAgeOf(openTeam, selectedYear, ageGroups, namedAges) : undefined),
     [openTeam, selectedYear, ageGroups, namedAges]
   );
+  /**
+   * Where the open club stands on the board on screen, for its panel to lead with: its place on
+   * the page's board and among its state's clubs, read as the My Team card reads its own
+   * (`myTeamGlance`), and none for a club the board does not list.
+   */
+  const openTeamStanding = useMemo(() => {
+    if (!openTeamId) return undefined;
+    const stateById = new Map(rankedTeams.map((team) => [team.id, team.state]));
+    return myTeamGlance(rankings, openTeamId, (teamId) => stateById.get(teamId), []) ?? undefined;
+  }, [openTeamId, rankings, rankedTeams]);
 
   /**
    * Renaming onto a name that already exists merges the two teams, so a placeholder or a
@@ -2911,6 +2921,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 onSetState={(state) => setTeamState(openTeam.id, state)}
                 onClose={closeClub}
                 ratingRowOf={rankingRowOf}
+                {...(openTeamStanding ? { standing: openTeamStanding } : {})}
                 watch={{
                   on: watchList.watched.some((club) => club.id === openTeam.id),
                   full: watchList.full,

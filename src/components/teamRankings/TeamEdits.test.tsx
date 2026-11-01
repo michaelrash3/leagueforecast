@@ -94,6 +94,14 @@ const gameRow = async (user: ReturnType<typeof userEvent.setup>, date: string) =
     .find((item) => item.textContent?.includes(formatIsoDayShort(date))) as HTMLElement;
 };
 
+/** Opens the tools that fix a club's data on its open panel, folded away until asked for. */
+const openFix = async (user: ReturnType<typeof userEvent.setup>, name: string) =>
+  user.click(
+    within(await screen.findByRole("region", { name })).getByRole("button", {
+      name: "Fix this club's data",
+    })
+  );
+
 const stored = (id: string) => loadScoutGamesForYear(2027).find((entry) => entry.id === id);
 
 /** The pool's keys written from here on, as the cloud copy hears them. */
@@ -193,6 +201,7 @@ describe("a club's state", () => {
     );
     await user.click(await screen.findByRole("button", { name: /show all \d+ teams/i }));
     await user.click(within(screen.getByRole("table")).getByRole("button", { name: "Rays" }));
+    await openFix(user, "Rays");
     const box = await screen.findByPlaceholderText("KY");
     await user.clear(box);
     await user.type(box, "ky");
@@ -237,6 +246,7 @@ describe("a club's state, further", () => {
     renderTeamRankings(withLeague());
     await user.click(await screen.findByRole("button", { name: /show all \d+ teams/i }));
     await user.click(within(screen.getByRole("table")).getByRole("button", { name: "Hawks" }));
+    await openFix(user, "Hawks");
     await user.type(await screen.findByPlaceholderText("KY"), "in");
     await waitFor(() =>
       expect(loadScoutTeams().find((entry) => entry.name === "Hawks")?.state).toBe("IN")
@@ -249,6 +259,7 @@ describe("a club's state, further", () => {
     renderTeamRankings(pool({ search: "?age=10&year=2027" }));
     await user.click(await screen.findByRole("button", { name: /show all \d+ teams/i }));
     await user.click(within(screen.getByRole("table")).getByRole("button", { name: "Rays" }));
+    await openFix(user, "Rays");
     const box = await screen.findByPlaceholderText("KY");
     await user.tripleClick(box);
     await user.keyboard("k");
@@ -265,6 +276,7 @@ describe("a club's state, further", () => {
     const harness = renderTeamRankings(pool({ search: "?age=10&year=2027" }));
     await user.click(await screen.findByRole("button", { name: /show all \d+ teams/i }));
     await user.click(within(screen.getByRole("table")).getByRole("button", { name: "Rays" }));
+    await openFix(user, "Rays");
     const box = await screen.findByPlaceholderText("KY");
     // Another tab took a newer copy of the pool in: this one may not write over it.
     markTaken("pool", false);
@@ -483,6 +495,7 @@ describe("the clean-up edits", () => {
   const openClub = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
     await user.click(await screen.findByRole("button", { name: /show all \d+ teams/i }));
     await user.click(within(screen.getByRole("table")).getByRole("button", { name }));
+    await openFix(user, name);
     return screen.getByRole("region", { name });
   };
 

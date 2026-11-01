@@ -2277,6 +2277,23 @@ corrected. **Renaming onto a name that already exists merges the two** — which
 how a game logged against "TBD", or a club typed two ways, reaches the team it
 belongs to.
 
+**What a club's panel says first.** Since 1 November 2026 the sheet leads with the club as
+the board on screen places it: its place on the page's board and among its state's clubs there,
+and its rating ("#17 of 190 nationally · #7 of 47 in KY · rating +2.5", read as the My Team
+card reads its own, `myTeamGlance`), with no place for a club the board does not list; then its
+record and form; then its games, those still to come soonest first with their starts, then its
+results newest first, each day in words. The tools that change its data (its name, its
+GameChanger links with Unlink, its age, Same team as and its state) are folded under **Fix this
+club's data**, closed as the sheet opens: a button, so the keyboard reaches it and a screen
+reader hears whether it is open, and whatever is typed in it stays while it is folded. The sheet
+opened on those tools, a phone screen of them above the games (at 390 px the games began 917 px
+down a 3,858 px sheet, the farthest-off first), with no place or rating at all, so the #1
+club's sheet did not say #1 and a stray tap landed among tools that rename, unlink or fold a
+club. Close and Watch are 44 px buttons where they were 33 by 16 px links. The cloud's board
+draws the same panel and reads the place off the board it hands it; where nothing on the panel
+can change the club, the fold is **This club's data**. Pool health's lists and the toast after
+**Not this team** say their days in words too.
+
 ### The Games tab
 
 The Games tab lists a page's games — pulled, pasted or typed in — for today

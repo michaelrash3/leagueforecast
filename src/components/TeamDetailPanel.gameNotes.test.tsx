@@ -120,9 +120,11 @@ describe("what each game did, on a club's panel", () => {
   it("draws the panel exactly as before without the lines, or with none to draw", () => {
     const without = panel();
     const before = markup(without.container);
-    // Taken from the panel before the lines were added to it ("27dd2477"), and again when its days
-    // were first said in words ("Sat, Sep 12" for "2026-09-12"), which alone moved it.
-    expect(fingerprint(before)).toBe("747f5a21");
+    // Taken from the panel before the lines were added to it ("27dd2477"), again when its days
+    // were first said in words ("Sat, Sep 12" for "2026-09-12", "747f5a21"), and again when it
+    // was laid out to lead with the club, its games to come above its results and its tools
+    // folded away.
+    expect(fingerprint(before)).toBe("dea94d53");
     without.unmount();
     const none = panel({ gameNotes: { ...notes, byGame: new Map() } });
     expect(markup(none.container)).toBe(before);
@@ -174,7 +176,7 @@ describe("what each game did, on a club's panel", () => {
     expect(within(section).getAllByText(notes.key, { exact: false })).toHaveLength(1);
     const lead = within(section).getByText(notes.headline, { exact: false });
     expect(lead.textContent).toBe(`${notes.headline} ${notes.key}`);
-    // Under the list's heading, before its first game.
-    expect(lead.previousElementSibling?.textContent).toBe("Games in 12U 2027");
+    // Under the results' heading, before the first result: the lines explain the games played.
+    expect(lead.previousElementSibling?.textContent).toBe("Results");
   });
 });

@@ -63,7 +63,7 @@ describe("clubs credited twice with one game", () => {
     const heading = await screen.findByText(/clubs credited twice with one game/i);
     const section = heading.closest("div")!;
     expect(
-      within(section).getByText(/2026-09-12, 9-3 v Hit Dogs Evansville and v Hit Dogs/)
+      within(section).getByText(/Sat, Sep 12, 9-3 v Hit Dogs Evansville and v Hit Dogs/)
     ).toBeInTheDocument();
     expect(within(section).getByText(/at the same start/)).toBeInTheDocument();
 
