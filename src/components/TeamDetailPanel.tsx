@@ -126,8 +126,11 @@ type TeamDetailPanelProps = {
    * ratings shown (`WhatIf`). Absent, or either club without a row, and the game has none.
    */
   ratingRowOf?: (teamId: string) => ScoutRankingRow | undefined;
-  /** Whether the club is watched on this page, and the way to watch it or stop (`watchList.ts`). */
-  watch?: { on: boolean; full: boolean; onToggle: (name: string) => void };
+  /**
+   * Whether the club is watched on this page, and the way to watch it or stop (`watchList.ts`),
+   * handed the club as the panel has it, whose GameChanger ids it is kept by.
+   */
+  watch?: { on: boolean; full: boolean; onToggle: (name: string, club: ScoutTeam) => void };
   /**
    * Where the club stands on the board on screen, as its rows place it (`myTeamGlance`): on the
    * page's whole board and among its state's clubs there. Absent for a club the board does not
@@ -567,7 +570,7 @@ export function TeamDetailPanel({
           {watch && (
             <button
               type="button"
-              onClick={() => watch.onToggle(team.name)}
+              onClick={() => watch.onToggle(team.name, team)}
               aria-pressed={watch.on}
               disabled={!watch.on && watch.full}
               title={

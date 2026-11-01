@@ -165,8 +165,16 @@ describe("a published board", () => {
       ...weekly,
       ahead: null,
     });
+    // The game ahead's start, in whole minutes since 1970, where the build gave it one.
+    const timed = {
+      ...weekly,
+      ahead: { ...weekly.ahead, start: Date.parse("2027-04-17T14:30:00.000Z") / 60_000 },
+    };
+    expect(coerceBoardView({ rows: [ROW], weekly: timed })?.weekly).toStrictEqual(timed);
     for (const bad of [
       { ...weekly, asOf: "April" },
+      { ...weekly, ahead: { ...weekly.ahead, start: 29_084_190.5 } },
+      { ...weekly, ahead: { ...weekly.ahead, start: "9:30 AM" } },
       { ...weekly, upsets: [{ ...weekly.upsets[0], chance: 1.2 }] },
       { ...weekly, upsets: [{ ...weekly.upsets[0], winnerRuns: -1 }] },
       { ...weekly, ahead: { ...weekly.ahead, date: "Sat" } },

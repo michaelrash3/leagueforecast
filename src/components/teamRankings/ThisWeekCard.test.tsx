@@ -2,6 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ThisWeekCard } from "./ThisWeekCard";
 import type { ScoutRankingRow } from "../../lib/teamRankings";
+import type { WeeklyGame } from "../../lib/theWeekly";
+import { formatStartTime } from "../../lib/date";
 
 describe("ThisWeekCard", () => {
   it("names the week's movers with where they were and are, each opening its club", () => {
@@ -103,6 +105,43 @@ describe("ThisWeekCard", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Ironwood Ospreys" }));
     expect(open).toHaveBeenCalledWith("I");
+  });
+
+  it("says when the game of the week starts, and its day alone where it has no start", () => {
+    const names: Record<string, [string, number]> = { A: ["Aces", 3], B: ["Bears", 5] };
+    const rowOf = (teamId: string) => {
+      const known = names[teamId];
+      return known
+        ? ({ teamId, teamName: known[0], rank: known[1] } as ScoutRankingRow)
+        : undefined;
+    };
+    const start = "2026-10-31T14:30:00.000Z";
+    const ahead: WeeklyGame = {
+      teamAId: "A",
+      teamBId: "B",
+      date: "2026-10-31",
+      chanceA: 0.54,
+      margin: 0.4,
+    };
+    const card = (game: WeeklyGame) =>
+      render(
+        <ThisWeekCard
+          movers={null}
+          weekly={{ asOf: "2026-10-25", upsets: [], ahead: game, streaks: [] }}
+          rowOf={rowOf}
+          onOpenTeam={() => undefined}
+        />
+      );
+    const timed = card({ ...ahead, start: Date.parse(start) / 60_000 });
+    // In the reader's own time, as the rest of Team Rankings says a start (`dayAndTime`).
+    expect(screen.getByRole("region", { name: /^The Weekly/ }).textContent).toContain(
+      `Game of the week: Sat, Oct 31 · ${formatStartTime(start)} · Aces (#3) vs Bears (#5) · 54% to 46%`
+    );
+    timed.unmount();
+    card(ahead);
+    const untimed = screen.getByRole("region", { name: /^The Weekly/ }).textContent;
+    expect(untimed).toContain("Game of the week: Sat, Oct 31 · Aces (#3) vs Bears (#5)");
+    expect(untimed).not.toMatch(/AM|PM/);
   });
 
   it("says no week of ours for a week our club played nothing", () => {
