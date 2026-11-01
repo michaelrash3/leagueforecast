@@ -1430,6 +1430,64 @@ describe("Since you last looked, on the cloud's board", () => {
     await user.click(within(since).getByRole("button", { name: "Got it" }));
     expect(readMyTeamLook("S-2")).toMatchObject({ national: 1, record: "5-1" });
   });
+
+  /*
+   * A look is read by the GameChanger id it was kept with, off the page's own club's card
+   * (`readMyTeamLook`): one kept for another club its id once named is none of its, and one kept
+   * under an id it no longer has, a club folded into it, is its own.
+   */
+  const gc = (teamId: string) => ({ teamId, name: teamId, ageGroupId: PAGE });
+  const lookKey = (teamId: string) => `lf_my_team_look_v1_${teamId}`;
+  /** Two days ago's visit, its look kept under `teamId` with GameChanger id `kept`. */
+  const visitedAs = async (teamId: string, kept: string) => {
+    vi.setSystemTime(new Date(Date.now() - 2 * DAY));
+    const first = open(sourcesOf(live));
+    await waitFor(() => expect(readMyTeamLook("S-2")).toMatchObject({ national: 2 }));
+    first.unmount();
+    forgetDecodedBoards();
+    forgetLiveBoard();
+    const look = readMyTeamLook("S-2");
+    window.localStorage.removeItem(lookKey("S-2"));
+    window.localStorage.setItem(lookKey(teamId), JSON.stringify({ ...look, teamId, gc: kept }));
+    vi.setSystemTime(new Date(`${TODAY}T12:00:00`));
+    await publish(live, [
+      { key: `board:2027:${PAGE}:spring`, value: CLIMBED },
+      { key: `board:2027:${PAGE}:fall`, value: FALL },
+      { key: `board:2027:${PAGE}:year`, value: CLIMBED },
+      {
+        key: clubKey(2027, clubBucketOf("S-2")),
+        value: {
+          clubs: {
+            "S-2": encodeClubCard({
+              team: { id: "S-2", name: "Placeholder S-2", gcTeams: [gc("gcTwo00001")] },
+              games: [],
+              names: {},
+            }),
+          },
+        },
+      },
+    ]);
+  };
+
+  it("tells none of another club's look kept under the page's own club's id", async () => {
+    await visitedAs("S-2", "gcOther001");
+    open(sourcesOf(live));
+    const mine = await screen.findByRole("region", { name: "My team" });
+    // A first visit for this club: a look is kept, with its own GameChanger id, and nothing told.
+    await waitFor(() =>
+      expect(readMyTeamLook("S-2")).toMatchObject({ national: 1, gc: "gcTwo00001" })
+    );
+    expect(within(mine).queryByRole("region", { name: "Since you last looked" })).toBeNull();
+  });
+
+  it("tells what moved since a look kept under an id the page's own club no longer has", async () => {
+    await visitedAs("S-9", "gcTwo00001");
+    open(sourcesOf(live));
+    const mine = await screen.findByRole("region", { name: "My team" });
+    const since = await within(mine).findByRole("region", { name: "Since you last looked" });
+    expect(since).toHaveTextContent("#2 nationally then, #1 now");
+    expect(since).toHaveTextContent("3-1 → 5-1");
+  });
 });
 
 describe("a club's panel on the cloud's board", () => {

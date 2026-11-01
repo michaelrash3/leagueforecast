@@ -31,6 +31,12 @@ export type MyTeamGlance = {
    */
   schedule?: ScheduleRank;
   weekend?: WeekendAhead;
+  /**
+   * Its GameChanger ids, the page's own team first (`pageGcIds`), where the page holds them: what a
+   * look at it is kept and read by (`myTeamLook.ts`), since its id here can come to name another
+   * club. Added by the Team Rankings page, off its pool or the club's card.
+   */
+  gcIds?: readonly string[];
 };
 
 /**

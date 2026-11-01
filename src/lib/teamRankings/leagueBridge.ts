@@ -1191,21 +1191,30 @@ export const gcIdsForSeason = (
 };
 
 /**
- * The GameChanger id a store keeps beside a club remembered on a page (`RememberedClub.gc`): its
- * team filed on the page, else in the page's squad year, else the last pulled, as a pick keeps the
- * season's own (`gcIdsForSeason`), because that is the one that stays the club's longest. None for
- * a club GameChanger has no id for.
+ * A club's GameChanger ids as a store keeps one for it on a page: its teams filed on the page, then
+ * in the page's squad year, then the rest, the last pulled first in each (`gcIdsForSeason`).
+ */
+export const pageGcIds = (
+  club: { gcTeams?: readonly GcTeamLink[] },
+  pageId: string,
+  ageGroups: AgeGroup[]
+): string[] =>
+  gcIdsForSeason(
+    new Set([pageId]),
+    [ageGroupYear(ageGroups.find((group) => group.id === pageId))],
+    ageGroups
+  )(club);
+
+/**
+ * The GameChanger id a store keeps beside a club remembered on a page (`RememberedClub.gc`): the
+ * first of `pageGcIds`, as a pick keeps the season's own, because that is the one that stays the
+ * club's longest. None for a club GameChanger has no id for.
  */
 export const pageGcId = (
   club: { gcTeams?: readonly GcTeamLink[] },
   pageId: string,
   ageGroups: AgeGroup[]
-): string | undefined =>
-  gcIdsForSeason(
-    new Set([pageId]),
-    [ageGroupYear(ageGroups.find((group) => group.id === pageId))],
-    ageGroups
-  )(club)[0];
+): string | undefined => pageGcIds(club, pageId, ageGroups)[0];
 
 /**
  * Which pool clubs could be a given league team, best evidence first.

@@ -175,6 +175,7 @@ import { card } from "../styles/tokens";
 import { ClubSheet } from "./teamRankings/ClubSheet";
 import { leftClubSheet, markClubSheet } from "../lib/clubSheetHistory";
 import { useWatchList } from "../lib/watchList";
+import { withGcIds } from "../lib/myTeamLook";
 import { clubLookupOf, pageGcId } from "../lib/teamRankings/leagueBridge";
 import { EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/addGameDraft";
 import type { NamedChecker } from "./ScheduleImportPanel";
@@ -1060,10 +1061,22 @@ export function TeamRankingsView({
         : buildUpcomingSchedule(myTeamId, rankings, poolGames, allKnown.teams, today);
     const stateOf = (teamId: string) => stateById.get(teamId);
     const glance = myTeamGlance(rankings, myTeamId, stateOf, upcoming, lastWeek?.ranks ?? null);
-    return glance && withSeason(glance, rankings, stateOf, upcoming);
+    // With its GameChanger ids, which its look is read by (`myTeamLook.ts`).
+    const club = allKnown.teams.find((team) => team.id === myTeamId);
+    return (
+      glance &&
+      withGcIds(
+        withSeason(glance, rankings, stateOf, upcoming),
+        club,
+        selectedAgeGroupId,
+        ageGroups
+      )
+    );
   }, [
     lastWeek,
     myTeamId,
+    selectedAgeGroupId,
+    ageGroups,
     reportForId,
     upcomingRows,
     rankings,

@@ -1,10 +1,15 @@
 import type { MyTeamGlance } from "./myTeamGlance";
+import { clubLookupOf, pageGcIds, shownClubId } from "./teamRankings/leagueBridge";
+import type { AgeGroup, GcTeamLink } from "./teamRankings/types";
 
 /**
  * "Since you last looked" on Team Rankings' My Team card: the club's places, record and rating as
  * this device last saw them, kept per club in this browser's storage only, and what moved since.
  * The board the places are on is kept too: a fall board and the spring one after it count from
- * different games, so a look from the other half is a new start, not a move.
+ * different games, so a look from the other half is a new start, not a move. And a GameChanger id
+ * the club carried: its id here is the pool's own, which a fold or Team Rankings started again can
+ * leave naming another club, so a look is read by that id where the club's are known
+ * (`readMyTeamLook`), and another club's is never told as this one's moves.
  */
 export type MyTeamLook = {
   v: 1;
@@ -19,6 +24,8 @@ export type MyTeamLook = {
   stateRank?: number;
   record: string;
   rating: number;
+  /** A GameChanger id the club carried, the page's own team first (`MyTeamGlance.gcIds`). */
+  gc?: string;
 };
 
 export type MyTeamMoves = {
@@ -32,6 +39,18 @@ export type MyTeamMoves = {
 
 /** A rating move smaller than this is the fit's own jitter, not news. */
 const RATING_STEP = 0.05;
+
+/**
+ * `glance` with its club's GameChanger ids on the page (`pageGcIds`), where the page holds the club:
+ * none of them is an answer too, that a look kept with one is another club's. Left as it is where
+ * the club is not held, and its looks are then read as every look was.
+ */
+export const withGcIds = (
+  glance: MyTeamGlance,
+  club: { gcTeams?: readonly GcTeamLink[] } | undefined,
+  pageId: string,
+  ageGroups: AgeGroup[]
+): MyTeamGlance => (club ? { ...glance, gcIds: pageGcIds(club, pageId, ageGroups) } : glance);
 
 export const takeMyTeamLook = (
   at: number,
@@ -49,6 +68,7 @@ export const takeMyTeamLook = (
     : {}),
   record: glance.record,
   rating: glance.rating,
+  ...(glance.gcIds?.[0] ? { gc: glance.gcIds[0] } : {}),
 });
 
 /**
@@ -98,20 +118,50 @@ const isLook = (value: unknown): value is MyTeamLook => {
     typeof look.national === "number" &&
     typeof look.nationalOf === "number" &&
     typeof look.record === "string" &&
-    typeof look.rating === "number"
+    typeof look.rating === "number" &&
+    (look.gc === undefined || typeof look.gc === "string")
   );
 };
 
-/** The last look kept at a club on this device, or null (none, unreadable, or storage off). */
-export const readMyTeamLook = (teamId: string): MyTeamLook | null => {
+const lookUnder = (key: string): MyTeamLook | null => {
   try {
-    const raw = window.localStorage.getItem(lookKey(teamId));
+    const raw = window.localStorage.getItem(key);
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     return isLook(parsed) ? parsed : null;
   } catch {
     return null;
   }
+};
+
+/**
+ * The last look kept at a club on this device, or null (none, unreadable, or storage off). With the
+ * club's GameChanger ids (`MyTeamGlance.gcIds`), each look is read by the one it was kept with
+ * (`readClub`, off the club alone): its own is none where it was kept for another club its id
+ * named then, and one kept under another id of a team it carries now (a club folded into it, or
+ * itself before Team Rankings started again) is its own, the newest of them, under its id now. A
+ * look kept with no GameChanger id reads as every look did, and is never followed.
+ */
+export const readMyTeamLook = (teamId: string, gcIds?: readonly string[]): MyTeamLook | null => {
+  const own = lookUnder(lookKey(teamId));
+  if (!gcIds) return own;
+  const club = clubLookupOf([{ id: teamId, gcTeams: gcIds.map((gc) => ({ teamId: gc })) }]);
+  const ofClub = (look: MyTeamLook) =>
+    shownClubId({ id: look.teamId, ...(look.gc ? { gc: look.gc } : {}) }, club) === teamId;
+  if (own && ofClub(own)) return own;
+  let followed: MyTeamLook | null = null;
+  try {
+    const storage = window.localStorage;
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (!key?.startsWith(LOOK_PREFIX) || key === lookKey(teamId)) continue;
+      const look = lookUnder(key);
+      if (look?.gc && ofClub(look) && (!followed || look.at > followed.at)) followed = look;
+    }
+  } catch {
+    return null;
+  }
+  return followed && { ...followed, teamId };
 };
 
 /**
@@ -129,7 +179,7 @@ export const saveMyTeamLook = (look: MyTeamLook): void => {
     for (let index = 0; index < storage.length; index += 1) {
       const other = storage.key(index);
       if (!other?.startsWith(LOOK_PREFIX) || other === key) continue;
-      others.push({ key: other, at: readMyTeamLook(other.slice(LOOK_PREFIX.length))?.at ?? -1 });
+      others.push({ key: other, at: lookUnder(other)?.at ?? -1 });
     }
     others
       .sort((a, b) => b.at - a.at)

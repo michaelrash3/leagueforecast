@@ -71,6 +71,7 @@ import { warmTeamSearch, type GcIdOffer } from "../TeamSearchSelect";
 import { leftClubSheet, markClubSheet } from "../../lib/clubSheetHistory";
 import { ClubSheet } from "./ClubSheet";
 import { useWatchList } from "../../lib/watchList";
+import { withGcIds } from "../../lib/myTeamLook";
 import { clubLookupOf, pageGcId } from "../../lib/teamRankings/leagueBridge";
 import { RankingsHeader } from "./RankingsHeader";
 import { NATIONAL_TOP, RankingsSection, STATE_TOP } from "./RankingsSection";
@@ -678,8 +679,26 @@ function LiveBoard({
   const myTeam = useMemo(() => {
     const stateOf = (teamId: string) => stateById.get(teamId);
     const glance = myTeamGlance(rows, myTeamId, stateOf, myUpcoming, lastWeek);
-    return glance && withSeason(glance, rows, stateOf, myUpcoming);
-  }, [rows, myTeamId, stateById, myUpcoming, lastWeek]);
+    // With its GameChanger ids off its card, which its look is read by (`myTeamLook.ts`).
+    return (
+      glance &&
+      withGcIds(
+        withSeason(glance, rows, stateOf, myUpcoming),
+        mineCard.card?.team,
+        selectedAgeGroupId,
+        ageGroups
+      )
+    );
+  }, [
+    rows,
+    myTeamId,
+    stateById,
+    myUpcoming,
+    lastWeek,
+    mineCard.card,
+    selectedAgeGroupId,
+    ageGroups,
+  ]);
   // Its record against the clubs rated here beside the one its ratings expected, over the board's
   // half, off the same card (`recordVsExpected`).
   const myExpected = useMemo(() => {
@@ -1080,7 +1099,8 @@ function LiveBoard({
             }
             rankings={rows}
             rankingsStale={false}
-            myTeamSettled={board.checked}
+            // And its card read, or found not to be had: the look is read by its ids.
+            myTeamSettled={board.checked && (mineCard.card !== null || mineCard.failed)}
             {...(label ? { standInNote: label } : {})}
             nationalTop={rows.slice(0, NATIONAL_TOP)}
             stateTopRows={stateTopRows}

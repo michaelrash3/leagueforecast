@@ -24,8 +24,12 @@ const VISIT_GAP_MS = 60 * 60 * 1000;
 /** What a club's visit settled on: the moves to tell, and a look to keep, if any. */
 type Held = { key: string; moves: MyTeamMoves | null; keep?: MyTeamLook };
 
-const decide = (key: string, now: MyTeamLook): Held => {
-  const prev = readMyTeamLook(now.teamId);
+/**
+ * Compared with the look kept at the club as its GameChanger ids read it (`readMyTeamLook`), so a
+ * look of another club its id once named is none, and its own under an id it no longer has is its.
+ */
+const decide = (key: string, now: MyTeamLook, gcIds: readonly string[] | undefined): Held => {
+  const prev = readMyTeamLook(now.teamId, gcIds);
   // The first visit has nothing to compare with, so it only keeps where the club stands.
   if (!prev) return { key, moves: null, keep: now };
   if (now.at - prev.at < VISIT_GAP_MS) return { key, moves: null };
@@ -44,7 +48,8 @@ export function useMyTeamSince(glance: MyTeamGlance, board: string | undefined, 
   const key = `${glance.teamId}|${board ?? ""}`;
   // Only once the board is fitted to the latest games: a look taken from a board still being
   // refitted would keep the places from before them.
-  if (settled && held?.key !== key) setHeld(decide(key, takeMyTeamLook(openedAt, glance, board)));
+  if (settled && held?.key !== key)
+    setHeld(decide(key, takeMyTeamLook(openedAt, glance, board), glance.gcIds));
 
   useEffect(() => {
     if (held?.keep) saveMyTeamLook(held.keep);

@@ -640,7 +640,14 @@ and none is taken while the board is being refitted to the latest games. On the 
 which draws the board this account kept before the network's, none is taken until the network has
 vouched for the board on screen (`checked`): decided on the kept one, the line said nothing of an
 overnight climb, kept the old places as seen that day and told the climb a visit late. Offline the
-network never vouches, so the line waits for a visit that reaches it. Most visits have
+network never vouches, so the line waits for a visit that reaches it. A look keeps a
+GameChanger id the club carries beside its id, the page's own team first (`pageGcIds`), and
+is read by it (`readMyTeamLook`, on `readClub`): one kept for another club the club's id named
+once is none of its own, a first visit's, and one kept under an id the club no longer has, a
+club folded into it or itself before Team Rankings started again, is its own, the newest of
+them. This device's copy reads the club's ids off its pool, and the cloud's board off the
+club's card, which the line now waits for as it waits for the board. A look kept before, with
+no id, is read as it always was. Most visits have
 nothing new, so the line's own file is fetched only when there is: with it in the tab, opening
 Team Rankings measured 167.1 KB gzipped against 165.4 KB before, and 166.2 KB without. Nothing is
 read from or written to the cloud. League Standings' Dashboard has the same idea as a card of its
