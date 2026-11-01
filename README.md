@@ -854,6 +854,20 @@ into one both name the one club, the folded pick followed into it, and so clash
 (**Clash**, `link-shared`): the fold says the two are one club, and which team is
 it is for a person to say.
 
+A pick made before the id was kept takes it at its season's next save of its own,
+where the device holds the pool and the club picked carries exactly one GameChanger
+id (`stampPicks`): a club with several could be any of them, and waits to be picked
+again. It is laid over the page's own edits (`SeasonStore.amendEdits`), a score
+typed, a team renamed, a game moved, so the write the edit makes anyway carries it,
+in the cloud as in this browser, and none is ever made for it alone: not as the
+season opens, not as another device's changes arrive. League layout 2 already holds
+the field, so no device of an older build drops it again. A member's device, whose
+bridge is the server's, holds no pool to read the club's ids off and gives none; the
+next edit from a device that holds the pool does. The nightly counts how many picks
+are still without one and how many could take one ("The nightly refresh on GitHub").
+The rule a pick is read by (`readPick`) is the one every club this device remembers
+is read by (`readClub`, "Clubs this device remembers").
+
 A pick is by id, so a club the league reaches only through picks can be renamed on
 Team Rankings and keeps the league's games. A club any season reaches by its name
 (a guess, the roster's club of that name, or two picks that clash) has its name

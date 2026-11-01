@@ -49,6 +49,13 @@ export type SeasonStore = {
   locked: () => string | null;
   /** Hears each edit refused while locked, with the reason. */
   onRefused: (listener: ((why: string) => void) | null) => void;
+  /**
+   * Lays `amend` over each of the page's own edits that changes the season, or stops for null: what
+   * the season's next save of its own should carry beside the edit, which League Standings uses to
+   * give an old pick its club's GameChanger id (`stampPicks`). Never over another device's season,
+   * a season opened or an edit that changed nothing, so no save is ever made for it alone.
+   */
+  amendEdits: (amend: ((season: SeasonState) => SeasonState) | null) => void;
   /** Hears every change, with where it came from and the open season as it was just before. */
   subscribe: (listener: (change: SeasonChange, previous: OpenSeason) => void) => () => void;
 };
@@ -57,6 +64,7 @@ export const createSeasonStore = (initial: OpenSeason): SeasonStore => {
   let current = initial;
   let locked: string | null = null;
   let refused: ((why: string) => void) | null = null;
+  let amend: ((season: SeasonState) => SeasonState) | null = null;
   const listeners = new Set<(change: SeasonChange, previous: OpenSeason) => void>();
   const changed = (change: SeasonChange, previous: OpenSeason) =>
     listeners.forEach((listener) => listener(change, previous));
@@ -73,7 +81,9 @@ export const createSeasonStore = (initial: OpenSeason): SeasonStore => {
         refused?.(locked);
         return;
       }
-      set(typeof action === "function" ? action(current.season) : action, "edit");
+      const next = typeof action === "function" ? action(current.season) : action;
+      if (Object.is(next, current.season)) return;
+      set(amend ? amend(next) : next, "edit");
     },
     apply: (season) => set(season, "arrival"),
     lock: (why) => {
@@ -82,6 +92,9 @@ export const createSeasonStore = (initial: OpenSeason): SeasonStore => {
     locked: () => locked,
     onRefused: (listener) => {
       refused = listener;
+    },
+    amendEdits: (next) => {
+      amend = next;
     },
     open: (id, season) => {
       const previous = current;

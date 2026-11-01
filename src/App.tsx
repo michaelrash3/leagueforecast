@@ -61,7 +61,7 @@ import { useSeasons } from "./hooks/useSeasons";
 import { useSeasonFiles, type ImportedSeason } from "./hooks/useSeasonFiles";
 import { useSeasonState, type SeasonState } from "./hooks/useSeasonState";
 import { useScoutBridge } from "./hooks/useScoutBridge";
-import { finalScoresKey, leagueFixturesOf } from "./lib/teamRankings/leagueBridge";
+import { finalScoresKey, leagueFixturesOf, stampPicks } from "./lib/teamRankings/leagueBridge";
 import { LoadingPanel } from "./components/LoadingPanel";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import {
@@ -993,6 +993,7 @@ export default function App() {
     wantWide: wantScoutWide,
     wantLinks: wantScoutLinks,
     noteChange: noteScoutChange,
+    clubs: scoutClubs,
   } = useScoutBridge({
     activeSeasonId,
     seasonKey: activeSeasonKey,
@@ -1010,6 +1011,22 @@ export default function App() {
         }
       : {}),
   });
+  /*
+   * An old pick, kept before the GameChanger id was, takes its club's at the season's next save of
+   * its own, where this device holds the pool and the club carries exactly one (`stampPicks`): laid
+   * over the page's own edits, so the write they make anyway carries it and none is made for it.
+   */
+  useEffect(() => {
+    seasonStore.amendEdits(
+      scoutClubs
+        ? (season) => {
+            const stamped = stampPicks(season.teams, scoutClubs);
+            return stamped === season.teams ? season : { ...season, teams: stamped };
+          }
+        : null
+    );
+    return () => seasonStore.amendEdits(null);
+  }, [seasonStore, scoutClubs]);
 
   const predictionEngine = useMemo(
     () =>

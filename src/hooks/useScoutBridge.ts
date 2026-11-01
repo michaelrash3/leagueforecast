@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  clubLookupOf,
   leagueScoutBridge,
   scoutLinkCandidates,
+  type ClubLookup,
   type LeagueFixture,
   type LeagueScoutBridge,
   type LeagueTeamLink,
@@ -111,6 +113,13 @@ export type ScoutBridge = {
   setLink: (leagueTeamId: string, scoutTeamId: string | undefined, scoutGcTeamId?: string) => void;
   /** Called when Team Rankings saves, so everything here is read again. */
   noteChange: () => void;
+  /**
+   * This device's own pool as a club remembered is read by (`readClub`), where the bridge reads that
+   * pool: what gives an old pick its club's GameChanger id (`stampPicks`) and what a League team's
+   * club's place is followed by. Null on a member's device, whose bridge is the server's and whose
+   * own pool, if it kept one, is not the cloud's.
+   */
+  clubs: ClubLookup | null;
 };
 
 /** Nothing to bridge to, and stable, so a season with no id does not re-render on every pass. */
@@ -703,6 +712,11 @@ export function useScoutBridge({
           : undefined
       : undefined;
 
+  const clubs = useMemo(() => {
+    void revision;
+    return asker || !filled ? null : clubLookupOf(loadScoutTeams());
+  }, [asker, revision, filled]);
+
   const wideOptions = useCallback((): readonly ClubPickOption[] => {
     void revision;
     if (asker) return wideHere?.options ?? NO_OPTIONS;
@@ -721,5 +735,6 @@ export function useScoutBridge({
     wantLinks,
     setLink: onLink,
     noteChange,
+    clubs,
   };
 }
