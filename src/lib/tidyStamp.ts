@@ -106,8 +106,13 @@ import type { ScoutTeam } from "./teamRankings/types";
  *       third club, read by its id: never a slot, a stand-in, another club of that name or each
  *       other, and never where the owner said they are two clubs, nor two squads one survivor takes
  *       in one pass that could not be one club themselves (`mergeSameSquadIds`)
+ *  38 — the owner's "Same team as" read as standing for that namer's later rows of the name: the
+ *       club it was folded into, at the row's level and squad year, no earlier than a week before
+ *       its own season and never within the hour of a game of its own, at arrival and in the
+ *       refile, and such a row left on it, unless the owner says Not this team
+ *       (`answeredNamesakes`); a build on rules 37 would take those rows off again
  */
-const TIDY_RULES_VERSION = 37;
+const TIDY_RULES_VERSION = 38;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
