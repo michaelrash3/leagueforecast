@@ -1,5 +1,6 @@
 import type { MyTeamGlance } from "./myTeamGlance";
-import { clubLookupOf, pageGcIds, shownClubId } from "./teamRankings/leagueBridge";
+import { clubLookupOf } from "./teamRankings/leagueBridge";
+import { pageGcIds, shownClubId } from "./teamRankings/rememberedClub";
 import type { AgeGroup, GcTeamLink } from "./teamRankings/types";
 
 /**

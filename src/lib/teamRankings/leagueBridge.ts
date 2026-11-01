@@ -295,20 +295,6 @@ export const readClub = (
 };
 
 /**
- * What a store shows a remembered club under once its id is another club's (`readClub`'s
- * `moved`): the id behind this, which no club has, so nothing reads the club now under the id as
- * the one remembered, and the store shows its own club as a club gone is shown, by the name it kept.
- */
-export const GONE_CLUB = "gone:";
-
-/** The id a remembered club is shown under now: followed, as it was, or gone (`GONE_CLUB`). */
-export const shownClubId = (club: RememberedClub, lookup: ClubLookup | null): string => {
-  if (!lookup || !club.gc) return club.id;
-  const read = readClub(club, lookup);
-  return "moved" in read ? `${GONE_CLUB}${read.moved}` : read.id;
-};
-
-/**
  * What a league team's pick names in `teams` now (`readClub`). Where it was kept with a GameChanger
  * id and the club under its id no longer carries that id, the pool has given the id to another
  * club (Start again mints every id afresh) or folded the club away: the pick is the one club
@@ -1189,32 +1175,6 @@ export const gcIdsForSeason = (
       .sort((a, b) => a.place - b.place || b.at - a.at)
       .map((link) => link.id);
 };
-
-/**
- * A club's GameChanger ids as a store keeps one for it on a page: its teams filed on the page, then
- * in the page's squad year, then the rest, the last pulled first in each (`gcIdsForSeason`).
- */
-export const pageGcIds = (
-  club: { gcTeams?: readonly GcTeamLink[] },
-  pageId: string,
-  ageGroups: AgeGroup[]
-): string[] =>
-  gcIdsForSeason(
-    new Set([pageId]),
-    [ageGroupYear(ageGroups.find((group) => group.id === pageId))],
-    ageGroups
-  )(club);
-
-/**
- * The GameChanger id a store keeps beside a club remembered on a page (`RememberedClub.gc`): the
- * first of `pageGcIds`, as a pick keeps the season's own, because that is the one that stays the
- * club's longest. None for a club GameChanger has no id for.
- */
-export const pageGcId = (
-  club: { gcTeams?: readonly GcTeamLink[] },
-  pageId: string,
-  ageGroups: AgeGroup[]
-): string | undefined => pageGcIds(club, pageId, ageGroups)[0];
 
 /**
  * Which pool clubs could be a given league team, best evidence first.

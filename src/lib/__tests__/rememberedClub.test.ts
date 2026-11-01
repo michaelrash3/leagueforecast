@@ -4,11 +4,11 @@ import {
   clubLookupOf,
   gcCarriersOf,
   NO_SCOUT_TEAM,
-  pageGcId,
   readClub,
   readPick,
   stampPicks,
 } from "../teamRankings/leagueBridge";
+import { pageGcId } from "../teamRankings/rememberedClub";
 import type { TeamBase } from "../types";
 
 /*

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { shownClubId, type ClubLookup } from "./teamRankings/leagueBridge";
+import type { ClubLookup } from "./teamRankings/leagueBridge";
+import { shownClubId } from "./teamRankings/rememberedClub";
 
 /*
  * The clubs a reader keeps an eye on, a few to a page (the owner's choice of 26 October 2026: per

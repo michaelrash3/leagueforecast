@@ -15,7 +15,8 @@ import {
   watchedNow,
   watchedOn,
 } from "../../lib/watchList";
-import { clubLookupOf, GONE_CLUB } from "../../lib/teamRankings/leagueBridge";
+import { clubLookupOf } from "../../lib/teamRankings/leagueBridge";
+import { GONE_CLUB } from "../../lib/teamRankings/rememberedClub";
 
 /*
  * The clubs a reader watches, up to five a page, on this device (`watchList.ts`), and the card at

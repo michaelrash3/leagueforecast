@@ -1,4 +1,5 @@
-import { shownClubId, type ClubLookup } from "./teamRankings/leagueBridge";
+import type { ClubLookup } from "./teamRankings/leagueBridge";
+import { shownClubId } from "./teamRankings/rememberedClub";
 
 /**
  * The tournament fields built on the Scouting tab, saved in this browser by age group, so a

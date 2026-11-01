@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteField, readSavedFields, saveField } from "../tournamentFields";
-import { clubLookupOf, GONE_CLUB } from "../teamRankings/leagueBridge";
+import { clubLookupOf } from "../teamRankings/leagueBridge";
+import { GONE_CLUB } from "../teamRankings/rememberedClub";
 
 const backing = new Map<string, string>();
 beforeEach(() => {
