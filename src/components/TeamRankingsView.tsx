@@ -1136,7 +1136,8 @@ export function TeamRankingsView({
           lastWeek?.ranks ?? null,
           board,
           at,
-          page
+          page,
+          fieldClubs.gcOf
         )
       );
     });
@@ -1151,6 +1152,7 @@ export function TeamRankingsView({
     allKnown.leagueClubs,
     allKnown.leagueHalves,
     lastWeek,
+    fieldClubs,
   ]);
 
   /**

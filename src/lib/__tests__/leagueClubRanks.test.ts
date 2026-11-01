@@ -11,6 +11,7 @@ import {
   type LeagueClubRank,
 } from "../leagueClubRanks";
 import type { ScoutRankingRow } from "../teamRankings";
+import { clubLookupOf } from "../teamRankings/leagueBridge";
 
 /** A board's rows, best first; only what the places are read from. Invented names. */
 const row = (teamId: string, rank: number): ScoutRankingRow =>
@@ -155,6 +156,65 @@ describe("the ranks kept for League Standings", () => {
     expect(leagueClubRankFor("season-1", "L-HIVE")).toEqual(hive);
     store.set("lf_league_club_ranks_v1", "{not json");
     expect(readLeagueClubRanks()).toEqual({});
+  });
+
+  /*
+   * A place is kept with a GameChanger id its club carried on the page (`LeagueClubRank.gc`), and
+   * read by it where League Standings holds the pool (`readClub`): a club folded into another, or
+   * pulled again under another id, is followed, so Scout opens the club the place was of; and one
+   * whose id is another club's now has no place, as a club that left the board has none.
+   */
+  const link = (teamId: string) => ({ teamId, name: teamId, ageGroupId: "ag9" });
+
+  it("keeps the GameChanger id its club carried on the page", () => {
+    const places = leagueClubRanksFrom(
+      board,
+      new Map([
+        ["L-HIVE", "S-HIVE"],
+        ["L-ACES", "S-ACES"],
+      ]),
+      (teamId) => states[teamId],
+      null,
+      "9U 2027",
+      "2026-09-28T12:00:00.000Z",
+      {},
+      (clubId) => (clubId === "S-HIVE" ? "gcHive0001" : undefined)
+    );
+    expect(places["L-HIVE"]?.gc).toBe("gcHive0001");
+    expect(places["L-ACES"]).not.toHaveProperty("gc");
+    writeLeagueClubRanks("season-1", places);
+    expect(leagueClubRankFor("season-1", "L-HIVE")?.gc).toBe("gcHive0001");
+  });
+
+  it("follows its club where it moved, and is none where its id is another club's now", () => {
+    writeLeagueClubRanks("season-1", { "L-HIVE": { ...hive, gc: "gcHive0001" } });
+    // As kept, where nothing says otherwise.
+    expect(leagueClubRankFor("season-1", "L-HIVE")).toEqual({ ...hive, gc: "gcHive0001" });
+    const same = clubLookupOf([{ id: "S-HIVE", gcTeams: [link("gcHive0001")] }]);
+    expect(leagueClubRankFor("season-1", "L-HIVE", same)).toEqual({ ...hive, gc: "gcHive0001" });
+    // The Hive folded into the Owls, or pulled again under another id.
+    const moved = clubLookupOf([
+      { id: "S-OWLS", gcTeams: [link("gcOwls0001"), link("gcHive0001")] },
+    ]);
+    expect(leagueClubRankFor("season-1", "L-HIVE", moved)).toEqual({
+      ...hive,
+      clubId: "S-OWLS",
+      gc: "gcHive0001",
+    });
+    // S-HIVE another club now, and the Hive nowhere.
+    const gone = clubLookupOf([{ id: "S-HIVE", gcTeams: [link("gcOther001")] }]);
+    expect(leagueClubRankFor("season-1", "L-HIVE", gone)).toBeUndefined();
+  });
+
+  it("reads a place kept with no GameChanger id as it always did, and one that is not text as none", () => {
+    writeLeagueClubRanks("season-1", { "L-HIVE": hive });
+    const gone = clubLookupOf([{ id: "S-HIVE", gcTeams: [link("gcOther001")] }]);
+    expect(leagueClubRankFor("season-1", "L-HIVE", gone)).toEqual(hive);
+    store.set(
+      "lf_league_club_ranks_v1",
+      JSON.stringify({ "season-1": { "L-HIVE": { ...hive, gc: 7 } } })
+    );
+    expect(leagueClubRankFor("season-1", "L-HIVE")).toEqual(hive);
   });
 });
 

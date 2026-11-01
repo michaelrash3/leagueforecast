@@ -2865,8 +2865,10 @@ export default function App() {
    */
   const ourClubRank = useMemo(
     () =>
-      ourTeamId && appMode === "league" ? leagueClubRankFor(activeSeasonId, ourTeamId) : undefined,
-    [activeSeasonId, ourTeamId, appMode]
+      ourTeamId && appMode === "league"
+        ? leagueClubRankFor(activeSeasonId, ourTeamId, scoutClubs)
+        : undefined,
+    [activeSeasonId, ourTeamId, appMode, scoutClubs]
   );
   /*
    * League Standings' Scout button: Team Rankings' Scouting on the page a team's club was ranked
@@ -3838,7 +3840,9 @@ export default function App() {
                   ) : activeView === "standings" ? (
                     <StandingsView
                       rankOptions={rankOptions}
-                      nationalRank={(teamId) => leagueClubRankFor(activeSeasonId, teamId)}
+                      nationalRank={(teamId) =>
+                        leagueClubRankFor(activeSeasonId, teamId, scoutClubs)
+                      }
                       onScout={scoutClub}
                       goldCutoff={goldCutoff}
                       latestCompletedDate={latestCompletedDate}

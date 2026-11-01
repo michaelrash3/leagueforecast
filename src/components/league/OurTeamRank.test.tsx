@@ -59,6 +59,32 @@ describe("the league's clubs on the board", () => {
     expect([hive?.stateRank, owls?.stateRank]).toEqual([1, 2]);
     expect(hive?.board).toMatch(/^9U 2027/);
   });
+
+  it("keeps with each place the GameChanger id its club carries on the page", async () => {
+    const link = (teamId: string) => ({ teamId, name: teamId, ageGroupId: "ag_9u_2027" });
+    window.localStorage.removeItem("lf_league_club_ranks_v1");
+    renderTeamRankings({
+      ageGroups: [ageGroup(9, 2027, { seasonIds: ["default"] })],
+      teams: [
+        team("S-HIVE", "Example Hive", { state: "OH", gcTeams: [link("gcHive0001")] }),
+        team("S-OWLS", "Owls", { state: "OH" }),
+      ],
+      games: [game("g1", "ag_9u_2027", "S-HIVE", "S-OWLS", 5, 3, { date: "2026-09-12" })],
+      league: {
+        teams: [
+          { id: "L-HIVE", name: "Example Hive" },
+          { id: "L-OWLS", name: "Owls" },
+        ],
+        matchups: [{ id: "m1", date: "9/19", away: "L-HIVE", home: "L-OWLS" }],
+        logs: { m1: final(6, 4) },
+      },
+    });
+    await waitFor(() =>
+      expect(leagueClubRankFor("default", "L-HIVE")).toMatchObject({ gc: "gcHive0001" })
+    );
+    // A club GameChanger has no id for keeps none.
+    expect(leagueClubRankFor("default", "L-OWLS")).not.toHaveProperty("gc");
+  });
 });
 
 describe("a season whose board has emptied", () => {
