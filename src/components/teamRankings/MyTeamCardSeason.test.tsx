@@ -1,8 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { expectedWords, MyTeamCard, ordinal } from "./MyTeamCard";
 import type { MyTeamGlance } from "../../lib/myTeamGlance";
 import type { UpcomingMatchup } from "../../lib/teamRankings";
+import { formatStartTime } from "../../lib/date";
 
 /*
  * The My Team card's season beside its ratings: how tough its schedule has been in its state, its
@@ -59,7 +60,7 @@ describe("the My Team card's season", () => {
       "Schedule: 11th toughest of 98 in KY · 9–11 against rated clubs, about one win better than the ratings expect (8.1) · one-run games 3–2"
     );
     expect(card.textContent).toMatch(
-      /Weekend to .+: 2 games, about 1\.0 wins expected · toughest vs Ospreys \(31%\) · likeliest vs H\/R Bulldogs \(67%\)/
+      /Weekend to .+: 2 games, about 1\.0 wins expected · toughest vs Ospreys \(31%, Sun\) · likeliest vs H\/R Bulldogs \(67%, Sat\)/
     );
   });
 
@@ -91,6 +92,69 @@ describe("the My Team card's season", () => {
     const card = screen.getByRole("region", { name: "My team" });
     expect(card.textContent).toMatch(/Weekend to .+: 2 games/);
     expect(card.textContent).not.toContain("wins expected");
+  });
+
+  it("says when the next game and the weekend's named games start, where it is known", () => {
+    const at = (game: UpcomingMatchup, startTs: string): UpcomingMatchup => ({ ...game, startTs });
+    const morning = "2026-10-31T13:30:00.000Z";
+    const afternoon = "2026-11-01T18:00:00.000Z";
+    const weekend = GLANCE.weekend!;
+    render(
+      <MyTeamCard
+        glance={{
+          ...GLANCE,
+          next: at(GLANCE.next!, morning),
+          weekend: {
+            ...weekend,
+            toughest: at(weekend.toughest!, afternoon),
+            likeliest: weekend.likeliest!,
+          },
+        }}
+        onOpenTeam={() => undefined}
+      />
+    );
+    const card = screen.getByRole("region", { name: "My team" });
+    expect(card.textContent).toContain(`Next: Sat, Oct 31 · ${formatStartTime(morning)} vs `);
+    // The toughest has a start; the likeliest has none, and says its day alone.
+    expect(card.textContent).toContain(
+      `toughest vs Ospreys (31%, Sun ${formatStartTime(afternoon)}) · likeliest vs H/R Bulldogs (67%, Sat)`
+    );
+  });
+
+  it("says an untimed next game by its day alone", () => {
+    render(<MyTeamCard glance={GLANCE} onOpenTeam={() => undefined} />);
+    expect(screen.getByRole("region", { name: "My team" }).textContent).toContain(
+      "Next: Sat, Oct 31 vs H/R Bulldogs"
+    );
+  });
+
+  /*
+   * The card's week in words. Its arrow was bare, its only label a hover title a phone never
+   * shows, and under the Since line's "▲6 since you last looked" a red "▼5" read as the same
+   * question answered the other way.
+   */
+  it("says how far it moved since last week in words, by its place nationally", () => {
+    render(<MyTeamCard glance={{ ...GLANCE, movement: -5 }} onOpenTeam={() => undefined} />);
+    const card = screen.getByRole("region", { name: "My team" });
+    expect(card).toHaveTextContent("#2,737 of 7,126 nationally ▼5 since last week ·");
+    // The arrow is named for a screen reader, which would otherwise read out a triangle.
+    expect(within(card).getByRole("img", { name: "down" })).toHaveTextContent("▼");
+  });
+
+  // A nationwide board of thousands can move a club a thousand places in a week; The Weekly said
+  // "(up 1,300)" and the card "▼1300".
+  it("puts the comma in a week's move of a thousand places or more", () => {
+    render(<MyTeamCard glance={{ ...GLANCE, movement: -1300 }} onOpenTeam={() => undefined} />);
+    expect(screen.getByRole("region", { name: "My team" })).toHaveTextContent(
+      "nationally ▼1,300 since last week ·"
+    );
+  });
+
+  it("says a club the board of a week ago did not rank is new this week", () => {
+    render(<MyTeamCard glance={{ ...GLANCE, movement: "new" }} onOpenTeam={() => undefined} />);
+    expect(screen.getByRole("region", { name: "My team" })).toHaveTextContent(
+      "nationally new this week ·"
+    );
   });
 
   it("leaves out what it does not know", () => {

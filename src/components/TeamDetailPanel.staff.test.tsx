@@ -43,7 +43,10 @@ const pool = () => ({
 const openTeam = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
   await user.click(screen.getByRole("button", { name: /show all/i }));
   await user.click(within(screen.getByRole("table")).getByRole("button", { name }));
-  return await screen.findByRole("region", { name });
+  const panel = await screen.findByRole("region", { name });
+  // The picker and the links are with the tools that fix the club's data, folded until asked for.
+  await user.click(within(panel).getByRole("button", { name: "Fix this club's data" }));
+  return panel;
 };
 
 /** The merge picker is a search box; its list only exists once it has the focus. */

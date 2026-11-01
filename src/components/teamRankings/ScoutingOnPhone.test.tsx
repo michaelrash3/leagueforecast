@@ -134,6 +134,23 @@ describe("the scouting report on a phone", () => {
     expect(screen.queryByRole("list", { name: "Next up" })).toBeNull();
   });
 
+  it("asks its question whole above the box, on a wide screen as on a phone", async () => {
+    // A wide screen split it around the box, "HOW WOULD [box] … FARE?", the last word at the far
+    // end of the card.
+    for (const wide of [false, true]) {
+      atWidth(wide);
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const { unmount } = renderTeamRankings(pool());
+      await user.click(screen.getByRole("tab", { name: /scouting/i }));
+      const box = screen.getByRole("combobox", { name: "How would this team fare?" });
+      const question = document.querySelector(`label[for="${box.id}"]`);
+      expect(question?.textContent).toBe("How would this team fare?");
+      expect(question?.querySelector("*")).toBeNull();
+      expect(screen.queryByText(/^fare\?$/i)).toBeNull();
+      unmount();
+    }
+  });
+
   it("gives the pickers a visible field", async () => {
     atWidth(false);
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });

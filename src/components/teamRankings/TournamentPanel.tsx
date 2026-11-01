@@ -9,7 +9,7 @@ import {
 } from "../../lib/tournamentFields";
 import { TeamSearchSelect, type TeamSearchOption } from "../TeamSearchSelect";
 import { formatRating } from "./RankingList";
-import { card } from "../../styles/tokens";
+import { card, tapArea } from "../../styles/tokens";
 import { nextWeekendOpponents } from "../../lib/nextWeekend";
 import type { ClubLookup } from "../../lib/teamRankings/leagueBridge";
 
@@ -31,8 +31,7 @@ type TournamentPanelProps = {
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 
-const SMALL_BUTTON =
-  "text-xs font-bold text-slate-600 hover:underline disabled:opacity-40 dark:text-slate-300";
+const SMALL_BUTTON = `${tapArea} text-xs font-bold text-slate-600 hover:underline disabled:opacity-40 dark:text-slate-300`;
 
 /**
  * A weekend's field, played out before it is played.
@@ -235,7 +234,7 @@ export function TournamentPanel({
                 type="button"
                 aria-label={`Remove ${rowById.get(id)?.teamName ?? "club"}`}
                 onClick={() => setFieldIds((before) => before.filter((one) => one !== id))}
-                className="font-bold text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                className={`${tapArea} font-bold text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white`}
               >
                 ×
               </button>

@@ -51,6 +51,8 @@ describe("GameChanger's record on each link", () => {
     await user.click(screen.getByRole("button", { name: /show all/i }));
     await user.click(within(screen.getByRole("table")).getByRole("button", { name: "Aces" }));
     const panel = await screen.findByRole("region", { name: "Aces" });
+    // The links are with the tools that fix the club's data, folded away until asked for.
+    await user.click(within(panel).getByRole("button", { name: "Fix this club's data" }));
 
     expect(within(panel).getByText("GameChanger 5-3-1, pulled 2 days ago")).toBeInTheDocument();
     // The spring id, pulled never and with no record of GameChanger's, says nothing.

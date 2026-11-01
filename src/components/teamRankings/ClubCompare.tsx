@@ -11,7 +11,8 @@ import { formatIsoDayShort } from "../../lib/date";
 const scoreLine = (result: ClubResult): string =>
   `${result.margin > 0 ? "W" : result.margin < 0 ? "L" : "T"} ${result.runsFor}–${result.runsAgainst}`;
 
-const rankTag = (rank: number | undefined) => (rank === undefined ? "unranked" : `#${rank}`);
+const rankTag = (rank: number | undefined) =>
+  rank === undefined ? "unranked" : `#${rank.toLocaleString()}`;
 
 const oneDecimal = (value: number) => value.toFixed(1);
 const signed = (value: number) =>

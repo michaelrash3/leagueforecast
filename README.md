@@ -560,7 +560,11 @@ at a time. The card reads only what the page already has, so it costs nothing.
 
 **Movement since last week.** The national board and the card mark how far each
 club has moved since the board of a week ago: ▲3, ▼5, or "new" for a club that was
-not ranked then. A board keeps no history, so last week's is fitted again from the
+not ranked then. A board's row keeps the bare mark, its words said only to a screen
+reader; the card says them ("▼5 since last week", "new this week"), since its mark sat
+under the Since line's "▲6", which is since the last visit, and with a hover title for
+its only label, which a phone never shows, a red "▼5" read as the same question
+answered the other way. A board keeps no history, so last week's is fitted again from the
 games played by then (`ranksAsOf`), once the board on screen is up, in the rankings
 worker for a large pool. That fit gives every page of the year at once and only its
 places are kept, a number a club, rather than a second year's fit of about 44 MB. The
@@ -629,7 +633,8 @@ every year.
 **Since you last looked.** Since 30 October 2026 the card opens, an hour or more after the
 last visit, on a line of what moved for the club since then: its place nationally and in its
 state then and now, each running from one to the other (shown at once where motion is turned
-down), its record and its rating, until **Got it** (`myTeamLook.ts`, `MyTeamSince.tsx`). A look
+down), its record and its rating, until **Got it**, a button a thumb's size on a phone where it
+was a 49 by 26 px chip (`myTeamLook.ts`, `MyTeamSince.tsx`). A look
 is kept per club in this browser only (`lf_my_team_look_v1_<club>`): the places, record, rating
 and the half of the season the board is for, for the twelve clubs looked at last, the rest let go
 as a look is kept (none was ever removed before). The first visit only keeps one; a later one
@@ -2371,6 +2376,23 @@ corrected. **Renaming onto a name that already exists merges the two** — which
 how a game logged against "TBD", or a club typed two ways, reaches the team it
 belongs to.
 
+**What a club's panel says first.** Since 1 November 2026 the sheet leads with the club as
+the board on screen places it: its place on the page's board and among its state's clubs there,
+and its rating ("#17 of 190 nationally · #7 of 47 in KY · rating +2.5", read as the My Team
+card reads its own, `myTeamGlance`), with no place for a club the board does not list; then its
+record and form; then its games, those still to come soonest first with their starts, then its
+results newest first, each day in words. The tools that change its data (its name, its
+GameChanger links with Unlink, its age, Same team as and its state) are folded under **Fix this
+club's data**, closed as the sheet opens: a button, so the keyboard reaches it and a screen
+reader hears whether it is open, and whatever is typed in it stays while it is folded. The sheet
+opened on those tools, a phone screen of them above the games (at 390 px the games began 917 px
+down a 3,858 px sheet, the farthest-off first), with no place or rating at all, so the #1
+club's sheet did not say #1 and a stray tap landed among tools that rename, unlink or fold a
+club. Close and Watch are 44 px buttons where they were 33 by 16 px links. The cloud's board
+draws the same panel and reads the place off the board it hands it; where nothing on the panel
+can change the club, the fold is **This club's data**. Pool health's lists and the toast after
+**Not this team** say their days in words too.
+
 ### The Games tab
 
 The Games tab lists a page's games — pulled, pasted or typed in — for today
@@ -2380,10 +2402,23 @@ and on 2 October 2026 the user cut it to today's games. A squad year today is
 not in has no today to show: a finished season lists its last day with games,
 and one not yet begun its first, so neither opens on an empty list.
 
+**A day with no games.** Most weekdays in season have none, and the tab opened on
+"No games today": a parent looking on a Friday night for Saturday's games had to
+go to Show all. Since 1 November 2026 a day in season with no games opens on the
+next day that has them, and says so ("No games today (Sun, Nov 1). The next games
+are on Sat, Nov 7."), with **Last game day** a step back to the last day that had
+them and **Next game day** forward again; with none still to come it opens on the
+last. A day with games is listed alone, as the user ruled on 2 October, and a
+season finished or not begun opens as above.
+
 Nothing is out of reach. A line under the heading says how many games the day
 leaves out, how many of those have no date and how many were due earlier and
-still have no score, and **Show all** lists every one: an old game is still
-scored from here. A score is two whole numbers of runs (`typedScores`); a Save
+still have no score, and **Show all** lists every one: the games still to play
+first, soonest first by day and start, then the rest newest first, the undated
+last (`everyGameListed`); a day's own list is in the same order, so a day ahead
+reads its first start first. Newest first throughout, the farthest-off game led the
+list, and on a seeded page of 2,693 games the next day's first game came 497th.
+An old game is still scored from here. A score is two whole numbers of runs (`typedScores`); a Save
 pressed with a box left empty says so, where until October 2026 it recorded 0–0. A game just added stays on the list whatever its date, so it
 does not vanish the moment it goes in. On the pool of 29 September 2026 the 12U
 page of 2027 held 45,107 games: 326 of them were that day's, against 11,348
@@ -4706,8 +4741,14 @@ group of 60 to the fit). Nothing more is read or published for it.
 
 Every Team Rankings list of games is in the order the games are played: by day, then by start
 time where GameChanger gave one (`ScoutGame.startTs`), a game with no start after the day's
-timed ones (the game-time helpers in `date.ts`). Newest-first lists put a day's later game first. The start orders the
-list and is not shown. The lists a phone reads carry it to the minute: a club card's game as `t`,
+timed ones (the game-time helpers in `date.ts`). Newest-first lists put a day's later game first.
+Since 1 November 2026 the start is shown too, in the reader's own time, wherever a game is listed
+with its day: the My Team card's next game ("Next: Sat, Oct 31 · 9:30 AM") and the two games its
+weekend line names ("Sat 9:30 AM"), Scouting's Next up, a club's panel and the Games tab
+(`dayAndTime`, as League Standings' Schedule says it). A game with no start says its day alone.
+Until then the start ordered the lists and was not shown, so a tournament Saturday's five games
+were in order with nothing to say which was at 9:30 and which at 7:00, and the panel and the Games
+tab printed the day as stored ("2026-10-31"). The lists a phone reads carry it to the minute: a club card's game as `t`,
 a page's Games list as `times` beside its games (so a reader from before them still takes each
 game's seven fields), both in whole minutes since 1970. A card's game is found for an edit by
 everything else it shows (`cardFixture`), so a card from before the start, or one carrying it in
@@ -9940,11 +9981,57 @@ footnote or a failed panel reads the same on every League view.
   - The schedule-difficulty cards drew their opponents at 80% opacity (4.46:1 on the
     amber card); they are full strength now. The toast's dismiss button was 70% white
     on the toast, 2.53:1, and is white.
+  - Team Rankings, since 1 November 2026: "not played" beside a half with no games was
+    its tab's colour at 60%, 2.88:1 in light mode and 3.33:1 in dark; it is the tab's own
+    colour, 7.56:1 and 7.68:1, told apart by its weight. The town and figures on your own
+    club's highlighted row were slate-500 on blue-50, 4.38:1, and are slate-600, 6.94:1, on
+    every row. The My Team card's star was amber-500 on white, 2.13:1, and is amber-700,
+    5.05:1 (amber-400 in dark). The Games tab's day was slate-400 on white, 2.63:1, and is
+    slate-500, as is the full table's grey place on the whole board beside a state's own,
+    which measured the same. A tidy step that found nothing printed its zero in slate-400
+    on slate-100, 2.40:1 (slate-600 on slate-900 in dark, 2.35:1), and is slate-600 (dark
+    slate-400) on the same grey. One that found something faded its whole cell, white bold
+    figure and all, to show less found, from emerald-500 down: 2.46:1 at its strongest and
+    nearer 1:1 at its faintest. Only its ground is shaded now (`heatCell`, by `--heat`), an
+    emerald-950 figure on emerald-500 in light mode and white on emerald-700 in dark, 6.14:1
+    and 5.37:1 at the strongest and more as it fades, as the seed odds grid does it; the
+    audit's seeded pool gives the tidy nothing to find, so `tokens.test.ts` measures it at
+    every strength.
+- **A thumb's tap area on a phone** (`tapArea`): Team Rankings' buttons and links are 44 px
+  each way below `sm`, where its main ones were text links 16 to 26 px tall (Scout 34 by 16,
+  What if? 48 by 16, the club sheet's Close 33 by 16, Got it 49 by 26, "Open on 10U by
+  default" 136 by 16, measured at 390 px; Scouting's "Write this up with AI" pill 172 by 24 at
+  360 px). From `sm` up a pointer aims and each keeps its own size, and its own line: What if?
+  and Scout are each set on a line of their own under a game's opponent, since inline, side by
+  side, a wide screen read them as "What if?Scout". A board's row is one button, the whole row opening its club where only its name did,
+  a line 20 px tall: named by the club, described by the rest of the row, and reached by the
+  keyboard once a row. A club's name inside a sentence of The Weekly is sized by its line, as
+  WCAG's inline exception allows.
+- **Words a parent reads** (since 1 November 2026). A count of a thousand or more has its
+  comma wherever Team Rankings, its pull or League's Fill scores prints one: a board's "of
+  1,190 ranked" and "Show all 1,190 teams", a place on it ("#1,203") in the full table,
+  Scouting, The Weekly, Watching, the archive and the Since line, a week's move on the My Team
+  card and a board's row ("▼1,300 since last week", which read "▼1300"), a pulled list's counts, and
+  Fill scores' "1,993 pool results not on this schedule", which a nationwide pool printed as
+  "1993". Nothing says "(s)": "About 1 minute of requests", "2 lines ignored", "1 row
+  skipped", "Imported 1 game". A control with nothing to act on is not offered: the full
+  table's toggle is not drawn for a board with no teams, where it read "Show all 0 teams",
+  and Fill scores with nothing ticked says "Tick a game above to fill it." where its button
+  read "Fill 0 games", or with nothing that can be ticked (every row one it cannot tell apart,
+  and no game to add) says nothing at all. Scouting asks "How would this team fare?" whole above its box on
+  every screen, where a wide one split it around the box. The service worker's word that the
+  app is stored for use offline, once on a first visit, is "Ready to use offline." at the top
+  of the screen for three seconds (`place: "top"` on the toast), where "App shell cached for
+  offline use." sat above the tab bar over the My Team card. League's start screen opens on
+  "Start your season" in place of "a guided flow" and "a visual setup lane", and calls the
+  sample season "Made-up teams and scores", where "Safe sandbox mode" was not so: loaded over
+  a season, it replaces it, with an undo.
 - **How it is checked.**
   - `src/styles/tokens.test.ts` reads Tailwind's palette from its own theme
     (`tailwindcss/theme.css`, in OKLCH, converted as a browser draws it: slate-500
     comes out #62748e) and measures every text role on every surface, each status
-    pill on a card and each state panel's words, in light mode and dark.
+    pill on a card, each state panel's words, and a heat cell's figure at every
+    strength from none to full, in light mode and dark.
   - `src/components/textSize.test.ts` reads every component, Team Rankings' too, and
     the shared styles in `tokens.ts` for a size set below 12px, a size sized with the
     screen counted by its floor (the app-mode switch's `clamp(11px,…)` was 11.52px on
@@ -9952,7 +10039,20 @@ footnote or a failed panel reads the same on every League view.
   - `e2e/design.spec.ts` measures the built app: League Standings in light mode and
     dark, on a phone (360px), a tablet (768px) and a desktop (1280px), on every view of
     the demo season, on the first launch with no season, and while a view is loading
-    and after it fails to. Every visible run of text is measured against what is
+    and after it fails to; and Team Rankings at the same sizes on a pool seeded as an
+    older version kept it, on every section, a club's sheet, the full table cut to one
+    state, and the My Team card telling what moved since a visit two days before, its
+    clock held so each run draws the same board. At every size it also finds any two of
+    Team Rankings' buttons and links laid out together whose words touch on a line, less
+    than a space apart, and on the phone every one under 44 px either way, but for one
+    that shares its line with the page's own words, as a club's name in a sentence does
+    (`controlProblems`). Words elsewhere in a control's box do not let it off: counted
+    that way, as the check first was, the opponent's name above What if? and Scout let
+    both off, and with their tap area taken away it still passed. With the star put back
+    to amber-500 the contrast check fails at 2.13:1; with "Open on 10U by default" back
+    to a text link the tap check fails at 136 by 16 px; with What if? and Scout back to
+    inline text links it fails at 48 by 16 and 34 by 16 px on the phone and at "What if?
+    and Scout Hawks: 0 px apart" on the tablet and the desktop. Every visible run of text is measured against what is
     actually painted behind it (see-through layers blended down to the first solid
     one), no text may be under 12px, and nothing may be wider than the screen. On the
     2.4 build it found 10 or 11px text in about 40 places on League's pages and a

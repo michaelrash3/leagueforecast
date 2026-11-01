@@ -181,7 +181,7 @@ function ArchivedSeasonBoards({ season }: { season: ArchivedSeason }) {
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               {found.length === 0
                 ? "No team in this season has that in its name."
-                : `${found.length} match${found.length === 1 ? "" : "es"}.`}
+                : `${found.length.toLocaleString()} match${found.length === 1 ? "" : "es"}.`}
             </p>
             {found.length > 0 && <ArchivedTable rows={found.slice(0, 50)} />}
           </>
@@ -305,13 +305,13 @@ function ArchivedTable({ rows }: { rows: ArchivedRankingRow[] }) {
               key={`${row.rank}-${row.teamName}`}
               className="border-t border-slate-100 dark:border-slate-800"
             >
-              <td className="py-3 font-black">#{row.rank}</td>
+              <td className="py-3 font-black">#{row.rank.toLocaleString()}</td>
               <td className="font-bold text-slate-950 dark:text-white">{row.teamName}</td>
               <td className="text-slate-500 dark:text-slate-400">{row.state ?? "—"}</td>
               <td>{row.record}</td>
               <td>{formatRating(row.rating)}</td>
               <td>{row.games}</td>
-              <td>{row.sosRank ? `#${row.sosRank}` : "—"}</td>
+              <td>{row.sosRank ? `#${row.sosRank.toLocaleString()}` : "—"}</td>
             </tr>
           ))}
         </tbody>

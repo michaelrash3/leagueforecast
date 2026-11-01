@@ -47,3 +47,17 @@ describe("reading the team-list box as a schedule", () => {
     expect(screen.getByRole("button", { name: "Read as a schedule" })).toHaveFocus();
   });
 });
+
+/*
+ * The start screen in a parent's words. It opened on "A visual setup lane keeps the first import,
+ * roster build, validation, and demo rehearsal in one place", and called the sample season "Safe
+ * sandbox mode", which it is not: loaded over a season, it replaces it, with an undo.
+ */
+describe("the start screen's words", () => {
+  it("says what each way in is for, without the app's own jargon", () => {
+    render(<Season schedulePaste={() => null} />);
+    expect(screen.queryByText(/setup lane|rehearsal|sandbox|guided flow/i)).toBeNull();
+    expect(screen.getByRole("heading", { name: "Start your season" })).toBeInTheDocument();
+    expect(screen.getByText("Made-up teams and scores")).toBeInTheDocument();
+  });
+});

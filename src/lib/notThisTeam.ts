@@ -3,6 +3,7 @@ import { cleanTeamName, isPlaceholderName, teamNameKey } from "./teamRankings/na
 import type { TakenIds } from "./teamRankings/retiredIds";
 import { ageGroupLevel, ageGroupYear } from "./teamRankings/seasons";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "./teamRankings/types";
+import { formatIsoDayShort } from "./date";
 
 /**
  * "Not this team": the owner saying a game is not a club's, where the club has it only because a
@@ -258,7 +259,11 @@ export const takenOffSaid = (
   opponent: string | undefined,
   dates: readonly (string | undefined)[]
 ): string => {
-  const days = dates.filter((date): date is string => date !== undefined).sort();
+  // In the order played, each said as the page says a day ("Sat, Oct 31"), not as stored.
+  const days = dates
+    .filter((date): date is string => date !== undefined)
+    .sort()
+    .map(formatIsoDayShort);
   const against = opponent ? ` with ${opponent}` : "";
   if (dates.length <= 1) {
     return `Taken off ${club}: the game${against}${days[0] ? ` on ${days[0]}` : ""} stands against the name alone now.`;

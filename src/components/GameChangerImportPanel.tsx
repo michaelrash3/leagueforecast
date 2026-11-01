@@ -164,7 +164,7 @@ import { cloudStatus, subscribeCloud } from "../lib/cloud/cloudSession";
 import { pullBlockedBy } from "../lib/cloud/pullGate";
 import type { ToastTone } from "../hooks/useToast";
 import { pullSections } from "../lib/pullSections";
-import { button, card, pill } from "../styles/tokens";
+import { button, card, pill, tapArea } from "../styles/tokens";
 
 type GameChangerImportPanelProps = {
   /** The pool as it stands. The panel works on a copy and hands whole states back. */
@@ -297,6 +297,15 @@ const estimatedMinutes = (fresh: number): number => {
   const seconds = (requests / PULL_CONCURRENCY) * SECONDS_PER_BATCH;
   return Math.max(1, Math.ceil(seconds / 60));
 };
+
+/** "About 1 minute", "About 12 minutes": the estimate as a person says it, where it said "minute(s)". */
+const aboutMinutes = (fresh: number): string => {
+  const minutes = estimatedMinutes(fresh);
+  return `About ${minutes.toLocaleString()} ${minutes === 1 ? "minute" : "minutes"}`;
+};
+
+/** A count as the page prints every other: "52,470", with its comma. */
+const withCommas = (value: number): string => value.toLocaleString();
 
 /** A baseball year as the picker names it: "2027: Fall 2026 to Summer 2027". */
 const seasonYearLabel = (year: number): string => `${year}: Fall ${year - 1} to Summer ${year}`;
@@ -1816,7 +1825,7 @@ export function GameChangerImportPanel({
         <button
           type="button"
           onClick={onClose}
-          className="text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
+          className={`${tapArea} text-xs font-bold text-slate-600 hover:underline dark:text-slate-400`}
         >
           Close
         </button>
@@ -1937,8 +1946,8 @@ export function GameChangerImportPanel({
                     : `Refresh today's ${due.ageLevels.map((level) => `${level}U`).join(" and ")}`}
                 </button>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  About {estimatedMinutes(due.teamIds.length)} minute(s) of requests, and the whole
-                  pool is written back several times along the way, which is the slower half.
+                  {aboutMinutes(due.teamIds.length)} of requests, and the whole pool is written back
+                  several times along the way, which is the slower half.
                 </p>
               </>
             )}
@@ -2010,7 +2019,8 @@ export function GameChangerImportPanel({
           {rosterWatch.length > 0 && (
             <div className="mb-3 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
               <p className="font-bold text-slate-950 dark:text-white">
-                {rosterWatch.length} page{rosterWatch.length === 1 ? "" : "s"} may not be a team yet
+                {withCommas(rosterWatch.length)} page{rosterWatch.length === 1 ? "" : "s"} may not
+                be a team yet
               </p>
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 It takes {MIN_REAL_ROSTER} players to field a side, and{" "}
@@ -2027,7 +2037,9 @@ export function GameChangerImportPanel({
                   className={`${button.ghost} mt-3 text-sm`}
                 >
                   Check{" "}
-                  {rosterDue.length === rosterWatch.length ? "them" : `${rosterDue.length} of them`}{" "}
+                  {rosterDue.length === rosterWatch.length
+                    ? "them"
+                    : `${withCommas(rosterDue.length)} of them`}{" "}
                   again
                 </button>
               ) : (
@@ -2044,7 +2056,7 @@ export function GameChangerImportPanel({
                 A pull was interrupted.
               </p>
               <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
-                {describePull(savedProgress!)} {resumable.length} still to go.
+                {describePull(savedProgress!)} {withCommas(resumable.length)} still to go.
               </p>
               <div className="mt-2 flex flex-wrap gap-3">
                 <button
@@ -2128,45 +2140,50 @@ export function GameChangerImportPanel({
             ) : (
               <>
                 <span className={pill(parsed.entries.length ? "emerald" : "red")}>
-                  {parsed.entries.length} team{parsed.entries.length === 1 ? "" : "s"}
+                  {withCommas(parsed.entries.length)} team{parsed.entries.length === 1 ? "" : "s"}
                 </span>
                 {split.seen > 0 && (
                   <span className={pill("neutral")}>
-                    {split.seen} already here{split.refresh.length > 0 ? "" : ", skipped"}
+                    {withCommas(split.seen)} already here
+                    {split.refresh.length > 0 ? "" : ", skipped"}
                   </span>
                 )}
                 {parsed.skipped.length > 0 && (
-                  <span className={pill("amber")}>{parsed.skipped.length} line(s) ignored</span>
+                  <span className={pill("amber")}>
+                    {`${withCommas(parsed.skipped.length)} ${parsed.skipped.length === 1 ? "line" : "lines"} ignored`}
+                  </span>
                 )}
                 {parsed.tooYoung > 0 && (
                   <span className={pill("neutral")}>
-                    {parsed.tooYoung} under {MIN_AGE_LEVEL}U, skipped
+                    {withCommas(parsed.tooYoung)} under {MIN_AGE_LEVEL}U, skipped
                   </span>
                 )}
                 {parsed.notBaseball > 0 && (
                   <span className={pill("neutral")}>
-                    {parsed.notBaseball} wiffle ball, blitzball or softball, skipped
+                    {withCommas(parsed.notBaseball)} wiffle ball, blitzball or softball, skipped
                   </span>
                 )}
                 {parsed.notYouth > 0 && (
                   <span className={pill("neutral")}>
-                    {parsed.notYouth} adult or college, skipped
+                    {withCommas(parsed.notYouth)} adult or college, skipped
                   </span>
                 )}
                 {parsed.highSchool > 0 && (
-                  <span className={pill("neutral")}>{parsed.highSchool} high school, skipped</span>
+                  <span className={pill("neutral")}>
+                    {withCommas(parsed.highSchool)} high school, skipped
+                  </span>
                 )}
                 {parsed.notATeam > 0 && (
                   <span
                     className={pill("neutral")}
                     title="Pages whose name says they are no team: a practice, scrimmage, tryout or test page, an old page marked void, do not use or delete, or a page called only Team and a number, a letter or an age. Read off the name on every paste, so a page renamed since is asked about again. A club you vouched for is pulled whatever its name says."
                   >
-                    {`${parsed.notATeam} practice, test, old or unnamed team ${parsed.notATeam === 1 ? "page" : "pages"}, skipped`}
+                    {`${withCommas(parsed.notATeam)} practice, test, old or unnamed team ${parsed.notATeam === 1 ? "page" : "pages"}, skipped`}
                   </span>
                 )}
                 {parsed.otherSeason > 0 && (
                   <span className={pill("neutral")}>
-                    {parsed.otherSeason} from other seasons, skipped
+                    {withCommas(parsed.otherSeason)} from other seasons, skipped
                   </span>
                 )}
                 {parsed.turnedAway.length > 0 && (
@@ -2174,7 +2191,7 @@ export function GameChangerImportPanel({
                     className={pill("neutral")}
                     title="Fetched by an earlier pull and turned away: high school, wiffle ball or softball, adult or over-age teams for good, and teams from a season that is still not ticked."
                   >
-                    {parsed.turnedAway.length} turned away before, skipped{" "}
+                    {withCommas(parsed.turnedAway.length)} turned away before, skipped{" "}
                     <button
                       type="button"
                       className="font-bold underline"
@@ -2197,7 +2214,7 @@ export function GameChangerImportPanel({
                   </span>
                 )}
                 {split.fresh.length > 200 && (
-                  <span>About {estimatedMinutes(split.fresh.length)} minute(s) of requests.</span>
+                  <span>{aboutMinutes(split.fresh.length)} of requests.</span>
                 )}
               </>
             )}
@@ -2332,8 +2349,8 @@ export function GameChangerImportPanel({
             />
           </div>
           <p className="mt-2 text-sm font-bold text-slate-950 dark:text-white">
-            {stats.done} of {stats.total} pulled
-            {stats.failed ? `, ${stats.failed} failed` : ""}.
+            {withCommas(stats.done)} of {withCommas(stats.total)} pulled
+            {stats.failed ? `, ${withCommas(stats.failed)} failed` : ""}.
           </p>
           {section && (
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -2451,7 +2468,7 @@ export function GameChangerImportPanel({
             <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Worth a look ({result.problems.length})
+                  Worth a look ({withCommas(result.problems.length)})
                 </p>
                 <button
                   type="button"
@@ -2505,7 +2522,8 @@ export function GameChangerImportPanel({
               </ul>
               {result.problems.length > PROBLEMS_SHOWN && (
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Showing the first {PROBLEMS_SHOWN}. The download has all {result.problems.length}.
+                  Showing the first {PROBLEMS_SHOWN}. The download has all{" "}
+                  {withCommas(result.problems.length)}.
                 </p>
               )}
               {result.canRetry && (
@@ -2566,7 +2584,7 @@ export function GameChangerImportPanel({
                       });
                     }}
                   />
-                  Tick all {matching.length}
+                  Tick all {withCommas(matching.length)}
                   {pairSearch.trim() ? " matching" : ""}
                 </label>
               </div>
@@ -2650,26 +2668,27 @@ export function GameChangerImportPanel({
               {shown.length < matching.length && (
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
                   <span>
-                    Drawing {shown.length} of {matching.length}
-                    {pairSearch.trim() ? ` that match, out of ${pairings.length}` : ""}.
+                    Drawing {withCommas(shown.length)} of {withCommas(matching.length)}
+                    {pairSearch.trim() ? ` that match, out of ${withCommas(pairings.length)}` : ""}.
                   </span>
                   <button
                     type="button"
                     className={button.ghost}
                     onClick={() => setPairLimit(matching.length)}
                   >
-                    Show all {matching.length}
+                    Show all {withCommas(matching.length)}
                   </button>
                 </div>
               )}
               {matching.length === 0 && (
                 <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  None of the {pairings.length} match that. Clear the search to see them all.
+                  None of the {withCommas(pairings.length)} match that. Clear the search to see them
+                  all.
                 </p>
               )}
               {approved.size > 0 && (
                 <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  {approved.size} ticked
+                  {withCommas(approved.size)} ticked
                   {approved.size > shown.length ? ", including some not drawn here" : ""}.
                 </p>
               )}
@@ -2678,7 +2697,7 @@ export function GameChangerImportPanel({
 
           <div className="mt-4 flex flex-wrap gap-3">
             <button type="button" onClick={applyPairings} className={button.primary}>
-              {approved.size > 0 ? `Pair ${approved.size} and finish` : "Finish"}
+              {approved.size > 0 ? `Pair ${withCommas(approved.size)} and finish` : "Finish"}
             </button>
           </div>
         </div>

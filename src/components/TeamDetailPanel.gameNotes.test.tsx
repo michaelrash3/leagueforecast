@@ -1,6 +1,7 @@
 import { render, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../lib/teamRankings";
+import { formatIsoDayShort } from "../lib/date";
 import { TeamDetailPanel } from "./TeamDetailPanel";
 
 /*
@@ -107,7 +108,10 @@ const rowsOf = (container: HTMLElement) =>
   within(container.querySelector("section")!)
     .getAllByRole("listitem")
     .map((item) => {
-      const found = games.find((one) => item.textContent?.includes(one.date ?? "-"));
+      // The day as the panel says it ("Sat, Oct 3"), and not the start of a longer one ("Oct 31").
+      const found = games.find((one) =>
+        new RegExp(`${formatIsoDayShort(one.date ?? "")}(?!\\d)`).test(item.textContent ?? "")
+      );
       if (!found) throw new Error(`no game for the row ${item.textContent}`);
       return { id: found.id, item };
     });
@@ -116,8 +120,11 @@ describe("what each game did, on a club's panel", () => {
   it("draws the panel exactly as before without the lines, or with none to draw", () => {
     const without = panel();
     const before = markup(without.container);
-    // Taken from the panel before the lines were added to it.
-    expect(fingerprint(before)).toBe("27dd2477");
+    // Taken from the panel before the lines were added to it ("27dd2477"), again when its days
+    // were first said in words ("Sat, Sep 12" for "2026-09-12", "747f5a21"), and again when it
+    // was laid out to lead with the club, its games to come above its results and its tools
+    // folded away.
+    expect(fingerprint(before)).toBe("dea94d53");
     without.unmount();
     const none = panel({ gameNotes: { ...notes, byGame: new Map() } });
     expect(markup(none.container)).toBe(before);
@@ -169,7 +176,7 @@ describe("what each game did, on a club's panel", () => {
     expect(within(section).getAllByText(notes.key, { exact: false })).toHaveLength(1);
     const lead = within(section).getByText(notes.headline, { exact: false });
     expect(lead.textContent).toBe(`${notes.headline} ${notes.key}`);
-    // Under the list's heading, before its first game.
-    expect(lead.previousElementSibling?.textContent).toBe("Games in 12U 2027");
+    // Under the results' heading, before the first result: the lines explain the games played.
+    expect(lead.previousElementSibling?.textContent).toBe("Results");
   });
 });

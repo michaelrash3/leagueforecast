@@ -135,7 +135,8 @@ const onAnotherPage = (): Pool => ({
 /** Record and games off a team's row in the full table. */
 const recordOf = async (name: string) => {
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: /show all \d+ teams/i }));
+  // "Show the 1 team" on a page of one.
+  await user.click(screen.getByRole("button", { name: /^show (all [\d,]+ teams|the 1 team)$/i }));
   const row = within(screen.getByRole("table")).getByRole("button", { name }).closest("tr")!;
   const cells = within(row)
     .getAllByRole("cell")

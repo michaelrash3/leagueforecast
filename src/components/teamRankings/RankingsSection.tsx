@@ -15,7 +15,7 @@ import { MyTeamCard } from "./MyTeamCard";
 import { WatchCard } from "./WatchCard";
 import type { Watched } from "../../lib/watchList";
 import type { RankHistoryPoint } from "../../hooks/useRankingsWorker";
-import { card, focusRing, pill, textRole } from "../../styles/tokens";
+import { card, focusRing, pill, tapArea, textRole } from "../../styles/tokens";
 
 /** How many teams a page leads with, nationally and within one state. */
 export const NATIONAL_TOP = 25;
@@ -243,7 +243,7 @@ export function RankingsSection({
             onClick={onSearchWanted}
             disabled={searchLoading}
             aria-busy={searchLoading}
-            className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500"
+            className="mt-2 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
           >
             {searchLoading
               ? "Bringing in every team…"
@@ -312,7 +312,10 @@ export function RankingsSection({
                   {segment ? ` · ${segment.name}` : ""}
                 </h2>
                 <span className="text-xs text-slate-500 dark:text-slate-400">
-                  {standInNote ?? (rankingsStale ? "Refitting…" : `of ${rankings.length} ranked`)}
+                  {standInNote ??
+                    (rankingsStale
+                      ? "Refitting…"
+                      : `of ${rankings.length.toLocaleString()} ranked`)}
                 </span>
               </div>
               <RankingList
@@ -358,7 +361,7 @@ export function RankingsSection({
                               ? `Clear ${shownState} as the default state`
                               : `Make ${shownState} my default state`
                           }
-                          className={`rounded-sm font-bold text-blue-600 hover:underline dark:text-blue-400 ${focusRing}`}
+                          className={`${tapArea} rounded-sm font-bold text-blue-600 hover:underline dark:text-blue-400 ${focusRing}`}
                         >
                           {shownState === keptState ? "Clear" : `Make ${shownState} my default`}
                         </button>
@@ -395,14 +398,24 @@ export function RankingsSection({
             Collapsed by default now that the page leads with the two lists worth reading. A
             nationwide pool is thousands of rows; they are here to find a team in, not to scroll.
           */}
-          <button
-            type="button"
-            onClick={onToggleShowAll}
-            aria-expanded={showAll}
-            className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-          >
-            {showAll ? "Hide the full table" : `Show all ${rankings.length} teams`}
-          </button>
+          {/*
+            Offered only with a team to show: a half nobody has played offered "Show all 0 teams",
+            and opened on a line repeating what the card above it already says.
+          */}
+          {rankings.length > 0 && (
+            <button
+              type="button"
+              onClick={onToggleShowAll}
+              aria-expanded={showAll}
+              className={`${tapArea} text-xs font-bold text-blue-600 hover:underline dark:text-blue-400`}
+            >
+              {showAll
+                ? "Hide the full table"
+                : rankings.length === 1
+                  ? "Show the 1 team"
+                  : `Show all ${rankings.length.toLocaleString()} teams`}
+            </button>
+          )}
           {showAll && (availableStates.length > 0 || unknownStateCount > 0) && (
             <span className="flex items-center gap-2">
               <label
@@ -424,7 +437,9 @@ export function RankingsSection({
                   </option>
                 ))}
                 {unknownStateCount > 0 && (
-                  <option value={UNKNOWN_STATE}>No state set ({unknownStateCount})</option>
+                  <option value={UNKNOWN_STATE}>
+                    No state set ({unknownStateCount.toLocaleString()})
+                  </option>
                 )}
               </select>
             </span>
@@ -435,13 +450,14 @@ export function RankingsSection({
         )}
         {showAll && stateFilter && (
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-            {rankingsStale ? "Refitting the ratings… " : ""}Showing {visibleRankings.length} of{" "}
-            {rankings.length} teams. Ratings still come from every game — filtering changes who is
-            listed, not how anyone is rated, so the <strong>#</strong> here is the position within
-            this list and the grey number is the place in the full table.
+            {rankingsStale ? "Refitting the ratings… " : ""}Showing{" "}
+            {visibleRankings.length.toLocaleString()} of {rankings.length.toLocaleString()} teams.
+            Ratings still come from every game — filtering changes who is listed, not how anyone is
+            rated, so the <strong>#</strong> here is the position within this list and the grey
+            number is the place in the full table.
           </p>
         )}
-        {showAll && (
+        {showAll && rankings.length > 0 && (
           <div className="mt-3 overflow-x-auto">
             {/*
              * Eight columns is four too many for a phone, and this is the table a phone is most
@@ -478,16 +494,20 @@ export function RankingsSection({
                          * the smaller cost.
                          */}
                         <span className="min-w-0 text-sm font-black wrap-break-word">
-                          #{row.rank}
+                          #{row.rank.toLocaleString()}
+                          {/*
+                           * The place on the whole board, in grey beside the place in the state
+                           * picked: slate-500, as slate-400 on white measured 2.63:1.
+                           */}
                           {row.overallRank !== undefined && row.overallRank !== row.rank && (
-                            <span className="ml-1 text-xs font-bold text-slate-400">
-                              #{row.overallRank}
+                            <span className="ml-1 text-xs font-bold text-slate-500 dark:text-slate-400">
+                              #{row.overallRank.toLocaleString()}
                             </span>
                           )}{" "}
                           <button
                             type="button"
                             onClick={() => onOpenTeam(row.teamId)}
-                            className="text-left font-black hover:underline"
+                            className={`${tapArea} text-left font-black hover:underline`}
                             title="Every game logged for this team"
                           >
                             {row.teamName}
@@ -514,7 +534,7 @@ export function RankingsSection({
                         </div>
                         <div className="flex justify-between gap-2">
                           <dt className="text-slate-500 dark:text-slate-400">SOS</dt>
-                          <dd>{row.sosRank ? `#${row.sosRank}` : "—"}</dd>
+                          <dd>{row.sosRank ? `#${row.sosRank.toLocaleString()}` : "—"}</dd>
                         </div>
                       </dl>
                       <div className="mt-2 space-x-3 text-right">
@@ -529,7 +549,7 @@ export function RankingsSection({
                           <button
                             type="button"
                             onClick={() => onMarkMine(row.teamId)}
-                            className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                            className={`${tapArea} text-xs font-bold text-blue-600 hover:underline dark:text-blue-400`}
                             aria-pressed={row.isMine}
                             title="Mark as my team"
                           >
@@ -540,7 +560,7 @@ export function RankingsSection({
                           <button
                             type="button"
                             onClick={() => onRemoveTeam(row.teamId)}
-                            className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
+                            className={`${tapArea} text-xs font-bold text-red-600 hover:underline dark:text-red-400`}
                           >
                             Remove
                           </button>
@@ -573,10 +593,10 @@ export function RankingsSection({
                         className="border-t border-slate-100 dark:border-slate-800"
                       >
                         <td className="py-3 font-black">
-                          #{row.rank}
+                          #{row.rank.toLocaleString()}
                           {row.overallRank !== undefined && row.overallRank !== row.rank && (
-                            <span className="ml-1 text-xs font-bold text-slate-400">
-                              #{row.overallRank}
+                            <span className="ml-1 text-xs font-bold text-slate-500 dark:text-slate-400">
+                              #{row.overallRank.toLocaleString()}
                             </span>
                           )}
                         </td>
@@ -601,7 +621,7 @@ export function RankingsSection({
                         <td>{row.record}</td>
                         <td>{formatRating(row.rating)}</td>
                         <td>{row.games}</td>
-                        <td>{row.sosRank ? `#${row.sosRank}` : "—"}</td>
+                        <td>{row.sosRank ? `#${row.sosRank.toLocaleString()}` : "—"}</td>
                         <td className="space-x-2 text-right">
                           {/* Rows to read while the live board's edits are off: nothing to mark. */}
                           {readOnly ? (
@@ -640,23 +660,19 @@ export function RankingsSection({
             {hiddenRows > 0 && (
               <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
                 <span>
-                  Showing {visibleSlice.length} of {visibleRankings.length}
+                  Showing {visibleSlice.length.toLocaleString()} of{" "}
+                  {visibleRankings.length.toLocaleString()}
                 </span>
                 <button
                   type="button"
                   onClick={() =>
                     setRowLimit({ key: stateFilter, count: shownRows + ROWS_SHOWN_STEP })
                   }
-                  className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+                  className={`${tapArea} font-bold text-blue-600 hover:underline dark:text-blue-400`}
                 >
                   Show {Math.min(ROWS_SHOWN_STEP, hiddenRows)} more
                 </button>
               </div>
-            )}
-            {rankings.length === 0 && (
-              <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
-                {unrankedLevelNote ?? "No teams yet for this age group."}
-              </p>
             )}
           </div>
         )}

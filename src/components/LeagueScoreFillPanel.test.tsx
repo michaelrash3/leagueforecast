@@ -276,3 +276,95 @@ describe("a game the schedule has, played on another day", () => {
     expect(onApply).toHaveBeenCalledWith(["g1"], [], { add: ["s9"], swap: [] });
   });
 });
+
+/*
+ * The review's words with nothing ticked, and with a pool behind it of thousands. With nothing
+ * ticked its button read "Fill 0 games", switched off; a pool's results not on the schedule, six
+ * figures on a nationwide pool, were printed without a comma ("1993 pool results"). Placeholder
+ * names.
+ */
+describe("the review's counts and its button", () => {
+  const toCheck: LeagueFillPlan = {
+    rows: [base({ matchupId: "check", awayName: "Aces", homeName: "Bears", action: "suggested" })],
+    unmatched: 1_500,
+    unusedResults: 1_993,
+    seasonLinked: true,
+  };
+
+  it("offers no button to fill nothing, and says what to do instead", async () => {
+    const user = userEvent.setup();
+    render(
+      <LeagueScoreFillPanel plan={toCheck} seasonLabel="Fall" onApply={vi.fn()} onClose={vi.fn()} />
+    );
+    expect(screen.queryByRole("button", { name: /\b0 games?\b/ })).toBeNull();
+    expect(screen.getByText("Tick a game above to fill it.")).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "Fill Aces at Bears" }));
+    expect(screen.getByRole("button", { name: "Fill 1 game" })).toBeEnabled();
+    expect(screen.queryByText("Tick a game above to fill it.")).toBeNull();
+  });
+
+  it("puts the comma in a count of a thousand or more", () => {
+    render(
+      <LeagueScoreFillPanel plan={toCheck} seasonLabel="Fall" onApply={vi.fn()} onClose={vi.fn()} />
+    );
+    expect(
+      screen.getByText(/1,500 with no result yet · 1,993 pool results not on this schedule\./)
+    ).toBeInTheDocument();
+  });
+
+  it("says nothing of filling where the only games are ones to add, all left unticked", () => {
+    render(
+      <LeagueScoreFillPanel
+        plan={{
+          rows: [],
+          missing: [
+            {
+              scoutGameId: "t1",
+              date: "10/4",
+              awayTeamId: "A",
+              homeTeamId: "B",
+              awayName: "Aces",
+              homeName: "Bears",
+              awayRuns: 3,
+              homeRuns: 9,
+              tournament: "Entered under Fall Classic.",
+            },
+          ],
+          unmatched: 1_200,
+          unusedResults: 0,
+          seasonLinked: true,
+        }}
+        seasonLabel="Fall"
+        onApply={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.queryByRole("button", { name: /\b0 games?\b/ })).toBeNull();
+    expect(screen.getByText("Tick a game above to add it.")).toBeInTheDocument();
+    expect(screen.getByText(/1,200 games on this schedule have no result/)).toBeInTheDocument();
+  });
+
+  // Every row "cannot be told apart", its box switched off, and no game to add: it said "Tick a
+  // game above to add it." with nothing to tick and nothing to add.
+  it("asks for nothing where nothing can be ticked", () => {
+    render(
+      <LeagueScoreFillPanel
+        plan={{
+          rows: [
+            base({ matchupId: "twin", awayName: "Aces", homeName: "Bears", action: "ambiguous" }),
+          ],
+          unmatched: 0,
+          unusedResults: 0,
+          seasonLinked: true,
+        }}
+        seasonLabel="Fall"
+        onApply={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByRole("checkbox", { name: "Fill Aces at Bears" })).toBeDisabled();
+    expect(screen.queryByText(/^Tick a game/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /^(Fill|Add)\b/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+});

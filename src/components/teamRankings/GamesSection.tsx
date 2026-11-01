@@ -1,8 +1,13 @@
 import { useMemo, useState } from "react";
 import type { ScoutGame, ScoutRankingRow, ScoutTeam } from "../../lib/teamRankings";
 import { isScoutGamePlayed } from "../../lib/teamRankings";
-import { formatIsoDayShort } from "../../lib/date";
-import { windowGames, type GamesWindow } from "../../lib/teamRankings/gamesWindow";
+import { dayAndTime, formatIsoDayShort } from "../../lib/date";
+import {
+  everyGameListed,
+  stepGamesWindow,
+  windowGames,
+  type GamesWindow,
+} from "../../lib/teamRankings/gamesWindow";
 import { isUpset, UPSET_CHANCE } from "../../lib/theWeekly";
 import type { ToastTone } from "../../hooks/useToast";
 import { ScheduleImportPanel, type NamedChecker } from "../ScheduleImportPanel";
@@ -10,7 +15,7 @@ import type { NamedGame } from "../../lib/teamRankings/namedGames";
 import { TeamNameCombobox } from "../TeamNameCombobox";
 import { TeamSearchSelect } from "../TeamSearchSelect";
 import { WhatIf, WhatIfButton } from "./WhatIf";
-import { button, card, pill } from "../../styles/tokens";
+import { button, card, pill, tapArea } from "../../styles/tokens";
 import type { AddGameDraft } from "./addGameDraft";
 
 export { EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./addGameDraft";
@@ -45,6 +50,8 @@ type GamesSectionProps = {
   loggedGames: ScoutGame[];
   /** The days listed before the reader asks for every game (`gamesWindow.ts`). */
   gamesWindow: GamesWindow;
+  /** The reader's own day, which Show all lists the games still to play from. */
+  today: string;
   /** Games listed whatever their date: the ones just added here. */
   keep: ReadonlySet<string>;
   teamNameById: Map<string, string>;
@@ -97,7 +104,8 @@ export function GamesSection({
   onImportGames,
   showToast,
   loggedGames,
-  gamesWindow,
+  gamesWindow: openedOn,
+  today,
   keep,
   teamNameById,
   editingGameId,
@@ -118,10 +126,29 @@ export function GamesSection({
    */
   const [allFor, setAllFor] = useState<string | null>(null);
   const showingAll = allFor === ageGroupId;
+  /*
+   * Stepped back from the next day with games to the last one, on an empty day. Keyed on the page
+   * and the day it opened on, as the list's other choices are, so another page, or a new day, opens
+   * on its own window again.
+   */
+  const steppedKey = `${ageGroupId}|${openedOn.day}`;
+  const [steppedFor, setSteppedFor] = useState<string | null>(null);
+  const gamesWindow = useMemo(
+    () => (steppedFor === steppedKey ? stepGamesWindow(openedOn) : openedOn),
+    [steppedFor, steppedKey, openedOn]
+  );
   const windowed = useMemo(
     () => windowGames(loggedGames, gamesWindow, keep),
     [loggedGames, gamesWindow, keep]
   );
+  // Worked out only once asked for: a page of tens of thousands of games is sorted again.
+  const allListed = useMemo(
+    () => (showingAll ? everyGameListed(loggedGames, today) : null),
+    [showingAll, loggedGames, today]
+  );
+  // The day's own games in the same order, those still to play soonest first: a day ahead read
+  // its latest start first.
+  const dayListed = useMemo(() => everyGameListed(windowed.shown, today), [windowed, today]);
   /*
    * One club's games, every one of them on the page whatever their day, picked by name: a page of
    * thousands of games listed a day at a time, and a club's season was a scroll through all of them.
@@ -157,16 +184,21 @@ export function GamesSection({
         : null,
     [upsetsOnly, ratingRowOf, clubGames, loggedGames]
   );
-  const listed = upsetGames ?? clubGames ?? (showingAll ? loggedGames : windowed.shown);
+  const listed = upsetGames ?? clubGames ?? allListed ?? dayListed;
   // The game whose What if is open.
   const [whatIf, setWhatIf] = useState<string | null>(null);
   const day = formatIsoDayShort(gamesWindow.day);
+  const noneToday = `No games today (${formatIsoDayShort(today)}).`;
   const windowLine =
     gamesWindow.basis === "today"
       ? `Today's games (${day})`
-      : gamesWindow.basis === "season-end"
-        ? `This season's last day of games (${day})`
-        : `This season's first day of games (${day})`;
+      : gamesWindow.basis === "next"
+        ? `${noneToday} The next games are on ${day}`
+        : gamesWindow.basis === "last"
+          ? `${noneToday} The last games were on ${day}`
+          : gamesWindow.basis === "season-end"
+            ? `This season's last day of games (${day})`
+            : `This season's first day of games (${day})`;
   const hiddenParts = [
     windowed.undated > 0 ? `${windowed.undated.toLocaleString()} undated` : "",
     windowed.needingScore > 0 ? `${windowed.needingScore.toLocaleString()} still need a score` : "",
@@ -177,7 +209,7 @@ export function GamesSection({
    * switch between the day and every game, starts at the top again by itself, and nothing has to
    * fire after render to make it so.
    */
-  const listKey = `${ageGroupId}|${club ?? (showingAll ? "all" : "window")}|${upsetsOnly ? "upsets" : ""}`;
+  const listKey = `${ageGroupId}|${club ?? (showingAll ? "all" : gamesWindow.day)}|${upsetsOnly ? "upsets" : ""}`;
   const [listLimit, setListLimit] = useState({ key: listKey, count: GAMES_SHOWN_FIRST });
   const shown = listLimit.key === listKey ? listLimit.count : GAMES_SHOWN_FIRST;
   const shownGames = listed.slice(0, shown);
@@ -194,7 +226,7 @@ export function GamesSection({
             <button
               type="button"
               onClick={onOpenImport}
-              className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+              className={`${tapArea} text-xs font-bold text-blue-600 hover:underline dark:text-blue-400`}
             >
               Import games
             </button>
@@ -202,7 +234,7 @@ export function GamesSection({
           <button
             type="button"
             onClick={onGoToImport}
-            className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+            className={`${tapArea} text-xs font-bold text-blue-600 hover:underline dark:text-blue-400`}
           >
             Pull from GameChanger
           </button>
@@ -228,7 +260,7 @@ export function GamesSection({
               <button
                 type="button"
                 onClick={() => onDraftChange({ teamAName: myTeamName })}
-                className="shrink-0 whitespace-nowrap text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                className={`${tapArea} shrink-0 whitespace-nowrap text-xs font-bold text-blue-600 hover:underline dark:text-blue-400`}
               >
                 Use my team
               </button>
@@ -359,10 +391,11 @@ export function GamesSection({
             )}
           </div>
         )}
+        {/* Said whenever the list is not simply today's whole day, so a list on another day says why. */}
         {club === null &&
           !upsetsOnly &&
           loggedGames.length > 0 &&
-          (showingAll || windowed.hidden > 0) && (
+          (showingAll || windowed.hidden > 0 || gamesWindow.basis !== "today") && (
             <div
               className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400"
               data-testid="games-window"
@@ -370,21 +403,41 @@ export function GamesSection({
               <span>
                 {showingAll
                   ? `All ${gamesCount(loggedGames.length)} on this page.`
-                  : `${windowLine}. ${windowed.hidden.toLocaleString()} more ${
-                      windowed.hidden === 1 ? "is" : "are"
-                    } hidden${hiddenParts.length > 0 ? ` (${hiddenParts.join(", ")})` : ""}.`}
+                  : `${windowLine}.${
+                      windowed.hidden === 0
+                        ? ""
+                        : ` ${windowed.hidden.toLocaleString()} more ${
+                            windowed.hidden === 1 ? "is" : "are"
+                          } hidden${hiddenParts.length > 0 ? ` (${hiddenParts.join(", ")})` : ""}.`
+                    }`}
               </span>
-              <button
-                type="button"
-                onClick={() => setAllFor(showingAll ? null : ageGroupId)}
-                className={button.ghost}
-              >
-                {showingAll
-                  ? gamesWindow.basis === "today"
-                    ? "Show only today's games"
-                    : `Show only ${day}`
-                  : `Show all ${gamesCount(loggedGames.length)}`}
-              </button>
+              <span className="flex flex-wrap gap-2">
+                {/* The other way from an empty day: the last day with games, and back again. */}
+                {!showingAll && (gamesWindow.back ?? gamesWindow.forward) !== undefined && (
+                  <button
+                    type="button"
+                    onClick={() => setSteppedFor(gamesWindow.back ? steppedKey : null)}
+                    className={button.ghost}
+                  >
+                    {gamesWindow.back
+                      ? `Last game day: ${formatIsoDayShort(gamesWindow.back)}`
+                      : `Next game day: ${formatIsoDayShort(gamesWindow.forward ?? "")}`}
+                  </button>
+                )}
+                {(showingAll || windowed.hidden > 0) && (
+                  <button
+                    type="button"
+                    onClick={() => setAllFor(showingAll ? null : ageGroupId)}
+                    className={button.ghost}
+                  >
+                    {showingAll
+                      ? gamesWindow.basis === "today"
+                        ? "Show only today's games"
+                        : `Show only ${day}`
+                      : `Show all ${gamesCount(loggedGames.length)}`}
+                  </button>
+                )}
+              </span>
             </div>
           )}
         <ul className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
@@ -424,7 +477,12 @@ export function GamesSection({
                     {game.event && (
                       <span className="ml-2 text-slate-500 dark:text-slate-400">{game.event}</span>
                     )}
-                    {game.date && <span className="ml-2 text-slate-400">{game.date}</span>}
+                    {/* Its day in words, and its start where GameChanger gave one. */}
+                    {game.date && (
+                      <span className="ml-2 text-slate-500 dark:text-slate-400">
+                        {dayAndTime(formatIsoDayShort(game.date), game.startTs)}
+                      </span>
+                    )}
                   </span>
                   <span className="flex items-center gap-2">
                     {!played && editingGameId === game.id ? (
@@ -448,7 +506,7 @@ export function GamesSection({
                         <button
                           type="button"
                           onClick={() => onSaveScore(game.id)}
-                          className="text-xs font-bold text-emerald-700 hover:underline dark:text-emerald-400"
+                          className={`${tapArea} text-xs font-bold text-emerald-700 hover:underline dark:text-emerald-400`}
                         >
                           Save
                         </button>
@@ -458,7 +516,7 @@ export function GamesSection({
                         <button
                           type="button"
                           onClick={() => onStartEditScore(game.id)}
-                          className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                          className={`${tapArea} text-xs font-bold text-blue-600 hover:underline dark:text-blue-400`}
                         >
                           Enter score
                         </button>
@@ -468,7 +526,7 @@ export function GamesSection({
                       <button
                         type="button"
                         onClick={() => onToggleExcluded(game)}
-                        className="text-xs font-bold text-amber-700 hover:underline dark:text-amber-500"
+                        className={`${tapArea} text-xs font-bold text-amber-700 hover:underline dark:text-amber-500`}
                         title={
                           game.excluded
                             ? "Count this game toward the rankings again"
@@ -488,7 +546,7 @@ export function GamesSection({
                     <button
                       type="button"
                       onClick={() => onRemoveGame(game)}
-                      className={button.danger}
+                      className={`${button.danger} ${tapArea}`}
                     >
                       Remove
                     </button>

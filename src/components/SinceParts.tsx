@@ -29,7 +29,7 @@ export function CountUp({ from, to, suffix = "" }: { from: number; to: number; s
   }, [from, to, noMotion]);
   return (
     <span className="tabular-nums">
-      {noMotion ? to : value}
+      {(noMotion ? to : value).toLocaleString()}
       {suffix}
     </span>
   );
@@ -43,7 +43,7 @@ export function Move({ by, better }: { by: number; better: boolean }) {
       className={`font-black ${better ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300"}`}
     >
       {better ? "▲" : "▼"}
-      {Math.abs(by)}
+      {Math.abs(by).toLocaleString()}
     </span>
   );
 }

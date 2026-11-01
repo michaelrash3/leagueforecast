@@ -75,7 +75,7 @@ describe("a tidy and an edit", () => {
     const card = screen.getByText(/^Logged games/).closest<HTMLElement>("div.rounded-lg")!;
     const row = within(card)
       .getAllByRole("listitem")
-      .find((item) => item.textContent?.includes("2026-09-12")) as HTMLElement;
+      .find((item) => item.textContent?.includes("Sat, Sep 12")) as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Don't count" }));
     await waitFor(() =>
       expect(loadScoutGamesForYear(2027).find((one) => one.id === "played")?.excluded).toBe(true)

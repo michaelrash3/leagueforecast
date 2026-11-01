@@ -9,6 +9,12 @@ export type Toast = {
   actionLabel?: string;
   onAction?: () => void;
   durationMs: number;
+  /**
+   * Where it is drawn: above the phone's tab bar, as a toast that asks something is (the default),
+   * or at the top of the screen, for a word in passing that should cover the header rather than
+   * the page's first card.
+   */
+  place?: "top";
 };
 
 export function useToast() {
@@ -38,6 +44,7 @@ export function useToast() {
         actionLabel?: string;
         onAction?: () => void;
         durationMs?: number;
+        place?: "top";
       } = {}
     ) => {
       clearTimer();
@@ -52,6 +59,7 @@ export function useToast() {
         actionLabel: options.actionLabel,
         onAction: options.onAction,
         durationMs,
+        ...(options.place ? { place: options.place } : {}),
       });
       timerRef.current = window.setTimeout(() => {
         setToast((current) => (current && current.id === id ? null : current));

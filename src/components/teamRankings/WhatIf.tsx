@@ -1,5 +1,6 @@
 import { forecastWords } from "../../lib/matchupForecast";
 import { previewMatchup, type ScoutRankingRow } from "../../lib/teamRankings";
+import { tapArea } from "../../styles/tokens";
 
 /**
  * A matchup row's What if: the two clubs met today, on the ratings the board shows, worked out on
@@ -37,7 +38,7 @@ export function WhatIfButton({
       aria-expanded={open}
       aria-label={`What if ${label} met today`}
       onClick={onToggle}
-      className="text-xs font-bold text-slate-600 hover:underline dark:text-slate-300"
+      className={`${tapArea} text-xs font-bold text-slate-600 hover:underline dark:text-slate-300`}
     >
       What if?
     </button>
