@@ -25,15 +25,17 @@ export function MovementMark({ movement }: { movement: Movement | undefined }) {
     );
   }
   const up = movement > 0;
+  // With its comma: a nationwide board can move a club a thousand places in a week.
+  const places = Math.abs(movement).toLocaleString();
   return (
     <span
       role="img"
       className={`text-xs font-bold ${up ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}
-      aria-label={`${up ? "up" : "down"} ${Math.abs(movement)} since last week`}
-      title={`${up ? "Up" : "Down"} ${Math.abs(movement)} since last week`}
+      aria-label={`${up ? "up" : "down"} ${places} since last week`}
+      title={`${up ? "Up" : "Down"} ${places} since last week`}
     >
       {up ? "▲" : "▼"}
-      {Math.abs(movement)}
+      {places}
     </span>
   );
 }

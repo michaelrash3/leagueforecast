@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ScoutRankingRow } from "../../lib/teamRankings";
-import { RankingList } from "./RankingList";
+import { MovementMark, RankingList } from "./RankingList";
 
 /*
  * A board's row opens its club wherever it is tapped, not on its name alone: on a phone the name
@@ -60,5 +60,13 @@ describe("a board's row", () => {
     expect(screen.getByRole("button", { name: "Bears ★" })).toHaveFocus();
     await user.keyboard("{Enter}");
     expect(onOpen).toHaveBeenLastCalledWith("S-B");
+  });
+
+  // On a nationwide board a week can move a club a thousand places, which printed "▲1300".
+  it("puts the comma in a move of a thousand places, in its mark and its words", () => {
+    render(<MovementMark movement={1300} />);
+    const mark = screen.getByRole("img", { name: "up 1,300 since last week" });
+    expect(mark).toHaveTextContent("▲1,300");
+    expect(mark).toHaveAttribute("title", "Up 1,300 since last week");
   });
 });

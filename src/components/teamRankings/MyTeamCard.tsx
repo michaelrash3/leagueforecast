@@ -122,7 +122,7 @@ function WeekMove({ movement }: { movement: Movement }) {
       <span role="img" aria-label={up ? "up" : "down"}>
         {up ? "▲" : "▼"}
       </span>
-      {Math.abs(movement)} since last week
+      {Math.abs(movement).toLocaleString()} since last week
     </span>
   );
 }

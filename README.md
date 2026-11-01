@@ -9819,7 +9819,8 @@ footnote or a failed panel reads the same on every League view.
 - **Words a parent reads** (since 1 November 2026). A count of a thousand or more has its
   comma wherever Team Rankings, its pull or League's Fill scores prints one: a board's "of
   1,190 ranked" and "Show all 1,190 teams", a place on it ("#1,203") in the full table,
-  Scouting, The Weekly, Watching, the archive and the Since line, a pulled list's counts, and
+  Scouting, The Weekly, Watching, the archive and the Since line, a week's move on the My Team
+  card and a board's row ("▼1,300 since last week", which read "▼1300"), a pulled list's counts, and
   Fill scores' "1,993 pool results not on this schedule", which a nationwide pool printed as
   "1993". Nothing says "(s)": "About 1 minute of requests", "2 lines ignored", "1 row
   skipped", "Imported 1 game". A control with nothing to act on is not offered: the full

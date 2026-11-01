@@ -141,6 +141,15 @@ describe("the My Team card's season", () => {
     expect(within(card).getByRole("img", { name: "down" })).toHaveTextContent("▼");
   });
 
+  // A nationwide board of thousands can move a club a thousand places in a week; The Weekly said
+  // "(up 1,300)" and the card "▼1300".
+  it("puts the comma in a week's move of a thousand places or more", () => {
+    render(<MyTeamCard glance={{ ...GLANCE, movement: -1300 }} onOpenTeam={() => undefined} />);
+    expect(screen.getByRole("region", { name: "My team" })).toHaveTextContent(
+      "nationally ▼1,300 since last week ·"
+    );
+  });
+
   it("says a club the board of a week ago did not rank is new this week", () => {
     render(<MyTeamCard glance={{ ...GLANCE, movement: "new" }} onOpenTeam={() => undefined} />);
     expect(screen.getByRole("region", { name: "My team" })).toHaveTextContent(
