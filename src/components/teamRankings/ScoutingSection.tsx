@@ -20,7 +20,7 @@ import { TeamSearchSelect } from "../TeamSearchSelect";
 import { ClubCompare } from "./ClubCompare";
 import type { ClubComparison } from "../../lib/clubCompare";
 import { useWideViewport } from "../../hooks/useWideViewport";
-import { card, pill } from "../../styles/tokens";
+import { card, pill, tapArea } from "../../styles/tokens";
 
 const tierTone = (tier: MatchupTier) =>
   tier === "Favored" ? "emerald" : tier === "Underdog" ? "red" : "neutral";
@@ -306,7 +306,7 @@ export function ScoutingSection({
               <button
                 type="button"
                 onClick={() => onCompareChange("")}
-                className="text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
+                className={`${tapArea} text-xs font-bold text-slate-600 hover:underline dark:text-slate-400`}
               >
                 Clear
               </button>
@@ -666,7 +666,7 @@ function MatchupTable({
                         type="button"
                         onClick={() => onDrop(preview.opponentId)}
                         aria-label={`Remove ${preview.opponentName} from the report`}
-                        className="text-xs font-semibold text-slate-500 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white"
+                        className={`${tapArea} text-xs font-semibold text-slate-600 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white`}
                       >
                         Remove
                       </button>
@@ -701,7 +701,7 @@ function MatchupTable({
                     type="button"
                     onClick={() => onDrop(preview.opponentId)}
                     aria-label={`Remove ${preview.opponentName} from the report`}
-                    className="shrink-0 text-xs font-semibold text-slate-500 underline hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
+                    className={`${tapArea} shrink-0 text-xs font-semibold text-slate-600 underline hover:text-slate-950 dark:text-slate-400 dark:hover:text-white`}
                   >
                     Remove
                   </button>
@@ -780,7 +780,7 @@ function WhatIfTrigger({
       onClick={() => onToggle(gameId)}
       aria-expanded={open}
       aria-controls={`what-if-${gameId}`}
-      className="mt-1 block text-xs font-semibold text-slate-500 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white"
+      className={`${tapArea} mt-1 text-xs font-semibold text-slate-600 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white`}
     >
       {open ? "Hide" : "What if?"}
       <span className="sr-only">
@@ -944,7 +944,7 @@ export function ScoutButton({ name, onScout }: { name: string; onScout: () => vo
       type="button"
       onClick={onScout}
       aria-label={`Scout ${name}`}
-      className="mt-1 block text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+      className={`${tapArea} mt-1 text-xs font-bold text-blue-600 hover:underline dark:text-blue-400`}
     >
       Scout
     </button>

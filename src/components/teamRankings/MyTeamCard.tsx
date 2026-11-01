@@ -2,7 +2,7 @@ import type { MyTeamGlance } from "../../lib/myTeamGlance";
 import { dayAndTime, formatIsoDayShort, formatStartTime } from "../../lib/date";
 import { formatRating } from "./RankingList";
 import type { Movement } from "../../lib/movement";
-import { card } from "../../styles/tokens";
+import { card, tapArea } from "../../styles/tokens";
 import type { RankHistoryPoint } from "../../hooks/useRankingsWorker";
 import type { ExpectedRecord, WeekendAhead } from "../../lib/clubForm";
 import type { UpcomingMatchup } from "../../lib/teamRankings";
@@ -229,9 +229,10 @@ export function MyTeamCard({
         <button
           type="button"
           onClick={() => onOpenTeam(glance.teamId)}
-          className="text-left text-lg font-black text-slate-950 hover:underline dark:text-white"
+          className={`${tapArea} text-left text-lg font-black text-slate-950 hover:underline dark:text-white`}
         >
-          <span aria-hidden="true" className="mr-1 text-amber-500">
+          {/* Amber-700, 3:1 and more as a mark: amber-500 measured 2.13:1 on the card's white. */}
+          <span aria-hidden="true" className="mr-1 text-amber-700 dark:text-amber-400">
             ★
           </span>
           {glance.teamName}
@@ -306,7 +307,7 @@ export function MyTeamCard({
                     type="button"
                     onClick={() => onScout(next.opponentId)}
                     aria-label={`Scout ${next.opponentName}`}
-                    className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+                    className={`${tapArea} font-bold text-blue-600 hover:underline dark:text-blue-400`}
                   >
                     Scout
                   </button>

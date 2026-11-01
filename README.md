@@ -9795,6 +9795,21 @@ footnote or a failed panel reads the same on every League view.
   - The schedule-difficulty cards drew their opponents at 80% opacity (4.46:1 on the
     amber card); they are full strength now. The toast's dismiss button was 70% white
     on the toast, 2.53:1, and is white.
+  - Team Rankings, since 1 November 2026: "not played" beside a half with no games was
+    its tab's colour at 60%, 2.88:1 in light mode and 3.33:1 in dark; it is the tab's own
+    colour, 7.56:1 and 7.68:1, told apart by its weight. The town and figures on your own
+    club's highlighted row were slate-500 on blue-50, 4.38:1, and are slate-600, 6.94:1, on
+    every row. The My Team card's star was amber-500 on white, 2.13:1, and is amber-700,
+    5.05:1 (amber-400 in dark). The Games tab's day was slate-400 on white, 2.63:1, and is
+    slate-500.
+- **A thumb's tap area on a phone** (`tapArea`): Team Rankings' buttons and links are 44 px
+  each way below `sm`, where its main ones were text links 16 to 26 px tall (Scout 34 by 16,
+  What if? 48 by 16, the club sheet's Close 33 by 16, Got it 49 by 26, "Open on 10U by
+  default" 136 by 16, measured at 390 px). From `sm` up a pointer aims and each keeps its own
+  size. A board's row is one button, the whole row opening its club where only its name did,
+  a line 20 px tall: named by the club, described by the rest of the row, and reached by the
+  keyboard once a row. A club's name inside a sentence of The Weekly is sized by its line, as
+  WCAG's inline exception allows.
 - **How it is checked.**
   - `src/styles/tokens.test.ts` reads Tailwind's palette from its own theme
     (`tailwindcss/theme.css`, in OKLCH, converted as a browser draws it: slate-500
@@ -9807,7 +9822,13 @@ footnote or a failed panel reads the same on every League view.
   - `e2e/design.spec.ts` measures the built app: League Standings in light mode and
     dark, on a phone (360px), a tablet (768px) and a desktop (1280px), on every view of
     the demo season, on the first launch with no season, and while a view is loading
-    and after it fails to. Every visible run of text is measured against what is
+    and after it fails to; and Team Rankings at the same sizes on a pool seeded as an
+    older version kept it, on every section, a club's sheet and the My Team card telling
+    what moved since a visit two days before, its clock held so each run draws the same
+    board. On the phone it also finds every button and link Team Rankings draws under
+    44 px either way, but for one inside a sentence (`smallTaps`). With the star put back
+    to amber-500 the contrast check fails at 2.13:1, and with "Open on 10U by default"
+    back to a text link the tap check fails at 136 by 16 px. Every visible run of text is measured against what is
     actually painted behind it (see-through layers blended down to the first solid
     one), no text may be under 12px, and nothing may be wider than the screen. On the
     2.4 build it found 10 or 11px text in about 40 places on League's pages and a

@@ -15,7 +15,7 @@ import { MyTeamCard } from "./MyTeamCard";
 import { WatchCard } from "./WatchCard";
 import type { Watched } from "../../lib/watchList";
 import type { RankHistoryPoint } from "../../hooks/useRankingsWorker";
-import { card, focusRing, pill, textRole } from "../../styles/tokens";
+import { card, focusRing, pill, tapArea, textRole } from "../../styles/tokens";
 
 /** How many teams a page leads with, nationally and within one state. */
 export const NATIONAL_TOP = 25;
@@ -243,7 +243,7 @@ export function RankingsSection({
             onClick={onSearchWanted}
             disabled={searchLoading}
             aria-busy={searchLoading}
-            className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500"
+            className="mt-2 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
           >
             {searchLoading
               ? "Bringing in every team…"
@@ -358,7 +358,7 @@ export function RankingsSection({
                               ? `Clear ${shownState} as the default state`
                               : `Make ${shownState} my default state`
                           }
-                          className={`rounded-sm font-bold text-blue-600 hover:underline dark:text-blue-400 ${focusRing}`}
+                          className={`${tapArea} rounded-sm font-bold text-blue-600 hover:underline dark:text-blue-400 ${focusRing}`}
                         >
                           {shownState === keptState ? "Clear" : `Make ${shownState} my default`}
                         </button>
@@ -399,7 +399,7 @@ export function RankingsSection({
             type="button"
             onClick={onToggleShowAll}
             aria-expanded={showAll}
-            className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+            className={`${tapArea} text-xs font-bold text-blue-600 hover:underline dark:text-blue-400`}
           >
             {showAll ? "Hide the full table" : `Show all ${rankings.length} teams`}
           </button>
@@ -487,7 +487,7 @@ export function RankingsSection({
                           <button
                             type="button"
                             onClick={() => onOpenTeam(row.teamId)}
-                            className="text-left font-black hover:underline"
+                            className={`${tapArea} text-left font-black hover:underline`}
                             title="Every game logged for this team"
                           >
                             {row.teamName}
@@ -529,7 +529,7 @@ export function RankingsSection({
                           <button
                             type="button"
                             onClick={() => onMarkMine(row.teamId)}
-                            className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                            className={`${tapArea} text-xs font-bold text-blue-600 hover:underline dark:text-blue-400`}
                             aria-pressed={row.isMine}
                             title="Mark as my team"
                           >
@@ -540,7 +540,7 @@ export function RankingsSection({
                           <button
                             type="button"
                             onClick={() => onRemoveTeam(row.teamId)}
-                            className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
+                            className={`${tapArea} text-xs font-bold text-red-600 hover:underline dark:text-red-400`}
                           >
                             Remove
                           </button>
@@ -647,7 +647,7 @@ export function RankingsSection({
                   onClick={() =>
                     setRowLimit({ key: stateFilter, count: shownRows + ROWS_SHOWN_STEP })
                   }
-                  className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+                  className={`${tapArea} font-bold text-blue-600 hover:underline dark:text-blue-400`}
                 >
                   Show {Math.min(ROWS_SHOWN_STEP, hiddenRows)} more
                 </button>

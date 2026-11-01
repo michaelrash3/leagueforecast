@@ -32,7 +32,7 @@ import type { MyTeamGlance } from "../lib/myTeamGlance";
 import { TeamSearchSelect } from "./TeamSearchSelect";
 import { TEAM_PANEL_ID } from "./teamPanelId";
 import { WhatIf, WhatIfButton } from "./teamRankings/WhatIf";
-import { button, card, focusRing, pill, textRole } from "../styles/tokens";
+import { button, card, focusRing, pill, tapArea, textRole } from "../styles/tokens";
 
 /** The panel's element id, for a list elsewhere on the page that opens a team to scroll to it. */
 export { TEAM_PANEL_ID };
@@ -484,7 +484,7 @@ export function TeamDetailPanel({
                 offeredAgainst.get(game.teamAId === team.id ? game.teamBId : game.teamAId) ?? 1
               )}
               title={`${line.opponent}'s schedule named its opponent, and the name was matched to ${team.name}; nothing of ${team.name}'s own lists this game. Take it off ${team.name}, with every other game ${line.opponent} filed here by the name.`}
-              className="inline-flex min-h-6 items-center rounded px-1.5 text-xs font-bold text-red-600 hover:underline dark:text-red-400"
+              className="inline-flex min-h-11 min-w-11 items-center rounded px-1.5 text-xs font-bold text-red-600 hover:underline sm:min-h-6 sm:min-w-0 dark:text-red-400"
             >
               Not this team
             </button>
@@ -760,7 +760,7 @@ export function TeamDetailPanel({
                           <button
                             type="button"
                             onClick={() => onUnlinkGc(link.teamId)}
-                            className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
+                            className={`${tapArea} text-xs font-bold text-red-600 hover:underline dark:text-red-400`}
                           >
                             Unlink
                           </button>
@@ -834,7 +834,7 @@ export function TeamDetailPanel({
                       <button
                         type="button"
                         onClick={onClearAge}
-                        className="text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
+                        className={`${tapArea} text-xs font-bold text-slate-600 hover:underline dark:text-slate-400`}
                       >
                         Let the app decide
                       </button>

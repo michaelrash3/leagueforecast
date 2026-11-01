@@ -1,7 +1,7 @@
 import { formatRating } from "../../lib/matchupForecast";
 import type { ScoutRankingRow } from "../../lib/teamRankings";
 import type { Watched } from "../../lib/watchList";
-import { card } from "../../styles/tokens";
+import { card, tapArea } from "../../styles/tokens";
 
 /**
  * The clubs watched on this page (`watchList.ts`), at the top of its board: each one's place,
@@ -40,7 +40,7 @@ export function WatchCard({
                 <button
                   type="button"
                   onClick={() => onOpenTeam(club.id)}
-                  className="truncate font-bold text-slate-950 hover:underline dark:text-white"
+                  className={`${tapArea} truncate font-bold text-slate-950 hover:underline dark:text-white`}
                 >
                   {row?.teamName ?? club.name}
                 </button>
@@ -57,7 +57,7 @@ export function WatchCard({
                   type="button"
                   onClick={() => onStop(club)}
                   aria-label={`Stop watching ${row?.teamName ?? club.name}`}
-                  className="font-bold text-slate-500 hover:underline dark:text-slate-400"
+                  className={`${tapArea} font-bold text-slate-600 hover:underline dark:text-slate-400`}
                 >
                   Stop
                 </button>

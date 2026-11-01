@@ -164,7 +164,7 @@ import { cloudStatus, subscribeCloud } from "../lib/cloud/cloudSession";
 import { pullBlockedBy } from "../lib/cloud/pullGate";
 import type { ToastTone } from "../hooks/useToast";
 import { pullSections } from "../lib/pullSections";
-import { button, card, pill } from "../styles/tokens";
+import { button, card, pill, tapArea } from "../styles/tokens";
 
 type GameChangerImportPanelProps = {
   /** The pool as it stands. The panel works on a copy and hands whole states back. */
@@ -1816,7 +1816,7 @@ export function GameChangerImportPanel({
         <button
           type="button"
           onClick={onClose}
-          className="text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
+          className={`${tapArea} text-xs font-bold text-slate-600 hover:underline dark:text-slate-400`}
         >
           Close
         </button>

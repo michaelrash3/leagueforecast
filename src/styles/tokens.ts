@@ -63,9 +63,9 @@ export const tab = (active: boolean, size: "regular" | "fill" = "regular") =>
  * aiming. Team Rankings drew its main controls as text links 16 to 26 px tall (Scout, What if?,
  * Close, Got it, "Open on 10U by default"), measured at 390 px in Chromium. From `sm` up a pointer
  * aims, and the control keeps its own size, so a wide screen's lines are not spread out for it.
+ * Only the size: a button centres what it holds, so nothing here fights a control's own layout.
  */
-export const tapArea =
-  "inline-flex min-h-11 min-w-11 items-center justify-center sm:min-h-0 sm:min-w-0";
+export const tapArea = "min-h-11 min-w-11 sm:min-h-0 sm:min-w-0";
 
 export const button = {
   primary: `rounded-lg bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-lg shadow-slate-950/10 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`,

@@ -15,7 +15,7 @@ import type { NamedGame } from "../../lib/teamRankings/namedGames";
 import { TeamNameCombobox } from "../TeamNameCombobox";
 import { TeamSearchSelect } from "../TeamSearchSelect";
 import { WhatIf, WhatIfButton } from "./WhatIf";
-import { button, card, pill } from "../../styles/tokens";
+import { button, card, pill, tapArea } from "../../styles/tokens";
 import type { AddGameDraft } from "./addGameDraft";
 
 export { EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./addGameDraft";
@@ -223,7 +223,7 @@ export function GamesSection({
             <button
               type="button"
               onClick={onOpenImport}
-              className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+              className={`${tapArea} text-xs font-bold text-blue-600 hover:underline dark:text-blue-400`}
             >
               Import games
             </button>
@@ -231,7 +231,7 @@ export function GamesSection({
           <button
             type="button"
             onClick={onGoToImport}
-            className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+            className={`${tapArea} text-xs font-bold text-blue-600 hover:underline dark:text-blue-400`}
           >
             Pull from GameChanger
           </button>
@@ -257,7 +257,7 @@ export function GamesSection({
               <button
                 type="button"
                 onClick={() => onDraftChange({ teamAName: myTeamName })}
-                className="shrink-0 whitespace-nowrap text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                className={`${tapArea} shrink-0 whitespace-nowrap text-xs font-bold text-blue-600 hover:underline dark:text-blue-400`}
               >
                 Use my team
               </button>
@@ -503,7 +503,7 @@ export function GamesSection({
                         <button
                           type="button"
                           onClick={() => onSaveScore(game.id)}
-                          className="text-xs font-bold text-emerald-700 hover:underline dark:text-emerald-400"
+                          className={`${tapArea} text-xs font-bold text-emerald-700 hover:underline dark:text-emerald-400`}
                         >
                           Save
                         </button>
@@ -513,7 +513,7 @@ export function GamesSection({
                         <button
                           type="button"
                           onClick={() => onStartEditScore(game.id)}
-                          className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                          className={`${tapArea} text-xs font-bold text-blue-600 hover:underline dark:text-blue-400`}
                         >
                           Enter score
                         </button>
@@ -523,7 +523,7 @@ export function GamesSection({
                       <button
                         type="button"
                         onClick={() => onToggleExcluded(game)}
-                        className="text-xs font-bold text-amber-700 hover:underline dark:text-amber-500"
+                        className={`${tapArea} text-xs font-bold text-amber-700 hover:underline dark:text-amber-500`}
                         title={
                           game.excluded
                             ? "Count this game toward the rankings again"
@@ -543,7 +543,7 @@ export function GamesSection({
                     <button
                       type="button"
                       onClick={() => onRemoveGame(game)}
-                      className={button.danger}
+                      className={`${button.danger} ${tapArea}`}
                     >
                       Remove
                     </button>

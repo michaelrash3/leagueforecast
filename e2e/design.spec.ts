@@ -3,7 +3,8 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 /**
  * What a reader sees, measured in the built app (2.5): League Standings in light mode and dark, on a
  * phone, a tablet and a desktop, on every view of the demo season, on the first launch with no
- * season, and while a view is still loading or has failed to.
+ * season, and while a view is still loading or has failed to; and Team Rankings on a seeded pool,
+ * on every section, the club sheet and the My Team card telling what moved since the last visit.
  *
  * - Text is legible against what is actually painted behind it: 4.5:1, or 3:1 for large text (24px,
  *   or 18.66px bold), as WCAG 2 measures contrast, from the colours the browser computed, with
@@ -11,6 +12,8 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
  * - No text is smaller than 12px, but for the labels of a phone's tab bar, which are sized with the
  *   screen (`TabNav`).
  * - Nothing is wider than the screen.
+ * - On a phone, every button and link Team Rankings draws is a tap area 44 px each way, but for one
+ *   inside a run of the page's words (`smallTaps`).
  *
  * These read the rendered page and do not depend on how a font is drawn, so they hold in CI as on
  * any machine; a pixel-by-pixel comparison of screenshots would not, between one Chromium and its
@@ -172,6 +175,49 @@ const check = async (page: Page, info: TestInfo, state: string): Promise<Problem
   return problems.map((problem) => ({ ...problem, where: `${state}: ${problem.where}` }));
 };
 
+/**
+ * Every button and link a phone shows under `selector` that is smaller than 44 px either way, the
+ * size a thumb finds without aiming (WCAG's 2.5.5), with its size. Runs in the page. One sized by a
+ * line of the page's own words, a club's name in a sentence of The Weekly, is left out, as WCAG's
+ * inline exception has it: it is drawn in the line, and the block it sits in says more than it
+ * does. So is anything switched off, hidden, or read only by a screen reader.
+ */
+const smallTaps = (page: Page, selector: string, where: string) =>
+  page
+    .evaluate((selector) => {
+      const words = (element: Element) => (element.textContent ?? "").replace(/\s+/g, " ").trim();
+      /** The nearest box the element's line belongs to: its first ancestor that is no inline. */
+      const block = (element: Element): Element => {
+        for (let at = element.parentElement; at; at = at.parentElement) {
+          const display = getComputedStyle(at).display;
+          if (!display.startsWith("inline") && display !== "contents") return at;
+        }
+        return document.body;
+      };
+      const found: string[] = [];
+      for (const root of document.querySelectorAll(selector)) {
+        const controls = root.querySelectorAll<HTMLElement>(
+          "button, a[href], [role='button'], [role='tab']"
+        );
+        for (const control of controls) {
+          if (!control.checkVisibility({ checkOpacity: true, visibilityProperty: true })) continue;
+          if (control.closest(":disabled, [aria-disabled='true'], [aria-hidden='true']")) continue;
+          if (getComputedStyle(control).clipPath !== "none") continue;
+          const box = control.getBoundingClientRect();
+          if (box.width < 1 || box.height < 1) continue;
+          if (box.width >= 44 && box.height >= 44) continue;
+          const inline = getComputedStyle(control).display.startsWith("inline");
+          if (inline && words(block(control)).length > words(control).length) continue;
+          const name = control.getAttribute("aria-label") ?? words(control);
+          found.push(
+            `${name.slice(0, 40)}: ${Math.round(box.width)} by ${Math.round(box.height)} px`
+          );
+        }
+      }
+      return found;
+    }, selector)
+    .then((found) => found.map((one) => `${where}: ${one}`));
+
 const tab = (page: Page, name: string) => page.getByRole("tab", { name, exact: true });
 
 /** A League view, by its tab, or on a phone, More and then the view (2.4). */
@@ -199,6 +245,118 @@ const VIEWS = [
   "Data Quality",
   "Settings",
 ];
+
+/**
+ * Team Rankings' pool for these checks, as an older version of the app kept it, in `localStorage`,
+ * which the store moves into IndexedDB as it opens: one page of twelve clubs in two states, eight
+ * weekends played and the next ones ahead, some with starts. The page's clock is held on a Friday
+ * of that autumn, so the board, the card and the Games tab's day are the same on every run, and the
+ * club marked as ours was last looked at two days before, last of the twelve, so the card opens on
+ * what moved since. Placeholder names throughout.
+ */
+const RANKINGS_NOW = new Date("2026-10-30T12:00:00");
+const RANKINGS_PAGE = "ag_10u_2027";
+const CLUBS = [
+  "Aces",
+  "Bears",
+  "Comets",
+  "Ducks",
+  "Eagles",
+  "Falcons",
+  "Giants",
+  "Hawks",
+  "Jays",
+  "Knights",
+  "Lions",
+  "Mustangs",
+].map((name, at) => ({
+  id: `S-${name.toUpperCase()}`,
+  name,
+  state: at % 2 === 0 ? "KY" : "OH",
+  city: at % 2 === 0 ? "Southvale" : "Northvale",
+}));
+const dayAfter = (day: string, days: number) =>
+  new Date(Date.parse(`${day}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+const rankingsPool = (): Record<string, string> => {
+  const ids = CLUBS.map((club) => club.id);
+  const games: Record<string, unknown>[] = [];
+  // Eight rounds of a round robin, a Saturday apart, the circle method: the first club stays put.
+  for (let round = 0; round < 8; round += 1) {
+    const order = [ids[0]!, ...ids.slice(1).map((_, at) => ids[1 + ((at + round) % 11)]!)];
+    for (let pair = 0; pair < 6; pair += 1) {
+      const a = order[pair]!;
+      const b = order[11 - pair]!;
+      // The club listed earlier wins, by a margin that varies, and every fifth game the other.
+      const [winner, loser] =
+        ids.indexOf(a) < ids.indexOf(b) === ((round + pair) % 5 !== 0) ? [a, b] : [b, a];
+      games.push({
+        id: `r${round}-${pair}`,
+        ageGroupId: RANKINGS_PAGE,
+        teamAId: winner,
+        teamBId: loser,
+        teamAScore: 5 + ((round + pair) % 4),
+        teamBScore: 1 + (pair % 3),
+        date: dayAfter("2026-09-05", round * 7),
+      });
+    }
+  }
+  // Still to play: ours on Saturday at two starts, Sunday with none, and the week after.
+  const ahead = (id: string, a: string, b: string, date: string, startTs?: string) => ({
+    id,
+    ageGroupId: RANKINGS_PAGE,
+    teamAId: a,
+    teamBId: b,
+    date,
+    ...(startTs ? { startTs } : {}),
+  });
+  games.push(
+    ahead("n1", "S-ACES", "S-HAWKS", "2026-10-31", "2026-10-31T14:30:00.000Z"),
+    ahead("n2", "S-JAYS", "S-ACES", "2026-10-31", "2026-10-31T19:00:00.000Z"),
+    ahead("n3", "S-ACES", "S-LIONS", "2026-11-01"),
+    ahead("n4", "S-BEARS", "S-COMETS", "2026-10-31", "2026-10-31T15:00:00.000Z"),
+    ahead("n5", "S-ACES", "S-DUCKS", "2026-11-07")
+  );
+  const look = {
+    v: 1,
+    at: RANKINGS_NOW.getTime() - 48 * 3_600_000,
+    teamId: "S-ACES",
+    board: "Fall 2026",
+    national: 12,
+    nationalOf: 12,
+    state: "KY",
+    stateRank: 6,
+    record: "0-8",
+    rating: -4,
+  };
+  return {
+    league_forecast_scout_age_groups_v1: JSON.stringify([
+      {
+        id: RANKINGS_PAGE,
+        name: "10U 2027",
+        ageLevel: 10,
+        year: 2027,
+        seasonIds: [],
+        myTeamId: "S-ACES",
+      },
+    ]),
+    league_forecast_scout_teams_v1: JSON.stringify(CLUBS),
+    league_forecast_scout_games_v1: JSON.stringify(games),
+    "lf_my_team_look_v1_S-ACES": JSON.stringify(look),
+  };
+};
+
+/** A Team Rankings section, by its tab, or on a phone, More and then the section. */
+const openSection = async (page: Page, name: string) => {
+  if (await tab(page, name).isVisible()) await tab(page, name).click();
+  else {
+    await page.getByRole("button", { name: /^More/ }).click();
+    await page
+      .getByRole("group", { name: "More team rankings section" })
+      .getByRole("button", { name, exact: true })
+      .click();
+  }
+  await expect(page.getByRole("status").filter({ hasText: /^Loading / })).toHaveCount(0);
+};
 
 /** The Forecast's sections in their order (`FORECAST_SECTIONS`); it opens on the first. */
 const FORECAST_SECTIONS = ["Outlook", "Brackets", "Playoff machine", "Games", "Season"];
@@ -247,6 +405,43 @@ for (const scheme of ["light", "dark"] as const) {
           }
         }
         expect(problems).toEqual([]);
+      });
+
+      test("Team Rankings, on a seeded pool", async ({ page }, info) => {
+        await page.clock.setFixedTime(RANKINGS_NOW);
+        await page.addInitScript((keys) => {
+          // Once a visit, so a reload keeps whatever the page made of the pool.
+          if (window.sessionStorage.getItem("e2e-seeded")) return;
+          window.sessionStorage.setItem("e2e-seeded", "1");
+          for (const [key, value] of Object.entries(keys)) window.localStorage.setItem(key, value);
+        }, rankingsPool());
+        await page.goto("/?view=rankings");
+        const card = page.getByRole("region", { name: "My team" });
+        await expect(card.getByRole("region", { name: "Since you last looked" })).toBeVisible();
+        await expect(page.getByRole("heading", { name: /^National top 25/ })).toBeVisible();
+        const phone = size.name === "phone";
+        const state = `${size.name}-${scheme}-rankings`;
+        const problems = await check(page, info, state);
+        const taps = phone ? await smallTaps(page, "#main-content", state) : [];
+
+        // The club sheet, from the card's name.
+        await card.getByRole("button", { name: /Aces/ }).first().click();
+        const sheet = page.getByRole("dialog", { name: "Aces" });
+        await expect(sheet.getByRole("region", { name: "Aces" })).toBeVisible();
+        problems.push(...(await check(page, info, `${size.name}-${scheme}-club`)));
+        if (phone) taps.push(...(await smallTaps(page, "#main-content", "club")));
+        await sheet.getByRole("button", { name: "Close" }).click();
+        await expect(sheet).toHaveCount(0);
+
+        for (const section of ["Games", "Scouting", "Import", "Archive", "Setup"]) {
+          await openSection(page, section);
+          problems.push(...(await check(page, info, `${size.name}-${scheme}-${section}`)));
+          // The sections a parent reads at the field; Import, Archive and Setup are the owner's.
+          if (phone && (section === "Games" || section === "Scouting"))
+            taps.push(...(await smallTaps(page, "#main-content", section)));
+        }
+        expect(problems).toEqual([]);
+        expect(taps).toEqual([]);
       });
     });
   }
