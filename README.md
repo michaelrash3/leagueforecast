@@ -1633,7 +1633,8 @@ refuses and stayed on screen after every tidy; the command adds to it: the refus
 already, which its Undo takes off again and nothing else. Once the toast has gone a refusal is
 listed nowhere and nothing in the app takes it back: Same team as, folding the stand-in into the
 club, puts the games it holds back on the club by the owner's word (`namedByAvatar`), which no
-refusal overrules, but the refusal stays for the name's next rows. A page to list the refusals and
+refusal overrules, but the refusal stays for the name's next rows, over the answer the fold keeps
+for them as well (`answeredNamesakes`). A page to list the refusals and
 withdraw one is not built yet: what withdrawing should do with the games already on a stand-in is
 the owner's to decide.
 
@@ -2049,6 +2050,30 @@ GameChanger's are, each answer kept is 14 to 17 bytes of the gzipped copy: 100 s
 279 answers and add 4,410 bytes of the 1,041,845 (0.42%), and 1,000 keep 2,251 and add 33,247
 (3.2%). The data schema went to 11 for it, since an older build would drop it with its next save of
 the roster.
+
+**The answer, read for the namer's later games** (tidy rules 38). That namer's next row of the name
+is the club's too (`answeredNamesakes`): at arrival (`planOpponent`), behind the game itself and
+ahead of any reading of the name alone, since it is the owner's word on who the coach means by it;
+in the refile, which files a stand-in's row of the name onto the club; and the resettle leaves such
+a row on it. It keeps the in-state rule's guards: the club listed at the row's level in its squad
+year, so a level typed into the name that the club is not listed at is another squad of the name;
+a day no earlier than a week before the club's own first game of the year; and never within the
+hour of a game of the club's own against another club. Not the rest of what a name is asked: the
+two clubs need not be neighbours, nor of one state or next door, nor need the club have a game that
+day, since the owner has seen the games. Only the namer's own schedule reads it: another club's row
+of the same name is read as a name, as before, and two clubs holding one schedule's name at one
+level are two answers that disagree, so neither is read. An answer given across a level, a stand-in
+off a 9U page folded into a 10U club, files no later row, since a row with no age typed is read at
+its page's level; reading it at the level it was given would need that level kept with it.
+
+Not this team always wins. A press on a row the answer filed takes it off, with the namer's other
+such rows (`takenWith`), as on any row a name filed, and the refusal it stores, the club's own name
+on the namer's schedules, takes the answer back for every later row of the name; so does a refusal
+of the very name typed. The rows the fold itself put on the club stay, as the owner's word
+(`namedByAvatar`), and undoing the fold takes the answer with it. A build on rules 37 reads no
+answer and would take such a row off a club that had no game that day; a pool stamped by newer rules
+is one an older build leaves alone (`stampFromNewerRules`), which is why the rules went to 38. No
+stored club held an answer before this, so the copy moves only as the owner answers.
 
 A name nobody pulled is one stand-in per name, level and squad year among the clubs of a state that
 named it, and a lookup that missed made a second: a class year looked up at the page's age rather

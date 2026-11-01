@@ -5048,9 +5048,11 @@ export const mergeScoutTeams = (
   const identifies = !removed.gcTeams?.length && Boolean(survivor.gcTeams?.length);
   /*
    * And it says who each namer means by the name, which that namer's next game will be typed under
-   * again: each such row's schedule and the name it typed are kept on the club (`ScoutTeam.namedAs`).
-   * Kept only on the rows, the next week's game of the name went to a new stand-in, and the owner
-   * had to answer again (the sweep of 30 October 2026). Not for a slot, whose name is anybody's.
+   * again: each such row's schedule and the name it typed are kept on the club (`ScoutTeam.namedAs`),
+   * for the import and the tidy to read that schedule's later rows of the name by
+   * (`answeredNamesakes`). Kept only on the rows, the next week's game of the name went to a new
+   * stand-in, and the owner had to answer again (the sweep of 30 October 2026). Not for a slot,
+   * whose name is anybody's.
    */
   const answers: NamedAs[] = [];
   const standInKey = teamNameKey(removed.name);

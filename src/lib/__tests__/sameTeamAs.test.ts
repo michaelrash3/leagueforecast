@@ -4,10 +4,14 @@ import {
   importGcSchedule,
   pairSettledSquads,
   mergeSameSquadIds,
+  refileStandIns,
+  resettleOffLevel,
+  tidyChangedAnything,
   tidyPool,
   type GcImportOptions,
   type GcImportState,
 } from "../gameChangerImport";
+import { refusalOf, refusalsFor, takeOffClub, type NotThisTeam } from "../notThisTeam";
 import { mergeScoutTeams, type ScoutGame, type ScoutTeam } from "../teamRankings";
 import { coerceScoutTeams, decodeScoutTeams, encodeScoutTeams } from "../teamRankingsCompact";
 import {
@@ -24,8 +28,10 @@ import { packPool, unpackPool } from "../../workers/tidyProtocol";
  * "Same team as" as a standing answer (the sweep of 30 October 2026, item 28). The owner folding a
  * stand-in into a pulled club says who that coach's schedule played under that name, and the club
  * keeps it: the schedule that wrote the name and the name it typed, wherever the club goes and
- * however the pool is stored, and gone again with the fold. Placeholder names throughout, and every
- * GameChanger id made up.
+ * however the pool is stored, and gone again with the fold. The same coach's next game typed the
+ * same way is the same club: the import, the refile and the resettle file it there, under the
+ * guards the in-state rule reads a name by, and Not this team still wins. Placeholder names
+ * throughout, and every GameChanger id made up.
  */
 
 const ACES = "gcACES000001";
@@ -374,6 +380,247 @@ describe("the answer as it is stored", () => {
       state: "OH",
       gcTeams: club.gcTeams,
     });
+  });
+});
+
+describe("Same team as, standing for that coach's later games typed the same way", () => {
+  it("files the namer's next row of the name onto the club, where it went to a new stand-in", () => {
+    const state = answered();
+    const club = clubOf(state, COMETS);
+    const next = tidyPool(
+      importGcSchedule(schedule(ACES, "Aces 10U", acesWeek2), state, options).state
+    ).state;
+    expect(facing(next, "a3")?.id).toBe(club.id);
+    expect(facing(next, "a4")?.id).toBe(club.id);
+    // The answered rows are the owner's word; the next ones are the answer's, which Not this team
+    // can still take back (`filedByNameOn`).
+    expect(gameOf(next, rowId(ACES, "a1"))?.namedByAvatar).toBe(club.id);
+    expect(gameOf(next, rowId(ACES, "a4"))?.namedByAvatar).toBeUndefined();
+    expect(next.teams.some((team) => team.name === "Bolts")).toBe(false);
+    expect(tidyChangedAnything(tidyPool(next))).toBe(false);
+  });
+
+  it("files it as the import reads the row, so no stand-in is made for it", () => {
+    const { state, outcome } = importGcSchedule(
+      schedule(ACES, "Aces 10U", acesWeek2),
+      answered(),
+      options
+    );
+    expect(outcome.opponentsCreated).toBe(0);
+    expect(facing(state, "a3")?.id).toBe(clubOf(state, COMETS).id);
+    expect(facing(state, "a4")?.id).toBe(clubOf(state, COMETS).id);
+    expect(state.teams.some((team) => team.name === "Bolts")).toBe(false);
+  });
+
+  it("stands where the namer is far from the club, since the owner has seen the games", () => {
+    // The Aces of a state no border joins to the club's, and no game both clubs list.
+    let state = importGcSchedule(schedule(ACES, "Aces 10U", acesWeek1, "TX"), empty, options).state;
+    state = tidyPool(importGcSchedule(comets, state, options).state).state;
+    const standIn = state.teams.find((team) => team.nameOnly && team.name === "Bolts")!;
+    const club = clubOf(state, COMETS);
+    const merged = mergeScoutTeams(standIn.id, club.id, state.teams, state.games, state.ageGroups);
+    const next = tidyPool(
+      importGcSchedule(
+        schedule(ACES, "Aces 10U", acesWeek2, "TX"),
+        { ...state, teams: merged.teams, games: merged.games },
+        options
+      ).state
+    ).state;
+    expect(facing(next, "a3")?.id).toBe(club.id);
+    expect(facing(next, "a4")?.id).toBe(club.id);
+    // And left there: taken off as far from its namer, the refile would file it back every pass.
+    expect(tidyChangedAnything(tidyPool(next))).toBe(false);
+  });
+
+  it("leaves another namer's row of the same name on a stand-in", () => {
+    let state = importGcSchedule(schedule(ACES, "Aces 10U", acesWeek2), answered(), options).state;
+    state = importGcSchedule(
+      schedule(DUKES, "Dukes 10U", [
+        played("d1", "2026-10-03", "Bolts", 0, 1, "2026-10-03T18:00:00.000Z"),
+      ]),
+      state,
+      options
+    ).state;
+    state = tidyPool(state).state;
+    expect(facing(state, "a4")?.id).toBe(clubOf(state, COMETS).id);
+    expect(teamOf(state, gameOf(state, rowId(DUKES, "d1"))?.teamBId)).toMatchObject({
+      name: "Bolts",
+      nameOnly: true,
+    });
+  });
+
+  it("is held to the in-state rule's guards: the row's level, the club's season, its own games", () => {
+    const comet = (state: GcImportState, gameId: string) =>
+      facing(state, gameId)?.id === clubOf(state, COMETS).id;
+    const later = (games: GcTeamSchedule["games"]) =>
+      tidyPool(
+        importGcSchedule(schedule(ACES, "Aces 10U", [...acesWeek1, ...games]), answered(), options)
+          .state
+      ).state;
+    // A level typed into the name that the club is not listed at is another squad of the name.
+    expect(
+      comet(
+        later([played("up", "2026-10-03", "Bolts 11U", 6, 1, "2026-10-03T14:00:00.000Z")]),
+        "up"
+      )
+    ).toBe(false);
+    // More than a week before the club's first game of its own in the year (20 September).
+    const early = later([
+      played("early", "2026-09-12", "Bolts", 1, 1, "2026-09-12T19:00:00.000Z"),
+      played("week", "2026-09-13", "Bolts", 2, 2, "2026-09-13T19:00:00.000Z"),
+    ]);
+    expect(comet(early, "early")).toBe(false);
+    expect(comet(early, "week")).toBe(true);
+    // Within the hour of a game of the club's own against another club: a club plays one at a time.
+    const clash = later([
+      played("clash", "2026-09-20", "Bolts", 9, 8, "2026-09-20T15:30:00.000Z"),
+      played("after", "2026-09-20", "Bolts", 3, 0, "2026-09-20T17:00:00.000Z"),
+    ]);
+    expect(comet(clash, "clash")).toBe(false);
+    expect(comet(clash, "after")).toBe(true);
+    // Two clubs the owner said the name is, at one level: two answers that disagree are neither.
+    const folded = answered();
+    const page = gameOf(folded, rowId(ACES, "a1"))!.ageGroupId;
+    const twin: ScoutTeam = {
+      id: "S-COMET2",
+      name: "Comets Navy",
+      state: "OH",
+      gcTeams: [
+        { teamId: "gcCOMETS0002", name: "Comets Navy 10U", ageGroupId: page, ageLevel: 10 },
+      ],
+      namedAs: [{ schedule: ACES, name: "bolts" }],
+    };
+    const twice = importGcSchedule(
+      schedule(ACES, "Aces 10U", acesWeek2),
+      { ...folded, teams: [...folded.teams, twin] },
+      options
+    ).state;
+    expect(facing(twice, "a4")).toMatchObject({ name: "Bolts", nameOnly: true });
+    // A club whose name can only be a slot is no club to file the name onto (`namesNobody`).
+    const slotted = {
+      ...folded,
+      teams: folded.teams.map((team) =>
+        team.id === clubOf(folded, COMETS).id ? { ...team, name: "Tbd" } : team
+      ),
+    };
+    const ontoSlot = importGcSchedule(
+      schedule(ACES, "Aces 10U", acesWeek2),
+      slotted,
+      options
+    ).state;
+    expect(facing(ontoSlot, "a4")?.id).not.toBe(clubOf(folded, COMETS).id);
+  });
+
+  it("is overruled by Not this team, at once and on every row of the name after", () => {
+    const state = tidyPool(
+      importGcSchedule(schedule(ACES, "Aces 10U", acesWeek2), answered(), options).state
+    ).state;
+    const club = clubOf(state, COMETS);
+    const pressed = gameOf(state, rowId(ACES, "a4"))!;
+    expect(pressed.teamBId).toBe(club.id);
+    const lookup = (id: string) => teamOf(state, id);
+    const refused: NotThisTeam = new Set(refusalsFor(pressed, club, lookup));
+    const taken = takeOffClub(state, pressed, club, "S-OFF")!;
+    // The answered rows stay, as the owner's word; the answer's own go with the press.
+    expect(taken.moved.map(({ was }) => was.id).sort()).toEqual([
+      rowId(ACES, "a3"),
+      rowId(ACES, "a4"),
+    ]);
+    const moved = new Map(taken.moved.map(({ now }) => [now.id, now]));
+    const off: GcImportState = {
+      ...state,
+      teams: [...state.teams, ...taken.standIns],
+      games: state.games.map((game) => moved.get(game.id) ?? game),
+    };
+    const tidied = tidyPool(off, undefined, undefined, refused).state;
+    expect(facing(tidied, "a3")?.id).not.toBe(club.id);
+    expect(facing(tidied, "a4")?.id).not.toBe(club.id);
+    expect(facing(tidied, "a1")?.id).toBe(club.id);
+    // And the namer's next row of the name is not filed onto the club, at the import or after.
+    const later = importGcSchedule(
+      schedule(ACES, "Aces 10U", [
+        ...acesWeek2,
+        played("a5", "2026-10-10", "Bolts", 4, 4, "2026-10-10T14:00:00.000Z"),
+      ]),
+      tidied,
+      { ...options, notThisTeam: refused }
+    ).state;
+    expect(facing(later, "a5")?.id).not.toBe(club.id);
+    expect(facing(tidyPool(later, undefined, undefined, refused).state, "a5")?.id).not.toBe(
+      club.id
+    );
+    // A refusal of the very name the row typed, for the club, overrules it as well: the club was
+    // refused under the name it carried then.
+    const typedRefused: NotThisTeam = new Set([refusalOf(ACES, "Bolts", COMETS)]);
+    const typed = importGcSchedule(schedule(ACES, "Aces 10U", acesWeek2), answered(), {
+      ...options,
+      notThisTeam: typedRefused,
+    }).state;
+    expect(facing(typed, "a4")?.id).not.toBe(club.id);
+    expect(facing(tidyPool(typed, undefined, undefined, typedRefused).state, "a4")?.id).not.toBe(
+      club.id
+    );
+  });
+
+  it("files a stand-in's row of the answered name in the refile, and the resettle leaves it", () => {
+    const folded = answered();
+    const page = gameOf(folded, rowId(ACES, "a1"))!.ageGroupId;
+    // A second Comets Navy pulled in the state, so that the club's own name, which the resettle
+    // reads a row on it by, is no one club's: only the answer keeps a row on either.
+    const twin: ScoutTeam = {
+      id: "S-COMET2",
+      name: "Comets Navy",
+      state: "OH",
+      gcTeams: [
+        { teamId: "gcCOMETS0002", name: "Comets Navy 10U", ageGroupId: page, ageLevel: 10 },
+      ],
+    };
+    const state = { ...folded, teams: [...folded.teams, twin] };
+    const club = clubOf(state, COMETS);
+    const aces = clubOf(state, ACES);
+    // A row a pull of an older build filed against a stand-in of the name after the answer.
+    const standIn: ScoutTeam = { id: "S-BOLT9", name: "Bolts", nameOnly: true };
+    const row: ScoutGame = {
+      id: rowId(ACES, "a4"),
+      teamAId: aces.id,
+      teamBId: standIn.id,
+      teamAScore: 6,
+      teamBScore: 1,
+      ageGroupId: page,
+      ageLevelA: 10,
+      date: "2026-10-03",
+      startTs: "2026-10-03T14:00:00.000Z",
+      typedAs: "bolts",
+      source: { kind: "gamechanger", teamId: ACES, gameId: "a4" },
+    };
+    const onStandIn = { ...state, teams: [...state.teams, standIn], games: [...state.games, row] };
+    const refiled = refileStandIns(onStandIn);
+    expect(refiled.refiled).toBe(1);
+    expect(gameOf(refiled.state, row.id)?.teamBId).toBe(club.id);
+    // On the club, though its own schedule has no game within a day of it.
+    const onClub = { ...state, games: [...state.games, { ...row, teamBId: club.id }] };
+    expect(resettleOffLevel(onClub).resettled).toBe(0);
+    // Another schedule's row of the name, put on the club, the resettle takes off.
+    const theirs = {
+      ...row,
+      id: rowId(DUKES, "d1"),
+      teamAId: "S-DUKES",
+      teamBId: club.id,
+      source: { kind: "gamechanger" as const, teamId: DUKES, gameId: "d1" },
+    };
+    const dukes: ScoutTeam = {
+      id: "S-DUKES",
+      name: "Dukes",
+      state: "OH",
+      gcTeams: [{ teamId: DUKES, name: "Dukes 10U", ageGroupId: row.ageGroupId, ageLevel: 10 }],
+    };
+    expect(
+      resettleOffLevel({
+        ...state,
+        teams: [...state.teams, dukes],
+        games: [...state.games, theirs],
+      }).resettled
+    ).toBe(1);
   });
 });
 

@@ -140,6 +140,13 @@ const DIST = "dist";
  * and exports. The entry chunk keeps the components, 41.7 KB, so its line now has room it did not;
  * the first download's line, which holds both, is the one that binds. Team Rankings went from 166.2
  * KB to 165.3 KB with it, and each League view by 0 to 0.4 KB.
+ * Team Rankings to 167.5 KB on 1 Nov 2026 for "Same team as" standing for that coach's later games
+ * typed the same way (tidy rules 38, `answeredNamesakes`), 166.9 KB against 166.2 KB on main
+ * (166,918 bytes against 166,193): the answer read at arrival, in the refile and in the resettle,
+ * under the in-state rule's guards and the owner's refusals, and the answers carried through the
+ * tidy's own two folds, all in the import and the tidy, which are part of that load. The first
+ * download, 252.2 KB against 251.8 KB, carries the stored roster's reader and writer of the answers
+ * and the hand fold that keeps them.
  */
 const BUDGET = {
   firstDownload: 255_000,
@@ -156,7 +163,7 @@ const BUDGET = {
     Settings: 13_700,
     "Seasons at a glance": 4_400,
     "Since you last looked": 4_500,
-    "Team Rankings": 166_500,
+    "Team Rankings": 167_500,
   },
 };
 
