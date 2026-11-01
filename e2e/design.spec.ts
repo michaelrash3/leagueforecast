@@ -4,7 +4,8 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
  * What a reader sees, measured in the built app (2.5): League Standings in light mode and dark, on a
  * phone, a tablet and a desktop, on every view of the demo season, on the first launch with no
  * season, and while a view is still loading or has failed to; and Team Rankings on a seeded pool,
- * on every section, the club sheet and the My Team card telling what moved since the last visit.
+ * on every section, the club sheet, the full table cut to one state, and the My Team card telling
+ * what moved since the last visit.
  *
  * - Text is legible against what is actually painted behind it: 4.5:1, or 3:1 for large text (24px,
  *   or 18.66px bold), as WCAG 2 measures contrast, from the colours the browser computed, with
@@ -423,6 +424,15 @@ for (const scheme of ["light", "dark"] as const) {
         const state = `${size.name}-${scheme}-rankings`;
         const problems = await check(page, info, state);
         const taps = phone ? await smallTaps(page, "#main-content", state) : [];
+
+        // The full table, cut to one state's clubs, where each row also carries its place on the
+        // whole board in grey.
+        await page.getByRole("button", { name: /^Show all \d+ teams$/ }).click();
+        await page.locator("#scout-state-filter").selectOption("KY");
+        await expect(page.getByText(/Showing 6 of 12 teams\./)).toBeVisible();
+        problems.push(...(await check(page, info, `${size.name}-${scheme}-full-table`)));
+        if (phone) taps.push(...(await smallTaps(page, "#main-content", "full table")));
+        await page.getByRole("button", { name: "Hide the full table" }).click();
 
         // The club sheet, from the card's name.
         await card.getByRole("button", { name: /Aces/ }).first().click();

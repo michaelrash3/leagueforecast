@@ -9802,7 +9802,8 @@ footnote or a failed panel reads the same on every League view.
     club's highlighted row were slate-500 on blue-50, 4.38:1, and are slate-600, 6.94:1, on
     every row. The My Team card's star was amber-500 on white, 2.13:1, and is amber-700,
     5.05:1 (amber-400 in dark). The Games tab's day was slate-400 on white, 2.63:1, and is
-    slate-500.
+    slate-500, as is the full table's grey place on the whole board beside a state's own,
+    which measured the same.
 - **A thumb's tap area on a phone** (`tapArea`): Team Rankings' buttons and links are 44 px
   each way below `sm`, where its main ones were text links 16 to 26 px tall (Scout 34 by 16,
   What if? 48 by 16, the club sheet's Close 33 by 16, Got it 49 by 26, "Open on 10U by
@@ -9824,9 +9825,9 @@ footnote or a failed panel reads the same on every League view.
     dark, on a phone (360px), a tablet (768px) and a desktop (1280px), on every view of
     the demo season, on the first launch with no season, and while a view is loading
     and after it fails to; and Team Rankings at the same sizes on a pool seeded as an
-    older version kept it, on every section, a club's sheet and the My Team card telling
-    what moved since a visit two days before, its clock held so each run draws the same
-    board. On the phone it also finds every button and link Team Rankings draws under
+    older version kept it, on every section, a club's sheet, the full table cut to one
+    state, and the My Team card telling what moved since a visit two days before, its
+    clock held so each run draws the same board. On the phone it also finds every button and link Team Rankings draws under
     44 px either way, but for one inside a sentence (`smallTaps`). With the star put back
     to amber-500 the contrast check fails at 2.13:1, and with "Open on 10U by default"
     back to a text link the tap check fails at 136 by 16 px. Every visible run of text is measured against what is

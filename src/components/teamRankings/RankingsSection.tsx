@@ -479,8 +479,12 @@ export function RankingsSection({
                          */}
                         <span className="min-w-0 text-sm font-black wrap-break-word">
                           #{row.rank}
+                          {/*
+                           * The place on the whole board, in grey beside the place in the state
+                           * picked: slate-500, as slate-400 on white measured 2.63:1.
+                           */}
                           {row.overallRank !== undefined && row.overallRank !== row.rank && (
-                            <span className="ml-1 text-xs font-bold text-slate-400">
+                            <span className="ml-1 text-xs font-bold text-slate-500 dark:text-slate-400">
                               #{row.overallRank}
                             </span>
                           )}{" "}
@@ -575,7 +579,7 @@ export function RankingsSection({
                         <td className="py-3 font-black">
                           #{row.rank}
                           {row.overallRank !== undefined && row.overallRank !== row.rank && (
-                            <span className="ml-1 text-xs font-bold text-slate-400">
+                            <span className="ml-1 text-xs font-bold text-slate-500 dark:text-slate-400">
                               #{row.overallRank}
                             </span>
                           )}
