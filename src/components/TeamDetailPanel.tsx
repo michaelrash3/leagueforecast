@@ -124,8 +124,11 @@ type TeamDetailPanelProps = {
    * ratings shown (`WhatIf`). Absent, or either club without a row, and the game has none.
    */
   ratingRowOf?: (teamId: string) => ScoutRankingRow | undefined;
-  /** Whether the club is watched on this page, and the way to watch it or stop (`watchList.ts`). */
-  watch?: { on: boolean; full: boolean; onToggle: (name: string) => void };
+  /**
+   * Whether the club is watched on this page, and the way to watch it or stop (`watchList.ts`),
+   * handed the club as the panel has it, whose GameChanger ids it is kept by.
+   */
+  watch?: { on: boolean; full: boolean; onToggle: (name: string, club: ScoutTeam) => void };
 };
 
 /** Which rule of the import filed a link at its level, as the link line says it. */
@@ -438,7 +441,7 @@ export function TeamDetailPanel({
           <span className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => watch.onToggle(team.name)}
+              onClick={() => watch.onToggle(team.name, team)}
               aria-pressed={watch.on}
               disabled={!watch.on && watch.full}
               title={

@@ -1,4 +1,4 @@
-import { forgetWatchList, watchedOn } from "../../lib/watchList";
+import { forgetWatchList, toggleWatch, watchedOn } from "../../lib/watchList";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { NO_REMOVALS } from "../../lib/autoRemoved";
 import { BROUGHT_BACK } from "../../lib/gcIdWhereabouts";
@@ -1621,6 +1621,41 @@ describe("a club's panel on the cloud's board", () => {
     const card = await screen.findByRole("region", { name: "Watching" });
     expect(within(card).getByRole("button", { name: "Placeholder S-1" })).toBeTruthy();
     expect(watchedOn(PAGE)).toEqual([{ id: "S-1", name: "Placeholder S-1" }]);
+    window.localStorage.removeItem("lf_watch_v1");
+    forgetWatchList();
+  });
+
+  it("keeps a club watched with its GameChanger id, and one folded into the page's own club as it", async () => {
+    window.localStorage.removeItem("lf_watch_v1");
+    forgetWatchList();
+    const gc = (teamId: string) => ({ teamId, name: teamId, ageGroupId: PAGE });
+    // Watched on this device under an id since folded into S-2, the page's own club.
+    toggleWatch(PAGE, { id: "S-9", name: "Placeholder S-9", gc: "gcFolded01" });
+    await withCard({
+      team: {
+        id: "S-2",
+        name: "Placeholder S-2",
+        state: "OH",
+        gcTeams: [gc("gcTwo00001"), gc("gcFolded01")],
+      },
+      games: [],
+      names: {},
+    });
+    open(sourcesOf(live));
+    const card = await screen.findByRole("region", { name: "Watching" });
+    await waitFor(() =>
+      expect(within(card).getByRole("button", { name: "Placeholder S-2" })).toBeTruthy()
+    );
+    expect(card).not.toHaveTextContent("Not on this board");
+    // Watched from its panel, a club keeps the GameChanger id its card has on the page, the last
+    // of them listed, as a pick keeps the season's own (`pageGcId`).
+    await tapClub("Placeholder S-2");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-2" });
+    expect(within(panel).getByRole("button", { name: "Watching" })).toBeTruthy();
+    fireEvent.click(within(panel).getByRole("button", { name: "Watching" }));
+    expect(watchedOn(PAGE)).toEqual([]);
+    fireEvent.click(within(panel).getByRole("button", { name: "Watch" }));
+    expect(watchedOn(PAGE)).toEqual([{ id: "S-2", name: "Placeholder S-2", gc: "gcFolded01" }]);
     window.localStorage.removeItem("lf_watch_v1");
     forgetWatchList();
   });

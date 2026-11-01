@@ -71,6 +71,7 @@ import { warmTeamSearch, type GcIdOffer } from "../TeamSearchSelect";
 import { leftClubSheet, markClubSheet } from "../../lib/clubSheetHistory";
 import { ClubSheet } from "./ClubSheet";
 import { useWatchList } from "../../lib/watchList";
+import { clubLookupOf, pageGcId } from "../../lib/teamRankings/leagueBridge";
 import { RankingsHeader } from "./RankingsHeader";
 import { NATIONAL_TOP, RankingsSection, STATE_TOP } from "./RankingsSection";
 import { SECTION_PANEL_ID, sectionTabId } from "./SectionNav";
@@ -406,13 +407,6 @@ function LiveBoard({
     const byId = new Map(rows.map((row) => [row.teamId, row]));
     return (teamId: string) => byId.get(teamId);
   }, [rows]);
-  // The clubs watched on this page, on this device (`watchList.ts`).
-  const watchList = useWatchList(selectedAgeGroupId);
-  const { toggle: toggleWatch } = watchList;
-  const watchCard = useMemo(
-    () => ({ watched: watchList.watched, rowOf, onStop: toggleWatch }),
-    [watchList.watched, rowOf, toggleWatch]
-  );
   const clubs = useMemo(() => clubsOfBoard(rows), [rows]);
   /** Which state the top ten is for (`useStateTop`), shared with the page on this device. */
   const { stateTop, shownState, pickState, keptState, keepState } = useStateTop(clubs, myTeamId);
@@ -649,6 +643,21 @@ function LiveBoard({
    */
   const firstDrawn = useOpeningReleased();
   const mineCard = useClubCard(firstDrawn ? live.source : null, selectedYear, myTeamId ?? null);
+  /*
+   * The clubs watched on this page, on this device (`watchList.ts`), each read by the GameChanger
+   * id kept with it off what this device holds of the clubs: its own club's card, the board's rows
+   * carrying no GameChanger ids. A club folded into it is watched as it; any other reads as kept.
+   */
+  const heldClubs = useMemo(
+    () => (mineCard.card ? clubLookupOf([mineCard.card.team]) : null),
+    [mineCard.card]
+  );
+  const watchList = useWatchList(selectedAgeGroupId, heldClubs);
+  const { toggle: toggleWatch } = watchList;
+  const watchCard = useMemo(
+    () => ({ watched: watchList.watched, rowOf, onStop: toggleWatch }),
+    [watchList.watched, rowOf, toggleWatch]
+  );
   const poolIds = useMemo(
     () => new Set(rankingPoolGroupIds(selectedAgeGroupId, ageGroups)),
     [selectedAgeGroupId, ageGroups]
@@ -1171,7 +1180,10 @@ function LiveBoard({
                   watch={{
                     on: watchList.watched.some((club) => club.id === openClub),
                     full: watchList.full,
-                    onToggle: (name) => toggleWatch({ id: openClub, name }),
+                    onToggle: (name, club) => {
+                      const gc = pageGcId(club, selectedAgeGroupId, ageGroups);
+                      toggleWatch({ id: openClub, name, ...(gc ? { gc } : {}) });
+                    },
                   }}
                   {...(panelBoard ? { board: panelBoard } : {})}
                 />

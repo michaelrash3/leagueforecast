@@ -8,7 +8,14 @@ import {
   team,
   type Pool,
 } from "../../test/teamRankingsHarness";
-import { forgetWatchList, toggleWatch, WATCH_MAX, watchedOn } from "../../lib/watchList";
+import {
+  forgetWatchList,
+  toggleWatch,
+  WATCH_MAX,
+  watchedNow,
+  watchedOn,
+} from "../../lib/watchList";
+import { clubLookupOf, GONE_CLUB } from "../../lib/teamRankings/leagueBridge";
 
 /*
  * The clubs a reader watches, up to five a page, on this device (`watchList.ts`), and the card at
@@ -119,5 +126,121 @@ describe("the clubs watched on a page", () => {
     const card = watchCard();
     expect(card).toHaveTextContent("Long Gone");
     expect(card).toHaveTextContent("Not on this board");
+  });
+});
+
+const link = (teamId: string) => ({ teamId, name: teamId, ageGroupId: PAGE });
+
+/*
+ * A watched club is kept with a GameChanger id it carried (`Watched.gc`), and read by it
+ * (`readClub`): a club folded into another stays watched as that club, and a club whose id the pool
+ * has given to another is shown gone, never as the club now under its id.
+ */
+describe("a watched club whose id no longer names it", () => {
+  const ACES = team("S-Aces", "Aces", { gcTeams: [link("gcAces001")] });
+  const ACES_GOLD = team("S-Aces2", "Aces Gold", { gcTeams: [link("gcAcesGld")] });
+
+  it("stays watched as the club it was folded into", () => {
+    toggleWatch(PAGE, { id: "S-Aces2", name: "Aces Gold", gc: "gcAcesGld" });
+    const folded = clubLookupOf([{ ...ACES, gcTeams: [link("gcAces001"), link("gcAcesGld")] }]);
+    expect(watchedNow(watchedOn(PAGE), folded)).toEqual([
+      { id: "S-Aces", name: "Aces Gold", gc: "gcAcesGld" },
+    ]);
+    // Stopped as the club it is shown as, it goes.
+    expect(toggleWatch(PAGE, { id: "S-Aces", name: "Aces" }, folded)).toBe(true);
+    expect(watchedOn(PAGE)).toEqual([]);
+  });
+
+  it("is shown gone where its id is another club's now and no club carries its id", () => {
+    toggleWatch(PAGE, { id: "S-Aces2", name: "Aces Gold", gc: "gcAcesGld" });
+    const again = clubLookupOf([
+      ACES,
+      team("S-Aces2", "Aces Academy", { gcTeams: [link("gcAcesAca")] }),
+    ]);
+    const shown = watchedNow(watchedOn(PAGE), again);
+    expect(shown).toEqual([{ id: `${GONE_CLUB}S-Aces2`, name: "Aces Gold", gc: "gcAcesGld" }]);
+    // Watching the club now under the id is watching another club, which is not watched yet.
+    expect(shown.some((club) => club.id === "S-Aces2")).toBe(false);
+    expect(toggleWatch(PAGE, { id: "S-Aces2", name: "Aces Academy", gc: "gcAcesAca" }, again)).toBe(
+      true
+    );
+    expect(watchedOn(PAGE)).toHaveLength(2);
+    // And the one shown gone stops as it is shown.
+    expect(toggleWatch(PAGE, shown[0] ?? { id: "", name: "" }, again)).toBe(true);
+    expect(watchedOn(PAGE)).toEqual([{ id: "S-Aces2", name: "Aces Academy", gc: "gcAcesAca" }]);
+  });
+
+  it("is read back with its GameChanger id, and not at all with one that is not text", () => {
+    window.localStorage.setItem(
+      "lf_watch_v1",
+      JSON.stringify({
+        [PAGE]: [
+          { id: "S-Aces", name: "Aces", gc: "gcAces001" },
+          { id: "S-Bears", name: "Bears", gc: 7 },
+          { id: "S-Cubs", name: "Cubs" },
+        ],
+      })
+    );
+    forgetWatchList();
+    expect(watchedOn(PAGE)).toEqual([
+      { id: "S-Aces", name: "Aces", gc: "gcAces001" },
+      { id: "S-Cubs", name: "Cubs" },
+    ]);
+  });
+
+  it("is one club where two watched clubs were folded into one", () => {
+    toggleWatch(PAGE, { id: "S-Aces", name: "Aces", gc: "gcAces001" });
+    toggleWatch(PAGE, { id: "S-Aces2", name: "Aces Gold", gc: "gcAcesGld" });
+    const folded = clubLookupOf([{ ...ACES, gcTeams: [link("gcAces001"), link("gcAcesGld")] }]);
+    expect(watchedNow(watchedOn(PAGE), folded).map((club) => club.id)).toEqual(["S-Aces"]);
+    expect(toggleWatch(PAGE, { id: "S-Aces", name: "Aces" }, folded)).toBe(true);
+    expect(watchedOn(PAGE)).toEqual([]);
+  });
+
+  it("is as it always was where it was kept with no GameChanger id, or nothing says otherwise", () => {
+    toggleWatch(PAGE, { id: "S-Aces2", name: "Aces Gold" });
+    const list = watchedOn(PAGE);
+    const again = clubLookupOf([
+      ACES,
+      team("S-Aces2", "Aces Academy", { gcTeams: [link("gcAcesAca")] }),
+    ]);
+    expect(watchedNow(list, again)).toBe(list);
+    expect(watchedNow(list, null)).toBe(list);
+    // And a list read with what holds it as it is, is that list.
+    toggleWatch(PAGE, { id: "S-Aces", name: "Aces", gc: "gcAces001" });
+    const both = watchedOn(PAGE);
+    expect(watchedNow(both, clubLookupOf([ACES, ACES_GOLD]))).toBe(both);
+  });
+
+  it("is watched from its panel with its GameChanger id, and followed on the board", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const roster = pool();
+    const withIds: Pool = {
+      ...roster,
+      teams: roster.teams.map((one) => ({ ...one, gcTeams: [link(`gc${one.name}`)] })),
+    };
+    renderTeamRankings({ ...withIds, search: "?age=10&year=2027" });
+    await user.click(await screen.findByRole("button", { name: /show all \d+ teams/i }));
+    const panel = await openClub(user, "Cubs");
+    await user.click(within(panel).getByRole("button", { name: "Watch" }));
+    expect(watchedOn(PAGE)).toEqual([{ id: "S-Cubs", name: "Cubs", gc: "gcCubs" }]);
+    await closeSheet(user);
+    // Kept under an id since folded into Cubs, and under an id now another club's.
+    act(() => {
+      toggleWatch(PAGE, { id: "S-Cubs", name: "Cubs" });
+      toggleWatch(PAGE, { id: "S-Old", name: "Cubs Gold", gc: "gcCubs" });
+      toggleWatch(PAGE, { id: "S-Aces", name: "Old Aces", gc: "gcOldAces" });
+    });
+    const card = watchCard();
+    if (!card) throw new Error("no card");
+    expect(card).toHaveTextContent(/#3\s*Cubs/);
+    expect(card).toHaveTextContent("Old Aces");
+    expect(card).not.toHaveTextContent(/#1\s*Aces/);
+    expect(within(card).getAllByText("Not on this board")).toHaveLength(1);
+    const cubs = await openClub(user, "Cubs");
+    expect(within(cubs).getByRole("button", { name: "Watching" })).toBeInTheDocument();
+    await closeSheet(user);
+    const aces = await openClub(user, "Aces");
+    expect(within(aces).getByRole("button", { name: "Watch" })).toBeInTheDocument();
   });
 });

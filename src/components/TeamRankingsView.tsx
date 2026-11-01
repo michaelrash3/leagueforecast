@@ -175,6 +175,7 @@ import { card } from "../styles/tokens";
 import { ClubSheet } from "./teamRankings/ClubSheet";
 import { leftClubSheet, markClubSheet } from "../lib/clubSheetHistory";
 import { useWatchList } from "../lib/watchList";
+import { clubLookupOf, pageGcId } from "../lib/teamRankings/leagueBridge";
 import { EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/addGameDraft";
 import type { NamedChecker } from "./ScheduleImportPanel";
 import { checkNamedGames, type NamedGame } from "../lib/teamRankings/namedGames";
@@ -886,8 +887,13 @@ export function TeamRankingsView({
     const byId = new Map(rankings.map((row) => [row.teamId, row]));
     return (teamId: string) => byId.get(teamId);
   }, [rankings]);
-  // The clubs watched on this page, on this device (`watchList.ts`).
-  const watchList = useWatchList(selectedAgeGroupId);
+  /*
+   * The pool as a club this device remembers is read by (`readClub`): the clubs watched on this
+   * page (`watchList.ts`), each by the GameChanger id kept with it, so one folded into another is
+   * watched as that club and one whose id is another club's now is shown gone.
+   */
+  const clubLookup = useMemo(() => clubLookupOf(allKnown.teams), [allKnown.teams]);
+  const watchList = useWatchList(selectedAgeGroupId, clubLookup);
   const { toggle: toggleWatch } = watchList;
   const watchCard = useMemo(
     () => ({ watched: watchList.watched, rowOf: rankingRowOf, onStop: toggleWatch }),
@@ -2913,7 +2919,10 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 watch={{
                   on: watchList.watched.some((club) => club.id === openTeam.id),
                   full: watchList.full,
-                  onToggle: (name) => toggleWatch({ id: openTeam.id, name }),
+                  onToggle: (name) => {
+                    const gc = pageGcId(openTeam, selectedAgeGroupId, ageGroups);
+                    toggleWatch({ id: openTeam.id, name, ...(gc ? { gc } : {}) });
+                  },
                 }}
               />
             </Suspense>

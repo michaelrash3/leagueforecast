@@ -11,7 +11,7 @@ import { gameNotesOf } from "../../lib/live/gameWords";
 import { overlayCard, takenWithOnCard } from "../../lib/live/liveEdits";
 import { withMine, type BoardView } from "../../lib/live/views/boardShape";
 import { mintStandInId, takenOffSaid } from "../../lib/notThisTeam";
-import type { AgeGroup, SeasonSegment } from "../../lib/teamRankings";
+import type { AgeGroup, ScoutTeam, SeasonSegment } from "../../lib/teamRankings";
 import { normalizeState } from "../../lib/teamRankings/rosterNames";
 import { createAgeGroupId } from "../../lib/teamRankings/seasons";
 import { card as cardStyle } from "../../styles/tokens";
@@ -89,7 +89,7 @@ export default function LiveClubPanel({
    */
   board?: { view: BoardView; groups: AgeGroup[]; span: string; own: boolean };
   /** Whether the club is watched on this page, and the way to change it (`TeamDetailPanel`). */
-  watch?: { on: boolean; full: boolean; onToggle: (name: string) => void };
+  watch?: { on: boolean; full: boolean; onToggle: (name: string, club: ScoutTeam) => void };
 }) {
   const { card, failed } = useClubCard(source, year, teamId);
   useEffect(() => {
