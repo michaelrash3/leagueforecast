@@ -664,14 +664,11 @@ export default function App() {
         });
       },
       /*
-       * Once, on a first visit, as the service worker finishes storing the app. Said in the app's
-       * words for itself ("App shell cached for offline use."), above the tab bar, it covered the
-       * middle of the My Team card on a phone, and League Standings' Import CSV: four plain words
-       * now, over the header for three seconds.
+       * Nothing is said when the service worker finishes storing the app on a first visit, by the
+       * owner's decision of 1 November 2026. Said as a toast, it covered the My Team card on a
+       * phone or League Standings' Import CSV, and moved to the top of the screen it covered the
+       * header. The banner atop the page (`isOffline`) still says when the device is offline.
        */
-      onOfflineReady() {
-        showToast("Ready to use offline.", { tone: "success", place: "top", durationMs: 3000 });
-      },
     });
   }, [showToast]);
   const {

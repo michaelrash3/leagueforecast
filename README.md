@@ -10025,10 +10025,11 @@ footnote or a failed panel reads the same on every League view.
   and Fill scores with nothing ticked says "Tick a game above to fill it." where its button
   read "Fill 0 games", or with nothing that can be ticked (every row one it cannot tell apart,
   and no game to add) says nothing at all. Scouting asks "How would this team fare?" whole above its box on
-  every screen, where a wide one split it around the box. The service worker's word that the
-  app is stored for use offline, once on a first visit, is "Ready to use offline." at the top
-  of the screen for three seconds (`place: "top"` on the toast), where "App shell cached for
-  offline use." sat above the tab bar over the My Team card. League's start screen opens on
+  every screen, where a wide one split it around the box. Nothing is said when the service
+  worker has stored the app for use offline on a first visit (the owner's decision of the same
+  day): "App shell cached for offline use." sat above the tab bar over the My Team card, and
+  then, from #508, "Ready to use offline." at the top of the screen over the header. The banner
+  that says a device is offline stays (`AppOfflineReady.test.tsx`). League's start screen opens on
   "Start your season" in place of "a guided flow" and "a visual setup lane", and calls the
   sample season "Made-up teams and scores", where "Safe sandbox mode" was not so: loaded over
   a season, it replaces it, with an undo.

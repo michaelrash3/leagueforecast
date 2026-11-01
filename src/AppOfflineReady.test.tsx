@@ -2,11 +2,12 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /*
- * The service worker's word that the app is stored for use offline. It came as a toast in the
- * app's words for itself, "App shell cached for offline use.", above the phone's tab bar, which on
- * a first visit to Team Rankings is the middle of the My Team card, and on League Standings' start
- * screen the Import CSV button. It is said in four plain words now, at the top of the screen, over
- * the header rather than the page's first card.
+ * The service worker's word that the app is stored for use offline. It came as a toast, "App shell
+ * cached for offline use.", above the phone's tab bar, over the middle of the My Team card on a
+ * first visit to Team Rankings and League Standings' Import CSV on its start screen; then, from
+ * #508, as "Ready to use offline." at the top of the screen, over the header. By the owner's
+ * decision of 1 November 2026 it says nothing at all. What stays is the banner that tells a device
+ * it is offline.
  */
 const registered = vi.hoisted(() => ({ onOfflineReady: undefined as (() => void) | undefined }));
 vi.mock("virtual:pwa-register", () => ({
@@ -18,9 +19,10 @@ vi.mock("virtual:pwa-register", () => ({
 
 const { default: App } = await import("./App");
 
-describe("the word that the app works offline", () => {
+describe("the app stored for use offline", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    registered.onOfflineReady = undefined;
     vi.stubGlobal(
       "matchMedia",
       vi.fn().mockReturnValue({
@@ -34,20 +36,30 @@ describe("the word that the app works offline", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("is said briefly, at the top of the screen rather than over the page", async () => {
+  it("says nothing when the service worker has stored it", async () => {
     render(<App />);
     await screen.findByRole("button", { name: "Load Demo" });
-    expect(registered.onOfflineReady).toBeDefined();
+    const before = document.body.textContent;
     act(() => registered.onOfflineReady?.());
 
-    const said = screen
-      .getAllByRole("status")
-      .find((status) => /offline/i.test(status.textContent ?? ""));
-    if (!said) throw new Error("Nothing said of working offline");
-    expect(said).toHaveTextContent("Ready to use offline.");
-    expect(said).not.toHaveTextContent(/shell|cached/i);
-    // Placed at the top on every screen, where the toasts that ask something sit above the tab bar.
-    expect(said.className).toMatch(/(^|\s)top-\d/);
-    expect(said.className).not.toMatch(/(^|\s)(sm:)?bottom-\d/);
+    expect(screen.queryByText(/offline/i)).toBeNull();
+    expect(
+      screen.queryAllByRole("status").filter((status) => /offline/i.test(status.textContent ?? ""))
+    ).toEqual([]);
+    expect(document.body.textContent).toBe(before);
+  });
+
+  it("still says so when the device goes offline", async () => {
+    render(<App />);
+    await screen.findByRole("button", { name: "Load Demo" });
+    expect(screen.queryByText(/^You are offline\./)).toBeNull();
+    act(() => {
+      window.dispatchEvent(new Event("offline"));
+    });
+    expect(screen.getByText(/^You are offline\./)).toBeInTheDocument();
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    expect(screen.queryByText(/^You are offline\./)).toBeNull();
   });
 });
