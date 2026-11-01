@@ -70,6 +70,7 @@ import { memoryLive, type MemoryLive } from "../../lib/live/__tests__/memoryLive
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { NAMED_GAMES_MAX } from "../../lib/teamRankings/namedGames";
 import type { SeasonMeta } from "../../lib/storage";
+import { formatIsoDayShort } from "../../lib/date";
 import { readLeagueClubRanks } from "../../lib/leagueClubRanks";
 import { readDefaultState, writeDefaultState } from "../../lib/preferences";
 import { readMyTeamLook } from "../../lib/myTeamLook";
@@ -1633,8 +1634,8 @@ describe("a club's panel on the cloud's board", () => {
     expect(panel).toHaveTextContent("1-1 in 12U 2027, from 2 games.");
     expect(panel).toHaveTextContent("The app filed this club at 12U.");
     expect(within(panel).getAllByText("Placeholder S-2")).toHaveLength(2);
-    expect(panel).toHaveTextContent("5–3 · 2027-03-20 · Placeholder Classic");
-    expect(panel).toHaveTextContent("2–6 · 2027-03-27");
+    expect(panel).toHaveTextContent("5–3 · Sat, Mar 20 · Placeholder Classic");
+    expect(panel).toHaveTextContent("2–6 · Sat, Mar 27");
     expect(within(panel).getByText("Sched")).toBeTruthy();
     // Its card names no game it has by a name alone, so none is offered to take off it.
     expect(within(panel).queryByRole("button", { name: /^Not this team/ })).toBeNull();
@@ -1701,7 +1702,7 @@ describe("a club's panel on the cloud's board", () => {
     // Offered beside that game alone.
     const offered = within(panel).getAllByRole("button", { name: /^Not this team/ });
     expect(offered).toHaveLength(1);
-    expect(offered[0]!.closest("li")).toHaveTextContent("2–6 · 2027-03-27");
+    expect(offered[0]!.closest("li")).toHaveTextContent("2–6 · Sat, Mar 27");
     fireEvent.click(offered[0]!);
     const done =
       "Taken off Placeholder S-1: the game with Placeholder S-4 on 2027-03-27 stands against the name alone now.";
@@ -1781,7 +1782,7 @@ describe("a club's panel on the cloud's board", () => {
     expect(panel).toHaveTextContent("1-2 in 12U 2027, from 3 games.");
     const line = within(panel)
       .getAllByRole("listitem")
-      .find((item) => item.textContent?.includes("2027-03-27"))!;
+      .find((item) => item.textContent?.includes("Sat, Mar 27"))!;
     fireEvent.click(within(line).getByRole("button", { name: /^Not this team/ }));
     const done =
       "Taken off Placeholder S-1: 2 games with Placeholder S-4, on 2027-03-27 and 2027-04-03, stand against the name alone now.";
@@ -2101,7 +2102,7 @@ describe("Find a team on the cloud's board", () => {
     // On the club's own page, with its panel from its card, and nothing handed over.
     await waitFor(() => expect(window.location.search).toContain("age=11"));
     const panel = await screen.findByRole("region", { name: "Placeholder Niners" });
-    expect(panel).toHaveTextContent("4–1 · 2027-03-20");
+    expect(panel).toHaveTextContent("4–1 · Sat, Mar 20");
     expect(handedOver()).toBeNull();
   });
 
@@ -5007,12 +5008,20 @@ describe("what each game did, on a club's panel on the cloud's board", () => {
   const tap = async (name: string) =>
     fireEvent.click((await screen.findAllByRole("button", { name }))[0]!);
   /** Each row of the panel's games, by its day, with the line under it if it has one. */
+  /** Each fixture's day by the words the panel says it in ("Sat, Mar 13"). */
+  const dayOf = new Map(
+    GAMES.flatMap((game) => (game.date ? [[formatIsoDayShort(game.date), game.date] as const] : []))
+  );
   const linesOf = (panel: HTMLElement) =>
     new Map(
       within(panel)
         .getAllByRole("listitem")
         .map((item) => [
-          item.textContent?.match(/\d{4}-\d{2}-\d{2}/)?.[0],
+          dayOf.get(
+            item.textContent?.match(
+              /(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), [A-Z][a-z]+ \d{1,2}(?!\d)/
+            )?.[0] ?? ""
+          ),
           item.querySelector("p")?.textContent ?? null,
         ])
     );
@@ -5202,7 +5211,7 @@ describe("what each game did, on a club's panel on the cloud's board", () => {
     for (const day of lined) {
       const offered = within(panel)
         .getAllByRole("button", { name: /^Not this team/ })
-        .find((button) => button.closest("li")?.textContent?.includes(day));
+        .find((button) => button.closest("li")?.textContent?.includes(formatIsoDayShort(day)));
       if (!offered) throw new Error(`no Not this team on ${day}`);
       fireEvent.click(offered);
       await waitFor(() => expect(linesOf(panel).has(day)).toBe(false));
@@ -5228,7 +5237,7 @@ describe("what each game did, on a club's panel on the cloud's board", () => {
     expect(before.get("2027-04-03")).not.toBeNull();
     const offered = within(panel).getAllByRole("button", { name: /^Not this team/ });
     expect(offered).toHaveLength(1);
-    expect(offered[0]!.closest("li")).toHaveTextContent("2027-04-03");
+    expect(offered[0]!.closest("li")).toHaveTextContent("Sat, Apr 3");
     fireEvent.click(offered[0]!);
     await waitFor(() => expect(linesOf(panel).has("2027-04-03")).toBe(false));
     const after = linesOf(panel);

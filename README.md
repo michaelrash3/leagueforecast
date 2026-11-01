@@ -4624,8 +4624,14 @@ group of 60 to the fit). Nothing more is read or published for it.
 
 Every Team Rankings list of games is in the order the games are played: by day, then by start
 time where GameChanger gave one (`ScoutGame.startTs`), a game with no start after the day's
-timed ones (the game-time helpers in `date.ts`). Newest-first lists put a day's later game first. The start orders the
-list and is not shown. The lists a phone reads carry it to the minute: a club card's game as `t`,
+timed ones (the game-time helpers in `date.ts`). Newest-first lists put a day's later game first.
+Since 1 November 2026 the start is shown too, in the reader's own time, wherever a game is listed
+with its day: the My Team card's next game ("Next: Sat, Oct 31 · 9:30 AM") and the two games its
+weekend line names ("Sat 9:30 AM"), Scouting's Next up, a club's panel and the Games tab
+(`dayAndTime`, as League Standings' Schedule says it). A game with no start says its day alone.
+Until then the start ordered the lists and was not shown, so a tournament Saturday's five games
+were in order with nothing to say which was at 9:30 and which at 7:00, and the panel and the Games
+tab printed the day as stored ("2026-10-31"). The lists a phone reads carry it to the minute: a club card's game as `t`,
 a page's Games list as `times` beside its games (so a reader from before them still takes each
 game's seven fields), both in whole minutes since 1970. A card's game is found for an edit by
 everything else it shows (`cardFixture`), so a card from before the start, or one carrying it in

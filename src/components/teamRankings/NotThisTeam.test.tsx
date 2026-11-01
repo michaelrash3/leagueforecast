@@ -156,7 +156,7 @@ describe("Not this team, on a page kept in this browser", () => {
     expect(within(panel).getByText(/^4-0 in 9U 2027, from 4 games\./)).toBeInTheDocument();
     const line = within(panel)
       .getAllByRole("listitem")
-      .find((item) => item.textContent?.includes("2026-08-08")) as HTMLElement;
+      .find((item) => item.textContent?.includes("Sat, Aug 8")) as HTMLElement;
     const button = within(line).getByRole("button", { name: /^Not this team/ });
     // Its name says the press takes both, not the one beside it.
     expect(button).toHaveAccessibleName(

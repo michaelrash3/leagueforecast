@@ -35,7 +35,7 @@ describe("a game two schedules scored differently", () => {
     const user = userEvent.setup();
     renderTeamRankings(pool());
     const panel = await open(user, "Dragons");
-    expect(within(panel).getByText(/^11–8 · 2026-09-12$/)).toBeInTheDocument();
+    expect(within(panel).getByText(/^11–8 · Sat, Sep 12$/)).toBeInTheDocument();
     expect(within(panel).queryByText(/10–8/)).not.toBeInTheDocument();
   });
 
@@ -43,7 +43,7 @@ describe("a game two schedules scored differently", () => {
     const user = userEvent.setup();
     renderTeamRankings(pool());
     const panel = await open(user, "Hens");
-    expect(within(panel).getByText(/^8–10 · 2026-09-12$/)).toBeInTheDocument();
+    expect(within(panel).getByText(/^8–10 · Sat, Sep 12$/)).toBeInTheDocument();
     expect(within(panel).queryByText(/8–11/)).not.toBeInTheDocument();
   });
 });

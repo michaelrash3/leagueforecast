@@ -10,7 +10,7 @@ import {
   type ScoutRankingRow,
   type UpcomingMatchup,
 } from "../../lib/teamRankings";
-import { formatIsoDayShort } from "../../lib/date";
+import { dayAndTime, formatIsoDayShort } from "../../lib/date";
 import { forecastWords, formatRating } from "../../lib/matchupForecast";
 import { holdsFrom, type WhatIfCurve, type WhatIfDeclined } from "../../lib/scoutWhatIf";
 import type { WhatIfState } from "../../hooks/useRankingsWorker";
@@ -55,7 +55,12 @@ const formatPct = (value: number) => `${Math.round(value * 100)}%`;
 
 const formatMargin = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
 
-const formatDay = formatIsoDayShort;
+/**
+ * A game's day as the rest of the page says it, and its start where GameChanger gave one, in the
+ * reader's own time: "Sat, Oct 31 · 9:30 AM". A tournament Saturday lists five games in the order
+ * they start, and the order alone did not say which was at 9:30 and which at 7:00.
+ */
+const formatDay = (row: UpcomingMatchup) => dayAndTime(formatIsoDayShort(row.date), row.startTs);
 
 /**
  * The answer to the question the pickers ask — how would this team fare against that one — said
@@ -374,7 +379,7 @@ export function ScoutingSection({
                 <Fragment key={row.gameId}>
                   <tr className="border-t border-slate-100 dark:border-slate-800">
                     <td className="whitespace-nowrap py-3 font-semibold text-slate-700 dark:text-slate-200">
-                      {formatDay(row.date)}
+                      {formatDay(row)}
                       {row.event && (
                         <span className="block text-xs font-normal text-slate-500 dark:text-slate-400">
                           {row.event}
@@ -458,7 +463,7 @@ export function ScoutingSection({
               className="rounded-lg border border-slate-200 p-3 dark:border-slate-700"
             >
               <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                {formatDay(row.date)}
+                {formatDay(row)}
                 {row.event && <span className="block font-normal">{row.event}</span>}
               </div>
               <div className="mt-1 font-bold wrap-break-word text-slate-950 dark:text-white">

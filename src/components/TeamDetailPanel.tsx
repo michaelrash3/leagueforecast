@@ -26,7 +26,7 @@ import { ageGroupYear, inSegment, MAX_AGE_LEVEL, MIN_AGE_LEVEL } from "../lib/te
 import { formOf } from "../lib/clubForm";
 import { describeRoster, rosterStanding } from "../lib/gcRoster";
 import { coachesOf } from "../lib/gcStaff";
-import { agoLabel } from "../lib/date";
+import { agoLabel, dayAndTime, formatIsoDayShort } from "../lib/date";
 import { TeamSearchSelect } from "./TeamSearchSelect";
 import { TEAM_PANEL_ID } from "./teamPanelId";
 import { WhatIf, WhatIfButton } from "./teamRankings/WhatIf";
@@ -798,7 +798,9 @@ export function TeamDetailPanel({
                 <span className="flex flex-wrap items-center gap-2 text-slate-500 dark:text-slate-400">
                   <span>
                     {line.detail}
-                    {game.date ? ` · ${game.date}` : ""}
+                    {game.date
+                      ? ` · ${dayAndTime(formatIsoDayShort(game.date), game.startTs)}`
+                      : ""}
                     {game.event ? ` · ${game.event}` : ""}
                   </span>
                   {notThisTeam && !readOnly && notThisTeam.offered(game) && (

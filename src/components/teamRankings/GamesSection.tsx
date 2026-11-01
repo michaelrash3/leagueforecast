@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { ScoutGame, ScoutRankingRow, ScoutTeam } from "../../lib/teamRankings";
 import { isScoutGamePlayed } from "../../lib/teamRankings";
-import { formatIsoDayShort } from "../../lib/date";
+import { dayAndTime, formatIsoDayShort } from "../../lib/date";
 import {
   everyGameListed,
   stepGamesWindow,
@@ -474,7 +474,12 @@ export function GamesSection({
                     {game.event && (
                       <span className="ml-2 text-slate-500 dark:text-slate-400">{game.event}</span>
                     )}
-                    {game.date && <span className="ml-2 text-slate-400">{game.date}</span>}
+                    {/* Its day in words, and its start where GameChanger gave one. */}
+                    {game.date && (
+                      <span className="ml-2 text-slate-500 dark:text-slate-400">
+                        {dayAndTime(formatIsoDayShort(game.date), game.startTs)}
+                      </span>
+                    )}
                   </span>
                   <span className="flex items-center gap-2">
                     {!played && editingGameId === game.id ? (

@@ -17,6 +17,7 @@ import {
   team,
   type Pool,
 } from "../../test/teamRankingsHarness";
+import { formatIsoDayShort } from "../../lib/date";
 
 /*
  * The everyday edits on Team Rankings, as the page makes them: a score entered, a game kept out of
@@ -90,7 +91,7 @@ const gameRow = async (user: ReturnType<typeof userEvent.setup>, date: string) =
   const card = screen.getByText(/^Logged games/).closest<HTMLElement>("div.rounded-lg")!;
   return within(card)
     .getAllByRole("listitem")
-    .find((item) => item.textContent?.includes(date)) as HTMLElement;
+    .find((item) => item.textContent?.includes(formatIsoDayShort(date))) as HTMLElement;
 };
 
 const stored = (id: string) => loadScoutGamesForYear(2027).find((entry) => entry.id === id);

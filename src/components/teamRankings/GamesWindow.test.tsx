@@ -2,6 +2,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadScoutGames } from "../../lib/teamRankingsStorage";
+import { formatIsoDayShort, formatStartTime } from "../../lib/date";
 import type { ScoutGame } from "../../lib/teamRankings";
 import {
   ageGroup,
@@ -62,12 +63,24 @@ const pool = (search = "?section=games"): Pool => ({
   search,
 });
 
-/** The logged games' card, and the ids of the games it lists, by their dates. */
+/** Each day a game here is on, by the words the list says it in ("Fri, Oct 2"). */
+const DAYS = new Map(
+  [...pool().games.map((one) => one.date), "2026-08-15"].flatMap((day) =>
+    day ? [[formatIsoDayShort(day), day] as const] : []
+  )
+);
+
+/** The logged games' card, and the days of the games it lists, as ISO days, in its order. */
 const card = () => screen.getByText(/^Logged games/).closest<HTMLElement>("div.rounded-lg")!;
 const listedDates = () =>
   within(card())
     .queryAllByRole("listitem")
-    .map((item) => /\d{4}-\d{2}-\d{2}/.exec(item.textContent ?? "")?.[0] ?? "no date");
+    .map((item) => {
+      const said = /(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), [A-Z][a-z]+ \d{1,2}(?!\d)/.exec(
+        item.textContent ?? ""
+      )?.[0];
+      return (said && DAYS.get(said)) ?? "no date";
+    });
 
 describe("the Games tab's games of today", () => {
   it("lists today's games, and says what it leaves out", () => {
@@ -96,7 +109,7 @@ describe("the Games tab's games of today", () => {
 
     const farOpen = within(card())
       .getAllByRole("listitem")
-      .find((item) => item.textContent?.includes("2026-09-05"))!;
+      .find((item) => item.textContent?.includes(formatIsoDayShort("2026-09-05")))!;
     await user.click(within(farOpen).getByRole("button", { name: "Enter score" }));
     const [scoreA, scoreB] = within(farOpen).getAllByPlaceholderText("Score");
     await user.type(scoreA!, "6");
@@ -162,6 +175,19 @@ describe("the Games tab's games of today", () => {
 
     await user.click(screen.getByRole("button", { name: "Next game day: Sat, Oct 3" }));
     expect(listedDates()).toEqual(["2026-10-03"]);
+  });
+
+  it("says each game's day in words, and its start where GameChanger gave one", () => {
+    const start = "2026-10-02T23:00:00.000Z";
+    const timed = pool();
+    timed.games = timed.games.map((one) =>
+      one.id === "today-open" ? { ...one, startTs: start } : one
+    );
+    renderTeamRankings(timed);
+    const items = within(card()).getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent(`Fri, Oct 2 · ${formatStartTime(start)}`);
+    expect(items[1]).toHaveTextContent("Fri, Oct 2");
+    expect(card()).not.toHaveTextContent(/\d{4}-\d{2}-\d{2}/);
   });
 
   it("shows a finished season its own last day of games", () => {

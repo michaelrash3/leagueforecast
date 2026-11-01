@@ -8,6 +8,7 @@ import {
   team,
   type Pool,
 } from "../../test/teamRankingsHarness";
+import { formatStartTime } from "../../lib/date";
 
 /**
  * The clock the whole file reasons from. It sits in the autumn of baseball year 2027, with the
@@ -19,6 +20,9 @@ import {
  * today would drop off this table for those hours.
  */
 const TODAY = "2026-10-15T12:00:00";
+
+/** When the fixture against the ranked club starts, as GameChanger gave it. */
+const START = "2026-11-07T14:30:00.000Z";
 
 beforeAll(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -38,7 +42,14 @@ const pool = (): Pool => {
     game("p4", "ag_10u_2027", "S-4", "S-5", 4, 3, { date: "2026-10-10" }),
     game("p5", "ag_10u_2027", "S-5", "S-0", 2, 9, { date: "2026-10-10" }),
     // Still to play: one against a ranked club, one against a club nobody has pulled.
-    { id: "u0", ageGroupId: "ag_10u_2027", teamAId: "S-0", teamBId: "S-3", date: "2026-11-07" },
+    {
+      id: "u0",
+      ageGroupId: "ag_10u_2027",
+      teamAId: "S-0",
+      teamBId: "S-3",
+      date: "2026-11-07",
+      startTs: START,
+    },
     {
       id: "u1",
       ageGroupId: "ag_10u_2027",
@@ -86,7 +97,11 @@ describe("the next-up table", () => {
 
     const rows = nextUp().getAllByRole("row").slice(1);
     expect(rows).toHaveLength(2);
-    expect(within(rows[0]!).getByText("Sat, Nov 7")).toBeInTheDocument();
+    // Its day and, where GameChanger gave one, its start, in the reader's own time.
+    expect(
+      within(rows[0]!).getByText(`Sat, Nov 7 · ${formatStartTime(START)}`)
+    ).toBeInTheDocument();
+    expect(within(rows[1]!).getByText("Sat, Nov 14")).toBeInTheDocument();
     expect(within(rows[0]!).getByText("Club 3")).toBeInTheDocument();
     // The club nobody pulled has no rating, and a made-up one would be worse than none.
     expect(within(rows[1]!).getByText("Nobody has pulled them")).toBeInTheDocument();
