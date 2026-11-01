@@ -112,6 +112,7 @@ src/
     scheduleText.ts        # reads pasted text / CSV into games, entirely on the device
     leagueScheduleText.ts  # the same for a league's own schedule, home and away kept
     teamRankings.ts        # age groups, ratings, name matching, rename/merge
+    teamRankings/leagueBridge.ts  # which club each League team is, and what results it is handed
     teamRankingsStorage.ts # the pool's IndexedDB store, with a synchronous cache in front
     teamRankingsCompact.ts # the tuple-and-dictionary storage format
     live/                  # what a page knows (allKnown.ts), the views built from it (views/),
@@ -127,9 +128,11 @@ src/
   workers/
     sim.worker.ts  rankings.worker.ts  tidy.worker.ts
     rankingsProtocol.ts  tidyProtocol.ts  # what crosses to each worker; pure, so tested
+    tidyWire.ts            # the pool packed for the tidy worker, apart from the tidy itself
   components/
+    viewChunk.ts        # a view or section loaded on demand
     league/             # League Standings views: standings, games, forecast, settings
-    teamRankings/       # Team Rankings sections and cards
+    teamRankings/       # Team Rankings sections and cards; sections.ts loads each on demand
     bracket/  charts/
     ShortcutsHelp.tsx  OnboardingTour.tsx  Toast.tsx
     GameChangerImportPanel.tsx  ScheduleImportPanel.tsx  TeamDetailPanel.tsx
@@ -7639,7 +7642,9 @@ signed in to read them as and no board kept to show, both of which the visitor's
 own app is for. A pasted list is pulled in the cloud from the Import tab, with
 no hand-over (1.8, "A pasted list, pulled in the cloud"). Only then is
 the pool brought in step, behind it, and Team Rankings' own code loads under the
-board once it is drawn, so it is there by then. The pages are the meta's whenever
+board once it is drawn, so it is there by then; the code of the section it hands
+over on comes as it hands over, since the page fetches a section's code only as
+the section is first drawn (`sections.ts`). The pages are the meta's whenever
 it carries them (`LivePages.groups`), kept or read, rather than this device's own,
 which a member's device no longer keeps in step; this device's own lay the page
 out only until a meta comes, or under one from a build that published none. On a
@@ -9404,6 +9409,71 @@ shared handlers with recorded provider responses and require no deployed credent
   download went from 254.9 KB to 248.0 KB gzipped (247,951 bytes), Team Rankings from 166.2 to
   165.3 KB, with nothing removed and nothing fetched later. The cost is caching: a release that
   changes any logic module has a returning visitor fetch the whole 124 KB file again.
+- **Team Rankings' sections load on demand** (`src/components/teamRankings/sections.ts`, through
+  the views' own `viewChunk`). Opening Team Rankings fetched every section's code, the Import panel
+  and the tidy it runs, Setup's cards and Pool health, the games list, the scouting report and its
+  tournament panel, and the archive, though the page opens on the rankings and shows one section at
+  a time. Now the rankings, and the state and handlers every section reads, come with the page, and
+  a section's code when it is first opened, or a little before: when its tab is pointed at or
+  focused, and, once the rankings are drawn and the page has been idle 1.5 s, the Games section's.
+  A section still loading says so in its place ("Loading the archive…"), each in a boundary of its
+  own, so nothing else is swapped for that line: not the rankings, and not the scouting report while
+  the tournament panel below it loads, which says nothing as it does. A load that fails is the
+  section's Try again, which fetches it afresh; the tournament panel, a chunk of its own, fails in a
+  boundary of its own, so the report above it stays drawn. The tidy's stamp, which the page reads
+  as it opens to decide whether a tidy is due, is a module of its own (`tidyStamp.ts`), as is the
+  pool's packing for the tidy worker (`tidyWire.ts`), so opening the page fetches neither the tidy
+  nor the inspection. The Import and Setup sections fetch the tidy's module (`gameChangerImport.ts`)
+  as they open, worker or not, since they name its steps and read the pool through it; otherwise
+  the page fetches the two only to run them itself, where it has no worker (`usePoolTidy`).
+  - **Measured** (gzipped, `npm run bundle:check`, 31 October 2026): opening Team Rankings went from
+    166.2 KB to 60.3 KB, with nothing removed. A section's own first open fetches Games 10.9 KB,
+    Import 57.8, Scouting 7.4 and its tournament panel 3.6, Archive 2.3 and Setup 68.9, each held to
+    a line of its own in the budget. The first download did not move.
+  - **The cost**: the first open of each section after a release waits for its download, which on a
+    slow connection is a moment of "Loading Setup…" until the service worker has stored the release.
+  - **Guarded** by `src/components/teamRankings/sectionsLoad.test.tsx`: a tab pointed at or focused
+    starts its section's load, the Games section's starts once the page is idle, a load that fails
+    is that section's Try again and fetches afresh, and the scouting report stays on screen while
+    the tournament panel's code loads and when it fails. In the built app,
+    `e2e/teamRankingsSections.spec.ts` opens Team Rankings and finds none of its sections' code
+    fetched (read off the source maps, by module), draws each section from its own, and has Setup's
+    look at the pool answered by the tidy worker, with no page error and no worker failing.
+- **Team Rankings' code leaves League Standings' first download.** A bundler puts a module whole
+  wherever anything reaches it, and League Standings' start read a few lines from modules that were
+  otherwise Team Rankings': the age a name states from the GameChanger client (`gameChangerApi.ts`),
+  the bridge and a pick's helpers from the rating code (`teamRankings.ts`), the cleaning and keys of
+  a name, what counts toward a rating, a saved board's row check, the board rules' version, a pull
+  log's version, the refresh cadence, a kept season's reader, the stored "Not this team" list and a
+  club's movement on its page. Each of those is now a module of its own (`gcAge.ts`,
+  `gcFetchErrors.ts`, `teamRankings/leagueBridge.ts`, `live/views/rankingRow.ts`,
+  `live/views/boardRules.ts`, `pullTrackerVersion.ts`, `refreshCadence.ts`, `archivedSeason.ts`,
+  `notThisTeamStored.ts`, `movement.ts`), which the module it came from re-exports; `names.ts` and
+  `games.ts` keep their start's part instead, and what only Team Rankings runs of them moved into
+  `teamRankings/rosterNames.ts` and `teamRankings/gameRows.ts`, which `teamRankings.ts` re-exports
+  beside them. The modules the start loads, and League Standings' own views, import the new ones.
+  A pull's tracker is made by the pull and handed to the pool's slot with its claim (`beginPull`),
+  so the slot, which League Standings reads, stays one module and the tracker leaves it; the claim
+  will not compile without one, so no pull is claimed without its log. Some of Team Rankings' code
+  is still there: the readers the pool's store and its backup check what they keep with, which
+  load with the store (`teamRankingsStorage.ts`).
+  - **Measured** (gzipped, `npm run bundle:check`, 31 October 2026): the first download went from
+    251.8 KB to 221.2 KB, with nothing removed and nothing computed differently. What left is
+    fetched where it runs: opening Team Rankings went from 60.3 KB to 84.1 KB, and the Import and
+    Setup sections, which pull and tidy, from 57.8 to 67.7 KB and from 68.9 to 75.9 KB. A first
+    visit straight to Team Rankings fetches 305.3 KB, against 418.0 KB before either change.
+  - **The numbers did not move.** `src/lib/__tests__/bootSplitPins.test.ts`, written before
+    anything moved, pins what one pool works out (the bridge's results, the forecast reading them,
+    a board, a matchup, ages, names, which games count and the tidy's stamp), and it holds with the
+    board, rating, forecast and parity pins already in the suite; every moved declaration is the
+    same text it was, an `export` added where its old module reads it back.
+  - **Guarded** by the bundle check, which reads the build's source maps and fails naming any of
+    the modules left holding only Team Rankings' code (`TEAM_RANKINGS_ONLY` in
+    `scripts/bundleBudget.mjs`) that the first download holds again, since one static import from
+    anything the page loads at start would bring a whole module back and the first download's own
+    line has room to hide it. The list holds the two modules that left with them too
+    (`ratingRecency.ts`, `teamNameRules.ts`), and the tidy (`gameChangerImport.ts`), which the
+    first download never held and which on its own is about that room, 35.0 KB against 33.8.
 - **League Standings works out only what is on screen** (2.2). Every number it
   shows is read from the games marked final, so its calculations are keyed on
   those scores alone (`finalLogsOf`, held by `useSeasonState`), which stay the same

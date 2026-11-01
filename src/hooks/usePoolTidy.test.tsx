@@ -1,4 +1,4 @@
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { usePoolTidy } from "./usePoolTidy";
 import { ageGroup, game, seasonDate, team } from "../test/teamRankingsHarness";
@@ -12,13 +12,24 @@ import {
   type WorkerRequest,
   type WorkerResponse,
 } from "../workers/tidyProtocol";
-import {
-  beginPull,
-  beginTidy,
-  forceReleasePool,
-  isPoolBusy,
-  resetPullSession,
-} from "../lib/pullSession";
+import { beginTidy, forceReleasePool, isPoolBusy, resetPullSession } from "../lib/pullSession";
+import { beginTrackedPull } from "../test/pulls";
+
+/**
+ * The tidy itself, made to fail where a test says so: on the page its code is fetched as it is
+ * first asked for (`usePoolTidy`), and a fetch can fail. Every other test here runs the real one.
+ */
+const tidyFails = vi.hoisted(() => ({ now: false }));
+vi.mock("../lib/gameChangerImport", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/gameChangerImport")>();
+  return {
+    ...actual,
+    tidyPool: (...args: Parameters<typeof actual.tidyPool>) => {
+      if (tidyFails.now) throw new Error("The tidy's code could not be fetched.");
+      return actual.tidyPool(...args);
+    },
+  };
+});
 
 afterEach(() => resetPullSession());
 
@@ -60,7 +71,7 @@ describe("tidying the pool", () => {
    * settled and a resume skipping them for good.
    */
   it("refuses while a pull is running, rather than racing its saves", async () => {
-    beginPull("2026-09-17T08:00:00.000Z");
+    beginTrackedPull("2026-09-17T08:00:00.000Z");
     const { result } = renderHook(() => usePoolTidy());
     expect(await result.current.tidy(withStandIn())).toBeNull();
   });
@@ -75,7 +86,7 @@ describe("tidying the pool", () => {
     const { result } = renderHook(() => usePoolTidy());
     await result.current.tidy(withStandIn());
     expect(isPoolBusy()).toBe(false);
-    expect(beginPull("2026-09-17T08:05:00.000Z")).not.toBeNull();
+    expect(beginTrackedPull("2026-09-17T08:05:00.000Z")).not.toBeNull();
   });
 
   it("gives the slot back even when the pool is one it cannot read", async () => {
@@ -88,7 +99,7 @@ describe("tidying the pool", () => {
 
   it("does not claim the pool to look at it", async () => {
     // Inspecting reads and writes nothing, so it has no business blocking a pull.
-    beginPull("2026-09-17T08:00:00.000Z");
+    beginTrackedPull("2026-09-17T08:00:00.000Z");
     const { result } = renderHook(() => usePoolTidy());
     const looked = await result.current.inspect(withStandIn(), "", new Set());
     expect(looked?.health.games).toBe(2);
@@ -130,7 +141,7 @@ describe("a tidy whose panel goes away", () => {
     await expect(pending).resolves.toBeNull();
     expect(isPoolBusy()).toBe(false);
     // And the next pull is free to start, which is the whole point.
-    expect(beginPull("2026-09-17T09:00:00.000Z")).not.toBeNull();
+    expect(beginTrackedPull("2026-09-17T09:00:00.000Z")).not.toBeNull();
   });
 
   it("settles an inspection the same way, rather than leaving it hanging", async () => {
@@ -139,6 +150,68 @@ describe("a tidy whose panel goes away", () => {
     const pending = result.current.inspect(withStandIn(), "", new Set());
     unmount();
     await expect(pending).resolves.toBeNull();
+  });
+});
+
+/** A worker that dies on the first job it is handed, as one whose own code would not load does. */
+class DyingWorker {
+  private errors = new Set<(event: { message: string }) => void>();
+  addEventListener(kind: string, listener: (event: { message: string }) => void) {
+    if (kind === "error") this.errors.add(listener);
+  }
+  removeEventListener(kind: string, listener: (event: { message: string }) => void) {
+    if (kind === "error") this.errors.delete(listener);
+  }
+  postMessage() {
+    queueMicrotask(() => this.errors.forEach((listener) => listener({ message: "died" })));
+  }
+  terminate() {}
+}
+
+describe("a tidy whose work fails", () => {
+  afterEach(() => {
+    tidyFails.now = false;
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    resetPullSession();
+  });
+
+  /*
+   * jsdom has no Worker, so this tidies on the page. The busy mark is what keeps Setup's Settle and
+   * the Import panel's Tidy now disabled and saying "Tidying…": left set by the failure, they said
+   * so with nothing running until the panel was opened afresh.
+   */
+  it("fails, and stops saying it is busy, where there is no worker", async () => {
+    tidyFails.now = true;
+    const { result } = renderHook(() => usePoolTidy());
+    await act(async () => {
+      await expect(result.current.tidy(withStandIn())).rejects.toThrow("could not be fetched");
+    });
+    expect(result.current.busy).toBeNull();
+    expect(isPoolBusy()).toBe(false);
+  });
+
+  /*
+   * A worker that dies mid-job is answered by the same work on the page. When that failed as well
+   * the tidy waited for good, holding the pool all the while: every later pull was refused with
+   * "a pull is already running", and nothing was.
+   */
+  it("settles with nothing and lets go of the pool when the worker dies and the page fails too", async () => {
+    tidyFails.now = true;
+    vi.stubGlobal("Worker", DyingWorker);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { result } = renderHook(() => usePoolTidy());
+    let settled: unknown = "still waiting";
+    await act(async () => {
+      void result.current.tidy(withStandIn()).then(
+        (outcome) => (settled = { outcome }),
+        (error: unknown) => (settled = { error })
+      );
+      await vi.waitFor(() => expect(settled).toEqual({ outcome: null }));
+    });
+    expect(result.current.busy).toBeNull();
+    expect(isPoolBusy()).toBe(false);
+    expect(beginTrackedPull("2026-09-17T09:00:00.000Z")).not.toBeNull();
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ScoutRankingRow, ScoutTeam } from "../teamRankings";
-import { filterRankingsByState } from "../teamRankings/names";
+import { filterRankingsByState } from "../teamRankings/rosterNames";
 import { fewOutsideLeaders, type FitBoards } from "../fewOutsideLeaders";
 import { namesText, teamsToFind, type FewOutsideList } from "../fewOutside";
 

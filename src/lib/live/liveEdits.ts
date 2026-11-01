@@ -1,5 +1,6 @@
 import { unlinkGcTeam } from "../teamRankings";
-import { cleanTeamName, normalizeState } from "../teamRankings/names";
+import { cleanTeamName } from "../teamRankings/names";
+import { normalizeState } from "../teamRankings/rosterNames";
 import { isBoardInput } from "./boardInputs";
 import type { PoolCommand } from "./commands";
 import type { StoppedPulls } from "../cloud/pullJobRunner";

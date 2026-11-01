@@ -1,6 +1,6 @@
 import { myTeamGlance } from "./myTeamGlance";
 import { CLUB_RANKS_KEY } from "./preferences";
-import type { Movement } from "./rankMovement";
+import type { Movement } from "./movement";
 import { isRouteAgeLevel, isRouteYear, type RankingsRoute } from "./rankingsRoute";
 import type { ScoutRankingRow, SeasonSegment } from "./teamRankings";
 import { topShare } from "./standing";

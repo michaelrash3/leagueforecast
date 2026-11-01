@@ -5,55 +5,13 @@ import type { ScoutRankingRow, SeasonSegment } from "../../teamRankings";
  * What a published board is, as both its publisher and a member's device read it: its key, its
  * shape and the check of that shape, and how a device puts its own star on its rows. Kept apart
  * from the builder (`board.ts`), which imports the pool's derivation and codec, so a page that
- * only reads boards pays for neither. It imports types alone.
+ * only reads boards pays for neither. It imports types alone, besides two parts of it League
+ * Standings reads as it starts, which are modules of their own so that the first download carries
+ * only those: the version of the rules the boards are built by (`boardRules.ts`) and the check of a
+ * stored row (`rankingRow.ts`).
  */
 
-/**
- * The version of the rules that turn a stored pool into boards, raised by any change meant to move
- * a board's numbers, rows or order: the commit that says so under "Pin, then change" raises it too,
- * and `boardParity.test.ts` keeps one fingerprint of the fixture's boards for each. A publish of
- * boards records it (`BuiltFrom.rules`), and one under older rules than the boards already
- * published writes nothing, so code left running after a failed deploy cannot undo newer boards.
- * It only ever goes up: undoing a change that raised it raises it again, with a fingerprint of its
- * own, or every publish after would be refused as older. What a row says about its club beside
- * its numbers (`BoardFacts`) moves no number, row or order, so it raises nothing here; a change to
- * that shape raises `LIVE_SCHEMA`.
- *
- * It was raised once without moving anything, to 3, as a barrier to the publishers from before the
- * boards' shape (`BOARD_SHAPE`). Those know nothing of a shape. One still running once the boards
- * carried a fit (a rebuild or a nightly on the older build, a GitHub re-run of an older run, which
- * checks out that run's own commit, or a rollback) found the boards stale or current by their rules
- * alone, which were its own, so its publish was let through: it wrote boards with no fit over them,
- * and a meta that had dropped the shape it could not read, and members went without what each game
- * did until a publisher of the new build ran again (found by Codex on #371). A raise of the rules is
- * the one thing such a publisher stands aside for, its rebuild before it builds and its publish
- * before it writes, and neither its rebuilds nor its nightly count that as a failure. So 3 moved no
- * number, row or order, and `boardParity.test.ts` holds it to 2's fingerprint. A device of a build
- * from before it labels the boards as built by another version of the app (`liveLabel`) until it
- * loads a newer build, which is so.
- *
- * A later change of shape needs no such raise: every build that records the shape refuses a publish
- * of an older shape than the boards published, as it refuses one under older rules.
- *
- * 1: the boards as L2 first built them. 2: a league team said not to be in Team Rankings carried
- * onto a club of its own (`offClubIdFor`), not onto a club of its name. 3: nothing moved; raised so
- * that the publishers from before the boards' shape stand aside for boards that carry a fit
- * (`BOARD_SHAPE` 1). 4: a year of age worth what it measured at each level (`AGE_STEP_RUNS`),
- * four runs from 9U to 10U, rather than two runs at every level. 5: a club removed automatically as
- * plainly made up, and every game naming it, are left off every board (`autoRemoved.ts`).
- * 6: a bounded one-run deduction for observed circular opponent schedules (`circularSchedule.ts`).
- * 7: each club's rating starts at its league's level, below average by as much as the league keeps
- * to itself (`scheduleCommunities.ts`), and 6's deduction is gone; a row says where it started
- * (`levelPrior`, `outsideGames`) and carries no `scheduleDeduction`.
- * 8: a third copy of a game that already counts (`ScoutGame.countedElsewhere`) is left off every
- * board, so the club it names is credited with the game once.
- * 9: a game won by 31 to 39 runs counts, as a result; only a win by forty or more is suspected of
- * being made up (`IMPLAUSIBLE_MARGIN`), the user's line of 21 October 2026.
- * 10: a club whose web of games five games out reaches fewer than a tenth of the typical club's is
- * listed after every club whose web reaches that many (`teamRankings/opponentWeb.ts`), the owner's
- * rule of 26 October 2026; no number moves, only the order and the places.
- */
-export const BOARD_RULES = 10;
+export { BOARD_RULES } from "./boardRules";
 
 /**
  * The shape of the boards this build publishes, raised when a board gains something a device of
@@ -192,44 +150,9 @@ export type BoardView = {
   fit?: BoardFit;
 };
 
-type FieldKind = "string" | "number" | "boolean" | "number?" | "true?";
-
-/**
- * What each field of a ranking row must be. Every field of `ScoutRankingRow`, whether or not the
- * board draws it today, so a row this check passes is a row the board can read whole: the compiler
- * holds the list to the type, and a field added to the row fails the build here until it is
- * listed.
- *
- * The first check of a saved board asked only for the id, name, rank and rating, and Codex's
- * review of #340 found the hole: a row cut short in storage, or kept by a build whose rows lacked
- * `pointRating`, passed, and the board's `formatRating(row.pointRating)` threw on it.
- */
-const ROW_FIELDS: { [K in keyof ScoutRankingRow]-?: FieldKind } = {
-  overallRank: "number?",
-  teamId: "string",
-  teamName: "string",
-  isMine: "boolean",
-  rank: "number",
-  rating: "number",
-  pointRating: "number",
-  levelPrior: "number?",
-  outsideGames: "number?",
-  record: "string",
-  wins: "number",
-  losses: "number",
-  ties: "number",
-  games: "number",
-  rawMargin: "number",
-  strengthOfSchedule: "number",
-  sosRank: "number",
-  ageLevel: "number?",
-  crossAgeGames: "number",
-  componentSize: "number",
-  componentId: "string",
-  comparable: "boolean",
-  fromGameChanger: "boolean",
-  listedLast: "true?",
-};
+/* The check of a stored row is a module of its own; a published row's check below builds on it. */
+import { holds, isRecord, ROW_FIELDS } from "./rankingRow";
+export { isRankingRow } from "./rankingRow";
 
 /** What each fact a published row may carry must be, when it is there. */
 const FACT_FIELDS: { [K in keyof BoardFacts]-?: (value: unknown) => boolean } = {
@@ -238,21 +161,6 @@ const FACT_FIELDS: { [K in keyof BoardFacts]-?: (value: unknown) => boolean } = 
   league: (value) => value === true,
   was: (value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0,
 };
-
-const holds = (record: Record<string, unknown>, field: string, kind: FieldKind): boolean => {
-  const value = record[field];
-  if (kind === "true?") return value === undefined || value === true;
-  return kind === "number?"
-    ? value === undefined || typeof value === "number"
-    : typeof value === kind;
-};
-
-const isRecord = (raw: unknown): raw is Record<string, unknown> =>
-  typeof raw === "object" && raw !== null && !Array.isArray(raw);
-
-/** Whether `raw` is a ranking row a board can draw whole, star and all (`ROW_FIELDS`). */
-export const isRankingRow = (raw: unknown): raw is ScoutRankingRow =>
-  isRecord(raw) && Object.entries(ROW_FIELDS).every(([field, kind]) => holds(raw, field, kind));
 
 /**
  * Whether `raw` is a published board's row: every field of a ranking row but the star, which a

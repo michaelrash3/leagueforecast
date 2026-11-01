@@ -19,7 +19,8 @@ import {
   saveRealClubs,
 } from "../../lib/teamRankingsStorage";
 import type { AutoRemoval } from "../../lib/autoRemoved";
-import { beginPull, endPull } from "../../lib/pullSession";
+import { endPull } from "../../lib/pullSession";
+import { beginTrackedPull } from "../../test/pulls";
 
 const openSetup = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(screen.getByRole("tab", { name: "Setup" }));
@@ -134,9 +135,9 @@ describe("seeing what the pool is made of", () => {
     await openSetup(user);
     await look(user);
     const settle = await screen.findByRole("button", { name: /settle 1 of them/i });
-    let session: ReturnType<typeof beginPull> = null;
+    let session: ReturnType<typeof beginTrackedPull> = null;
     act(() => {
-      session = beginPull(new Date().toISOString());
+      session = beginTrackedPull(new Date().toISOString());
     });
     const running = session;
     try {

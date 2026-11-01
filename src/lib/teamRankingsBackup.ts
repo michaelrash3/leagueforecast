@@ -43,7 +43,7 @@ import {
 import { coerceAgeUnknown, type AgeUnknownList } from "./ageUnknown";
 import { coerceDeletedClubs, coerceDeletedGames } from "./deletedGames";
 import { coerceKeptApart } from "./keptApart";
-import { coerceNotThisTeam, notThisTeamList } from "./notThisTeam";
+import { coerceNotThisTeam, notThisTeamList } from "./notThisTeamStored";
 import {
   autoRemovalsList,
   coerceAutoRemovals,
@@ -54,7 +54,7 @@ import { coerceNamedAges, namedAgesList, type NamedAge } from "./namedAges";
 import { coerceTooYoungClubs } from "./tooYoungClubs";
 import type { UndoSnapshot } from "./types";
 import { isRecord } from "./validate";
-import { coerceArchivedSeason, type ArchivedSeason } from "./teamRankingsArchive";
+import { coerceArchivedSeason, type ArchivedSeason } from "./archivedSeason";
 import {
   COMPACT_VERSION,
   decodeScoutGames,

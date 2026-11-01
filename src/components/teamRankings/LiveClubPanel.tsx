@@ -12,7 +12,7 @@ import { overlayCard, takenWithOnCard } from "../../lib/live/liveEdits";
 import { withMine, type BoardView } from "../../lib/live/views/boardShape";
 import { mintStandInId, takenOffSaid } from "../../lib/notThisTeam";
 import type { AgeGroup, SeasonSegment } from "../../lib/teamRankings";
-import { normalizeState } from "../../lib/teamRankings/names";
+import { normalizeState } from "../../lib/teamRankings/rosterNames";
 import { createAgeGroupId } from "../../lib/teamRankings/seasons";
 import { card as cardStyle } from "../../styles/tokens";
 

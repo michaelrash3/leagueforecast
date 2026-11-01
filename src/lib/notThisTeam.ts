@@ -1,10 +1,5 @@
-import {
-  buildScoutTeam,
-  cleanTeamName,
-  isPlaceholderName,
-  namesNobody,
-  teamNameKey,
-} from "./teamRankings/names";
+import { buildScoutTeam, namesNobody } from "./teamRankings/rosterNames";
+import { cleanTeamName, isPlaceholderName, teamNameKey } from "./teamRankings/names";
 import type { TakenIds } from "./teamRankings/retiredIds";
 import { ageGroupLevel, ageGroupYear } from "./teamRankings/seasons";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "./teamRankings/types";
@@ -109,20 +104,8 @@ export const NO_REFUSALS: NotThisTeam = new Set();
 export const refusalOf = (schedule: string, name: string, clubGcId: string): string =>
   `${schedule}\u0000${teamNameKey(name)}\u0000${clubGcId}`;
 
-/** Whatever was stored, as a set: anything that is not a schedule, a name and a club is dropped. */
-export const coerceNotThisTeam = (raw: unknown): Set<string> => {
-  if (!Array.isArray(raw)) return new Set();
-  const out = new Set<string>();
-  raw.forEach((entry) => {
-    if (typeof entry !== "string") return;
-    const parts = entry.split("\u0000");
-    if (parts.length === 3 && parts.every((part) => part.length > 0)) out.add(entry);
-  });
-  return out;
-};
-
-/** The set as it is stored: a plain array, sorted so a save that changes nothing looks like it. */
-export const notThisTeamList = (refused: NotThisTeam): string[] => [...refused].sort();
+/* How the answers are stored is a module of its own, which the pool's store reads at start. */
+export { coerceNotThisTeam, notThisTeamList } from "./notThisTeamStored";
 
 /**
  * Whether the owner has said `name`, written on schedule `schedule`, is not `club`: by any of the

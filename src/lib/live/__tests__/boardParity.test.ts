@@ -16,7 +16,7 @@ import {
   type SeasonSegment,
 } from "../../teamRankings";
 import { encodeScoutGames, encodeScoutTeams } from "../../teamRankingsCompact";
-import { filterRankingsByState, statesInUse, UNKNOWN_STATE } from "../../teamRankings/names";
+import { filterRankingsByState, statesInUse, UNKNOWN_STATE } from "../../teamRankings/rosterNames";
 import {
   clubsOfBoard,
   defaultStateOf,

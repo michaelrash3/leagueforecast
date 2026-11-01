@@ -27,13 +27,8 @@
  */
 
 import { MAX_AGE_LEVEL, MIN_AGE_LEVEL } from "./teamRankings/seasons";
-import {
-  ageLevelFromName,
-  type GcGame,
-  type GcSeason,
-  type GcSeasonName,
-  type GcTeamProfile,
-} from "./gameChangerApi";
+import { ageLevelFromName } from "./gcAge";
+import type { GcGame, GcSeason, GcSeasonName, GcTeamProfile } from "./gameChangerApi";
 
 /** How many opponent names are kept, for the case where none of them named an age. */
 export const AGELESS_SAMPLE_OPPONENTS = 3;

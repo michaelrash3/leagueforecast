@@ -11,7 +11,8 @@ import {
 } from "../teamRankings/namedGames";
 import { MAX_COMMAND_STEPS } from "../live/commands";
 import { addOfNamed, addOfResolved, importOfNamed } from "../live/namedAdd";
-import { cleanTeamName, offClubIdFor, resolveOrCreateTeam } from "../teamRankings/names";
+import { cleanTeamName, offClubIdFor } from "../teamRankings/names";
+import { resolveOrCreateTeam } from "../teamRankings/rosterNames";
 import type { ScoutGame, ScoutTeam } from "../teamRankings/types";
 
 /*

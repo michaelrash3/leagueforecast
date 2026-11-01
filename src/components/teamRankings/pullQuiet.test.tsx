@@ -2,7 +2,8 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GcImportState } from "../../lib/gameChangerImport";
-import { beginPull, endPull, resetPullSession, type PullSession } from "../../lib/pullSession";
+import { endPull, resetPullSession, type PullSession } from "../../lib/pullSession";
+import { beginTrackedPull } from "../../test/pulls";
 import * as storage from "../../lib/teamRankingsStorage";
 import {
   ageGroup,
@@ -70,7 +71,7 @@ describe("a pull's own saves", () => {
     const readWholePool = vi.spyOn(storage, "loadScoutGames");
     // Inside `act`, so the view has seen the claim before the first save lands.
     act(() => {
-      session = beginPull("2026-09-19T12:00:00.000Z");
+      session = beginTrackedPull("2026-09-19T12:00:00.000Z");
     });
 
     // Three saves, the way a run of a few thousand teams makes them.
@@ -88,7 +89,7 @@ describe("a pull's own saves", () => {
     await waitFor(() => expect(seen.persist).not.toBeNull());
 
     act(() => {
-      session = beginPull("2026-09-19T12:00:00.000Z");
+      session = beginTrackedPull("2026-09-19T12:00:00.000Z");
     });
     act(() => {
       seen.persist?.({ ageGroups: groups, teams, games });
@@ -139,7 +140,7 @@ describe("Find a team while a pull runs", () => {
 
     const readWholePool = vi.spyOn(storage, "loadScoutGames");
     act(() => {
-      session = beginPull("2026-09-19T12:00:00.000Z");
+      session = beginTrackedPull("2026-09-19T12:00:00.000Z");
     });
 
     const box = screen.getByRole("combobox", { name: /find a team/i });
@@ -156,7 +157,7 @@ describe("Find a team while a pull runs", () => {
     renderTeamRankings({ ageGroups: groups, teams, games, search: "?section=import" });
     await waitFor(() => expect(seen.persist).not.toBeNull());
     act(() => {
-      session = beginPull("2026-09-19T12:00:00.000Z");
+      session = beginTrackedPull("2026-09-19T12:00:00.000Z");
     });
     const storm = team("t3", "Example Storm", {
       gcTeams: [{ teamId: "gcSTORMFAL26", name: "Example Storm", ageGroupId: groups[0]!.id }],
