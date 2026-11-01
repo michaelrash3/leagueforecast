@@ -68,7 +68,7 @@ import { useSeasons } from "./hooks/useSeasons";
 import { useSeasonFiles, type ImportedSeason } from "./hooks/useSeasonFiles";
 import { useSeasonState, type SeasonState } from "./hooks/useSeasonState";
 import { useScoutBridge } from "./hooks/useScoutBridge";
-import { finalScoresKey, leagueFixturesOf } from "./lib/teamRankings/leagueBridge";
+import { finalScoresKey, leagueFixturesOf, stampPicks } from "./lib/teamRankings/leagueBridge";
 import { LoadingPanel } from "./components/LoadingPanel";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import {
@@ -1004,6 +1004,7 @@ export default function App() {
     wantWide: wantScoutWide,
     wantLinks: wantScoutLinks,
     noteChange: noteScoutChange,
+    clubs: scoutClubs,
   } = useScoutBridge({
     activeSeasonId,
     seasonKey: activeSeasonKey,
@@ -1022,6 +1023,36 @@ export default function App() {
         }
       : {}),
   });
+  /*
+   * Whether a member has ever signed in to this browser, its record keeping the account through a
+   * sign-out (`seasonDeleteRoute`'s `memberDevice`): read again as the session moves, which is when
+   * a sign-in records it.
+   */
+  const memberDevice = useMemo(() => {
+    void cloud;
+    return loadCloudState().uid !== null;
+  }, [cloud]);
+  /*
+   * An old pick, kept before the GameChanger id was, takes its club's at the season's next save of
+   * its own, where the club carries exactly one (`stampPicks`): laid over the page's own edits, so
+   * the write they make anyway carries it and none is made for it. Only in a browser no member has
+   * signed in to, whose seasons and pool are its own. A member's seasons are the cloud's documents,
+   * which a signed-out or offline device's edits still reach at its next meeting, and its pool, if
+   * it kept one, is not the cloud's: an id read off it could send the server's bridge to a club
+   * other than the one the cloud's id names, so a member's device stamps none at all.
+   */
+  const stampClubs = memberDevice ? null : scoutClubs;
+  useEffect(() => {
+    seasonStore.amendEdits(
+      stampClubs
+        ? (season) => {
+            const stamped = stampPicks(season.teams, stampClubs);
+            return stamped === season.teams ? season : { ...season, teams: stamped };
+          }
+        : null
+    );
+    return () => seasonStore.amendEdits(null);
+  }, [seasonStore, stampClubs]);
 
   const predictionEngine = useMemo(
     () =>
@@ -2856,8 +2887,10 @@ export default function App() {
    */
   const ourClubRank = useMemo(
     () =>
-      ourTeamId && appMode === "league" ? leagueClubRankFor(activeSeasonId, ourTeamId) : undefined,
-    [activeSeasonId, ourTeamId, appMode]
+      ourTeamId && appMode === "league"
+        ? leagueClubRankFor(activeSeasonId, ourTeamId, scoutClubs)
+        : undefined,
+    [activeSeasonId, ourTeamId, appMode, scoutClubs]
   );
   /*
    * League Standings' Scout button: Team Rankings' Scouting on the page a team's club was ranked
@@ -3829,7 +3862,9 @@ export default function App() {
                   ) : activeView === "standings" ? (
                     <StandingsView
                       rankOptions={rankOptions}
-                      nationalRank={(teamId) => leagueClubRankFor(activeSeasonId, teamId)}
+                      nationalRank={(teamId) =>
+                        leagueClubRankFor(activeSeasonId, teamId, scoutClubs)
+                      }
                       onScout={scoutClub}
                       goldCutoff={goldCutoff}
                       latestCompletedDate={latestCompletedDate}

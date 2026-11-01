@@ -109,4 +109,78 @@ describe("the looks kept on this device", () => {
     expect(kept.has("lf_my_team_look_v1_S-X")).toBe(false);
     expect(readMyTeamLook("S-2")).toMatchObject({ at: 2 * DAY });
   });
+
+  /*
+   * A look is kept with GameChanger ids the club carried (`MyTeamGlance.gcIds`, the page's own
+   * team first, a few at most), and read by them (`readClub`): one kept under an id since given to
+   * another club is none of this club's, and one kept under another id of a team the club carries
+   * now (a club folded into it, or itself before Team Rankings started again) is its own.
+   */
+  it("keeps the GameChanger ids the club carries with each look, a few at most", () => {
+    expect(takeMyTeamLook(0, glance({ gcIds: ["gcAces001", "gcAces002"] }), "Fall")).toMatchObject({
+      teamId: "S-ACE",
+      gc: ["gcAces001", "gcAces002"],
+    });
+    const many = ["gcAces001", "gcAces002", "gcAces003", "gcAces004"];
+    expect(takeMyTeamLook(0, glance({ gcIds: many }), "Fall").gc).toEqual(many.slice(0, 3));
+    expect(takeMyTeamLook(0, glance(), "Fall")).not.toHaveProperty("gc");
+  });
+
+  it("never reads another club's look as this club's, under an id since given to it", () => {
+    saveMyTeamLook(takeMyTeamLook(DAY, glance({ gcIds: ["gcOldAces"] }), "Fall"));
+    // The look kept reads as it is with nothing known of the club's ids, as every look did.
+    expect(readMyTeamLook("S-ACE")).toMatchObject({ at: DAY, gc: ["gcOldAces"] });
+    // S-ACE is another club now, carrying another team: it has no look yet.
+    expect(readMyTeamLook("S-ACE", ["gcNewAces"])).toBeNull();
+    expect(readMyTeamLook("S-ACE", ["gcOldAces", "gcNewAces"])).toMatchObject({ at: DAY });
+  });
+
+  it("follows a look kept under another id of a team the club carries now", () => {
+    // Kept for a club since folded into S-ACE, or for S-ACE itself before a start again.
+    saveMyTeamLook(
+      takeMyTeamLook(
+        DAY,
+        glance({ teamId: "S-OLD", gcIds: ["gcAcesGld"], nationalRank: 140 }),
+        "Fall"
+      )
+    );
+    saveMyTeamLook(
+      takeMyTeamLook(2 * DAY, glance({ teamId: "S-ZED", gcIds: ["gcZebras1"] }), "Fall")
+    );
+    const prev = readMyTeamLook("S-ACE", ["gcAces001", "gcAcesGld"]);
+    expect(prev).toMatchObject({ teamId: "S-ACE", at: DAY, national: 140, gc: ["gcAcesGld"] });
+    // So what moved is told of the club as it is now.
+    const now = takeMyTeamLook(3 * DAY, glance({ gcIds: ["gcAces001", "gcAcesGld"] }), "Fall");
+    expect(prev && myTeamMoves(prev, now)?.national).toEqual({ before: 140, now: 120 });
+    // Of two clubs folded into it, the newer look is the one compared with.
+    saveMyTeamLook(
+      takeMyTeamLook(
+        2 * DAY,
+        glance({ teamId: "S-OLD2", gcIds: ["gcAces001"], nationalRank: 130 }),
+        "Fall"
+      )
+    );
+    expect(readMyTeamLook("S-ACE", ["gcAces001", "gcAcesGld"])).toMatchObject({
+      at: 2 * DAY,
+      national: 130,
+    });
+    // Its own look, where it has one, comes first.
+    saveMyTeamLook(takeMyTeamLook(4 * DAY, glance({ gcIds: ["gcAces001"] }), "Fall"));
+    expect(readMyTeamLook("S-ACE", ["gcAces001", "gcAcesGld"])).toMatchObject({ at: 4 * DAY });
+  });
+
+  it("reads a look kept with no GameChanger id as it always did, and follows none", () => {
+    saveMyTeamLook(takeMyTeamLook(DAY, glance(), "Fall"));
+    saveMyTeamLook(takeMyTeamLook(DAY, glance({ teamId: "S-OLD" }), "Fall"));
+    expect(readMyTeamLook("S-ACE", ["gcAces001"])).toMatchObject({ teamId: "S-ACE", at: DAY });
+    expect(readMyTeamLook("S-NEW", ["gcAces001"])).toBeNull();
+    // One kept with GameChanger ids that are not a list of text is not a look.
+    for (const gc of [7, "gcAces001", ["gcAces001", 7]]) {
+      kept.set(
+        "lf_my_team_look_v1_S-ACE",
+        JSON.stringify({ ...takeMyTeamLook(DAY, glance(), "Fall"), gc })
+      );
+      expect(readMyTeamLook("S-ACE")).toBeNull();
+    }
+  });
 });
