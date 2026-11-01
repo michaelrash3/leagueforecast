@@ -68,27 +68,30 @@ const STANDING: ClubStanding = {
   stateOf: 47,
 };
 
+// One array for every render, as the page's own age groups are until they change.
+const GROUPS = [ageGroup(10, 2027)];
+const clubSheet = (more: { standing?: ClubStanding; readOnly?: boolean } = {}) => (
+  <TeamDetailPanel
+    team={aces}
+    allGames={games}
+    ageGroupId={PAGE}
+    ageGroupName="10U 2027"
+    ageGroups={GROUPS}
+    teamNameById={names}
+    onRename={() => undefined}
+    onSetState={() => true}
+    onUnlinkGc={() => undefined}
+    onMergeInto={() => undefined}
+    age={{ level: 10 }}
+    onSetAge={() => undefined}
+    mergeCandidates={[{ id: "S-B", name: "Bears" }]}
+    onClose={() => undefined}
+    ratingRowOf={(teamId) => rows.get(teamId)}
+    {...more}
+  />
+);
 const panel = (more: { standing?: ClubStanding; readOnly?: boolean } = {}) =>
-  render(
-    <TeamDetailPanel
-      team={aces}
-      allGames={games}
-      ageGroupId={PAGE}
-      ageGroupName="10U 2027"
-      ageGroups={[ageGroup(10, 2027)]}
-      teamNameById={names}
-      onRename={() => undefined}
-      onSetState={() => true}
-      onUnlinkGc={() => undefined}
-      onMergeInto={() => undefined}
-      age={{ level: 10 }}
-      onSetAge={() => undefined}
-      mergeCandidates={[{ id: "S-B", name: "Bears" }]}
-      onClose={() => undefined}
-      ratingRowOf={(teamId) => rows.get(teamId)}
-      {...more}
-    />
-  );
+  render(clubSheet(more));
 
 /** The names of a list's games' opponents, in its order. */
 const opponents = (list: HTMLElement) =>
@@ -164,6 +167,32 @@ describe("the club sheet", () => {
       "aria-expanded",
       "false"
     );
+  });
+
+  /*
+   * A sheet left open past midnight, its games the same array: the split into games to come and
+   * results was worked out once for those games, and kept yesterday's day until they changed.
+   */
+  it("moves a day's games to the results once the day has gone, the sheet left open", () => {
+    const { rerender } = panel({ standing: STANDING });
+    expect(opponents(screen.getByRole("list", { name: "Coming up" }))).toEqual([
+      "Ducks",
+      "Comets",
+      "Bears",
+      "Bears",
+    ]);
+    vi.setSystemTime(new Date("2026-11-01T08:00:00"));
+    try {
+      rerender(clubSheet({ standing: STANDING }));
+      // Saturday's two, still with no score, are past now; Sunday's is today's.
+      expect(opponents(screen.getByRole("list", { name: "Coming up" }))).toEqual([
+        "Bears",
+        "Bears",
+      ]);
+      expect(opponents(screen.getByRole("list", { name: "Results" }))).toHaveLength(5);
+    } finally {
+      vi.setSystemTime(new Date("2026-10-30T12:00:00"));
+    }
   });
 
   it("never prints a day as stored", () => {

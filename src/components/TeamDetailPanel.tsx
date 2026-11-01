@@ -313,9 +313,13 @@ export function TeamDetailPanel({
    * them, above the rest newest first: listed newest first throughout, the farthest-off game led
    * the list and tomorrow's 9:30 was eighth. The rest are the results, and a game gone by with no
    * score yet, in its place among them.
+   *
+   * Today is read on every render and the split follows it, as the views around the panel read
+   * theirs: read inside the split, a sheet left open past midnight kept yesterday's until its games
+   * changed.
    */
+  const today = todayIsoDay();
   const { comingUp, results } = useMemo(() => {
-    const today = todayIsoDay();
     const ahead = (game: ScoutGame) =>
       !isScoutGamePlayed(game) && (!game.date || game.date >= today);
     return {
@@ -324,7 +328,7 @@ export function TeamDetailPanel({
         .sort((a, b) => Number(!a.date) - Number(!b.date) || byGameTime(a, b)),
       results: here.filter((game) => !ahead(game)),
     };
-  }, [here]);
+  }, [here, today]);
 
   // The same record the ranking row shows, over the same half, counted by the same function, so
   // the two agree.
