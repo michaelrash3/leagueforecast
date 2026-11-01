@@ -14,21 +14,25 @@ import {
  * section's code, though the page opens on the rankings and shows one section at a time. A section
  * starts loading when its tab is pointed at or focused, the games once the rankings are drawn and
  * the page is idle; a placeholder stands in while one loads, and a load that fails is that
- * section's Try again, which fetches it afresh.
+ * section's Try again, which fetches it afresh. The tournament panel below the scouting report is
+ * a chunk of its own with a boundary of its own, so its failure leaves the report drawn.
  *
  * The harness loads every section's code before it draws (`teamRankingsHarness`), so two chunks
  * are made here instead, whose loads each test holds or fails by hand: the archive's and the
- * tournament panel's.
+ * tournament panel's. The panel's is made afresh for each test, so none finds it loaded already.
  */
 const loads = vi.hoisted(() => ({
   asked: [] as string[],
   archiveFails: false,
+  tournamentFails: false,
   tournamentHeld: Promise.resolve(),
+  freshTournament: (): void => undefined,
 }));
 
 vi.mock("./sections", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./sections")>();
   const { viewChunk } = await import("../viewChunk");
+  const { createElement } = await import("react");
   const archiveSection = viewChunk(
     () =>
       loads.archiveFails
@@ -36,13 +40,26 @@ vi.mock("./sections", async (importOriginal) => {
         : import("./ArchiveSection").then((module) => module.ArchiveSection),
     "ArchiveSection"
   );
-  const tournamentPanel = viewChunk(
-    () =>
-      loads.tournamentHeld
-        .then(() => import("./TournamentPanel"))
-        .then((module) => module.TournamentPanel),
-    "TournamentPanel"
-  );
+  const tournamentChunk = () =>
+    viewChunk(
+      () =>
+        loads.tournamentFails
+          ? Promise.reject(new Error("The tournament panel's code could not be fetched."))
+          : loads.tournamentHeld
+              .then(() => import("./TournamentPanel"))
+              .then((module) => module.TournamentPanel),
+      "TournamentPanel"
+    );
+  let tournament = tournamentChunk();
+  loads.freshTournament = () => {
+    tournament = tournamentChunk();
+  };
+  // Drawn through whichever chunk is the test's: the page takes the panel's view once, as it loads.
+  const tournamentPanel: typeof actual.tournamentPanel = {
+    View: (props) => createElement(tournament.View, props),
+    prefetch: () => tournament.prefetch(),
+    reset: () => tournament.reset(),
+  };
   return {
     ...actual,
     archiveSection,
@@ -72,6 +89,9 @@ const pool = () => ({
 /** A wide screen, where every section's tab is in the row. */
 beforeEach(() => {
   loads.asked = [];
+  loads.tournamentFails = false;
+  loads.tournamentHeld = Promise.resolve();
+  loads.freshTournament();
   vi.stubGlobal(
     "matchMedia",
     vi.fn((query: string) => ({
@@ -133,6 +153,20 @@ describe("Team Rankings' sections, loaded on demand", () => {
     expect(screen.queryByText("Loading the scouting report…")).toBeNull();
     expect(screen.queryByRole("region", { name: "Tournament field" })).toBeNull();
     await act(async () => release());
+    expect(await screen.findByRole("region", { name: "Tournament field" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Scouting report" })).toBeInTheDocument();
+  });
+
+  it("says the tournament panel's code failed in the panel's place, and leaves the report", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    loads.tournamentFails = true;
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    await user.click(screen.getByRole("tab", { name: "Scouting" }));
+    expect(await screen.findByText("The tournament field could not be shown")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Scouting report" })).toBeInTheDocument();
+    loads.tournamentFails = false;
+    await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("region", { name: "Tournament field" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Scouting report" })).toBeInTheDocument();
   });

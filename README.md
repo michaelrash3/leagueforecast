@@ -9400,10 +9400,11 @@ shared handlers with recorded provider responses and require no deployed credent
   A section still loading says so in its place ("Loading the archive…"), each in a boundary of its
   own, so nothing else is swapped for that line: not the rankings, and not the scouting report while
   the tournament panel below it loads, which says nothing as it does. A load that fails is the
-  section's Try again, which fetches it afresh. The tidy's stamp, which the page reads as it opens
-  to decide whether a tidy is due, is a module of its own (`tidyStamp.ts`), as is the pool's packing
-  for the tidy worker (`tidyWire.ts`), so the page fetches the tidy and the inspection only to run
-  them itself, where it has no worker (`usePoolTidy`).
+  section's Try again, which fetches it afresh; the tournament panel, a chunk of its own, fails in a
+  boundary of its own, so the report above it stays drawn. The tidy's stamp, which the page reads
+  as it opens to decide whether a tidy is due, is a module of its own (`tidyStamp.ts`), as is the
+  pool's packing for the tidy worker (`tidyWire.ts`), so the page fetches the tidy and the
+  inspection only to run them itself, where it has no worker (`usePoolTidy`).
   - **Measured** (gzipped, `npm run bundle:check`, 31 October 2026): opening Team Rankings went from
     166.2 KB to 60.3 KB, with nothing removed. A section's own first open fetches Games 10.9 KB,
     Import 57.8, Scouting 7.4 and its tournament panel 3.6, Archive 2.3 and Setup 68.9, each held to
@@ -9413,7 +9414,7 @@ shared handlers with recorded provider responses and require no deployed credent
   - **Guarded** by `src/components/teamRankings/sectionsLoad.test.tsx`: a tab pointed at or focused
     starts its section's load, the Games section's starts once the page is idle, a load that fails
     is that section's Try again and fetches afresh, and the scouting report stays on screen while
-    the tournament panel's code loads.
+    the tournament panel's code loads and when it fails.
 - **Team Rankings' code leaves League Standings' first download.** A bundler puts a module whole
   wherever anything reaches it, and League Standings' start read a few lines from modules that were
   otherwise Team Rankings': the age a name states from the GameChanger client (`gameChangerApi.ts`),

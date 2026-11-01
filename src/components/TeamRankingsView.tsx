@@ -225,7 +225,8 @@ const TeamDetailPanel = lazy(() =>
  * A section whose code is fetched as it is first opened, or a little before (`sections.ts`), drawn
  * in a boundary of its own: a line saying it is loading stands in its place meanwhile, and nothing
  * else on the page is swapped for it, nor is the scouting report while the tournament panel below
- * it loads, which says nothing as it does. A load that fails is the section boundary's Try again.
+ * it loads, which says nothing as it does. A load that fails is the Try again of the boundary
+ * around it: the section's, or for the tournament panel, its own.
  */
 const inPlace = <P extends object>({ View }: ViewChunk<P>, loading: RankingsSection | null) => {
   const Section = (props: P) => (
@@ -2766,14 +2767,24 @@ This cannot be undone. Cancel and download the backups first if there is any cha
             />
           )}
           {section === "scouting" && rankings.length > 0 && (
-            <TournamentPanel
+            /*
+              A boundary of its own, since the panel's code is a chunk of its own: caught by the
+              section's boundary, its failure took the report above it down with it. Its Try again
+              fetches the code afresh. Keyed by the page, so the panel opens afresh on each.
+            */
+            <ErrorBoundary
               key={selectedAgeGroupId}
-              ageGroupId={selectedAgeGroupId}
-              rankings={rankings}
-              reportForId={reportForId}
-              upcomingRows={upcomingRows}
-              placeOf={placeOf}
-            />
+              area="The tournament field"
+              onReset={tournamentPanel.reset}
+            >
+              <TournamentPanel
+                ageGroupId={selectedAgeGroupId}
+                rankings={rankings}
+                reportForId={reportForId}
+                upcomingRows={upcomingRows}
+                placeOf={placeOf}
+              />
+            </ErrorBoundary>
           )}
 
           {section === "archive" && <ArchiveSection entries={archives} />}
