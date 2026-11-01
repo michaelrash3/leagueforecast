@@ -973,12 +973,49 @@ const leagueTallyOf = (teams: Team[], settings: Settings): LeagueTally => ({
   runDiffCap: resolveMaxRunDifferential(settings),
 });
 
+/**
+ * What the per-game model's projected margin is made of, from the away side, for a game card's
+ * Model Read (`modelRead`): the margin the league's own games give on their own (runs scored and
+ * allowed, form, and in machine pitch the strikeouts and power index), the ratings' margin, and how
+ * far the projection leans on the ratings (`blendWithRating`), which together are the margin the
+ * projected score is split from.
+ *
+ * Filled in where a caller hands one over, rather than returned: the simulators call the model once
+ * per game per season played out and never ask, and an object made for every one of those calls
+ * would be made for nothing.
+ */
+export type GameRead = {
+  /** The league's own games read alone; null where a side has fewer than two, as none is read. */
+  runs: number | null;
+  /** The ratings' margin, the away side's less the home side's; null where either has none. */
+  rating: number | null;
+  /** The share of the way from the league's games to the ratings the projection goes, 0 to 1. */
+  weight: number;
+  /** The projected margin each side's runs are split from, before they are rounded. */
+  margin: number;
+};
+
+/** Writes the model's reading of a game where one was asked for (`GameRead`). */
+const writeRead = (
+  read: GameRead | undefined,
+  runs: number | null,
+  prior: RatingPrior | null,
+  margin: number
+): void => {
+  if (!read) return;
+  read.runs = runs;
+  read.rating = prior ? prior.margin : null;
+  read.weight = prior ? prior.weight : 0;
+  read.margin = margin;
+};
+
 export const predictPlayerPitchGame = (
   game: Matchup,
   teams: Team[],
   settings: Pick<Settings, "modelAggression">,
   byId?: Map<string, Team>,
-  tally?: LeagueTally
+  tally?: LeagueTally,
+  read?: GameRead
 ): Prediction => {
   const lookup = byId ?? buildByIdMap(teams);
   const away = lookup.get(game.away);
@@ -989,6 +1026,7 @@ export const predictPlayerPitchGame = (
   const aggression = MODEL_AGGRESSION[settings.modelAggression] ?? 1;
 
   if (!away || !home) {
+    writeRead(read, null, null, 0);
     return {
       awayScore: Math.round(leagueRuns),
       homeScore: Math.round(leagueRuns),
@@ -1015,6 +1053,7 @@ export const predictPlayerPitchGame = (
     );
     // With no rating this is the spread this branch has always produced, from the pct alone.
     const spread = prior ? clamp(blended.margin / 2, -4, 4) : clamp((awayWinPct - 0.5) * 6, -1, 1);
+    writeRead(read, null, prior, spread * 2);
     return {
       awayScore: Math.max(1, Math.round(leagueRuns + spread)),
       homeScore: Math.max(1, Math.round(leagueRuns - spread)),
@@ -1037,7 +1076,9 @@ export const predictPlayerPitchGame = (
     (home.rsg * away.rag) / Math.max(leagueRuns, 1) + homeCommandPressure + home.momentum * 0.08
   );
   const edge = playerPitchEdge(away, home) * clamp(0.95 + aggression * 0.16, 0.95, 1.25);
-  const blended = blendWithRating(ratingPrior(away, home), awayScore - homeScore, edge);
+  const prior = ratingPrior(away, home);
+  const blended = blendWithRating(prior, awayScore - homeScore, edge);
+  writeRead(read, awayScore - homeScore, prior, blended.margin);
   const awayWinPct = calibrateAwayWinPct(
     logistic(blended.edge),
     knownGames(away),
@@ -1070,7 +1111,8 @@ export const predictMachinePitchGame = (
   teams: Team[],
   settings: Pick<Settings, "modelAggression">,
   byId?: Map<string, Team>,
-  tally?: LeagueTally
+  tally?: LeagueTally,
+  read?: GameRead
 ): Prediction => {
   const lookup = byId ?? buildByIdMap(teams);
   const away = lookup.get(game.away);
@@ -1084,6 +1126,7 @@ export const predictMachinePitchGame = (
   const aggression = MODEL_AGGRESSION[settings.modelAggression] ?? 1;
 
   if (!away || !home) {
+    writeRead(read, null, null, 0);
     return {
       awayScore: Math.round(leagueRuns),
       homeScore: Math.round(leagueRuns),
@@ -1109,6 +1152,7 @@ export const predictMachinePitchGame = (
     const scoreSpread = prior
       ? clamp(blended.margin / 2, -4, 4)
       : clamp((awayWinPct - 0.5) * 6, -1, 1);
+    writeRead(read, null, prior, scoreSpread * 2);
     return {
       awayScore: Math.max(1, Math.round(leagueRuns + scoreSpread)),
       homeScore: Math.max(1, Math.round(leagueRuns - scoreSpread)),
@@ -1137,7 +1181,9 @@ export const predictMachinePitchGame = (
   const safeHome = Math.max(1, homeScore);
   const rawMargin = safeAway - safeHome;
   const edge = matchupWinEdge({ away, home, leagueK6, rawMargin, aggression });
-  const blended = blendWithRating(ratingPrior(away, home), rawMargin, edge);
+  const prior = ratingPrior(away, home);
+  const blended = blendWithRating(prior, rawMargin, edge);
+  writeRead(read, rawMargin, prior, blended.margin);
   const midpoint = (safeAway + safeHome) / 2;
   const roundedAway = Math.max(1, Math.round(midpoint + blended.margin / 2));
   const roundedHome = Math.max(1, Math.round(midpoint - blended.margin / 2));
@@ -1173,11 +1219,13 @@ export const predictGame = (
   teams: Team[],
   settings: Pick<Settings, "modelAggression" | "pitchMode">,
   byId?: Map<string, Team>,
-  tally?: LeagueTally
+  tally?: LeagueTally,
+  /** Where given, filled in with what the projected margin is made of (`GameRead`). */
+  read?: GameRead
 ): Prediction => {
   if (settings.pitchMode === "player")
-    return predictPlayerPitchGame(game, teams, settings, byId, tally);
-  return predictMachinePitchGame(game, teams, settings, byId, tally);
+    return predictPlayerPitchGame(game, teams, settings, byId, tally, read);
+  return predictMachinePitchGame(game, teams, settings, byId, tally, read);
 };
 
 /**
@@ -1370,10 +1418,20 @@ export type SeasonDraws = {
  * Exported, with `drawMargin`, for their tests.
  */
 export const seasonDraws = (
-  teams: Team[],
-  settings: Settings,
+  teams: readonly Team[],
+  settings: Pick<Settings, "pitchMode">,
   random: () => number
-): SeasonDraws => {
+): SeasonDraws => ({ random, ...drawWidths(teams, settings) });
+
+/**
+ * How widely a simulated game is drawn (`seasonDraws`) apart from the stream it is drawn from: the
+ * share of games tied and the curve's width. What a game card's range is read off
+ * (`drawnMarginSpan`), so it is the width the Gold odds draw at.
+ */
+export const drawWidths = (
+  teams: readonly Team[],
+  settings: Pick<Settings, "pitchMode">
+): Pick<SeasonDraws, "tieShare" | "spread"> => {
   const ties = teams.reduce((sum, team) => sum + team.t, 0);
   const games = teams.reduce((sum, team) => sum + team.games, 0);
   const spread =
@@ -1381,7 +1439,6 @@ export const seasonDraws = (
       ? MATCHUP_ODDS_SPREAD_MACHINE_PITCH
       : MATCHUP_ODDS_SPREAD;
   return {
-    random,
     // Each game is counted on both sides, so the ties and games are both twice over.
     tieShare: ties / (games + 2 * TIE_PRIOR_GAMES),
     spread: spread * LOGISTIC_TO_NORMAL,
@@ -1413,6 +1470,59 @@ export const drawMargin = (
   return awayWins ? Math.max(1, Math.round(runs)) : Math.min(-1, Math.round(runs));
 };
 
+/** The share of a game's drawn margins a game card's range holds: eight games in ten. */
+export const DRAWN_RANGE_SHARE = 0.8;
+
+/**
+ * The margins one game is drawn at eight times in ten, as `drawMargin` draws them: its tenth and
+ * ninetieth percentiles, in whole runs, from the away side. Worked out rather than sampled, from the
+ * same three parts: a tie at the league's share, the away side winning at its chance, and the margin
+ * on the curve around the predicted one on the winner's side of level, rounded as drawn. So the
+ * range a card shows is the one the Gold odds play the game within, and it follows the chance as
+ * well as the margin: an underdog given more than the curve gives it wins more of its share by
+ * little, and the range reaches further its way.
+ */
+export const drawnMarginSpan = (
+  draws: Pick<SeasonDraws, "tieShare" | "spread">,
+  awayWinPct: number,
+  predicted: number,
+  share = DRAWN_RANGE_SHARE
+): { low: number; high: number } => {
+  const tie = draws.tieShare;
+  const homeWins = (1 - tie) * (1 - awayWinPct);
+  const awayWins = (1 - tie) * awayWinPct;
+  const level = normalCdf(-predicted / draws.spread);
+  const curve = (at: number) =>
+    predicted + draws.spread * normalQuantile(clamp(at, 1e-12, 1 - 1e-12));
+  /**
+   * The margin a share `q` of the game's draws fall at or below. Where `q` is exactly the share of
+   * one side's wins, a margin of 1 either way would do; the low end takes the nearer the home side
+   * and the high end the nearer the away side, so the game read from the other side is the same
+   * range turned round: an away side given exactly one chance in ten reaches no further than a home
+   * side given the same.
+   */
+  const at = (q: number, high: boolean): number => {
+    const within = (share: number) => (high ? q < share : q <= share);
+    if (within(homeWins)) return Math.min(-1, Math.round(curve((q / homeWins) * level)));
+    if (within(homeWins + tie)) return 0;
+    return Math.max(1, Math.round(curve(level + ((q - homeWins - tie) / awayWins) * (1 - level))));
+  };
+  const tail = (1 - share) / 2;
+  return { low: at(tail, false), high: at(1 - tail, true) };
+};
+
+/**
+ * One side's runs in a game drawn at `margin` from that side (`drawMargin`), the Gold odds' way: the
+ * projected total kept, split so that the margin is the drawn one, the loser never below nothing,
+ * and a tie each side half. The other side's runs are the same split at the margin turned round.
+ * What every simulated game is booked at (`settleDrawn`), and so what a card's score range is read
+ * off at the two ends of its margin range: a side's runs only ever rise with its margin.
+ */
+export const drawnRuns = (total: number, margin: number): number =>
+  margin === 0
+    ? Math.round(total / 2)
+    : Math.max(0, Math.round((total - Math.abs(margin)) / 2)) + Math.max(0, margin);
+
 /**
  * Books a drawn margin onto the two sides, in place: the predicted total kept, split so that the
  * margin is the drawn one, the loser never below nothing. The league's carried totals move by
@@ -1427,9 +1537,8 @@ const settleDrawn = (
   tally: LeagueTally
 ): void => {
   const total = prediction.awayScore + prediction.homeScore;
-  const loser = Math.max(0, Math.round((total - Math.abs(margin)) / 2));
-  const awayRuns = margin === 0 ? Math.round(total / 2) : margin > 0 ? loser + margin : loser;
-  const homeRuns = margin === 0 ? awayRuns : margin < 0 ? loser - margin : loser;
+  const awayRuns = drawnRuns(total, margin);
+  const homeRuns = drawnRuns(total, -margin);
   if (away && home) {
     tally.runs += awayRuns + homeRuns;
     tally.games += 2;

@@ -199,9 +199,11 @@ import { useToday } from "./hooks/useToday";
 import { useNarrowViewport } from "./hooks/useWideViewport";
 import { TabNav, type TabNavItem } from "./components/TabNav";
 import { NAV_ICONS } from "./components/navIcons";
+import { forecastGame } from "./lib/gameForecast";
 import {
   attachAdjustedRatings,
   calculateTeams,
+  drawWidths,
   effectiveGoldCutoff,
   getMathGoldStatus,
   getRemainingCounts,
@@ -1055,14 +1057,18 @@ export default function App() {
     return map;
   }, [liveTeams]);
   /*
-   * The chance the away side wins a game, as every League screen gives it: the per-game model's,
-   * which the Schedule's pick, the Our team card, the team drawer and the Gold odds read. The
-   * Dashboard's list showed the prediction engine's own (sweep item 29), a second chance for the
-   * same game; it reads this now. Kept while the teams and settings are, so the list's memo holds.
+   * A game's forecast as the Dashboard's cards give it: the chance the away side wins, as every
+   * League screen gives it, the per-game model's, which the Schedule's pick, the Our team card, the
+   * team drawer and the Gold odds read, and beside it the same model's score, margin, ranges and
+   * reading (`forecastGame`). The cards showed the prediction engine's own chance (sweep item 29),
+   * and until 1 November 2026 its score, range and reading beside this chance. The ranges are drawn
+   * as the Gold odds draw the game, at the league's widths, worked out once. Kept while the teams
+   * and settings are, so the list's memo holds.
    */
-  const gameOdds = useCallback(
-    (game: Matchup) => predictGame(game, liveTeams, settings, liveById).awayWinPct,
-    [liveTeams, settings, liveById]
+  const forecastWidths = useMemo(() => drawWidths(liveTeams, settings), [liveTeams, settings]);
+  const gameForecast = useCallback(
+    (game: Matchup) => forecastGame(game, liveTeams, settings, liveById, forecastWidths),
+    [liveTeams, settings, liveById, forecastWidths]
   );
   const teamBaseById = useMemo(() => {
     const map = new Map<string, TeamBase>();
@@ -3793,7 +3799,7 @@ export default function App() {
                       seasonFinal={seasonFinal}
                       hasCutLine={hasCutLine}
                       engine={predictionEngine}
-                      gameOdds={gameOdds}
+                      gameForecast={gameForecast}
                       backtestResult={backtestResult}
                       teamsById={liveById}
                       matchups={matchups}

@@ -172,13 +172,20 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
  * with the sections alone on demand and 418.0 KB on main. The Team Rankings line goes to 86.0 KB,
  * 1.9 KB above what it measured, Import's to 74.5 KB and Setup's to 83.5 KB, a tenth above; the
  * other sections and League Standings' views moved by under 0.1 KB.
+ * Dashboard to 7.5 KB on 1 Nov 2026 for each prediction card reading as one forecast, 7.3 KB
+ * against 6.9 KB on main (7,301 bytes against 6,928): the Model Read in the per-game model's own
+ * terms (`modelRead.ts`), which only the Dashboard shows, and the card's margin, expected score and
+ * both ranges read off that model's forecast rather than the prediction engine's. The forecast
+ * itself, the ranges the Gold odds draw a game within (`forecastGame`, `drawnMarginSpan`), is worked
+ * out where the chance beside it already was, in the first download, 222.8 KB against 222.6 KB
+ * (222,809 bytes against 222,563), less the engine's measured ranges, which went with it.
  */
 const BUDGET = {
   firstDownload: 255_000,
   entryChunk: 97_500,
   css: 15_200,
   views: {
-    Dashboard: 7_000,
+    Dashboard: 7_500,
     "Power Ratings": 3_800,
     Schedule: 8_200,
     Standings: 8_000,

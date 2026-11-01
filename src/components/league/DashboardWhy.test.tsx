@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { backtestPredictions } from "../../lib/backtest";
 import { CLOSE_GAME_RISK, SMALL_SAMPLE_RISK } from "../../lib/confidenceTier";
+import { forecastGame } from "../../lib/gameForecast";
 import { buildPredictionEngine } from "../../lib/predictionEngine";
 import { attachAdjustedRatings, calculateTeams, predictGame } from "../../lib/sim";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../../lib/types";
@@ -39,6 +40,11 @@ const engine = buildPredictionEngine(live, matchups, logs, DEFAULT_SETTINGS);
 const rated = attachAdjustedRatings(live, engine.ratings);
 /** The per-game model's chance for the away side, as the app hands the Dashboard it. */
 const gameOdds = (game: Matchup) => predictGame(game, rated, DEFAULT_SETTINGS).awayWinPct;
+/** The per-game model's forecast, as the app hands the Dashboard it, its chance as given. */
+const forecastAt = (odds: (game: Matchup) => number) => (game: Matchup) => ({
+  ...forecastGame(game, rated, DEFAULT_SETTINGS),
+  awayWinPct: odds(game),
+});
 
 describe("a prediction card's Why button", () => {
   const draw = (predictions = engine.predictions, odds = gameOdds) =>
@@ -50,7 +56,7 @@ describe("a prediction card's Why button", () => {
         matchups={matchups}
         setActiveView={vi.fn()}
         findings={[]}
-        gameOdds={odds}
+        gameForecast={forecastAt(odds)}
       />
     );
 
@@ -104,7 +110,7 @@ describe("the Dashboard's confidence and risk lines", () => {
         matchups={matchups}
         setActiveView={vi.fn()}
         findings={[]}
-        gameOdds={gameOdds}
+        gameForecast={forecastAt(gameOdds)}
       />
     );
 

@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { backtestPredictions } from "../../lib/backtest";
 import { buildDemoSeason } from "../../lib/demoSeason";
+import { forecastGame, type GameForecast } from "../../lib/gameForecast";
 import { buildPredictionEngine, type LeaguePrediction } from "../../lib/predictionEngine";
 import { attachAdjustedRatings, calculateTeams, predictGame } from "../../lib/sim";
 import type { Matchup } from "../../lib/types";
@@ -12,8 +13,8 @@ import { DashboardView } from "./DashboardView";
  * chance, read off a rating margin, where the Our team card, the Schedule and the Gold odds read the
  * per-game model's (`predictGame`): the demo season's second game still to play was 54% on the list
  * and 57% on the Schedule, and its last game had each model backing a different side. The list
- * shows the per-game model's chance now, and its pick. The demo season, its teams renamed to
- * placeholders.
+ * shows the per-game model's chance now, and its pick, and beside them the same model's score and
+ * margin (`forecastGame`). The demo season, its teams renamed to placeholders.
  */
 
 const NAMES = ["Aces", "Bears", "Comets", "Ducks", "Eagles", "Foxes", "Giants", "Hawks"];
@@ -26,6 +27,13 @@ const live = attachAdjustedRatings(base, engine.ratings);
 const byId = new Map(live.map((team) => [team.id, team]));
 /** The per-game model's chance for the away side, as the app hands the Dashboard it. */
 const gameOdds = (game: Matchup) => predictGame(game, live, settings, byId).awayWinPct;
+/** The per-game model's forecast, as the app hands the Dashboard it, its chance where given. */
+const forecastAt =
+  (chance?: (game: Matchup) => number) =>
+  (game: Matchup): GameForecast => ({
+    ...forecastGame(game, live, settings, byId),
+    ...(chance ? { awayWinPct: chance(game) } : {}),
+  });
 const nameOf = (id: string) => byId.get(id)?.name ?? id;
 const gameOf = (id: string): Matchup => {
   const game = matchups.find((one) => one.id === id);
@@ -51,7 +59,7 @@ const draw = ({
       matchups={matchups}
       setActiveView={vi.fn()}
       findings={[]}
-      gameOdds={odds}
+      gameForecast={forecastAt(odds)}
     />
   );
 
@@ -93,8 +101,10 @@ describe("the Dashboard's upcoming games", () => {
     expect(percent(gameOdds(game))).toBe("52%");
     draw({ predictions: [call] });
     const card = cardOf(game);
-    expect(blockOf(card, "Projected Winner")).toMatch(new RegExp(`^${nameOf(game.away)}(Range|$)`));
+    // The per-game model scores it level, 9 to 9, so the pick is named by nothing.
+    expect(blockOf(card, "Projected Winner")).toBe(nameOf(game.away));
     expect(blockOf(card, "Win Probability")).toBe(`${nameOf(game.away)}52%${nameOf(game.home)}48%`);
+    expect(blockOf(card, "Expected Score")).toBe("9-9");
     expect(
       within(card).getByRole("button", { name: `Why ${nameOf(game.away)} at 52%?` })
     ).toBeInTheDocument();
@@ -105,14 +115,15 @@ describe("the Dashboard's upcoming games", () => {
    * per-game model's own (`predictGame`: the away side from 50% up), and the card named the
    * engine's instead: the other side in 121 of the 249 toss-ups among the 11,773 forecast games of
    * 400 made-up leagues. The engine's margin is 0.2 runs each time, the away side's in demo-23 and
-   * the home side's in demo-28.
+   * the home side's in demo-28. The margin beside the pick is the per-game model's score's, 8 to 7
+   * in demo-23 and 9 to 9 in demo-28, given only where it backs the pick.
    */
   it.each([
     { id: "demo-23", chance: 0.497, engineBacks: "away", pick: "home", shown: "" },
     { id: "demo-28", chance: 0.503, engineBacks: "home", pick: "away", shown: "" },
     { id: "demo-28", chance: 0.5, engineBacks: "home", pick: "away", shown: "" },
     // Where the margin backs the pick, it is still given beside it.
-    { id: "demo-23", chance: 0.503, engineBacks: "away", pick: "away", shown: " by 0.2" },
+    { id: "demo-23", chance: 0.503, engineBacks: "away", pick: "away", shown: " by 1" },
   ] as const)(
     "name the Schedule's pick in a toss-up ($id at $chance)",
     ({ id, chance, engineBacks, pick, shown }) => {
@@ -139,6 +150,9 @@ describe("the Dashboard's upcoming games", () => {
     const knownById = new Map(known.map((team) => [team.id, team]));
     const evenOdds = (game: Matchup) => predictGame(game, known, settings, knownById).awayWinPct;
     draw({ forecast: none, odds: evenOdds });
+    expect(
+      screen.getAllByText("Expected Score").map((label) => label.nextElementSibling?.textContent)
+    ).toEqual(["Needs scores", "Needs scores", "Needs scores"]);
     const winners = screen
       .getAllByText("Projected Winner")
       .map((label) => label.nextElementSibling?.textContent);
