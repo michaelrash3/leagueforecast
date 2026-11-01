@@ -202,6 +202,7 @@ import { NAV_ICONS } from "./components/navIcons";
 import { forecastGame } from "./lib/gameForecast";
 import {
   attachAdjustedRatings,
+  bracketBegun,
   calculateTeams,
   drawWidths,
   effectiveGoldCutoff,
@@ -213,6 +214,7 @@ import {
   projectedPlaces,
   rankOptionsFromSettings,
   rankTeams,
+  regularSeasonSettings,
   simulationSeed,
 } from "./lib/sim";
 import { buildTrendStates } from "./lib/trend";
@@ -1092,6 +1094,20 @@ export default function App() {
     () => matchups.filter((game) => !isFinal(finalLogs[game.id])),
     [matchups, finalLogs]
   );
+  /*
+   * The settings the regular season is forecast under (`regularSeasonSettings`): once a bracket
+   * game has a kept score the regular season is over, and games per team owes nothing more beyond
+   * the schedule. So every number that counts owed games reads the season as scheduled: the
+   * status's count, the exact numbers and paths, the Gold and title odds and their trend, the
+   * projection and its walk, the season timeline, the recap, the playoff machine and Data Quality's
+   * finding on the setting. The setting itself is the league's, and Settings, saving and sharing
+   * read it as set. The same object until the bracket begins, so nothing is worked out again before.
+   */
+  const bracketKept = useMemo(() => bracketBegun(bracketLogs), [bracketLogs]);
+  const seasonSettings = useMemo(
+    () => regularSeasonSettings(settings, bracketKept),
+    [settings, bracketKept]
+  );
   const completedGames = useMemo(
     () =>
       matchups
@@ -1120,9 +1136,9 @@ export default function App() {
       getRemainingCounts(
         liveTeams,
         remainingGames,
-        Math.max(0, Math.round(settings.regularSeasonGamesPerTeam || 0))
+        Math.max(0, Math.round(seasonSettings.regularSeasonGamesPerTeam || 0))
       ),
-    [liveTeams, remainingGames, settings.regularSeasonGamesPerTeam]
+    [liveTeams, remainingGames, seasonSettings.regularSeasonGamesPerTeam]
   );
   /*
    * How many games the exact search walks: the schedule's and those each team owes beyond it under
@@ -1130,8 +1146,8 @@ export default function App() {
    * Bracket paths play, so they wait on both.
    */
   const searchedCount = useMemo(
-    () => withOwedGames(liveTeams, remainingGames, settings).length,
-    [liveTeams, remainingGames, settings]
+    () => withOwedGames(liveTeams, remainingGames, seasonSettings).length,
+    [liveTeams, remainingGames, seasonSettings]
   );
   /*
    * The projection and the seed walk play the games owed beyond the schedule too
@@ -1154,9 +1170,9 @@ export default function App() {
   const projected = useMemo(
     () =>
       projectionAnalysisEnabled
-        ? projectStandings(liveTeams, remainingGames, settings)
-        : rankTeams(liveTeams, rankOptionsFromSettings(settings)),
-    [projectionAnalysisEnabled, liveTeams, remainingGames, settings]
+        ? projectStandings(liveTeams, remainingGames, seasonSettings)
+        : rankTeams(liveTeams, rankOptionsFromSettings(seasonSettings)),
+    [projectionAnalysisEnabled, liveTeams, remainingGames, seasonSettings]
   );
   const projectedById = useMemo(() => {
     const map = new Map<string, Team & { rank: number }>();
@@ -1183,11 +1199,11 @@ export default function App() {
       iterations: SIM_ITERATIONS,
       seedText: oddsSeed,
       cutoff: goldCutoff,
-      settings,
+      settings: seasonSettings,
       // The followed team's odds are also counted by how each game left goes, for its card.
       ...(hasCutLine && ourTeamId ? { follow: ourTeamId } : {}),
     }),
-    [liveTeams, remainingGames, oddsSeed, goldCutoff, settings, hasCutLine, ourTeamId]
+    [liveTeams, remainingGames, oddsSeed, goldCutoff, seasonSettings, hasCutLine, ourTeamId]
   );
   const {
     odds,
@@ -1205,25 +1221,31 @@ export default function App() {
         states: [],
         iterations: TREND_ITERATIONS,
         cutoff: goldCutoff,
-        settings,
+        settings: seasonSettings,
       };
     }
     const built = buildTrendStates(teams, matchups, finalLogs, completedGames, {
       states: TREND_STATES,
       goldCutoff,
-      settings,
+      settings: seasonSettings,
       // The results the Gold % column is rated with, so the line ends where the column is.
       externalResults,
       squadYear: scoutBridge.squadYear,
     });
-    return { teamIds, states: built, iterations: TREND_ITERATIONS, cutoff: goldCutoff, settings };
+    return {
+      teamIds,
+      states: built,
+      iterations: TREND_ITERATIONS,
+      cutoff: goldCutoff,
+      settings: seasonSettings,
+    };
   }, [
     teams,
     matchups,
     finalLogs,
     completedGames,
     goldCutoff,
-    settings,
+    seasonSettings,
     externalResults,
     scoutBridge.squadYear,
   ]);
@@ -1236,11 +1258,11 @@ export default function App() {
       iterations: SIM_ITERATIONS,
       seedText: oddsSeed,
       cutoff: goldCutoff,
-      settings,
+      settings: seasonSettings,
       enabled: activeView === "model",
       bracketLogs,
     }),
-    [liveTeams, remainingGames, oddsSeed, goldCutoff, settings, activeView, bracketLogs]
+    [liveTeams, remainingGames, oddsSeed, goldCutoff, seasonSettings, activeView, bracketLogs]
   );
   const { bracketOdds } = useSimulationBracket(bracketInput);
 
@@ -1389,7 +1411,7 @@ export default function App() {
     exact: seedWalkEnabled,
     liveTeams,
     remainingGames,
-    settings,
+    settings: seasonSettings,
     projectedById,
     ranked,
   });
@@ -1451,7 +1473,7 @@ export default function App() {
             dashboardRows,
             remainingGames,
             goldCutoff,
-            settings,
+            seasonSettings,
             nextTwoSwingGames,
             {
               limit: 8,
@@ -1465,7 +1487,7 @@ export default function App() {
       dashboardRows,
       remainingGames,
       goldCutoff,
-      settings,
+      seasonSettings,
       nextTwoSwingGames,
       daysFromToday,
     ]
@@ -1481,9 +1503,9 @@ export default function App() {
   const timelineEntries = useMemo(
     () =>
       activeView === "model"
-        ? rememberedTimeline(teams, matchups, finalLogs, settings, 6)
+        ? rememberedTimeline(teams, matchups, finalLogs, seasonSettings, 6)
         : NO_TIMELINE,
-    [activeView, teams, matchups, finalLogs, settings]
+    [activeView, teams, matchups, finalLogs, seasonSettings]
   );
 
   const bubbleTierForTeam = useCallback(
@@ -1608,7 +1630,7 @@ export default function App() {
    */
   const { gameStatusForGame } = useClinchScenarios({
     liveTeams,
-    settings,
+    settings: seasonSettings,
     remainingGames,
     seasonStart,
     goldCutoff,
@@ -1894,8 +1916,8 @@ export default function App() {
    * needs, and neither is something it should go and look up for itself.
    */
   const recapPool = useMemo(
-    (): RecapPool => ({ teams, matchups, settings, goldCutoff, hasCutLine }),
-    [teams, matchups, settings, goldCutoff, hasCutLine]
+    (): RecapPool => ({ teams, matchups, settings: seasonSettings, goldCutoff, hasCutLine }),
+    [teams, matchups, seasonSettings, goldCutoff, hasCutLine]
   );
   const nameOf = useMemo(() => nameFrom(teamBaseById), [teamBaseById]);
 
@@ -2366,11 +2388,13 @@ export default function App() {
         teams,
         matchups,
         logs: deferredLogs,
-        settings,
+        // The regular season's: a setting the schedule never met holds nothing back once the
+        // bracket has begun, so its finding goes then (`regularSeasonSettings`).
+        settings: seasonSettings,
         links: scoutBridge.rows,
         today,
       }),
-    [teams, matchups, deferredLogs, settings, scoutBridge.rows, today]
+    [teams, matchups, deferredLogs, seasonSettings, scoutBridge.rows, today]
   );
   /* The findings put aside on this device, held by season as the team followed is. */
   const [putAsideHeld, setPutAsideHeld] = useState(() => ({
@@ -2897,7 +2921,8 @@ export default function App() {
     if (!team) return null;
     const magic =
       hasCutLine && searchedCount <= EXACT_MAGIC_REMAINING_GAME_LIMIT
-        ? magicForGold(team.id, dashboardRows, remainingGames, goldCutoff, settings).description
+        ? magicForGold(team.id, dashboardRows, remainingGames, goldCutoff, seasonSettings)
+            .description
         : undefined;
     /*
      * What it cannot do without, exact, late enough that the search is quick: on a full table with
@@ -2905,7 +2930,7 @@ export default function App() {
      */
     const needed =
       hasCutLine && searchedCount <= NEEDS_REMAINING_GAME_LIMIT
-        ? neededResults(team.id, dashboardRows, remainingGames, goldCutoff, settings)
+        ? neededResults(team.id, dashboardRows, remainingGames, goldCutoff, seasonSettings)
         : null;
     const needs = needed
       ? needsLines(team.id, needed, (id) => displayName(dashboardById.get(id)?.name ?? id))
@@ -2933,7 +2958,7 @@ export default function App() {
     searchedCount,
     remainingGames,
     goldCutoff,
-    settings,
+    seasonSettings,
     nextTwoSwingGames,
     ourSwing,
   ]);
@@ -3036,7 +3061,7 @@ export default function App() {
       clinchScenarios: clinchScenariosForTeam(selectedTeam.id),
       magic:
         searchedCount <= EXACT_MAGIC_REMAINING_GAME_LIMIT
-          ? magicForGold(selectedTeam.id, dashboardRows, remainingGames, goldCutoff, settings)
+          ? magicForGold(selectedTeam.id, dashboardRows, remainingGames, goldCutoff, seasonSettings)
           : {
               type: "magic" as const,
               ownWinsNeeded: 0,
@@ -3050,7 +3075,7 @@ export default function App() {
               dashboardRows,
               remainingGames,
               goldCutoff,
-              settings
+              seasonSettings
             )
           : {
               type: "elimination" as const,
@@ -3073,7 +3098,7 @@ export default function App() {
     searchedCount,
     remainingGames,
     goldCutoff,
-    settings,
+    seasonSettings,
   ]);
 
   const finalCount = completedGames.length;
@@ -3971,7 +3996,7 @@ export default function App() {
                           teams={teams}
                           matchups={matchups}
                           logs={deferredLogs}
-                          settings={settings}
+                          settings={seasonSettings}
                           liveTeams={liveTeams}
                           ratings={predictionEngine.ratings}
                           remainingGames={remainingGames}

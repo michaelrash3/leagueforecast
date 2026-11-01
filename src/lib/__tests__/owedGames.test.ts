@@ -4,16 +4,19 @@ import { eliminationNumberForGold, magicForGold, neededResults } from "../magic"
 import { needsLines } from "../ourTeam";
 import {
   attachAdjustedRatings,
+  bracketBegun,
   calculateTeams,
   emptyTeam,
   getMathGoldStatus,
   getRemainingCounts,
   leagueAverageSide,
   OWED_OPPONENT,
+  owedGames,
   predictGame,
   projectStandings,
   rankOptionsFromSettings,
   rankTeams,
+  regularSeasonSettings,
   simulateBracketOdds,
   simulateGoldOddsRun,
 } from "../sim";
@@ -359,12 +362,62 @@ describe("the Gold odds with games owed beyond the schedule", () => {
   });
 
   it("wait for the owed games before reading the bracket's kept scores", () => {
-    // The top seed won the final as kept, but with nine games owed each, nobody is seeded yet: the
-    // title odds are the ones drawn with no score kept at all.
+    // With nine games owed each by the settings they are given, nobody is seeded yet: the title
+    // odds are the ones drawn with no score kept at all. The page never hands them such settings
+    // once a bracket score is kept (`regularSeasonSettings`, below), since the score ends the owed
+    // games; this is what they do with the games still owed.
     const owed = league(ROUND, 12);
     const crowned = owed.bracket({ "bracket-r1-g1": final(2, 5) });
     expect(crowned).toEqual(owed.bracket({}));
     expect(crowned.championOdds.C).toBeGreaterThan(0);
+  });
+});
+
+/*
+ * A kept bracket score ends the owed games (the owner's ruling of 1 November 2026): the bracket is
+ * played once the regular season is over, so once any of its games, Gold or Silver, has a final
+ * score, games per team owes nothing more. Before, a setting the schedule never met, a rainout not
+ * made up say, kept the Gold odds, the projection and the exact numbers waiting on games nobody
+ * would play, and the title odds drawing a bracket already played.
+ */
+describe("a kept bracket score, which ends the games owed beyond the schedule", () => {
+  const owing = { ...DEFAULT_SETTINGS, goldCutoff: 2, regularSeasonGamesPerTeam: 12 };
+
+  it("is a final with both scores in it, in either bracket, and nothing short of one", () => {
+    expect(bracketBegun({})).toBe(false);
+    expect(bracketBegun({ "bracket-r1-g1": final(5, 2) })).toBe(true);
+    expect(bracketBegun({ "silver-bracket-r1-g1": final(3, 3) })).toBe(true);
+    // A score still being typed, and a game marked final with no score in it.
+    expect(bracketBegun({ "bracket-r1-g1": { ...final(5, 2), isFinal: false } })).toBe(false);
+    expect(bracketBegun({ "bracket-r1-g1": { ...final(5, 2), awayRuns: "", homeRuns: " " } })).toBe(
+      false
+    );
+  });
+
+  it("leaves games per team owing nothing more, the settings otherwise as they were", () => {
+    const over = regularSeasonSettings(owing, true);
+    expect(over).toEqual({ ...owing, regularSeasonGamesPerTeam: 0 });
+    const live = calculateTeams(TEAMS, ROUND, SCORES, over);
+    expect(owedGames(live, [], over)).toEqual([]);
+    // The same settings where nothing changes, so nothing read off them is worked out again.
+    expect(regularSeasonSettings(owing, false)).toBe(owing);
+    const none = { ...owing, regularSeasonGamesPerTeam: 0 };
+    expect(regularSeasonSettings(none, true)).toBe(none);
+  });
+
+  it("lets the title odds read the bracket as played, and settles the season as scheduled", () => {
+    const over = regularSeasonSettings(owing, true);
+    const live = calculateTeams(TEAMS, ROUND, SCORES, over);
+    // The Bears, second, beat the Aces in the final as kept, its top slot's runs the home side's.
+    const title = simulateBracketOdds(live, [], 400, "owed", 2, over, {
+      "bracket-r1-g1": final(5, 2),
+    });
+    expect(title.championOdds).toEqual({ A: 0, B: 100, C: 0, D: 0 });
+    const run = simulateGoldOddsRun(live, [], 400, "owed", 2, over);
+    expect(run.odds).toEqual({ A: 100, B: 100, C: 0, D: 0 });
+    expect(
+      projectStandings(live, [], over).map((team) => `${team.id} ${team.w}-${team.l}`)
+    ).toEqual(["A 3-0", "B 2-1", "C 1-2", "D 0-3"]);
   });
 });
 

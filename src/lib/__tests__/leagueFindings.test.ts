@@ -330,10 +330,12 @@ describe("auditing a League Standings season", () => {
       expect(teamIds(finding)).toEqual(["A", "B", "C", "D"]);
       expect(finding.repair).toEqual({ kind: "gamesPerTeam", from: 5, to: 3 });
       expect(finding.affectsForecast).toBe(true);
-      // The title odds wait for every game owed before reading the bracket's kept scores
-      // (`simulateBracketOdds`), so a setting the schedule never meets keeps a played bracket out
-      // of them, and the finding is where a league would look for why.
-      expect(finding.detail).toMatch(/the title odds read no kept bracket score until/);
+      // Every number that counts owed games waits on them until the bracket's first score is
+      // kept, which ends them (`regularSeasonSettings`), and the page hands the audit the regular
+      // season's settings, so the finding goes then; it says what holds the numbers back till then.
+      expect(finding.detail).toMatch(
+        /hold them back until a bracket score is kept, which ends the regular season/
+      );
     });
 
     it("is quiet when the setting is the schedule's, fewer, or unset", () => {

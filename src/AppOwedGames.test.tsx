@@ -5,7 +5,14 @@ import App from "./App";
 import { FORECAST_SECTIONS } from "./components/league/ModelView";
 import { prefetchAllViews } from "./components/league/leagueViews";
 import { writeOurTeam } from "./lib/preferences";
-import { loadSettings, saveLogs, saveMatchups, saveSettings, saveTeams } from "./lib/storage";
+import {
+  loadSettings,
+  saveBracketLogs,
+  saveLogs,
+  saveMatchups,
+  saveSettings,
+  saveTeams,
+} from "./lib/storage";
 import type { GameLog, Matchup } from "./lib/types";
 
 // League's views load on demand (2.1); loaded first here, so a tab is drawn as soon as it opens.
@@ -130,16 +137,41 @@ const clinchScenarios = (): string => {
     .trim();
 };
 
-const leagues: Array<{ name: string; games: Matchup[]; gamesPerTeam: number; follow: string }> = [
+/**
+ * The Gold bracket's final kept, its home side the top seed: the Bears beat the Aces 5 to 2. The
+ * bracket is played once the regular season is over, so a score kept in it says the season is.
+ */
+const BRACKET_PLAYED: Record<string, GameLog> = { "bracket-r1-g1": final(5, 2) };
+
+const leagues: Array<{
+  name: string;
+  games: Matchup[];
+  gamesPerTeam: number;
+  follow: string;
+  bracket?: Record<string, GameLog>;
+}> = [
   { name: "nine games owed by every team", games: ROUND, gamesPerTeam: 12, follow: "A" },
   { name: "two owed by the Comets and the Ducks", games: TWICE, gamesPerTeam: 5, follow: "C" },
+  {
+    name: "nine owed by every team, and the bracket's final kept",
+    games: ROUND,
+    gamesPerTeam: 12,
+    follow: "A",
+    bracket: BRACKET_PLAYED,
+  },
 ];
 
 /** The league stored, with games per team set and a team followed, and the app drawn on it. */
-const open = (games: Matchup[], gamesPerTeam: number, follow: string) => {
+const open = (
+  games: Matchup[],
+  gamesPerTeam: number,
+  follow: string,
+  bracket: Record<string, GameLog> = {}
+) => {
   saveTeams(TEAMS);
   saveMatchups(games);
   saveLogs(SCORES);
+  saveBracketLogs(bracket);
   saveSettings({ ...loadSettings(), goldCutoff: 2, regularSeasonGamesPerTeam: gamesPerTeam });
   writeOurTeam("default", follow);
   const user = userEvent.setup();
@@ -187,8 +219,8 @@ afterEach(() => {
 describe("League Standings with games owed beyond the schedule (pin)", () => {
   it.each(leagues)(
     "$name",
-    async ({ games, gamesPerTeam, follow }) => {
-      const user = open(games, gamesPerTeam, follow);
+    async ({ games, gamesPerTeam, follow, bracket }) => {
+      const user = open(games, gamesPerTeam, follow, bracket);
       const pinned: Record<string, string> = {};
       for (const tab of ["Dashboard", "Standings"]) {
         await user.click(await screen.findByRole("tab", { name: tab }));
@@ -282,6 +314,35 @@ describe("a league that owes games the schedule does not show yet, as the page s
     expect(await panelOf(user, "Aces", clinchScenarios)).toBe(
       "Aces have 9 games left that the schedule does not show yet."
     );
+  }, 60_000);
+
+  /*
+   * The bracket is played once the regular season is over, so a score kept in it ends the games
+   * owed beyond the schedule (the owner's ruling of 1 November 2026): with the final kept, the round
+   * robin is the whole season, settled as it stands, and the title odds read the final as played.
+   * Before, the page went on waiting for nine games a team that nobody would play.
+   */
+  it("ends the owed games once a bracket score is kept, and reads the season as over", async () => {
+    const user = open(ROUND, 12, "A", BRACKET_PLAYED);
+    await user.click(await screen.findByRole("tab", { name: "Standings" }));
+    expect(await panelOf(user, "Aces")).toContain("M (Gold clinch)Already clinched.");
+    expect(await panelOf(user, "Comets")).toContain(
+      "E (Gold elimination)Already eliminated from the Gold Bracket."
+    );
+    expect(await panelOf(user, "Aces", clinchScenarios)).not.toContain(
+      "games left that the schedule does not show yet"
+    );
+
+    await user.click(await screen.findByRole("tab", { name: "Forecast" }));
+    await user.click(await screen.findByRole("button", { name: "Outlook" }));
+    const aces = await settled("the Aces' projection", () =>
+      [...document.querySelectorAll("main tr")]
+        .map((line) => (line.textContent ?? "").replace(/\s+/g, " ").trim())
+        .filter((line) => line.startsWith("Aces"))
+        .join("")
+    );
+    // Their three games, the season's all, and no place to lose.
+    expect(aces).toMatch(/^Aces#1#10#1–#13-0100%/);
   }, 60_000);
 
   it("still says outside results decide for a team with nothing left to play at all", async () => {

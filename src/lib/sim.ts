@@ -160,6 +160,38 @@ export const owedGames = (
 };
 
 /**
+ * Whether the postseason has begun: some bracket game, Gold or Silver, has a kept score, final with
+ * both sides' runs in. A score still being typed is not one, nor a game marked final with none.
+ */
+export const bracketBegun = (bracketLogs: Readonly<Record<string, GameLog>>): boolean =>
+  Object.values(bracketLogs).some(
+    (log) => isFinal(log) && log.awayRuns.trim() !== "" && log.homeRuns.trim() !== ""
+  );
+
+/**
+ * The settings the regular season is forecast under. The bracket is played once the regular season
+ * is over, so once it has begun (`bracketBegun`) games per team owes nothing more: every game the
+ * season was to have that it did not schedule went unplayed, and `owedGames` and the status's
+ * count (`getRemainingCounts`) play and count none, so the Gold odds, the projection, the exact
+ * numbers and the status read the season as the schedule has it, and the title odds read the
+ * bracket's kept scores as played (`simulateBracketOdds`). The owner's ruling of 1 November 2026:
+ * until then a setting the schedule never met, a rainout not made up say, kept every one of them
+ * waiting on games nobody would play, and the title odds drawing a bracket already played.
+ *
+ * The same settings where nothing changes, a new object only where games per team is set and the
+ * bracket has begun, so what is worked out from the settings is worked out again only then. Read
+ * by League Standings for its forecast alone: the setting itself, as saved, shared and shown in
+ * Settings, is the league's and stays as it was set.
+ */
+export const regularSeasonSettings = <S extends Pick<Settings, "regularSeasonGamesPerTeam">>(
+  settings: S,
+  begun: boolean
+): S =>
+  begun && settings.regularSeasonGamesPerTeam > 0
+    ? { ...settings, regularSeasonGamesPerTeam: 0 }
+    : settings;
+
+/**
  * The side a game owed beyond the schedule is played against in a simulated season (`playOwed`):
  * the league's average team. Every number the forecast reads off a team is the league's average of
  * it, each team counted by the games behind it, so a team yet to play adds nothing, and a league

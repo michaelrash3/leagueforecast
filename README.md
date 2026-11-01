@@ -4451,8 +4451,8 @@ every number the forecast reads off a team, averaged over the league by the game
 behind each, and the league's average rating where its teams carry one, so a
 strong team wins more of its owed games than a weak one does. Nothing is booked
 onto that side and no table ranks it, and the title odds take the bracket's kept
-scores as played only once the owed games are played too, since until then
-nobody's seed is settled. In the league above, the Aces went from 100% to 99%, the
+scores as played only once the owed games are played too, or a kept score ends them
+(below), since until then nobody's seed is settled. In the league above, the Aces went from 100% to 99%, the
 Bears from 99%+ to 77%, the Comets from under 1% to 20% and the Ducks to 5%. A
 league with no games per team set, or whose schedule has them all, is searched and
 simulated exactly as before, to the digit.
@@ -4470,11 +4470,26 @@ whose games left were all owed read its projection at both ends of its Range. Th
 the walk count the owed games toward the games they wait for (250 and 60), as the exact search
 does. A league owing none is projected and walked exactly as before, to the digit.
 
-Waiting for the owed games has a cost where games per team counts one that will
+Waiting for the owed games had a cost where games per team counts one that will
 never be played, a rainout taken off the schedule and not made up, say: the title
-odds draw the bracket afresh even once it is played and the Dashboard names its
-champion. Data Quality's finding on the setting says so, and once the setting
-leaves no game owed, the kept scores are read again.
+odds drew the bracket afresh even once it was played and the Dashboard named its
+champion. Since 1 November 2026 a kept bracket score ends the owed games
+(`bracketBegun`, `regularSeasonSettings`): the bracket is played once the regular
+season is over, so once any game of it, Gold or Silver, has a final score in, games
+per team owes nothing more beyond the schedule. Every number that counted the owed
+games reads the season as scheduled then: the status column, the magic and
+elimination numbers, the needed results and the paths, the Gold odds and their trend,
+the projection and its Range, the season timeline, the recap, the playoff machine, and
+the title odds, which read the bracket's kept scores as played. In the league above
+with its final kept, the Bears beating the Aces 5 to 2, the Aces and the Bears read
+Clinched at 100% where they read 99% and 77%, the Comets and the Ducks Out at 0% where
+they read 20% and 5%, the projection is the round robin as it stands, the Aces 3-0
+where they were projected 12-0, and the Bears hold the title at 100%. A score still
+being typed, not marked final, keeps nothing, and the trend's points before the last
+are read without the owed games too, as they would be had the setting matched the
+schedule. Data Quality's finding on the setting says what holds the numbers back until
+then, and goes once the bracket begins; the setting itself, as Settings shows it and a
+backup or a shared link keeps it, is the league's and does not change.
 
 ## Playoff machine
 
