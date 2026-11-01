@@ -16,16 +16,16 @@ const NO_FINDINGS: readonly Finding[] = [];
  */
 export function ForecastWhy({
   prediction,
+  chanceA,
   nameOf,
-  gameModelChance,
   findings = NO_FINDINGS,
   record,
   hasCutLine = true,
 }: {
   prediction: LeaguePrediction;
+  /** Team A's chance as the card shows it, the per-game model's (`DashboardView`'s `gameOdds`). */
+  chanceA: number;
   nameOf: (id: string) => string;
-  /** The per-game model's chance that team A wins, the Schedule's odds for the same game. */
-  gameModelChance?: number;
   /** The season's data-quality findings, for the Team Rankings links guessed from a name (2.3). */
   findings?: readonly Finding[];
   /** The season's finished games replayed one at a time (`backtestPredictions`). */
@@ -52,13 +52,8 @@ export function ForecastWhy({
       ? { called: Math.round(record.winnerAccuracy * record.sampleSize), games: record.sampleSize }
       : null;
   const explained = useMemo(
-    () =>
-      explainForecast(prediction, {
-        nameOf,
-        ...(gameModelChance !== undefined ? { gameModelChance } : {}),
-        ambiguous,
-      }),
-    [prediction, nameOf, gameModelChance, ambiguous]
+    () => explainForecast(prediction, { nameOf, chanceA, ambiguous }),
+    [prediction, nameOf, chanceA, ambiguous]
   );
   if (!explained) {
     return (
@@ -175,11 +170,12 @@ export function ForecastWhy({
             <dt className="inline font-bold text-slate-950 dark:text-slate-100">Win chance: </dt>
             <dd className="inline">
               {favorite
-                ? `${percent(explained.chance[favorite])} for ${name[favorite]}, how often the model expects a side rated like ${name[favorite]} to beat one rated like ${name[other(favorite)]}.`
-                : "even, as the model reads these two sides."}
-              {explained.probabilityCapped
-                ? " Held at 92%: no game at this level is a sure thing."
-                : ""}
+                ? `${percent(explained.chance[favorite])} for ${name[favorite]}, how often the per-game model, which reads runs scored and allowed beside the rating, expects a side like ${name[favorite]} to beat one like ${name[other(favorite)]}.${
+                    explained.probabilityCapped
+                      ? ` Held at ${percent(explained.chance[favorite])}: no game at this level is a sure thing.`
+                      : ""
+                  }`
+                : "even, as the per-game model reads these two sides."}
             </dd>
           </div>
           {range && (

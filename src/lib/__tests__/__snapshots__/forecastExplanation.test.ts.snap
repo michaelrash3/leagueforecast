@@ -3,8 +3,8 @@
 exports[`explainForecast > leans each factor toward the side it favors, the strongest for each side first 1`] = `
 {
   "chance": {
-    "teamA": 0.58,
-    "teamB": 0.42,
+    "teamA": 0.5874241315527046,
+    "teamB": 0.41257586844729544,
   },
   "factors": [
     {
@@ -71,6 +71,13 @@ exports[`explainForecast > leans each factor toward the side it favors, the stro
       "key": "freshness",
       "label": "Newest results",
       "text": "Aces: 5/23, 7 days before this game. Eagles: 5/16, 14 days before this game.",
+    },
+    {
+      "favors": "teamA",
+      "inMargin": false,
+      "key": "gameModel",
+      "label": "The per-game model",
+      "text": "The win chance is the per-game model's, the one behind the Schedule's odds and the Gold chances: it reads runs scored and allowed beside the rating, and gives Aces 59% and Eagles 41%.",
     },
   ],
   "favorite": "teamA",
