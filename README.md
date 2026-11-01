@@ -7625,7 +7625,9 @@ signed in to read them as and no board kept to show, both of which the visitor's
 own app is for. A pasted list is pulled in the cloud from the Import tab, with
 no hand-over (1.8, "A pasted list, pulled in the cloud"). Only then is
 the pool brought in step, behind it, and Team Rankings' own code loads under the
-board once it is drawn, so it is there by then. The pages are the meta's whenever
+board once it is drawn, so it is there by then; the code of the section it hands
+over on comes as it hands over, since the page fetches a section's code only as
+the section is first drawn (`sections.ts`). The pages are the meta's whenever
 it carries them (`LivePages.groups`), kept or read, rather than this device's own,
 which a member's device no longer keeps in step; this device's own lay the page
 out only until a meta comes, or under one from a build that published none. On a

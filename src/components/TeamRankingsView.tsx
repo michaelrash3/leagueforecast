@@ -247,6 +247,12 @@ const SetupSection = inPlace(setupSection, "setup");
 /** A section's tab pointed at or focused: its code starts loading before it is pressed. */
 const previewSection = (section: RankingsSection) => void prefetchSection(section);
 
+/**
+ * For the live board, which fetches the section it hands over on with this page's code
+ * (`teamRankingsChunk.ts`).
+ */
+export { prefetchSection };
+
 type ConfirmOptions = {
   title: string;
   message: string;

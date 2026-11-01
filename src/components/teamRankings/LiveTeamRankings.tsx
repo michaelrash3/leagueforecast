@@ -37,6 +37,7 @@ import { forgetLiveBoard, holdLiveBoard, type RankingsHandover } from "../../lib
 import { editLock, myTeamShown, startedAgainNotice } from "../../lib/live/liveEdits";
 import { liveLabel } from "../../lib/live/liveLabel";
 import { afterOpening, releaseOpening } from "../../lib/live/openingHold";
+import type { RankingsSection as SectionName } from "../../lib/rankingsRoute";
 import { poolFilled } from "../../lib/poolFill";
 import { poolGamesOfCard, teamsOfCard } from "../../lib/live/scoutingFromCards";
 import { boardKey, lastWeekOf, withMine } from "../../lib/live/views/boardShape";
@@ -168,8 +169,11 @@ export function LiveTeamRankings({
   status: CloudStatus;
   /** Team Rankings on this device's own copy, opened where the board left off. */
   renderPage: (handover: RankingsHandover) => ReactNode;
-  /** Loads Team Rankings' code, so it is there by the time the board hands over. */
-  preloadPage: () => Promise<unknown>;
+  /**
+   * Loads Team Rankings' code, so it is there by the time the board hands over; given a section,
+   * that section's own code too, which the page fetches only as the section is first drawn.
+   */
+  preloadPage: (section?: SectionName) => Promise<unknown>;
   sources?: LiveSources;
   /** League Standings' seasons, which Setup asks which page each plays on. */
   seasons: SeasonMeta[];
@@ -230,6 +234,7 @@ export function LiveTeamRankings({
       onHandOver={handOver}
       onWhere={setWhere}
       onSkip={skip}
+      preloadPage={preloadPage}
     />
   );
 }
@@ -251,6 +256,7 @@ function LiveBoard({
   onHandOver,
   onWhere,
   onSkip,
+  preloadPage,
 }: {
   status: CloudStatus;
   sources?: LiveSources;
@@ -261,6 +267,8 @@ function LiveBoard({
   onHandOver: () => void;
   onWhere: (where: RankingsHandover) => void;
   onSkip: () => void;
+  /** The page's code, and given a section, its own (`LiveTeamRankings`). */
+  preloadPage: (section?: SectionName) => Promise<unknown>;
 }) {
   const today = todayIsoDay();
   /*
@@ -537,6 +545,17 @@ function LiveBoard({
   useEffect(() => {
     if (drawnOrSaid) releaseOpening();
   }, [drawnOrSaid]);
+  /*
+   * The code of the section the page opens on, fetched with the page's as the board hands over,
+   * and again for each section the board moves to before the page opens: the page fetches a
+   * section's code only as the section is first drawn (`sections.ts`), so it would open on the
+   * games or the scouting report saying that section is loading. Only then, so a board that never
+   * hands over fetches no section it draws itself.
+   */
+  const handingOver = handOverNow || handedOver;
+  useEffect(() => {
+    if (handingOver) void preloadPage(section).catch(() => undefined);
+  }, [handingOver, section, preloadPage]);
   useEffect(() => {
     if (handOverNow && !handedOver) onHandOver();
   }, [handOverNow, handedOver, onHandOver]);
