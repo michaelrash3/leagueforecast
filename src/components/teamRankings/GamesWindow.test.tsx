@@ -177,6 +177,25 @@ describe("the Games tab's games of today", () => {
     expect(listedDates()).toEqual(["2026-10-03"]);
   });
 
+  it("lists a day's games still to play soonest first, as Show all does", () => {
+    const quiet = pool();
+    // Today's two taken off, and the day after given a second game, starting first but stored after.
+    quiet.games = [
+      ...quiet.games.filter((one) => one.date !== "2026-10-02"),
+      {
+        ...open("early", "ag_10u_2027", "S-WREN", "S-HAWK", "2026-10-03"),
+        startTs: "2026-10-03T13:00:00.000Z",
+      },
+    ].map((one) => (one.id === "tomorrow" ? { ...one, startTs: "2026-10-03T20:00:00.000Z" } : one));
+    renderTeamRankings(quiet);
+    const items = within(card()).getAllByRole("listitem");
+    const pairs = ["Wrens vs Hawks", "Owls vs Jays"];
+    expect(items.map((item) => pairs.find((pair) => item.textContent?.startsWith(pair)))).toEqual([
+      "Wrens vs Hawks",
+      "Owls vs Jays",
+    ]);
+  });
+
   it("says each game's day in words, and its start where GameChanger gave one", () => {
     const start = "2026-10-02T23:00:00.000Z";
     const timed = pool();

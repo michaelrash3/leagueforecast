@@ -2321,7 +2321,8 @@ Nothing is out of reach. A line under the heading says how many games the day
 leaves out, how many of those have no date and how many were due earlier and
 still have no score, and **Show all** lists every one: the games still to play
 first, soonest first by day and start, then the rest newest first, the undated
-last (`everyGameListed`). Newest first throughout, the farthest-off game led the
+last (`everyGameListed`); a day's own list is in the same order, so a day ahead
+reads its first start first. Newest first throughout, the farthest-off game led the
 list, and on a seeded page of 2,693 games the next day's first game came 497th.
 An old game is still scored from here. A score is two whole numbers of runs (`typedScores`); a Save
 pressed with a box left empty says so, where until October 2026 it recorded 0–0. A game just added stays on the list whatever its date, so it

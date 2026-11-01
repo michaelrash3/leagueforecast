@@ -146,6 +146,9 @@ export function GamesSection({
     () => (showingAll ? everyGameListed(loggedGames, today) : null),
     [showingAll, loggedGames, today]
   );
+  // The day's own games in the same order, those still to play soonest first: a day ahead read
+  // its latest start first.
+  const dayListed = useMemo(() => everyGameListed(windowed.shown, today), [windowed, today]);
   /*
    * One club's games, every one of them on the page whatever their day, picked by name: a page of
    * thousands of games listed a day at a time, and a club's season was a scroll through all of them.
@@ -181,7 +184,7 @@ export function GamesSection({
         : null,
     [upsetsOnly, ratingRowOf, clubGames, loggedGames]
   );
-  const listed = upsetGames ?? clubGames ?? allListed ?? windowed.shown;
+  const listed = upsetGames ?? clubGames ?? allListed ?? dayListed;
   // The game whose What if is open.
   const [whatIf, setWhatIf] = useState<string | null>(null);
   const day = formatIsoDayShort(gamesWindow.day);
