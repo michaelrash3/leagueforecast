@@ -1,10 +1,5 @@
-import {
-  buildScoutTeam,
-  cleanTeamName,
-  isPlaceholderName,
-  namesNobody,
-  teamNameKey,
-} from "./teamRankings/names";
+import { buildScoutTeam, namesNobody } from "./teamRankings/rosterNames";
+import { cleanTeamName, isPlaceholderName, teamNameKey } from "./teamRankings/names";
 import type { TakenIds } from "./teamRankings/retiredIds";
 import { ageGroupLevel, ageGroupYear } from "./teamRankings/seasons";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "./teamRankings/types";
@@ -109,20 +104,8 @@ export const NO_REFUSALS: NotThisTeam = new Set();
 export const refusalOf = (schedule: string, name: string, clubGcId: string): string =>
   `${schedule}\u0000${teamNameKey(name)}\u0000${clubGcId}`;
 
-/** Whatever was stored, as a set: anything that is not a schedule, a name and a club is dropped. */
-export const coerceNotThisTeam = (raw: unknown): Set<string> => {
-  if (!Array.isArray(raw)) return new Set();
-  const out = new Set<string>();
-  raw.forEach((entry) => {
-    if (typeof entry !== "string") return;
-    const parts = entry.split("\u0000");
-    if (parts.length === 3 && parts.every((part) => part.length > 0)) out.add(entry);
-  });
-  return out;
-};
-
-/** The set as it is stored: a plain array, sorted so a save that changes nothing looks like it. */
-export const notThisTeamList = (refused: NotThisTeam): string[] => [...refused].sort();
+/* How the answers are stored is a module of its own, which the pool's store reads at start. */
+export { coerceNotThisTeam, notThisTeamList } from "./notThisTeamStored";
 
 /**
  * Whether the owner has said `name`, written on schedule `schedule`, is not `club`: by any of the
@@ -141,23 +124,33 @@ export const refusesName = (
 };
 
 /**
- * The refusals taking `game` off `club` remembers: the club's name against each of the club's ids,
- * from the schedule the row came off and every other schedule of the club that wrote it (the
- * namer, the game's other side, looked up through `teamOf`).
+ * The refusals taking `game` off `club` remembers, with the namer's other rows the one press takes
+ * (`taken`, `game` among them; `takenWith`): each name those rows were filed under against each of
+ * the club's ids, from the schedule the row came off and every other schedule of the club that
+ * wrote it (the namer, the game's other side, looked up through `teamOf`). The club's name, which
+ * is the name a row resting on a name alone was filed by; and the name each row typed
+ * (`ScoutGame.typedAs`), which is another where the owner's Same team as filed it
+ * (`ScoutTeam.namedAs`). Refused by the club's name alone, such a row was refused under a name its
+ * coach never typed: once the club was renamed, or folded into a club of another name, the refusal
+ * was no longer the club's, and the answer filed the rows back and the coach's next one with them.
  */
 export const refusalsFor = (
   game: ScoutGame,
   club: ScoutTeam,
-  teamOf: (teamId: string) => ScoutTeam | undefined
+  teamOf: (teamId: string) => ScoutTeam | undefined,
+  taken: readonly ScoutGame[] = [game]
 ): string[] => {
   const source = game.source?.teamId;
   if (source === undefined) return [];
   const namer = teamOf(game.teamAId === club.id ? game.teamBId : game.teamAId);
   const schedules = new Set([source, ...(namer?.gcTeams ?? []).map((link) => link.teamId)]);
   const ids = new Set((club.gcTeams ?? []).map((link) => link.teamId));
-  return [...schedules].flatMap((schedule) =>
-    [...ids].map((id) => refusalOf(schedule, club.name, id))
+  const names = [club.name, ...taken.flatMap((row) => (row.typedAs ? [row.typedAs] : []))];
+  const refusals = new Set<string>();
+  schedules.forEach((schedule) =>
+    names.forEach((name) => ids.forEach((id) => refusals.add(refusalOf(schedule, name, id))))
   );
+  return [...refusals];
 };
 
 /**

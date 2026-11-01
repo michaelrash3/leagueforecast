@@ -16,13 +16,8 @@ import { marksChange, type MarksChange } from "../lib/removedForYou";
 import type { FewOutsideList } from "../lib/fewOutside";
 import { fewOutsideOfPool } from "../lib/fewOutsideLeaders";
 import type { LeagueSeasonData } from "../lib/live/allKnown";
-import { ageGroupYear, type AgeGroup, type ScoutGame } from "../lib/teamRankings";
-import {
-  decodePoolGames,
-  decodePoolTeams,
-  encodeScoutGames,
-  encodeScoutTeams,
-} from "../lib/teamRankingsCompact";
+import { ageGroupYear, type ScoutGame } from "../lib/teamRankings";
+import { unpackPool, type PoolWire } from "./tidyWire";
 
 /**
  * What crosses between the page and the tidy worker, and what the worker does with it. Pure, so
@@ -39,8 +34,13 @@ import {
  * its place.
  */
 
-/** The pool as it crosses: teams and games compact, age groups as they are (they are few). */
-export type PoolWire = { ageGroups: AgeGroup[]; teams: unknown; games: unknown };
+/*
+ * The pool's packing for the port is a module of its own (`tidyWire.ts`), so the page can pack a
+ * pool and lay the worker's answer over it without loading the tidy and the inspection, which only
+ * the worker, and a page with no worker, run.
+ */
+export { applyTidied, packPool, unpackPool } from "./tidyWire";
+export type { PoolWire } from "./tidyWire";
 
 export type TidyRequest = {
   kind: "tidy";
@@ -163,32 +163,6 @@ export type InspectResponse = {
 };
 
 export type WorkerResponse = TidyResponse | InspectResponse | TidyProgressResponse;
-
-export const packPool = (state: GcImportState): PoolWire => ({
-  ageGroups: state.ageGroups,
-  teams: encodeScoutTeams(state.teams),
-  games: encodeScoutGames(state.games),
-});
-
-export const unpackPool = (wire: PoolWire): GcImportState => ({
-  ageGroups: wire.ageGroups,
-  teams: decodePoolTeams(wire.teams),
-  games: decodePoolGames(wire.games),
-});
-
-/**
- * The tidied pool, as the caller should hold it: what the tidy changed laid over what it was
- * handed, so a part it did not touch is the very array the caller already has — and an identity
- * check downstream reads it as unchanged, which it is.
- */
-export const applyTidied = (
-  before: GcImportState,
-  changed: Partial<GcImportState>
-): GcImportState => ({
-  ageGroups: changed.ageGroups ?? before.ageGroups,
-  teams: changed.teams ?? before.teams,
-  games: changed.games ?? before.games,
-});
 
 /**
  * The sweep's change to the marks (`sweepMarks`, `marksChange`) on `state`, with what it was asked

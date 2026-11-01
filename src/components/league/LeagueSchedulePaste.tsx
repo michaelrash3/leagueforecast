@@ -17,7 +17,7 @@ import {
   type LeaguePasteRow,
   type LeagueSchedule,
 } from "../../lib/leagueScheduleText";
-import { pasteNameKey } from "../../lib/teamRankings";
+import { pasteNameKey } from "../../lib/teamRankings/names";
 import {
   matchPastedNames,
   seasonFromPaste,

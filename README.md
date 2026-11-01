@@ -112,6 +112,7 @@ src/
     scheduleText.ts        # reads pasted text / CSV into games, entirely on the device
     leagueScheduleText.ts  # the same for a league's own schedule, home and away kept
     teamRankings.ts        # age groups, ratings, name matching, rename/merge
+    teamRankings/leagueBridge.ts  # which club each League team is, and what results it is handed
     teamRankingsStorage.ts # the pool's IndexedDB store, with a synchronous cache in front
     teamRankingsCompact.ts # the tuple-and-dictionary storage format
     live/                  # what a page knows (allKnown.ts), the views built from it (views/),
@@ -127,9 +128,11 @@ src/
   workers/
     sim.worker.ts  rankings.worker.ts  tidy.worker.ts
     rankingsProtocol.ts  tidyProtocol.ts  # what crosses to each worker; pure, so tested
+    tidyWire.ts            # the pool packed for the tidy worker, apart from the tidy itself
   components/
+    viewChunk.ts        # a view or section loaded on demand
     league/             # League Standings views: standings, games, forecast, settings
-    teamRankings/       # Team Rankings sections and cards
+    teamRankings/       # Team Rankings sections and cards; sections.ts loads each on demand
     bracket/  charts/
     ShortcutsHelp.tsx  OnboardingTour.tsx  Toast.tsx
     GameChangerImportPanel.tsx  ScheduleImportPanel.tsx  TeamDetailPanel.tsx
@@ -1612,9 +1615,12 @@ the other listing's row in the very game). Not against the game: a re-pull finds
 the stand-in it has, so what brings the mistake back is the refile putting the stand-in on the club
 the next time the club has a game that day, and the namer's next row of that name, a league
 opponent being named over and over. The schedule and the name stay in the key, so another schedule
-naming the club, or this one naming it another way, is matched as before, and the pool keeps no
-row's name, so the club's name is the name: a name files a row onto a pulled club only where the two
-read the same. Every road a name takes onto a club asks it (`refusesName`): the import's match by
+naming the club, or this one naming it another way, is matched as before. The name is the club's,
+since a name files a row onto a pulled club only where the two read the same, and the name each
+row taken typed as well (`typedAs`), which is another where the owner's Same team as filed the row
+(`answeredNamesakes`): kept under the club's name alone, the refusal of such a row stopped counting
+once the club was renamed, or folded into a club of another name.
+Every road a name takes onto a club asks it (`refusesName`): the import's match by
 the name (`planOpponent`: the one club of it, the one something corroborates), the refile, a
 namesake taking a row off a club far from its age, and the slot settle where the row it would
 settle into is the name again. The step that takes a name's rows off a club (`resettleOffLevel`)
@@ -1633,7 +1639,8 @@ refuses and stayed on screen after every tidy; the command adds to it: the refus
 already, which its Undo takes off again and nothing else. Once the toast has gone a refusal is
 listed nowhere and nothing in the app takes it back: Same team as, folding the stand-in into the
 club, puts the games it holds back on the club by the owner's word (`namedByAvatar`), which no
-refusal overrules, but the refusal stays for the name's next rows. A page to list the refusals and
+refusal overrules, but the refusal stays for the name's next rows, over the answer the fold keeps
+for them as well (`answeredNamesakes`). A page to list the refusals and
 withdraw one is not built yet: what withdrawing should do with the games already on a stand-in is
 the owner's to decide.
 
@@ -2030,6 +2037,61 @@ none of 12,994 opponents' pictures on 3,000 pulled schedules was any of the 44,8
 not for an opponent, a club's own stand-in, an age, a season pairing or an organization's games —
 and the stored pool keeps none (data schema 7). A pull's tally counts the opponents the game itself
 found (`opponentsMatchedByGame`); it called them found by picture before.
+
+**The answer, kept for the namer's later games.** Same team as also keeps, on the club, who each
+namer means by the name (`ScoutTeam.namedAs`): the GameChanger team whose schedule wrote each row it
+folds, and the name that row typed (`typedAs`), or the stand-in's own for a row pulled before rows
+kept theirs. Kept on the rows alone, the answer covered only the games already there: in the sweep
+of 30 October 2026 the same coach's game a week later, typed the same way, went to a new stand-in,
+and the owner had to answer again. A slot's name is anybody's, and a row of the club's own schedule
+naming the stand-in is a game against itself once folded, so neither keeps an answer. The list goes
+with the club wherever it is folded, by hand or by the tidy (one squad listed twice, the season
+pairing), the two clubs' lists made one in one order, and the fold's Undo takes it away with the
+rest, since it puts the club back as it was. It rides inside the roster's stored value, where a
+club's picture was once kept (`CompactTeams.r`), so a club with none is written as before; the
+stored pool, the worker's wire, the Team Rankings file, the whole-browser file and Undo keep it, the
+season's CSV does not, and no club's published card carries it. On the seeded fixture at its full
+size (20,204 clubs, 58,105 games), its GameChanger ids made twelve random letters and digits as
+GameChanger's are, each answer kept is 14 to 17 bytes of the gzipped copy: 100 stand-ins folded keep
+279 answers and add 4,410 bytes of the 1,041,845 (0.42%), and 1,000 keep 2,251 and add 33,247
+(3.2%). The data schema went to 11 for it, since an older build would drop it with its next save of
+the roster.
+
+**The answer, read for the namer's later games** (tidy rules 38). That namer's next row of the name
+is the club's too (`answeredNamesakes`): at arrival (`planOpponent`), behind the game itself and
+ahead of any reading of the name alone, since it is the owner's word on who the coach means by it;
+in the refile, which files a stand-in's row of the name onto the club; and the resettle leaves such
+a row on it. It keeps the in-state rule's guards: the club listed at the row's level in its squad
+year, so a level typed into the name that the club is not listed at is another squad of the name;
+a day no earlier than a week before the club's own first game of the year; and never within the
+hour of a game of the club's own against another club. Not the rest of what a name is asked: the
+two clubs need not be neighbours, nor of one state or next door, nor need the club have a game that
+day, since the owner has seen the games. Only the namer reads it, on every listing of its own, as
+its refusals are kept (a club on GameChanger twice is one club writing the name): another club's
+row of the same name is read as a name, as before, and two clubs holding the namer's name at one
+level are two answers that disagree, so neither is read. The name asked is the one the row typed
+(`typedAs`), on every road alike, so a row pulled before rows kept theirs is read once its
+schedule's next pull learns it. Read by its stand-in's name in the refile alone, such a row was
+filed onto the club there and taken off again by the resettle, and where the club held the answer
+under its own name every tidy ran all six passes. An answer given across a level, a stand-in off a
+9U page folded into a 10U club, files no later row, since a row with no age typed is read at its
+page's level; reading it at the level it was given would need that level kept with it.
+
+Not this team always wins. A press on a row the answer filed takes it off, with every other row
+the namer filed onto the club by a name (`takenWith`), as on any row a name filed, and refuses, on
+the namer's schedules, each name those rows were filed under: the club's, and the one each row
+typed (`refusalsFor`). The answer is refused only under its own name, which no rename of the club,
+nor a fold of it into a club of another name, changes: read by the club's name, the refusal
+stopped counting once the club was renamed, and the tidy filed the refused rows back. So a press on
+another of the coach's rows on the club takes the answer back too, its rows going with the press,
+and Undo gives both back; but a refusal of another name the coach wrote, given before the answer,
+does not, since it says nothing of what the coach means by this one, and read, it took back every
+answer the owner gave after it for that coach. The rows the fold itself put on the club stay, as
+the owner's word (`namedByAvatar`), and undoing the fold takes the answer with it. A build on
+rules 37 reads no answer and would take such a row off a club that had no game that day; a pool
+stamped by newer rules is one an older build leaves alone (`stampFromNewerRules`), which is why the
+rules went to 38. No stored club held an answer before this, so the copy moves only as the owner
+answers.
 
 A name nobody pulled is one stand-in per name, level and squad year among the clubs of a state that
 named it, and a lookup that missed made a second: a class year looked up at the page's age rather
@@ -7639,7 +7701,9 @@ signed in to read them as and no board kept to show, both of which the visitor's
 own app is for. A pasted list is pulled in the cloud from the Import tab, with
 no hand-over (1.8, "A pasted list, pulled in the cloud"). Only then is
 the pool brought in step, behind it, and Team Rankings' own code loads under the
-board once it is drawn, so it is there by then. The pages are the meta's whenever
+board once it is drawn, so it is there by then; the code of the section it hands
+over on comes as it hands over, since the page fetches a section's code only as
+the section is first drawn (`sections.ts`). The pages are the meta's whenever
 it carries them (`LivePages.groups`), kept or read, rather than this device's own,
 which a member's device no longer keeps in step; this device's own lay the page
 out only until a meta comes, or under one from a build that published none. On a
@@ -9404,6 +9468,71 @@ shared handlers with recorded provider responses and require no deployed credent
   download went from 254.9 KB to 248.0 KB gzipped (247,951 bytes), Team Rankings from 166.2 to
   165.3 KB, with nothing removed and nothing fetched later. The cost is caching: a release that
   changes any logic module has a returning visitor fetch the whole 124 KB file again.
+- **Team Rankings' sections load on demand** (`src/components/teamRankings/sections.ts`, through
+  the views' own `viewChunk`). Opening Team Rankings fetched every section's code, the Import panel
+  and the tidy it runs, Setup's cards and Pool health, the games list, the scouting report and its
+  tournament panel, and the archive, though the page opens on the rankings and shows one section at
+  a time. Now the rankings, and the state and handlers every section reads, come with the page, and
+  a section's code when it is first opened, or a little before: when its tab is pointed at or
+  focused, and, once the rankings are drawn and the page has been idle 1.5 s, the Games section's.
+  A section still loading says so in its place ("Loading the archive…"), each in a boundary of its
+  own, so nothing else is swapped for that line: not the rankings, and not the scouting report while
+  the tournament panel below it loads, which says nothing as it does. A load that fails is the
+  section's Try again, which fetches it afresh; the tournament panel, a chunk of its own, fails in a
+  boundary of its own, so the report above it stays drawn. The tidy's stamp, which the page reads
+  as it opens to decide whether a tidy is due, is a module of its own (`tidyStamp.ts`), as is the
+  pool's packing for the tidy worker (`tidyWire.ts`), so opening the page fetches neither the tidy
+  nor the inspection. The Import and Setup sections fetch the tidy's module (`gameChangerImport.ts`)
+  as they open, worker or not, since they name its steps and read the pool through it; otherwise
+  the page fetches the two only to run them itself, where it has no worker (`usePoolTidy`).
+  - **Measured** (gzipped, `npm run bundle:check`, 31 October 2026): opening Team Rankings went from
+    166.2 KB to 60.3 KB, with nothing removed. A section's own first open fetches Games 10.9 KB,
+    Import 57.8, Scouting 7.4 and its tournament panel 3.6, Archive 2.3 and Setup 68.9, each held to
+    a line of its own in the budget. The first download did not move.
+  - **The cost**: the first open of each section after a release waits for its download, which on a
+    slow connection is a moment of "Loading Setup…" until the service worker has stored the release.
+  - **Guarded** by `src/components/teamRankings/sectionsLoad.test.tsx`: a tab pointed at or focused
+    starts its section's load, the Games section's starts once the page is idle, a load that fails
+    is that section's Try again and fetches afresh, and the scouting report stays on screen while
+    the tournament panel's code loads and when it fails. In the built app,
+    `e2e/teamRankingsSections.spec.ts` opens Team Rankings and finds none of its sections' code
+    fetched (read off the source maps, by module), draws each section from its own, and has Setup's
+    look at the pool answered by the tidy worker, with no page error and no worker failing.
+- **Team Rankings' code leaves League Standings' first download.** A bundler puts a module whole
+  wherever anything reaches it, and League Standings' start read a few lines from modules that were
+  otherwise Team Rankings': the age a name states from the GameChanger client (`gameChangerApi.ts`),
+  the bridge and a pick's helpers from the rating code (`teamRankings.ts`), the cleaning and keys of
+  a name, what counts toward a rating, a saved board's row check, the board rules' version, a pull
+  log's version, the refresh cadence, a kept season's reader, the stored "Not this team" list and a
+  club's movement on its page. Each of those is now a module of its own (`gcAge.ts`,
+  `gcFetchErrors.ts`, `teamRankings/leagueBridge.ts`, `live/views/rankingRow.ts`,
+  `live/views/boardRules.ts`, `pullTrackerVersion.ts`, `refreshCadence.ts`, `archivedSeason.ts`,
+  `notThisTeamStored.ts`, `movement.ts`), which the module it came from re-exports; `names.ts` and
+  `games.ts` keep their start's part instead, and what only Team Rankings runs of them moved into
+  `teamRankings/rosterNames.ts` and `teamRankings/gameRows.ts`, which `teamRankings.ts` re-exports
+  beside them. The modules the start loads, and League Standings' own views, import the new ones.
+  A pull's tracker is made by the pull and handed to the pool's slot with its claim (`beginPull`),
+  so the slot, which League Standings reads, stays one module and the tracker leaves it; the claim
+  will not compile without one, so no pull is claimed without its log. Some of Team Rankings' code
+  is still there: the readers the pool's store and its backup check what they keep with, which
+  load with the store (`teamRankingsStorage.ts`).
+  - **Measured** (gzipped, `npm run bundle:check`, 31 October 2026): the first download went from
+    251.8 KB to 221.2 KB, with nothing removed and nothing computed differently. What left is
+    fetched where it runs: opening Team Rankings went from 60.3 KB to 84.1 KB, and the Import and
+    Setup sections, which pull and tidy, from 57.8 to 67.7 KB and from 68.9 to 75.9 KB. A first
+    visit straight to Team Rankings fetches 305.3 KB, against 418.0 KB before either change.
+  - **The numbers did not move.** `src/lib/__tests__/bootSplitPins.test.ts`, written before
+    anything moved, pins what one pool works out (the bridge's results, the forecast reading them,
+    a board, a matchup, ages, names, which games count and the tidy's stamp), and it holds with the
+    board, rating, forecast and parity pins already in the suite; every moved declaration is the
+    same text it was, an `export` added where its old module reads it back.
+  - **Guarded** by the bundle check, which reads the build's source maps and fails naming any of
+    the modules left holding only Team Rankings' code (`TEAM_RANKINGS_ONLY` in
+    `scripts/bundleBudget.mjs`) that the first download holds again, since one static import from
+    anything the page loads at start would bring a whole module back and the first download's own
+    line has room to hide it. The list holds the two modules that left with them too
+    (`ratingRecency.ts`, `teamNameRules.ts`), and the tidy (`gameChangerImport.ts`), which the
+    first download never held and which on its own is about that room, 35.0 KB against 33.8.
 - **League Standings works out only what is on screen** (2.2). Every number it
   shows is read from the games marked final, so its calculations are keyed on
   those scores alone (`finalLogsOf`, held by `useSeasonState`), which stay the same

@@ -19,7 +19,8 @@
  * of it, add up to what the whole crawl found.
  */
 
-import { ageFromOrgName, type GcOrgListEntry } from "./gameChangerApi";
+import { ageFromOrgName } from "./gcAge";
+import type { GcOrgListEntry } from "./gameChangerApi";
 import type { NamedAgeAsk } from "./ageUnknown";
 
 /** An organization as it is kept: what it is called and the teams the file put under it. */

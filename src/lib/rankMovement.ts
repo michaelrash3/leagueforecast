@@ -129,20 +129,6 @@ export const pastBoardAsOf = (
   return { ranks, sizes };
 };
 
-/** Places climbed since last week (negative for a fall), or "new" for a club that was not ranked. */
-export type Movement = number | "new";
-
-/**
- * How far a club has moved on its page. Nothing at all when there was no board a week ago — the
- * first week of a half, when every club would otherwise read "new".
- */
-export const movementOf = (
-  teamId: string,
-  rank: number,
-  previous: Readonly<Record<string, number>> | null
-): Movement | undefined => {
-  if (!previous) return undefined;
-  const before = previous[teamId];
-  if (before === undefined) return Object.keys(previous).length > 0 ? "new" : undefined;
-  return before - rank;
-};
+/* A club's movement on its page is a module of its own, which League Standings' start reads. */
+export { movementOf } from "./movement";
+export type { Movement } from "./movement";

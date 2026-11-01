@@ -1,18 +1,15 @@
 import { normalizeDateInput, parseDateValue, seasonStartMonth, toMMDD } from "./date";
+import { ageGroupYear } from "./teamRankings/seasons";
+import { findSimilarTeam } from "./teamRankings/rosterNames";
+import { pasteNameKey, squadNameKey, teamNameKey } from "./teamRankings/names";
 import {
-  ageGroupYear,
-  findSimilarTeam,
   isScoutGamePlayed,
-  LEAGUE_GAME_PREFIX,
-  pasteNameKey,
-  scoreSeenBy,
-  squadNameKey,
-  teamNameKey,
-  withPicksRead,
   type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
-} from "./teamRankings";
+} from "./teamRankings/types";
+import { LEAGUE_GAME_PREFIX, scoreSeenBy } from "./teamRankings/games";
+import { withPicksRead } from "./teamRankings/leagueBridge";
 import type { GameLog, Matchup, TeamBase } from "./types";
 import { blankLog, isFinal } from "./util";
 import { isDatedAhead } from "./deletedGames";

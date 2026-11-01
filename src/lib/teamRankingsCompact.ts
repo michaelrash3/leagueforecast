@@ -23,17 +23,18 @@
  * before this existed, and is read as such; the next save writes it compactly.
  */
 
+import { isPlaceholderName } from "./teamRankings/names";
 import {
-  isPlaceholderName,
   type AgeGroup,
   type FoldedRow,
   GC_AGE_SOURCES,
   type GcAgeSource,
   type GcTeamLink,
+  type NamedAs,
   type ScoutGame,
   type ScoutGameSource,
   type ScoutTeam,
-} from "./teamRankings";
+} from "./teamRankings/types";
 import {
   coerceRetired,
   NO_RETIRED,
@@ -460,7 +461,11 @@ export type CompactTeams = {
    * staff was stored, which reads as no staff rather than as an error.
    */
   p?: string[];
-  /** 0 id, 1 name, 2 flags, 3 state, 4 city, 5 links, 6 a picture (data schema 6 and before) */
+  /**
+   * 0 id, 1 name, 2 flags, 3 state, 4 city, 5 links, 6 the owner's answers (`ScoutTeam.namedAs`),
+   * a schedule and a name in turn, from data schema 11. Slot 6 held a picture by data schema 6 and
+   * before, which nothing reads, so a reader passes over anything there but a list.
+   */
   r: TeamRow[];
   /**
    * The highest counter let go of in each family of minted ids (`retiredIds.ts`), so a club folded
@@ -470,7 +475,7 @@ export type CompactTeams = {
   h?: Record<string, number>;
 };
 
-type TeamRow = (number | string | null | CompactLink[])[];
+type TeamRow = (number | string | null | CompactLink[] | string[])[];
 
 /**
  * 0 gc id, 1 name, 2 age group, 3 season, 4 season year, 5 age level, 6 none (a picture by data
@@ -535,6 +540,9 @@ export const encodeScoutTeams = (
       team.state ?? null,
       team.city ?? null,
       links.length ? links : null,
+      // Flat rather than a list of pairs, a few bytes fewer an answer; a club with none, nearly
+      // every club, ends at its links as before.
+      team.namedAs?.length ? team.namedAs.flatMap(({ schedule, name }) => [schedule, name]) : null,
     ];
     return trimTrailing(row);
   });
@@ -658,10 +666,37 @@ export const decodeScoutTeams = (
         .filter((link): link is GcTeamLink => link !== null);
       if (links.length) team.gcTeams = links;
     }
+    const namedAs = decodeNamedAs(row[6]);
+    if (namedAs.length) team.namedAs = namedAs;
     teams.push(team);
   });
   return teams;
 };
+
+/**
+ * The owner's answers off a stored row (`CompactTeams.r`), a schedule and a name in turn. A pair
+ * missing either is dropped on its own, and anything but a list, an old row's picture, is none.
+ */
+const decodeNamedAs = (raw: unknown): NamedAs[] => {
+  if (!Array.isArray(raw)) return [];
+  const answers: NamedAs[] = [];
+  for (let at = 0; at + 1 < raw.length; at += 2) {
+    const schedule: unknown = raw[at];
+    const name: unknown = raw[at + 1];
+    if (isFilledString(schedule) && isFilledString(name)) answers.push({ schedule, name });
+  }
+  return answers;
+};
+
+/** The owner's answers off a team kept as a plain object: each needs a schedule and a name. */
+const coerceNamedAs = (raw: unknown): NamedAs[] =>
+  Array.isArray(raw)
+    ? raw.flatMap((entry: unknown): NamedAs[] =>
+        isRecord(entry) && isFilledString(entry.schedule) && isFilledString(entry.name)
+          ? [{ schedule: entry.schedule, name: entry.name }]
+          : []
+      )
+    : [];
 
 /**
  * Age groups are few — one per level per season year — so they are stored as they are. Kept here
@@ -749,6 +784,8 @@ export const coerceScoutTeams = (raw: unknown): ScoutTeam[] => {
     .map((entry) => {
       // Malformed links are dropped one at a time; the team itself is never lost over one.
       const gcTeams = coerceGcTeamLinks(entry.gcTeams);
+      // And so are the owner's answers (`ScoutTeam.namedAs`).
+      const namedAs = coerceNamedAs(entry.namedAs);
       return {
         id: entry.id as string,
         name: entry.name as string,
@@ -765,6 +802,7 @@ export const coerceScoutTeams = (raw: unknown): ScoutTeam[] => {
          */
         ...(entry.nameOnly === true ? { nameOnly: true as const } : {}),
         ...(gcTeams.length ? { gcTeams } : {}),
+        ...(namedAs.length ? { namedAs } : {}),
       };
     });
 };

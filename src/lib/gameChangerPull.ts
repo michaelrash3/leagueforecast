@@ -14,7 +14,7 @@
  * cheap no-op rather than a second pull.
  */
 
-import { isGcFetchErrorReason, type GcFetchErrorReason } from "./gameChangerApi";
+import { isGcFetchErrorReason, type GcFetchErrorReason } from "./gcFetchErrors";
 import { isNumber, isRecord, isString } from "./validate";
 
 /** A team that could not be pulled, and why, so the panel can say so and offer a retry. */

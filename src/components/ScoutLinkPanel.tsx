@@ -5,7 +5,7 @@ import {
   type LeagueScoutBridge,
   type ScoutLinkCandidate,
   type ScoutLinkRow,
-} from "../lib/teamRankings";
+} from "../lib/teamRankings/leagueBridge";
 import { displayName } from "../lib/format";
 import { levelOf, placeOf, type ClubPickOption } from "../lib/leagueLinkOptions";
 import { card, pill } from "../styles/tokens";

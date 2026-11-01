@@ -42,10 +42,13 @@ const SECTION_ICONS: Partial<Record<RankingsSection, ReactNode>> = {
 export function SectionNav({
   current,
   onSelect,
+  onPreview,
   inBar = false,
 }: {
   current: RankingsSection;
   onSelect: (section: RankingsSection) => void;
+  /** When a tab is pointed at or focused, before it is pressed (the sections load on demand). */
+  onPreview?: (section: RankingsSection) => void;
   /** Drawn in a row of its own (`RankingsHeader`), which spaces it, rather than under the card's. */
   inBar?: boolean;
 }) {
@@ -67,6 +70,7 @@ export function SectionNav({
       }))}
       current={current}
       onSelect={onSelect}
+      {...(onPreview ? { onPreview } : {})}
       narrow={narrow}
       primary={PHONE_SECTIONS}
       actions={modeSwitch ? [modeSwitch] : []}

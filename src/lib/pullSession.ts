@@ -19,9 +19,13 @@
  * component can take with it. A job claims this slot when it starts and gives it up when it ends;
  * a second claim is refused rather than queued, because the second job is never what anybody
  * wanted — it would only undo the first.
+ *
+ * The slot is read wherever the pool is written, League Standings' start included, so the record a
+ * pull keeps (`createPullTracker`) is made by the pull and handed over with its claim: the
+ * tracker's code is Team Rankings' alone, and the first download carried it while it was made here.
  */
 
-import { createPullTracker, type PullRunLog, type PullTracker } from "./pullTracker";
+import type { PullRunLog, PullTracker } from "./pullTracker";
 import type { TidyStep } from "./gameChangerImport";
 
 /** What is holding the pool: a pull fetching schedules, or a tidy folding what is already here. */
@@ -114,14 +118,14 @@ export const poolJobElsewhere = async (): Promise<boolean> => {
   }
 };
 
-const claim = (kind: PoolJobKind, startedAt: string): PullSession | null => {
+const claim = (kind: PoolJobKind, startedAt: string, tracker?: PullTracker): PullSession | null => {
   if (live) return null;
   live = {
     kind,
     controller: new AbortController(),
     startedAt,
     // Only a pull has anything to record; a tidy is one call whose answer is its own report.
-    ...(kind === "pull" ? { tracker: createPullTracker(startedAt) } : {}),
+    ...(tracker ? { tracker } : {}),
   };
   if (live.tracker) lastTracker = live.tracker;
   // A new tidy starts from nothing; a pull leaves the last tidy's report where it was.
@@ -158,8 +162,12 @@ export const livePull = (): PullSession | null => live;
  * Claims the slot for a new run, or returns null because something already has it.
  *
  * Null is a refusal and not a failure: the caller should say so and leave the running job alone.
+ * A pull hands over the tracker it records itself on (`createPullTracker(startedAt)`). Required,
+ * since a pull claimed without one would keep no log, and `lastPullLog` would go on answering
+ * with the pull before it.
  */
-export const beginPull = (startedAt: string): PullSession | null => claim("pull", startedAt);
+export const beginPull = (startedAt: string, tracker: PullTracker): PullSession | null =>
+  claim("pull", startedAt, tracker);
 
 /**
  * The most recent pull's record, live or finished.

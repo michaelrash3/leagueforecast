@@ -1,7 +1,8 @@
 import type { RankingsHandover } from "../lib/live/liveBoard";
 import { render, type RenderResult } from "@testing-library/react";
-import { vi } from "vitest";
+import { beforeAll, vi } from "vitest";
 import { TeamRankingsView } from "../components/TeamRankingsView";
+import { prefetchAllSections } from "../components/teamRankings/sections";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../lib/teamRankings";
 import {
   resetTeamRankingsStore,
@@ -32,7 +33,12 @@ import { writeDefaultAge, writeDefaultState, type DefaultAge } from "../lib/pref
  * and then renders — there is no prop to hand it a pool through. jsdom has no IndexedDB, so the
  * store stays on localStorage and every load and save below is synchronous, which is what lets a
  * test assert on the table immediately after a click.
+ *
+ * Every section's code is loaded before the first render, as on a visit that has opened them
+ * already, so a section is drawn the moment it is opened rather than after its download
+ * (`sections.ts`); how a section loads is tested on its own (`sectionsLoad.test.tsx`).
  */
+beforeAll(() => prefetchAllSections());
 
 export type Pool = {
   ageGroups: AgeGroup[];

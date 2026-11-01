@@ -31,8 +31,9 @@ import type { GcImportOutcome, PoolTidy } from "./gameChangerImport";
  * takes the pull down with it has destroyed the thing it was measuring.
  */
 
-/** Bumped when a column's meaning changes, so an old file cannot be read as a new one. */
-export const PULL_TRACKER_VERSION = 1;
+/* The log's version is a module of its own, which the pool's store reads at start. */
+import { PULL_TRACKER_VERSION } from "./pullTrackerVersion";
+export { PULL_TRACKER_VERSION } from "./pullTrackerVersion";
 
 /**
  * What became of one id. Every id the run was asked for has exactly one of these, including the

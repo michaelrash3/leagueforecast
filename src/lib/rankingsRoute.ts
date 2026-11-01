@@ -1,4 +1,4 @@
-import { MAX_AGE_LEVEL, MIN_AGE_LEVEL, type SeasonSegment } from "./teamRankings";
+import { MAX_AGE_LEVEL, MIN_AGE_LEVEL, type SeasonSegment } from "./teamRankings/seasons";
 import type { AppMode } from "./preferences";
 
 /**

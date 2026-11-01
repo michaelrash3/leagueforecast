@@ -34,6 +34,8 @@ type RankingsHeaderProps = {
   onOpenYear: (year: number | undefined) => void;
   onOpenPage: (groupId: string) => void;
   onOpenSection: (section: RankingsSection) => void;
+  /** A section's tab pointed at or focused, before it is pressed (the sections load on demand). */
+  onPreviewSection?: (section: RankingsSection) => void;
   /**
    * When the newest GameChanger schedule in the pool was fetched; null for a pool never pulled into;
    * undefined where that is not known (the live page with no meta it could read), when nothing is
@@ -58,6 +60,7 @@ export function RankingsHeader({
   onOpenYear,
   onOpenPage,
   onOpenSection,
+  onPreviewSection,
   pulledAt,
   defaultAge,
   onSetDefaultAge,
@@ -238,7 +241,13 @@ export function RankingsHeader({
           </p>
         )}
 
-        {narrow && <SectionNav current={section} onSelect={onOpenSection} />}
+        {narrow && (
+          <SectionNav
+            current={section}
+            onSelect={onOpenSection}
+            {...(onPreviewSection ? { onPreview: onPreviewSection } : {})}
+          />
+        )}
       </div>
       {/*
       On a wide screen the sections are a row of their own that stays at the top of the screen,
@@ -247,7 +256,12 @@ export function RankingsHeader({
     */}
       {!narrow && (
         <div className="sticky top-0 z-30 rounded-lg border border-slate-200 bg-white/95 px-3 py-2 shadow-xs backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/90">
-          <SectionNav current={section} onSelect={onOpenSection} inBar />
+          <SectionNav
+            current={section}
+            onSelect={onOpenSection}
+            {...(onPreviewSection ? { onPreview: onPreviewSection } : {})}
+            inBar
+          />
         </div>
       )}
     </>

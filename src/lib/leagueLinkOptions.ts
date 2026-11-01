@@ -6,9 +6,8 @@ import {
   levelsForSeason,
   seasonsOf,
   yearsForSeason,
-  type AgeGroup,
-  type ScoutTeam,
-} from "./teamRankings";
+} from "./teamRankings/leagueBridge";
+import type { AgeGroup, ScoutTeam } from "./teamRankings/types";
 
 /**
  * A club as the picker of which club a League Standings team is lists it, when somebody widens it

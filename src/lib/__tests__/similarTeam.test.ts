@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { findSimilarTeam, isPlaceholderName, teamNameKey } from "../teamRankings/names";
+import { findSimilarTeam } from "../teamRankings/rosterNames";
+import { isPlaceholderName, teamNameKey } from "../teamRankings/names";
 import type { ScoutTeam } from "../teamRankings/types";
 
 /*
