@@ -9,7 +9,7 @@ import {
   type RecordedRuns,
 } from "../lib/leagueScoreFill";
 import type { Matchup } from "../lib/types";
-import { formatGameDate } from "../lib/date";
+import { formatGameDate, publishedTimeLabel } from "../lib/date";
 import { displayName } from "../lib/format";
 import { button, card, pill } from "../styles/tokens";
 
@@ -26,6 +26,11 @@ type LeagueScoreFillPanelProps = {
   /** The schedule and its scores, for the games played on another day than scheduled. */
   schedule?: readonly Matchup[];
   logs?: Readonly<Record<string, RecordedRuns>>;
+  /**
+   * When the publish the plan was read off went out, where it was one rather than the server's
+   * answer: said, since a published plan can be a publish behind a pull made since.
+   */
+  publishedAt?: string;
 };
 
 const ACTION_TONE: Record<LeagueFillAction, "emerald" | "blue" | "amber" | "neutral" | "red"> = {
@@ -65,6 +70,7 @@ export function LeagueScoreFillPanel({
   onClose,
   schedule,
   logs,
+  publishedAt,
 }: LeagueScoreFillPanelProps) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set(defaultFillSelection(plan)));
   /** Rows to fill with the other club's version of the score, where the two schedules differ. */
@@ -223,6 +229,11 @@ export function LeagueScoreFillPanel({
           Close
         </button>
       </div>
+      {publishedAt && publishedTimeLabel(publishedAt) && (
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          Team Rankings as it was published at {publishedTimeLabel(publishedAt)}.
+        </p>
+      )}
 
       {!plan.seasonLinked ? (
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">

@@ -7189,7 +7189,9 @@ their cap of three a day and the copy's manifest for an answer on hand included.
 of the meta is the one thing added: an answer taken saves a question, its charge's read and
 write in the ledger and, on a cold instance, a load of the pool; one not taken has cost a
 document's read for nothing, as every bridge does from the deploy until the first publish
-after it.
+after it. The link panel and the Fill panel say "Team Rankings as it was published at 7:42
+AM" over an answer read so, since it can be a publish behind a save made since, six or
+seven minutes on GitHub; one the server answered says no time.
 
 On the seeded fixture (300 clubs a page) the three seasons' views are 10,102, 17,802 and
 7,136 bytes of JSON, 1,560, 2,384 and 1,358 gzipped, one piece each, and 584 bytes of the
@@ -8753,7 +8755,7 @@ functions the device would run, over the cloud's pool):
   and never the clubs, about 2,400 characters, with the very question it answered
   as JSON (compared as written, since a reload holds no array of the visit before
   to compare by identity) and the copy, version, moment asked and rules it came
-  from, is kept on the device
+  from, and for one read off the publish when that went out, is kept on the device
   (`lf_league_bridge_v2`, the last four seasons, the open one alone when storage is
   full; what an earlier build kept under `lf_league_bridge_v1`, every club with it,
   is let go of) and read back through the same checks as one from the network, so
@@ -8774,6 +8776,23 @@ functions the device would run, over the cloud's pool):
   answer comes. An answer for a season switched away from meanwhile opens nothing;
   no answer says that the cloud could not be asked, and opens nothing either. A
   game scored here while it was asked is not filled over (the fill above).
+
+**Read off the publish first** (from 1 November 2026). The bridge and Fill's plan are
+published beside the boards for every season with a document ("League Standings'
+answers", in "Views a server publishes" above), and before either is asked the device
+reads the meta and the season's view, and takes the answer there where it is the very one
+the question would get: the same teams and schedule, the same finals wherever the bridge
+can turn on one, every score the same for Fill, on a day the answer holds for, and no save
+of this device's own edit since. Every reason the bridge is asked (the season opening or
+changing, coming back from Team Rankings, the sign-in, coming online, the page shown anew,
+a timer retry) reads it first, and asks only where it does not answer; a final entered
+here, or on another device, at a fixture no pool row could be a copy of is taken without a
+question. While the link panel is open the bridge is asked as before, since the clubs each
+team could be come with a question alone, and an answer heard this visit from a later save
+than the publish's stands over it. A bridge or plan read so is kept and shown as one heard
+is, and the two panels say when the publish went out. The questions stay for everything
+the views do not answer, and an older build asks as it always did until it is reloaded, so
+nothing on the server is taken away.
 
 A question carries at most 200 teams and 3,000 games, well past any league's, so
 none holds the one edit worker long, and the server refuses one with anything it

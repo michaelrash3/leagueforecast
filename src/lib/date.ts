@@ -259,6 +259,19 @@ export const formatStartTime = (startTs: string | undefined): string => {
     : new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 };
 
+/**
+ * When a published answer went out, as a panel says it, in this device's time: "9:07 AM" on the day
+ * it is read, "Oct 31, 9:07 AM" on another; "" where `iso` is no time.
+ */
+export const publishedTimeLabel = (iso: string, now = new Date()): string => {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return "";
+  const at = new Date(ms);
+  const time = at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (at.toDateString() === now.toDateString()) return time;
+  return `${at.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${time}`;
+};
+
 /** A day and, where known, its start: "5/3 · 10:30 AM". */
 export const dayAndTime = (day: string, startTs: string | undefined): string => {
   const time = formatStartTime(startTs);

@@ -3,6 +3,7 @@ import {
   normalizeDateInput,
   parseDateValue,
   formatGameDate,
+  publishedTimeLabel,
   shiftIsoDay,
   sundayEndingWeekKey,
 } from "../date";
@@ -144,5 +145,31 @@ describe("a season's weeks and its month words", () => {
     expect(normalizeDateInput("may")).toBe("");
     expect(normalizeDateInput("May")).toBe("");
     expect(normalizeDateInput("May 1")).toBe("5/1");
+  });
+});
+
+describe("when a published answer went out, as a panel says it", () => {
+  /*
+   * League Standings' link panel and Fill panel say when the publish their answer came off went out
+   * (`publishedLeague.ts`), in the device's own time: the time alone on the day it is read, the day
+   * too on another, so an answer from last night's publish does not read as this morning's.
+   */
+  const timeOf = (iso: string) =>
+    new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+  it("says the time alone on the device's own day, and the day with it on another", () => {
+    inTimeZone("America/New_York", () => {
+      // 10:30 at night in New York on 30 October, the 31st already in UTC.
+      const iso = "2026-10-31T02:30:00.000Z";
+      expect(publishedTimeLabel(iso, new Date("2026-10-31T03:00:00.000Z"))).toBe(timeOf(iso));
+      // Past New York's midnight: another day here, though the same one in UTC.
+      const after = publishedTimeLabel(iso, new Date("2026-10-31T05:00:00.000Z"));
+      expect(after).toBe(`Oct 30, ${timeOf(iso)}`);
+    });
+  });
+
+  it("says nothing for what is not a time", () => {
+    expect(publishedTimeLabel("")).toBe("");
+    expect(publishedTimeLabel("not a time")).toBe("");
   });
 });

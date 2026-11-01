@@ -61,6 +61,26 @@ const optionsInPicker = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 
 describe("picking which club a league team is", () => {
+  it("says the bridge is Team Rankings as published, and when, where it was read off the publish", () => {
+    const at = new Date();
+    at.setHours(9, 7, 0, 0);
+    const time = at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    const { rerender } = renderPanel({ publishedAt: at.toISOString() });
+    expect(screen.getByText(`Team Rankings as it was published at ${time}.`)).toBeTruthy();
+    // One the server answered says nothing of a time.
+    rerender(
+      <ScoutLinkPanel
+        bridge={bridge}
+        candidatesFor={() => []}
+        wideOptions={() => []}
+        seasonLabel="Spring 2027"
+        countingOn
+        onPick={vi.fn()}
+      />
+    );
+    expect(screen.queryByText(/as it was published/)).toBeNull();
+  });
+
   it("says it is drawn, and that it has gone, so the clubs are asked for while it is open", () => {
     const onShown = vi.fn();
     const { unmount } = renderPanel({ onShown });

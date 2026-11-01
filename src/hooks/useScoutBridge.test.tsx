@@ -1499,4 +1499,157 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     await settle();
     for (const read of reads) expect(read).not.toHaveBeenCalled();
   });
+
+  /*
+   * Read off the publish beside the boards (sweep item 23): where the season's published bridge is
+   * the very answer its question would get, it is taken and the 8 GiB server is asked nothing.
+   */
+  describe("read off the publish beside the boards", () => {
+    const PUBLISHED_AT = "2026-10-30T11:07:00.000Z";
+    /** A publish holding `bridge` for the season, of copy c1 at `version`, until `answering` says. */
+    const publish = (version = 4, bridge: LeagueBridgeAnswer["bridge"] = ANSWER.bridge) => {
+      const read: Asked[] = [];
+      const state = { answering: true, version };
+      const published = async (question: QueryOf<"league.bridge">) => {
+        read.push(question);
+        return state.answering
+          ? {
+              answer: bridge,
+              at: { copy: "c1", version: state.version },
+              builtAt: PUBLISHED_AT,
+            }
+          : null;
+      };
+      return { read, state, published };
+    };
+
+    it("takes the season's published bridge and asks the server nothing", async () => {
+      const { asked, asker } = server();
+      const { read, published } = publish();
+      const { result } = setup(props({ asker, published }));
+      await settle();
+      expect(read).toEqual([{ kind: "league.bridge", season: "s1", teams: TEAMS, fixtures: [] }]);
+      expect(asked).toEqual([]);
+      expect(result.current.bridge).toEqual(ANSWER.bridge);
+      expect(result.current.externalResults).toEqual(ANSWER.bridge.results);
+      // The panel says it is Team Rankings as of that publish, and nothing is said to be asked.
+      expect(result.current.publishedAt).toBe(PUBLISHED_AT);
+      expect(result.current.unanswered).toBeUndefined();
+      // Kept for the next visit, with the copy it came from and when it went out.
+      const kept = JSON.parse(localStorage.getItem("lf_league_bridge_v2") ?? "{}") as Record<
+        string,
+        { bridge: unknown; at?: { copy: string; version: number }; published?: string }
+      >;
+      expect(kept.s1).toMatchObject({
+        bridge: ANSWER.bridge,
+        at: { copy: "c1", version: 4 },
+        published: PUBLISHED_AT,
+      });
+      expect(keptBridge("s1")).toEqual(ANSWER.bridge);
+    });
+
+    it("asks as before where nothing published answers the season", async () => {
+      const { asked, asker } = server();
+      const { read, state, published } = publish();
+      state.answering = false;
+      const { result } = setup(props({ asker, published }));
+      await settle();
+      expect(read).toHaveLength(1);
+      expect(asked).toHaveLength(1);
+      expect(result.current.bridge).toEqual(ANSWER.bridge);
+      expect(result.current.publishedAt).toBeUndefined();
+    });
+
+    it("asks for the clubs once the link panel opens, the published bridge standing meanwhile", async () => {
+      const { asked, asker } = server();
+      const { read, published } = publish();
+      const { result } = setup(props({ asker, published }));
+      await settle();
+      expect(asked).toEqual([]);
+      expect(result.current.candidatesFor("Rays")).toEqual([]);
+      act(() => result.current.wantLinks(true));
+      await settle();
+      // The clubs come with a question alone: asked, and nothing published read for it.
+      expect(asked).toHaveLength(1);
+      expect(read).toHaveLength(1);
+      expect(result.current.candidatesFor("Rays")).toEqual(ANSWER.candidates[0]?.clubs);
+      expect(result.current.publishedAt).toBeUndefined();
+      // Closed and opened again with the clubs in: nothing more.
+      act(() => result.current.wantLinks(false));
+      act(() => result.current.wantLinks(true));
+      await settle();
+      expect(asked).toHaveLength(1);
+    });
+
+    it("reads nothing published while the link panel is open, and asks", async () => {
+      const { asked, asker } = server();
+      const { read, published } = publish();
+      const { result } = setup(props({ asker, published }));
+      act(() => result.current.wantLinks(true));
+      await settle();
+      expect(read).toEqual([]);
+      expect(asked).toHaveLength(1);
+    });
+
+    it("leaves an answer heard from a later save over one published before it", async () => {
+      const at = { copy: "c1", version: 6 };
+      const asked: Asked[] = [];
+      const asker = (async (query: Asked) => {
+        asked.push(query);
+        return { kind: "league.bridge", ...ANSWER, at };
+      }) as LeagueAsker;
+      const older = { ...ANSWER.bridge, linkedCount: 0 };
+      const { state, published } = publish(5, older);
+      state.answering = false;
+      const { result } = setup(props({ asker, published }));
+      await settle();
+      expect(asked).toHaveLength(1);
+      // Published again, from the version before the one the server answered from: left.
+      state.answering = true;
+      act(() => result.current.noteChange());
+      await settle();
+      expect(asked).toHaveLength(1);
+      expect(result.current.bridge).toEqual(ANSWER.bridge);
+      // Published from a later save: taken.
+      state.version = 7;
+      act(() => result.current.noteChange());
+      await settle();
+      expect(result.current.bridge).toEqual(older);
+      expect(asked).toHaveLength(1);
+    });
+
+    it("ends a question's timer retries once the published bridge answers it", async () => {
+      const { asked, asker } = unanswering();
+      const { read, state, published } = publish();
+      state.answering = false;
+      const { result } = setup(props({ asker, published }));
+      await settle();
+      expect(asked).toHaveLength(1);
+      state.answering = true;
+      await wait(5_000);
+      expect(read).toHaveLength(2);
+      expect(asked).toHaveLength(1);
+      expect(result.current.bridge).toEqual(ANSWER.bridge);
+      await wait(60 * 60_000);
+      expect(asked).toHaveLength(1);
+      expect(read).toHaveLength(2);
+    });
+
+    it("reads it again for every reason the question was asked, and asks nothing", async () => {
+      const { asked, asker } = server();
+      const { read, published } = publish();
+      const { rerender } = setup(props({ asker, published, leagueOnScreen: true }));
+      await settle();
+      // Shown anew past the few minutes being shown anew waits, and back from Team Rankings.
+      act(() => shown("hidden"));
+      await wait(10 * 60_000);
+      act(() => shown("visible"));
+      await settle();
+      rerender(props({ asker, published, leagueOnScreen: false }));
+      rerender(props({ asker, published, leagueOnScreen: true }));
+      await settle();
+      expect(read).toHaveLength(3);
+      expect(asked).toEqual([]);
+    });
+  });
 });
