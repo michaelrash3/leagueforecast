@@ -4745,7 +4745,8 @@ timed ones (the game-time helpers in `date.ts`). Newest-first lists put a day's 
 Since 1 November 2026 the start is shown too, in the reader's own time, wherever a game is listed
 with its day: the My Team card's next game ("Next: Sat, Oct 31 · 9:30 AM") and the two games its
 weekend line names ("Sat 9:30 AM"), Scouting's Next up, a club's panel and the Games tab
-(`dayAndTime`, as League Standings' Schedule says it). A game with no start says its day alone.
+(`dayAndTime`, as League Standings' Schedule says it), and The Weekly's game of the week (README,
+"The Weekly"). A game with no start says its day alone.
 Until then the start ordered the lists and was not shown, so a tournament Saturday's five games
 were in order with nothing to say which was at 9:30 and which at 7:00, and the panel and the Games
 tab printed the day as stored ("2026-10-31"). The lists a phone reads carry it to the minute: a club card's game as `t`,
@@ -4762,7 +4763,9 @@ it, whether one game's copy is in the pool or both. A club's own copy filed agai
 start the same way. Both came in untimed, so a league doubleheader was listed second game first
 and the later game named as next. No rating reads a start. The Weekly's streaks do, reading a
 club's games in playing order, but the seeded fixture's whole boards with every league game timed,
-the Weekly's included, are its boards with none, to the digit (`leagueStartsBoards.test.ts`).
+the Weekly's included, are its boards with none, to the digit (`leagueStartsBoards.test.ts`). Its
+game of the week carries its game's start to be said, and none of the fixture's is a league game;
+given starts of their own, each board's week is the one it published before, start aside.
 
 League Standings keeps each game's start too (`Matchup.startTs`, data schema 9): from a start's
 draft (Team Rankings clubs or a GameChanger organization), on a game Fill adds, and on every game
@@ -7152,7 +7155,15 @@ feature ideas that day, and says more of the week than the moves (`theWeekly.ts`
   matchup (`previewMatchup`), least likely first. A tie, a game that does not count, a club
   with no row and two clubs nothing compares are none, and a game both schedules list is one;
 - the game of the week ahead: of the games still to play in the next seven days between two
-  clubs of the board's top 50, the one whose odds are nearest even, the higher pair on a tie;
+  clubs of the board's top 50, the one whose odds are nearest even, the higher pair on a tie.
+  Since 1 November 2026 it says its start beside its day, in the reader's own time ("Sat, Oct 31
+  · 9:30 AM", `dayAndTime`, as the rest of Team Rankings says one), and a game with no start its
+  day alone. The week carries the start on the game (`WeeklyGame.start`), in whole
+  minutes since 1970 as a club card's `t` and a Games list's `times` do, and a start plays no part
+  in which game is picked. A build from before it reads the game's other fields by name and passes
+  over the start, so it raised neither the boards' shape nor their rules: it goes on each published
+  board with the boards' next rebuild or the night's, which builds every board again for a new
+  day, rather than with a republish after the deploy that would read the whole cloud copy;
 - the winning streaks still running, five wins or more, the three longest: each club's games
   of the board's half that count, in playing order as its form line reads them (`byGameTime`, a
   game with no start after the day's timed ones; its own sort put that game first, and a day's
@@ -10145,10 +10156,11 @@ footnote or a failed panel reads the same on every League view.
   and Fill scores with nothing ticked says "Tick a game above to fill it." where its button
   read "Fill 0 games", or with nothing that can be ticked (every row one it cannot tell apart,
   and no game to add) says nothing at all. Scouting asks "How would this team fare?" whole above its box on
-  every screen, where a wide one split it around the box. The service worker's word that the
-  app is stored for use offline, once on a first visit, is "Ready to use offline." at the top
-  of the screen for three seconds (`place: "top"` on the toast), where "App shell cached for
-  offline use." sat above the tab bar over the My Team card. League's start screen opens on
+  every screen, where a wide one split it around the box. Nothing is said when the service
+  worker has stored the app for use offline on a first visit (the owner's decision of the same
+  day): "App shell cached for offline use." sat above the tab bar over the My Team card, and
+  then, from #508, "Ready to use offline." at the top of the screen over the header. The banner
+  that says a device is offline stays (`AppOfflineReady.test.tsx`). League's start screen opens on
   "Start your season" in place of "a guided flow" and "a visual setup lane", and calls the
   sample season "Made-up teams and scores", where "Safe sandbox mode" was not so: loaded over
   a season, it replaces it, with an undo.

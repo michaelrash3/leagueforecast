@@ -70,7 +70,7 @@ import { memoryLive, type MemoryLive } from "../../lib/live/__tests__/memoryLive
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { NAMED_GAMES_MAX } from "../../lib/teamRankings/namedGames";
 import type { SeasonMeta } from "../../lib/storage";
-import { formatIsoDayShort } from "../../lib/date";
+import { formatIsoDayShort, formatStartTime } from "../../lib/date";
 import { readLeagueClubRanks } from "../../lib/leagueClubRanks";
 import { readDefaultState, writeDefaultState } from "../../lib/preferences";
 import { readMyTeamLook } from "../../lib/myTeamLook";
@@ -493,6 +493,30 @@ describe("Team Rankings on the cloud's board", () => {
       /Game of the week: .+ · Placeholder S-1 \(#1\) vs Placeholder S-2 \(#2\) · 55% to 45%/
     );
     expect(week.textContent).toContain("Winning streaks: Placeholder S-1 6 straight");
+  });
+
+  it("says when the board's game of the week starts, as the board carries it", async () => {
+    live = memoryLive();
+    const start = "2027-04-17T14:30:00.000Z";
+    const weekly = {
+      asOf: "2027-04-14",
+      upsets: [],
+      ahead: {
+        teamAId: "S-1",
+        teamBId: "S-2",
+        date: "2027-04-17",
+        chanceA: 0.55,
+        margin: 0.6,
+        start: Date.parse(start) / 60_000,
+      },
+      streaks: [],
+    };
+    await publish(live, [{ key: `board:2027:${PAGE}:spring`, value: { ...SPRING, weekly } }]);
+    open(sourcesOf(live));
+    const week = await screen.findByRole("region", { name: /^The Weekly/ });
+    expect(week.textContent).toContain(
+      `Game of the week: ${formatIsoDayShort("2027-04-17")} · ${formatStartTime(start)} · Placeholder S-1 (#1) vs Placeholder S-2 (#2)`
+    );
   });
 
   it("draws no standing line from a board published before its weeks were counted", async () => {
