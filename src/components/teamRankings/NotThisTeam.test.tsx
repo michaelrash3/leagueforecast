@@ -96,7 +96,7 @@ describe("Not this team, on a page kept in this browser", () => {
     });
     // Named for what it does: which game, against whom, off which club.
     expect(offered).toHaveAccessibleName(
-      "Not this team: take the game with Prairie Hawks on 2026-08-08 off Eagles"
+      "Not this team: take the game with Prairie Hawks on Sat, Aug 8 off Eagles"
     );
     // Its own schedule's game is its own.
     expect(
@@ -156,7 +156,7 @@ describe("Not this team, on a page kept in this browser", () => {
     expect(within(panel).getByText(/^4-0 in 9U 2027, from 4 games\./)).toBeInTheDocument();
     const line = within(panel)
       .getAllByRole("listitem")
-      .find((item) => item.textContent?.includes("2026-08-08")) as HTMLElement;
+      .find((item) => item.textContent?.includes("Sat, Aug 8")) as HTMLElement;
     const button = within(line).getByRole("button", { name: /^Not this team/ });
     // Its name says the press takes both, not the one beside it.
     expect(button).toHaveAccessibleName(
@@ -171,7 +171,7 @@ describe("Not this team, on a page kept in this browser", () => {
     expect(standIn).not.toBe(eagles.id);
     expect(stored(second.id)?.teamBId).toBe(standIn);
     expect(harness.toasts()).toContain(
-      "Taken off Eagles: 2 games with Prairie Hawks, on 2026-08-08 and 2026-08-15, stand against the name alone now."
+      "Taken off Eagles: 2 games with Prairie Hawks, on Sat, Aug 8 and Sat, Aug 15, stand against the name alone now."
     );
     // The tidy the new stand-in sets off finds nothing more to take off for the refusal.
     await waitFor(() =>

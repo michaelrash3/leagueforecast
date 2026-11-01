@@ -25,6 +25,7 @@ import { gcTeamPageUrl } from "../../lib/gameChangerApi";
 import { downloadCsv, fileDay } from "../../lib/download";
 import { countedTwiceCsv, countedTwiceCsvFilename } from "../../lib/countedTwice";
 import { button, card, pill } from "../../styles/tokens";
+import { formatIsoDayShort } from "../../lib/date";
 import { LoadingPanel } from "../LoadingPanel";
 
 /**
@@ -755,7 +756,9 @@ export function PoolHealthView({
           <ul className="mt-2 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
             {aheadRows.slice(0, 6).map(({ game, filer, gcId }) => (
               <li key={game.id}>
-                <span className="font-bold text-slate-700 dark:text-slate-200">{game.date}</span>
+                <span className="font-bold text-slate-700 dark:text-slate-200">
+                  {formatIsoDayShort(game.date ?? "")}
+                </span>
                 {" — "}
                 {teamName(game.teamAId)} {game.teamAScore}–{game.teamBScore}{" "}
                 {teamName(game.teamBId)}
@@ -818,7 +821,7 @@ export function PoolHealthView({
               return (
                 <li key={game.id} className="text-xs text-slate-500 dark:text-slate-400">
                   <span className="font-bold text-slate-700 dark:text-slate-200">
-                    {game.date ?? "No date"}
+                    {formatIsoDayShort(game.date ?? "")}
                   </span>
                   {" — "}
                   {teamName(game.teamAId)} {game.teamAScore}–{game.teamBScore}{" "}
@@ -1233,7 +1236,7 @@ export function PoolHealthView({
                   <ul className="mt-1 text-slate-500 dark:text-slate-400">
                     {offer.shared.slice(0, 3).map((game) => (
                       <li key={`${game.date}|${game.startTs}|${game.opponentName}`}>
-                        {game.date} v {game.opponentName}, {game.ownScore}-{game.opponentScore}
+                        {`${formatIsoDayShort(game.date ?? "")} v ${game.opponentName}, ${game.ownScore}-${game.opponentScore}`}
                       </li>
                     ))}
                     {offer.shared.length > 3 && <li>and {count(offer.shared.length - 3)} more</li>}
@@ -1316,7 +1319,7 @@ export function PoolHealthView({
                     {group.teamName}
                   </span>
                 )}
-                {` — ${group.date}, ${group.own}-${group.opponent} v `}
+                {` — ${formatIsoDayShort(group.date)}, ${group.own}-${group.opponent} v `}
                 {group.games.map((game) => game.opponentName).join(" and v ")}
                 {group.minutesApart === 0
                   ? ", at the same start"

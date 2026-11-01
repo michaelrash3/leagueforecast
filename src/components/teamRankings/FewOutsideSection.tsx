@@ -164,14 +164,16 @@ export function FewOutsideSection({
               )}{" "}
               {leader.stateRank !== null && leader.state ? (
                 <span className={pill("amber")}>
-                  #{leader.stateRank} in {leader.state}
+                  #{leader.stateRank.toLocaleString()} in {leader.state}
                 </span>
               ) : null}{" "}
               {leader.page}
               {leader.segment && leader.year !== null
                 ? `, ${segmentLabel(leader.year, leader.segment)}`
                 : ""}
-              {leader.rank <= FEW_OUTSIDE_NATIONAL_TOP ? ` · #${leader.rank} nationally` : ""}
+              {leader.rank <= FEW_OUTSIDE_NATIONAL_TOP
+                ? ` · #${leader.rank.toLocaleString()} nationally`
+                : ""}
               {" · "}
               <span className="whitespace-nowrap">{leader.record}</span>
               <p className="mt-0.5">

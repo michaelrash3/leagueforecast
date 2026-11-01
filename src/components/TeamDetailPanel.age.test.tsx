@@ -92,7 +92,10 @@ const openHive = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(
     within(within(list).getByRole("option", { name: /Nettlefield Hive/ })).getByRole("button")
   );
-  return await screen.findByRole("region", { name: "Nettlefield Hive *Fall Ball*" });
+  const panel = await screen.findByRole("region", { name: "Nettlefield Hive *Fall Ball*" });
+  // The tools that change its data, and where it is filed, are folded away until asked for.
+  await user.click(within(panel).getByRole("button", { name: "Fix this club's data" }));
+  return panel;
 };
 
 describe("setting a club's age on its panel", () => {

@@ -11,7 +11,7 @@ import {
   CLOSED_START_RUNS,
   startingLevel,
 } from "../lib/scheduleCommunities";
-import { focusRing } from "../styles/tokens";
+import { focusRing, tapArea } from "../styles/tokens";
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 const runsBelow = (value: number) => (-value).toFixed(1);
@@ -48,9 +48,15 @@ export function RankingMethodButton({
       aria-expanded={open}
       aria-controls={panelId}
       aria-label="How the ranking is decided"
-      className={`ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-bold leading-none text-slate-500 shadow-xs transition hover:border-slate-400 hover:text-slate-800 ${focusRing} dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:text-white`}
+      className={`${tapArea} ml-1 rounded-full align-middle ${focusRing}`}
     >
-      ?
+      {/* The circle a pointer aims at; on a phone the button around it is a thumb's size. */}
+      <span
+        aria-hidden="true"
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-bold leading-none text-slate-600 shadow-xs transition hover:border-slate-400 hover:text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:text-white"
+      >
+        ?
+      </span>
     </button>
   );
 }

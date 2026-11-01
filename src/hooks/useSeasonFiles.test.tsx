@@ -84,6 +84,18 @@ describe("replacing a season drops the recap of the last score", () => {
     expect(calls.clearLastImpact).toHaveBeenCalled();
   });
 
+  it("and says what came in as a person would, one game and one row skipped as one", async () => {
+    // It said "Imported 1 games with 1 skipped row(s)". The second row repeats the first's id.
+    const { result, calls } = harness({ rankingsLive: false });
+    result.current.importCSV(
+      new File([`${CSV}\ng1,2026-04-12,Bruins,6,2,5,,Aces,3,4,`], "schedule.csv", {
+        type: "text/csv",
+      })
+    );
+    await waitFor(() => expect(calls.showToast).toHaveBeenCalled());
+    expect(calls.showToast.mock.calls[0]?.[0]).toMatch(/^Imported 1 game with 1 skipped row;/);
+  });
+
   it("on a reset, which is the path that always did", async () => {
     const { result, calls } = harness();
     await result.current.resetSeason();

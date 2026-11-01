@@ -58,6 +58,17 @@ export const tab = (active: boolean, size: "regular" | "fill" = "regular") =>
       : "text-slate-600 hover:bg-white hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
   }`;
 
+/**
+ * A control's tap area on a phone: 44 px each way at the least, the size a thumb finds without
+ * aiming. Team Rankings drew its main controls as text links 16 to 26 px tall (Scout, What if?,
+ * Close, Got it, "Open on 10U by default"), measured at 390 px in Chromium. From `sm` up a pointer
+ * aims, and the control keeps its own size, so a wide screen's lines are not spread out for it.
+ * Only the size: a button centres what it holds, so nothing here fights a control's own layout.
+ * Nor does it stand in for one: a control on a line of its own keeps its `block`. What if? and
+ * Scout lost theirs when this was added, and a wide screen drew them inline as "What if?Scout".
+ */
+export const tapArea = "min-h-11 min-w-11 sm:min-h-0 sm:min-w-0";
+
 export const button = {
   primary: `rounded-lg bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-lg shadow-slate-950/10 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`,
   dark: `rounded-lg bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-lg shadow-slate-950/10 ring-1 ring-slate-800 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:ring-white/20 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`,
@@ -97,6 +108,17 @@ export const surface = {
   primary: card,
   inset: "rounded-lg bg-slate-50 dark:bg-slate-900",
 } as const;
+
+/**
+ * A heat map's cell that found something, its ground the colour at `--heat` (a percentage) over
+ * whatever lies below and its figure at full strength: the tidy's table of passes. That table drew
+ * white bold figures on emerald-500 and faded the whole cell, figure too, to show less found:
+ * 2.46:1 at full strength and nearer 1:1 at the faintest, measured as `tokens.test.ts` does. A dark
+ * figure on emerald-500 is 4.5:1 or more at every strength over the light card, and white on
+ * emerald-700 over the dark one, as the seed odds grid does it.
+ */
+export const heatCell =
+  "bg-emerald-500/(--heat) font-bold text-emerald-950 dark:bg-emerald-700/(--heat) dark:text-white";
 
 /**
  * What a panel shows in place of its content (2.5): nothing yet, on its way, failed, out of reach

@@ -60,7 +60,8 @@ export function ThisWeekCard({
   const faint = (text: string) => (
     <span className="text-slate-500 dark:text-slate-400">{text}</span>
   );
-  const place = (at: number | null) => (at === null ? "new" : `#${at}`);
+  // Places on a nationwide board run to thousands, and read with their commas.
+  const place = (at: number | null) => (at === null ? "new" : `#${at.toLocaleString()}`);
   const line = (title: string, moves: WeekMove[], climb = false) =>
     moves.length === 0 ? null : (
       <p className="text-sm text-slate-700 dark:text-slate-200">
@@ -70,7 +71,7 @@ export function ThisWeekCard({
             {at > 0 ? ", " : ""}
             {club(move.teamId, move.name)}{" "}
             {faint(
-              `${place(move.from)} → #${move.to}${climb && move.from !== null ? ` (up ${move.from - move.to})` : ""}`
+              `${place(move.from)} → ${place(move.to)}${climb && move.from !== null ? ` (up ${(move.from - move.to).toLocaleString()})` : ""}`
             )}
           </span>
         ))}

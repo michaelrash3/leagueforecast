@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { TidyProgressView } from "./TidyProgressView";
 import { TIDY_STEPS, type TidyStep, type TidyStepName } from "../../lib/gameChangerImport";
 import type { TidyWatch } from "../../lib/pullSession";
+import { heatCell } from "../../styles/tokens";
 
 /**
  * The tidy walks every game several times over and, on a nationwide pool, takes a minute or two.
@@ -73,6 +74,29 @@ describe("the tidy's progress", () => {
 
     const firstPass = within(screen.getByRole("table")).getAllByRole("row")[1]!;
     expect(within(firstPass).getByText("416")).toBeInTheDocument();
+  });
+
+  it("shades a cell by its ground alone, its figure at full strength", () => {
+    /*
+     * The whole cell was faded to show less found, its white figure with it, and read at 2.46:1
+     * at its strongest. Now the ground carries the size (`heatCell`, measured at every strength in
+     * `tokens.test.ts`) and nothing fades the figure.
+     */
+    render(
+      <TidyProgressView
+        watch={ended([...pass(1, 400), ...pass(2, 25), ...pass(3, 0)])}
+        running={false}
+      />
+    );
+    const most = screen.getByLabelText(/Pass 1,.*stand-ins.*: 400/i);
+    const less = screen.getByLabelText(/Pass 2,.*stand-ins.*: 25/i);
+    for (const cell of [most, less]) {
+      expect(cell.className).toContain(heatCell);
+      expect(cell.style.opacity).toBe("");
+    }
+    // A quarter of the most, square-rooted, over the floor of 35%: 35 + 65 × 0.25.
+    expect(most.style.getPropertyValue("--heat")).toBe("100%");
+    expect(less.style.getPropertyValue("--heat")).toBe("51%");
   });
 
   it("says something while the first pass is still in the air", () => {

@@ -297,7 +297,10 @@ export default function LiveGames({
   const importGames = async (named: NamedGame[]): Promise<boolean> => {
     const made = await edit(
       { kind: "game.import", year: squadYear, page: pageId, games: named },
-      { done: `Added ${named.length} game${named.length === 1 ? "" : "s"}.`, undo: true }
+      {
+        done: `Added ${named.length.toLocaleString()} game${named.length === 1 ? "" : "s"}.`,
+        undo: true,
+      }
     );
     if (made) setImportOpen(false);
     return made;
@@ -343,6 +346,7 @@ export default function LiveGames({
       showToast={(message) => say(message)}
       loggedGames={shownGames}
       gamesWindow={gamesWindow}
+      today={today}
       keep={NOTHING_KEPT}
       teamNameById={names}
       editingGameId={editingGameId}

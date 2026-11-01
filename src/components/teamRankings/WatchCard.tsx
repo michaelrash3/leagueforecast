@@ -1,7 +1,7 @@
 import { formatRating } from "../../lib/matchupForecast";
 import type { ScoutRankingRow } from "../../lib/teamRankings";
 import type { Watched } from "../../lib/watchList";
-import { card } from "../../styles/tokens";
+import { card, tapArea } from "../../styles/tokens";
 
 /**
  * The clubs watched on this page (`watchList.ts`), at the top of its board: each one's place,
@@ -34,13 +34,13 @@ export function WatchCard({
           return (
             <li key={club.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
               <span className="flex min-w-0 items-baseline gap-2 text-sm">
-                <span className="w-10 shrink-0 tabular-nums font-black text-slate-500 dark:text-slate-400">
-                  {row ? `#${row.rank}` : "—"}
+                <span className="min-w-10 shrink-0 tabular-nums font-black text-slate-500 dark:text-slate-400">
+                  {row ? `#${row.rank.toLocaleString()}` : "—"}
                 </span>
                 <button
                   type="button"
                   onClick={() => onOpenTeam(club.id)}
-                  className="truncate font-bold text-slate-950 hover:underline dark:text-white"
+                  className={`${tapArea} truncate font-bold text-slate-950 hover:underline dark:text-white`}
                 >
                   {row?.teamName ?? club.name}
                 </button>
@@ -57,7 +57,7 @@ export function WatchCard({
                   type="button"
                   onClick={() => onStop(club)}
                   aria-label={`Stop watching ${row?.teamName ?? club.name}`}
-                  className="font-bold text-slate-500 hover:underline dark:text-slate-400"
+                  className={`${tapArea} font-bold text-slate-600 hover:underline dark:text-slate-400`}
                 >
                   Stop
                 </button>

@@ -134,6 +134,8 @@ describe("finding a club by its coach", () => {
     await user.click(
       within(screen.getByRole("table")).getByRole("button", { name: "South Kenton Pioneers" })
     );
+    // The picker is with the tools that fix the club's data, folded away until asked for.
+    await user.click(await screen.findByRole("button", { name: "Fix this club's data" }));
 
     const results = await typeInto(
       user,

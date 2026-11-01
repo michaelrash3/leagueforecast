@@ -11,6 +11,7 @@ import { gameNotesOf } from "../../lib/live/gameWords";
 import { overlayCard, takenWithOnCard } from "../../lib/live/liveEdits";
 import { withMine, type BoardView } from "../../lib/live/views/boardShape";
 import { mintStandInId, takenOffSaid } from "../../lib/notThisTeam";
+import { myTeamGlance } from "../../lib/myTeamGlance";
 import type { AgeGroup, SeasonSegment } from "../../lib/teamRankings";
 import { normalizeState } from "../../lib/teamRankings/rosterNames";
 import { createAgeGroupId } from "../../lib/teamRankings/seasons";
@@ -141,13 +142,20 @@ export default function LiveClubPanel({
       ? gameNotesOf(breakdown, { span: board.span, own: board.own, cap: fit.cap })
       : undefined;
   }, [board, card, teamId, ageGroupId, segment]);
-  // The board's rows by id, for each game's What if (`WhatIf`).
-  const rowOf = useMemo(() => {
-    if (!board) return undefined;
+  // The board's rows by id, for each game's What if (`WhatIf`), and where the club stands on it,
+  // nationally and in its state, as the page's own panel says it (`myTeamGlance`): none without
+  // the board on screen, or for a club it does not list.
+  const { rowOf, standing } = useMemo(() => {
+    if (!board) return { rowOf: undefined, standing: undefined };
     // Whose club is the page's own says nothing of a match's odds.
-    const byId = new Map(withMine(board.view.rows, undefined).map((row) => [row.teamId, row]));
-    return (id: string) => byId.get(id);
-  }, [board]);
+    const rows = withMine(board.view.rows, undefined);
+    const byId = new Map(rows.map((row) => [row.teamId, row]));
+    const states = new Map(board.view.rows.map((row) => [row.teamId, row.state]));
+    return {
+      rowOf: (id: string) => byId.get(id),
+      standing: myTeamGlance(rows, teamId, (id) => states.get(id), []) ?? undefined,
+    };
+  }, [board, teamId]);
   const others = useMemo(
     () => candidates.filter((candidate) => candidate.id !== teamId),
     [candidates, teamId]
@@ -218,6 +226,7 @@ export default function LiveClubPanel({
         {...(shown.age ? { age: shown.age } : {})}
         mergeCandidates={others}
         {...(rowOf ? { ratingRowOf: rowOf } : {})}
+        {...(standing ? { standing } : {})}
         {...(watch ? { watch } : {})}
         onRename={(name) => void rename(name)}
         onSetState={(typed) => {

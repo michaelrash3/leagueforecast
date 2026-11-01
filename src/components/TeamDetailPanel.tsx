@@ -26,11 +26,13 @@ import { ageGroupYear, inSegment, MAX_AGE_LEVEL, MIN_AGE_LEVEL } from "../lib/te
 import { formOf } from "../lib/clubForm";
 import { describeRoster, rosterStanding } from "../lib/gcRoster";
 import { coachesOf } from "../lib/gcStaff";
-import { agoLabel } from "../lib/date";
+import { agoLabel, byGameTime, dayAndTime, formatIsoDayShort, todayIsoDay } from "../lib/date";
+import { formatBoardRating } from "../lib/boardRating";
+import type { MyTeamGlance } from "../lib/myTeamGlance";
 import { TeamSearchSelect } from "./TeamSearchSelect";
 import { TEAM_PANEL_ID } from "./teamPanelId";
 import { WhatIf, WhatIfButton } from "./teamRankings/WhatIf";
-import { button, card, pill, textRole } from "../styles/tokens";
+import { button, card, focusRing, pill, tapArea, textRole } from "../styles/tokens";
 
 /** The panel's element id, for a list elsewhere on the page that opens a team to scroll to it. */
 export { TEAM_PANEL_ID };
@@ -48,7 +50,7 @@ const notThisTeamLabel = (
 ): string =>
   games > 1
     ? `Not this team: take the ${games} games ${opponent} filed here by this name off ${club}`
-    : `Not this team: take the game with ${opponent}${date ? ` on ${date}` : ""} off ${club}`;
+    : `Not this team: take the game with ${opponent}${date ? ` on ${formatIsoDayShort(date)}` : ""} off ${club}`;
 
 type TeamDetailPanelProps = {
   team: ScoutTeam;
@@ -126,7 +128,19 @@ type TeamDetailPanelProps = {
   ratingRowOf?: (teamId: string) => ScoutRankingRow | undefined;
   /** Whether the club is watched on this page, and the way to watch it or stop (`watchList.ts`). */
   watch?: { on: boolean; full: boolean; onToggle: (name: string) => void };
+  /**
+   * Where the club stands on the board on screen, as its rows place it (`myTeamGlance`): on the
+   * page's whole board and among its state's clubs there. Absent for a club the board does not
+   * list, which the panel then gives no place.
+   */
+  standing?: ClubStanding;
 };
+
+/** A club's place on a board, nationally and in its state, as the My Team card says it. */
+export type ClubStanding = Pick<
+  MyTeamGlance,
+  "nationalRank" | "nationalOf" | "state" | "stateRank" | "stateOf"
+>;
 
 /** Which rule of the import filed a link at its level, as the link line says it. */
 const AGE_SOURCE_TEXT: Record<GcAgeSource, string> = {
@@ -202,6 +216,7 @@ export function TeamDetailPanel({
   gameNotes,
   ratingRowOf,
   watch,
+  standing,
 }: TeamDetailPanelProps) {
   // The game whose What if is open.
   const [whatIf, setWhatIf] = useState<string | null>(null);
@@ -230,6 +245,16 @@ export function TeamDetailPanel({
     setDraftAge(age?.level ?? MIN_AGE_LEVEL);
   }
   const ageId = useId();
+  /*
+   * The tools that change the club's data, folded away until asked for: the sheet opened on them,
+   * a whole phone screen of Rename, Unlink, Set age, Fold into it and State above the club's games,
+   * where a stray tap could rename, unlink or fold a club somebody only came to read about. The
+   * drafts are the panel's, so folding the tools away and back keeps what was typed.
+   */
+  const [fixing, setFixing] = useState(false);
+  const fixId = useId();
+  const comingId = useId();
+  const resultsId = useId();
 
   /**
    * What the merge picker offers. The state rides along as the detail line, because a pool pulled
@@ -278,8 +303,32 @@ export function TeamDetailPanel({
     () => new Set(rankingPoolGroupIds(ageGroupId, ageGroups)),
     [ageGroupId, ageGroups]
   );
-  const here = everyGame.filter((game) => poolIds.has(game.ageGroupId));
+  const here = useMemo(
+    () => everyGame.filter((game) => poolIds.has(game.ageGroupId)),
+    [everyGame, poolIds]
+  );
   const elsewhere = everyGame.length - here.length;
+  /*
+   * The games still to come, today's on, soonest first by day and start with the undated after
+   * them, above the rest newest first: listed newest first throughout, the farthest-off game led
+   * the list and tomorrow's 9:30 was eighth. The rest are the results, and a game gone by with no
+   * score yet, in its place among them.
+   *
+   * Today is read on every render and the split follows it, as the views around the panel read
+   * theirs: read inside the split, a sheet left open past midnight kept yesterday's until its games
+   * changed.
+   */
+  const today = todayIsoDay();
+  const { comingUp, results } = useMemo(() => {
+    const ahead = (game: ScoutGame) =>
+      !isScoutGamePlayed(game) && (!game.date || game.date >= today);
+    return {
+      comingUp: here
+        .filter(ahead)
+        .sort((a, b) => Number(!a.date) - Number(!b.date) || byGameTime(a, b)),
+      results: here.filter((game) => !ahead(game)),
+    };
+  }, [here, today]);
 
   // The same record the ranking row shows, over the same half, counted by the same function, so
   // the two agree.
@@ -374,24 +423,133 @@ export function TeamDetailPanel({
       ([id, name]) => id !== team.id && teamNameKey(name) === teamNameKey(trimmed)
     );
 
+  /** One game's line in either list: its result or that it is to come, when, and its buttons. */
+  const gameRow = (game: ScoutGame) => {
+    const line = scoreLine(game, team.id, nameOf);
+    // A counted W, L or T row alone, the rows the record above and the board's row are
+    // counted over: the window holds only games that count (`countsTowardRating`, so
+    // played, not set aside and not against the club's own name) in the half on screen.
+    const clauses = notes && inWindow.has(game.id) ? notes.byGame.get(game.id) : undefined;
+    const opponentRow = ratingRowOf?.(game.teamAId === team.id ? game.teamBId : game.teamAId);
+    return (
+      <li key={game.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+        <span className="flex items-center gap-2">
+          {game.excluded ? (
+            <span className={pill("amber")} title="Kept, but not counted">
+              —
+            </span>
+          ) : line.result && playsItself(game) ? (
+            <span className={pill("neutral")} title="Against its own name, not counted">
+              {line.result}
+            </span>
+          ) : line.result && game.countedElsewhere ? (
+            <span className={pill("neutral")} title={copyTitle(game)}>
+              {line.result}
+            </span>
+          ) : line.result && !inWindow.has(game.id) ? (
+            // Played, and kept, but outside the window the record above is counted over —
+            // shown rather than dropped, so a list longer than the record is explained.
+            <span
+              className={pill("neutral")}
+              title={segment ? "Outside this half of the season" : "Outside this season year"}
+            >
+              {line.result}
+            </span>
+          ) : line.result ? (
+            <span
+              className={pill(
+                line.result === "W" ? "emerald" : line.result === "L" ? "red" : "neutral"
+              )}
+            >
+              {line.result}
+            </span>
+          ) : (
+            <span className={pill("blue")}>Sched</span>
+          )}
+          <span className="font-bold text-slate-950 dark:text-white">{line.opponent}</span>
+        </span>
+        <span className="flex flex-wrap items-center gap-2 text-slate-500 dark:text-slate-400">
+          <span>
+            {line.detail}
+            {game.date ? ` · ${dayAndTime(formatIsoDayShort(game.date), game.startTs)}` : ""}
+            {game.event ? ` · ${game.event}` : ""}
+          </span>
+          {notThisTeam && !readOnly && notThisTeam.offered(game) && (
+            <button
+              type="button"
+              onClick={() => {
+                notThisTeam.onRefuse(game);
+                gamesHeading.current?.focus();
+              }}
+              aria-label={notThisTeamLabel(
+                team.name,
+                line.opponent,
+                game.date,
+                offeredAgainst.get(game.teamAId === team.id ? game.teamBId : game.teamAId) ?? 1
+              )}
+              title={`${line.opponent}'s schedule named its opponent, and the name was matched to ${team.name}; nothing of ${team.name}'s own lists this game. Take it off ${team.name}, with every other game ${line.opponent} filed here by the name.`}
+              className="inline-flex min-h-11 min-w-11 items-center rounded px-1.5 text-xs font-bold text-red-600 hover:underline sm:min-h-6 sm:min-w-0 dark:text-red-400"
+            >
+              Not this team
+            </button>
+          )}
+          {ownRow && opponentRow && (
+            <WhatIfButton
+              open={whatIf === game.id}
+              onToggle={() => setWhatIf((open) => (open === game.id ? null : game.id))}
+              label={`${team.name} and ${line.opponent}`}
+            />
+          )}
+        </span>
+        {whatIf === game.id && ownRow && opponentRow && (
+          <div className="basis-full">
+            <WhatIf a={ownRow} b={opponentRow} />
+          </div>
+        )}
+        {clauses && (
+          // Each clause moves to the next line whole where it does not fit beside the one
+          // before, and wraps inside only where it is wider than the line itself. Kept on
+          // one line regardless (`whitespace-nowrap`), the longest clauses ran 423 px past
+          // the panel at 320 px wide, measured in Chromium. The dot after a clause is in
+          // its box, behind a non-breaking space, so no line opens on a dot or holds one
+          // alone.
+          <p className={`basis-full ${textRole.meta} tabular-nums`}>
+            {clauses.map((clause, at) => (
+              <Fragment key={at}>
+                {at > 0 && " "}
+                <span className="inline-block">
+                  {at < clauses.length - 1 ? `${clause}\u00a0·` : clause}
+                </span>
+              </Fragment>
+            ))}
+          </p>
+        )}
+      </li>
+    );
+  };
+
+  // Each a full 44 px a side: as text links they were 33 by 16 px, beside each other.
   const closeButton = (
     <button
       type="button"
       onClick={onClose}
-      className="text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
+      className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg px-3 text-sm font-bold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800 ${focusRing}`}
     >
       Close
     </button>
   );
+  // The tools are the owner's to fix the club's data with; where nothing can be changed here, what
+  // the fold holds is only to read, and it is named for that.
+  const folded = !readOnly || (team.gcTeams?.length ?? 0) > 0 || age !== undefined;
   return (
     // A region rather than a plain box: this opens in answer to a click somewhere else on the
     // page, and naming it after the team is what tells a screen-reader user which team arrived.
     <section id={TEAM_PANEL_ID} aria-labelledby={headingId} className={`${card} p-5`}>
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
           <h2
             id={headingId}
-            className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400"
+            className="text-lg font-black wrap-break-word text-slate-950 dark:text-white"
           >
             {team.name}
           </h2>
@@ -404,38 +562,9 @@ export function TeamDetailPanel({
                 .join(" · ")}
             </p>
           )}
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            {record.games === 0
-              ? `No completed games in ${ageGroupName || "this age group"}${segment ? " this half" : ""} yet.`
-              : `${wins}-${losses}${ties ? `-${ties}` : ""} in ${ageGroupName || "this age group"}, from ${record.games} game${record.games === 1 ? "" : "s"}.`}
-            {record.crossAgeGames > 0
-              ? ` ${record.crossAgeGames} of ${record.crossAgeGames === 1 ? "them was" : "them were"} against another age level.`
-              : ""}
-            {record.outsideWindow > 0
-              ? ` ${record.outsideWindow} more played here ${record.outsideWindow === 1 ? "is" : "are"} outside ${segment ? "this half of the season" : "this season year"}, so ${record.outsideWindow === 1 ? "it is" : "they are"} not in that record.`
-              : ""}
-            {notCounted.length > 0
-              ? ` ${notCounted.length} more played here ${notCounted.length === 1 ? "is" : "are"} set not to count.`
-              : ""}
-            {againstItself.length > 0
-              ? ` ${againstItself.length} more ${againstItself.length === 1 ? "is" : "are"} against its own name — a scrimmage of its own squad, or a namesake it could not be told from — and not counted.`
-              : ""}
-            {elsewhere > 0
-              ? ` ${elsewhere} more game${elsewhere === 1 ? "" : "s"} in another season, not counted here.`
-              : ""}
-          </p>
-          {form && (
-            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
-              <span className="font-semibold">Form, last {form.games.length}:</span>{" "}
-              {form.games.map((one) => (one.tied ? "T" : one.won ? "W" : "L")).join(" ")} · beat the
-              margin its ratings expected in {form.beat} of {form.games.length},{" "}
-              {Math.abs(form.average).toFixed(1)} runs a game{" "}
-              {form.average >= 0 ? "better" : "worse"} on average
-            </p>
-          )}
         </div>
-        {watch ? (
-          <span className="flex items-center gap-3">
+        <span className="flex shrink-0 items-center gap-1">
+          {watch && (
             <button
               type="button"
               onClick={() => watch.onToggle(team.name)}
@@ -446,285 +575,363 @@ export function TeamDetailPanel({
                   ? "Five clubs are watched on this page already. Stop watching one first."
                   : undefined
               }
-              className="text-xs font-bold text-blue-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline dark:text-blue-400"
+              className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg px-3 text-sm font-bold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-slate-500 dark:text-blue-300 dark:hover:bg-blue-950/40 ${focusRing}`}
             >
               {watch.on ? "Watching" : "Watch"}
             </button>
-            {closeButton}
-          </span>
-        ) : (
-          closeButton
-        )}
+          )}
+          {closeButton}
+        </span>
       </div>
-
-      {!readOnly && (
-        <div className="mt-4">
-          <label
-            className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
-            htmlFor="scout-team-rename"
-          >
-            Team name
-          </label>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <input
-              id="scout-team-rename"
-              type="text"
-              value={draftName}
-              disabled={leagueLink === "name"}
-              onChange={(event) => setDraftName(event.target.value)}
-              className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900"
-            />
-            <button
-              type="button"
-              disabled={leagueLink === "name" || !renamed}
-              onClick={() => onRename(trimmed)}
-              className={button.ghost}
-            >
-              {wouldMerge ? "Merge" : "Rename"}
-            </button>
-          </div>
-          {leagueLink === "name" ? (
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              This team comes from a League Standings season, so its name is set there.
-            </p>
-          ) : wouldMerge ? (
-            <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-500">
-              A team is already called that. Saving moves every game from this one over to it and
-              removes this one — which is how a placeholder gets routed to the real team.
-              {leagueLink === "pick" &&
-                " League Standings' pick of this club is left pointing at nothing, so pick the club again in Settings."}
-            </p>
-          ) : leagueLink === "pick" ? (
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              A League Standings team is linked to this club by your pick in Settings, which a new
-              name here keeps.
-            </p>
-          ) : team.placeholder ? (
-            <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-500">
-              This is a placeholder, not a team — the schedule said so rather than naming a club.
-              The game is kept and counts for whoever played it, and this slot is not ranked. Type
-              the club&apos;s real name here once you know it and the game moves to them; if that
-              club is already here, saving merges the two.
-            </p>
-          ) : (
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Any age level in the name is dropped, so &ldquo;Aces 10U&rdquo; is stored as
-              &ldquo;Aces&rdquo;.
-            </p>
+      {/*
+        The club first, as the board on screen places it: its place on the page's board and in its
+        state, and its rating, the reader having come to ask how good it is. The sheet said neither,
+        so the #1 club's sheet did not say #1. A club the board does not list has no place to say.
+      */}
+      {standing && (
+        <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
+          <strong>
+            #{standing.nationalRank.toLocaleString()} of {standing.nationalOf.toLocaleString()}
+          </strong>{" "}
+          nationally
+          {standing.state && standing.stateRank !== undefined && standing.stateOf !== undefined && (
+            <>
+              {" · "}
+              <strong>
+                #{standing.stateRank.toLocaleString()} of {standing.stateOf.toLocaleString()}
+              </strong>{" "}
+              in {standing.state}
+            </>
           )}
-        </div>
-      )}
-
-      {(team.gcTeams?.length ?? 0) > 0 && (
-        <div className="mt-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Known on GameChanger as
-          </p>
-          <ul className="mt-1 space-y-1">
-            {team.gcTeams?.map((link) => (
-              <li key={link.teamId} className="flex flex-wrap items-center gap-2 text-sm">
-                <a
-                  href={`https://web.gc.com/teams/${link.teamId}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-bold text-blue-600 hover:underline dark:text-blue-400"
-                >
-                  {link.name}
-                </a>
-                <span className="text-xs text-slate-500 dark:text-slate-400">
-                  {gcSeasonLabel(link) || "season unknown"}
-                  {/* Where the app filed it, which GameChanger's page need not have said. */}
-                  {link.ageLevel === undefined
-                    ? ""
-                    : ` · filed at ${link.ageLevel}U${ageSourceLine(link)}`}
-                  {link.staff?.length ? ` · ${link.staff.join(", ")}` : ""}
-                </span>
-                {(link.record || link.importedAt) && (
-                  // GameChanger's own count beside the link, so checking it takes no trip there.
-                  // Its own reasons differ from this page's often enough that it is a note, not a
-                  // verdict on the record above.
-                  <span
-                    className="text-xs text-slate-500 dark:text-slate-400"
-                    title="GameChanger's own season record for this team, as of the last pull"
-                  >
-                    {link.record
-                      ? `GameChanger ${link.record.win}-${link.record.loss}${link.record.tie ? `-${link.record.tie}` : ""}`
-                      : "No GameChanger record"}
-                    {link.importedAt ? `, pulled ${agoLabel(link.importedAt)}` : ""}
-                  </span>
-                )}
-                {rosterStanding(link.playerCount) === "short" && (
-                  <span className={pill("amber")} title={describeRoster(link.playerCount) ?? ""}>
-                    {link.playerCount} players
-                  </span>
-                )}
-                {!readOnly && (
-                  <button
-                    type="button"
-                    onClick={() => onUnlinkGc(link.teamId)}
-                    className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
-                  >
-                    Unlink
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-          {!readOnly && (
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              GameChanger mints a new id every season, so a club pulled across two seasons is known
-              by two. Unlinking takes one off and leaves its games here — that id can then be pulled
-              onto a team of its own, which is how a wrong pairing is taken apart.
-            </p>
+          {ownRow && (
+            <>
+              {" · rating "}
+              <strong>{formatBoardRating(ownRow.rating)}</strong>
+            </>
           )}
-        </div>
+        </p>
+      )}
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        {record.games === 0
+          ? `No completed games in ${ageGroupName || "this age group"}${segment ? " this half" : ""} yet.`
+          : `${wins}-${losses}${ties ? `-${ties}` : ""} in ${ageGroupName || "this age group"}, from ${record.games} game${record.games === 1 ? "" : "s"}.`}
+        {record.crossAgeGames > 0
+          ? ` ${record.crossAgeGames} of ${record.crossAgeGames === 1 ? "them was" : "them were"} against another age level.`
+          : ""}
+        {record.outsideWindow > 0
+          ? ` ${record.outsideWindow} more played here ${record.outsideWindow === 1 ? "is" : "are"} outside ${segment ? "this half of the season" : "this season year"}, so ${record.outsideWindow === 1 ? "it is" : "they are"} not in that record.`
+          : ""}
+        {notCounted.length > 0
+          ? ` ${notCounted.length} more played here ${notCounted.length === 1 ? "is" : "are"} set not to count.`
+          : ""}
+        {againstItself.length > 0
+          ? ` ${againstItself.length} more ${againstItself.length === 1 ? "is" : "are"} against its own name — a scrimmage of its own squad, or a namesake it could not be told from — and not counted.`
+          : ""}
+        {elsewhere > 0
+          ? ` ${elsewhere} more game${elsewhere === 1 ? "" : "s"} in another season, not counted here.`
+          : ""}
+      </p>
+      {form && (
+        <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+          <span className="font-semibold">Form, last {form.games.length}:</span>{" "}
+          {form.games.map((one) => (one.tied ? "T" : one.won ? "W" : "L")).join(" ")} · beat the
+          margin its ratings expected in {form.beat} of {form.games.length},{" "}
+          {Math.abs(form.average).toFixed(1)} runs a game {form.average >= 0 ? "better" : "worse"}{" "}
+          on average
+        </p>
       )}
 
-      {age && readOnly && (
-        <div className="mt-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Age
-          </p>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            {age.pinned
-              ? `Set to ${age.pinned.level}U by hand${
-                  age.pinned.was !== undefined && age.pinned.was !== age.pinned.level
-                    ? `; the app had filed it at ${age.pinned.was}U`
-                    : ""
-                }.`
-              : age.level === undefined
-                ? "The app has no age for this club."
-                : `The app filed this club at ${age.level}U.`}
-          </p>
-        </div>
-      )}
-
-      {age && onSetAge && !readOnly && (
-        <div className="mt-4">
-          <label
-            className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
-            htmlFor={ageId}
+      {folded && (
+        <div className="mt-3 border-y border-slate-100 py-1 dark:border-slate-800">
+          <button
+            type="button"
+            onClick={() => setFixing((open) => !open)}
+            aria-expanded={fixing}
+            aria-controls={fixing ? fixId : undefined}
+            className={`flex min-h-11 w-full items-center justify-between gap-2 rounded-lg px-2 text-left text-sm font-bold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900 ${focusRing}`}
           >
-            Age
-          </label>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <select
-              id={ageId}
-              value={draftAge}
-              onChange={(event) => setDraftAge(Number(event.target.value))}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-            >
-              {Array.from({ length: MAX_AGE_LEVEL - MIN_AGE_LEVEL + 1 }, (_, at) => {
-                const level = MIN_AGE_LEVEL + at;
-                return (
-                  <option key={level} value={level}>
-                    {level}U
-                  </option>
-                );
-              })}
-            </select>
-            <button
-              type="button"
-              disabled={age.pinned?.level === draftAge}
-              onClick={() => onSetAge(draftAge)}
-              className={button.ghost}
-            >
-              Set age
-            </button>
-            {age.pinned && onClearAge && (
-              <button
-                type="button"
-                onClick={onClearAge}
-                className="text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
-              >
-                Let the app decide
-              </button>
-            )}
-          </div>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            {age.pinned
-              ? `You set this club to ${age.pinned.level}U${
-                  age.pinned.was !== undefined && age.pinned.was !== age.pinned.level
-                    ? `; the app had filed it at ${age.pinned.was}U`
-                    : ""
-                }. Later pulls keep it there, whatever GameChanger says.`
-              : `${
-                  age.level === undefined
-                    ? "The app has no age for this club."
-                    : `The app filed this club at ${age.level}U.`
-                } If it plays at another age, set it here: its games move to that age's page and later pulls keep it there.`}
-          </p>
-        </div>
-      )}
+            {readOnly ? "This club's data" : "Fix this club's data"}
+            <span aria-hidden="true">{fixing ? "▴" : "▾"}</span>
+          </button>
+          {fixing && (
+            <div id={fixId} className="px-2 pb-3">
+              {!readOnly && (
+                <div className="mt-4">
+                  <label
+                    className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                    htmlFor="scout-team-rename"
+                  >
+                    Team name
+                  </label>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <input
+                      id="scout-team-rename"
+                      type="text"
+                      value={draftName}
+                      disabled={leagueLink === "name"}
+                      onChange={(event) => setDraftName(event.target.value)}
+                      className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900"
+                    />
+                    <button
+                      type="button"
+                      disabled={leagueLink === "name" || !renamed}
+                      onClick={() => onRename(trimmed)}
+                      className={button.ghost}
+                    >
+                      {wouldMerge ? "Merge" : "Rename"}
+                    </button>
+                  </div>
+                  {leagueLink === "name" ? (
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      This team comes from a League Standings season, so its name is set there.
+                    </p>
+                  ) : wouldMerge ? (
+                    <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-500">
+                      A team is already called that. Saving moves every game from this one over to
+                      it and removes this one — which is how a placeholder gets routed to the real
+                      team.
+                      {leagueLink === "pick" &&
+                        " League Standings' pick of this club is left pointing at nothing, so pick the club again in Settings."}
+                    </p>
+                  ) : leagueLink === "pick" ? (
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      A League Standings team is linked to this club by your pick in Settings, which
+                      a new name here keeps.
+                    </p>
+                  ) : team.placeholder ? (
+                    <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-500">
+                      This is a placeholder, not a team — the schedule said so rather than naming a
+                      club. The game is kept and counts for whoever played it, and this slot is not
+                      ranked. Type the club&apos;s real name here once you know it and the game
+                      moves to them; if that club is already here, saving merges the two.
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      Any age level in the name is dropped, so &ldquo;Aces 10U&rdquo; is stored as
+                      &ldquo;Aces&rdquo;.
+                    </p>
+                  )}
+                </div>
+              )}
 
-      {mergeCandidates.length > 0 && !readOnly && (
-        <div className="mt-4">
-          <label
-            className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
-            htmlFor="scout-team-merge"
-          >
-            Same team as
-          </label>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <TeamSearchSelect
-              id="scout-team-merge"
-              value={mergeTarget}
-              onChange={setMergeTarget}
-              options={mergeOptions}
-              placeholder="Type a team or coach name…"
-              className="w-full text-sm"
-            />
-            <button
-              type="button"
-              disabled={!mergeTarget}
-              onClick={() => {
-                if (!mergeTarget) return;
-                onMergeInto(mergeTarget);
-                setMergeTarget("");
-              }}
-              className={button.ghost}
-            >
-              Fold into it
-            </button>
-          </div>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            Moves every game from this team over to that one and removes this entry, keeping both
-            GameChanger ids. For a club that arrived twice — once pulled by id, once as somebody
-            else&apos;s opponent.
-          </p>
-        </div>
-      )}
+              {(team.gcTeams?.length ?? 0) > 0 && (
+                <div className="mt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Known on GameChanger as
+                  </p>
+                  <ul className="mt-1 space-y-1">
+                    {team.gcTeams?.map((link) => (
+                      <li key={link.teamId} className="flex flex-wrap items-center gap-2 text-sm">
+                        <a
+                          href={`https://web.gc.com/teams/${link.teamId}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+                        >
+                          {link.name}
+                        </a>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                          {gcSeasonLabel(link) || "season unknown"}
+                          {/* Where the app filed it, which GameChanger's page need not have said. */}
+                          {link.ageLevel === undefined
+                            ? ""
+                            : ` · filed at ${link.ageLevel}U${ageSourceLine(link)}`}
+                          {link.staff?.length ? ` · ${link.staff.join(", ")}` : ""}
+                        </span>
+                        {(link.record || link.importedAt) && (
+                          // GameChanger's own count beside the link, so checking it takes no trip there.
+                          // Its own reasons differ from this page's often enough that it is a note, not a
+                          // verdict on the record above.
+                          <span
+                            className="text-xs text-slate-500 dark:text-slate-400"
+                            title="GameChanger's own season record for this team, as of the last pull"
+                          >
+                            {link.record
+                              ? `GameChanger ${link.record.win}-${link.record.loss}${link.record.tie ? `-${link.record.tie}` : ""}`
+                              : "No GameChanger record"}
+                            {link.importedAt ? `, pulled ${agoLabel(link.importedAt)}` : ""}
+                          </span>
+                        )}
+                        {rosterStanding(link.playerCount) === "short" && (
+                          <span
+                            className={pill("amber")}
+                            title={describeRoster(link.playerCount) ?? ""}
+                          >
+                            {link.playerCount} players
+                          </span>
+                        )}
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => onUnlinkGc(link.teamId)}
+                            className={`${tapArea} text-xs font-bold text-red-600 hover:underline dark:text-red-400`}
+                          >
+                            Unlink
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  {!readOnly && (
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      GameChanger mints a new id every season, so a club pulled across two seasons
+                      is known by two. Unlinking takes one off and leaves its games here — that id
+                      can then be pulled onto a team of its own, which is how a wrong pairing is
+                      taken apart.
+                    </p>
+                  )}
+                </div>
+              )}
 
-      {!readOnly && (
-        <div className="mt-4">
-          <label
-            className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
-            htmlFor="scout-team-state"
-          >
-            State
-          </label>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <input
-              id="scout-team-state"
-              type="text"
-              value={draftState}
-              maxLength={2}
-              placeholder="KY"
-              onChange={(event) => {
-                const typed = event.target.value.toUpperCase();
-                setDraftState(typed);
-                // Saved once it is a state, or nothing at all.
-                // A state the store would not keep goes back to the one it holds.
-                if ((typed.trim() === "" || normalizeState(typed)) && !onSetState(typed))
-                  setDraftState(team.state ?? "");
-              }}
-              className="w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm uppercase dark:border-slate-800 dark:bg-slate-900"
-            />
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              Optional. Two letters, and only used to filter the rankings — it never changes a
-              rating.
-            </span>
-          </div>
+              {age && readOnly && (
+                <div className="mt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Age
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    {age.pinned
+                      ? `Set to ${age.pinned.level}U by hand${
+                          age.pinned.was !== undefined && age.pinned.was !== age.pinned.level
+                            ? `; the app had filed it at ${age.pinned.was}U`
+                            : ""
+                        }.`
+                      : age.level === undefined
+                        ? "The app has no age for this club."
+                        : `The app filed this club at ${age.level}U.`}
+                  </p>
+                </div>
+              )}
+
+              {age && onSetAge && !readOnly && (
+                <div className="mt-4">
+                  <label
+                    className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                    htmlFor={ageId}
+                  >
+                    Age
+                  </label>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <select
+                      id={ageId}
+                      value={draftAge}
+                      onChange={(event) => setDraftAge(Number(event.target.value))}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+                    >
+                      {Array.from({ length: MAX_AGE_LEVEL - MIN_AGE_LEVEL + 1 }, (_, at) => {
+                        const level = MIN_AGE_LEVEL + at;
+                        return (
+                          <option key={level} value={level}>
+                            {level}U
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={age.pinned?.level === draftAge}
+                      onClick={() => onSetAge(draftAge)}
+                      className={button.ghost}
+                    >
+                      Set age
+                    </button>
+                    {age.pinned && onClearAge && (
+                      <button
+                        type="button"
+                        onClick={onClearAge}
+                        className={`${tapArea} text-xs font-bold text-slate-600 hover:underline dark:text-slate-400`}
+                      >
+                        Let the app decide
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    {age.pinned
+                      ? `You set this club to ${age.pinned.level}U${
+                          age.pinned.was !== undefined && age.pinned.was !== age.pinned.level
+                            ? `; the app had filed it at ${age.pinned.was}U`
+                            : ""
+                        }. Later pulls keep it there, whatever GameChanger says.`
+                      : `${
+                          age.level === undefined
+                            ? "The app has no age for this club."
+                            : `The app filed this club at ${age.level}U.`
+                        } If it plays at another age, set it here: its games move to that age's page and later pulls keep it there.`}
+                  </p>
+                </div>
+              )}
+
+              {mergeCandidates.length > 0 && !readOnly && (
+                <div className="mt-4">
+                  <label
+                    className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                    htmlFor="scout-team-merge"
+                  >
+                    Same team as
+                  </label>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <TeamSearchSelect
+                      id="scout-team-merge"
+                      value={mergeTarget}
+                      onChange={setMergeTarget}
+                      options={mergeOptions}
+                      placeholder="Type a team or coach name…"
+                      className="w-full text-sm"
+                    />
+                    <button
+                      type="button"
+                      disabled={!mergeTarget}
+                      onClick={() => {
+                        if (!mergeTarget) return;
+                        onMergeInto(mergeTarget);
+                        setMergeTarget("");
+                      }}
+                      className={button.ghost}
+                    >
+                      Fold into it
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    Moves every game from this team over to that one and removes this entry, keeping
+                    both GameChanger ids. For a club that arrived twice — once pulled by id, once as
+                    somebody else&apos;s opponent.
+                  </p>
+                </div>
+              )}
+
+              {!readOnly && (
+                <div className="mt-4">
+                  <label
+                    className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                    htmlFor="scout-team-state"
+                  >
+                    State
+                  </label>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <input
+                      id="scout-team-state"
+                      type="text"
+                      value={draftState}
+                      maxLength={2}
+                      placeholder="KY"
+                      onChange={(event) => {
+                        const typed = event.target.value.toUpperCase();
+                        setDraftState(typed);
+                        // Saved once it is a state, or nothing at all.
+                        // A state the store would not keep goes back to the one it holds.
+                        if ((typed.trim() === "" || normalizeState(typed)) && !onSetState(typed))
+                          setDraftState(team.state ?? "");
+                      }}
+                      className="w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm uppercase dark:border-slate-800 dark:bg-slate-900"
+                    />
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      Optional. Two letters, and only used to filter the rankings — it never changes
+                      a rating.
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -735,128 +942,42 @@ export function TeamDetailPanel({
       >
         Games in {ageGroupName || "this age group"}
       </h3>
-      {notes && (
-        <p className={`mt-1 ${textRole.meta}`}>
-          {notes.headline} {notes.key}
-        </p>
-      )}
       {here.length === 0 ? (
         <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Nothing logged here yet.</p>
       ) : (
-        <ul className="mt-2 divide-y divide-slate-100 dark:divide-slate-800">
-          {here.map((game) => {
-            const line = scoreLine(game, team.id, nameOf);
-            // A counted W, L or T row alone, the rows the record above and the board's row are
-            // counted over: the window holds only games that count (`countsTowardRating`, so
-            // played, not set aside and not against the club's own name) in the half on screen.
-            const clauses = notes && inWindow.has(game.id) ? notes.byGame.get(game.id) : undefined;
-            const opponentRow = ratingRowOf?.(
-              game.teamAId === team.id ? game.teamBId : game.teamAId
-            );
-            return (
-              <li
-                key={game.id}
-                className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"
+        <>
+          {comingUp.length > 0 && (
+            <>
+              <h4 id={comingId} className={`mt-2 ${textRole.overline}`}>
+                Coming up
+              </h4>
+              <ul
+                aria-labelledby={comingId}
+                className="divide-y divide-slate-100 dark:divide-slate-800"
               >
-                <span className="flex items-center gap-2">
-                  {game.excluded ? (
-                    <span className={pill("amber")} title="Kept, but not counted">
-                      —
-                    </span>
-                  ) : line.result && playsItself(game) ? (
-                    <span className={pill("neutral")} title="Against its own name, not counted">
-                      {line.result}
-                    </span>
-                  ) : line.result && game.countedElsewhere ? (
-                    <span className={pill("neutral")} title={copyTitle(game)}>
-                      {line.result}
-                    </span>
-                  ) : line.result && !inWindow.has(game.id) ? (
-                    // Played, and kept, but outside the window the record above is counted over —
-                    // shown rather than dropped, so a list longer than the record is explained.
-                    <span
-                      className={pill("neutral")}
-                      title={
-                        segment ? "Outside this half of the season" : "Outside this season year"
-                      }
-                    >
-                      {line.result}
-                    </span>
-                  ) : line.result ? (
-                    <span
-                      className={pill(
-                        line.result === "W" ? "emerald" : line.result === "L" ? "red" : "neutral"
-                      )}
-                    >
-                      {line.result}
-                    </span>
-                  ) : (
-                    <span className={pill("blue")}>Sched</span>
-                  )}
-                  <span className="font-bold text-slate-950 dark:text-white">{line.opponent}</span>
-                </span>
-                <span className="flex flex-wrap items-center gap-2 text-slate-500 dark:text-slate-400">
-                  <span>
-                    {line.detail}
-                    {game.date ? ` · ${game.date}` : ""}
-                    {game.event ? ` · ${game.event}` : ""}
-                  </span>
-                  {notThisTeam && !readOnly && notThisTeam.offered(game) && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        notThisTeam.onRefuse(game);
-                        gamesHeading.current?.focus();
-                      }}
-                      aria-label={notThisTeamLabel(
-                        team.name,
-                        line.opponent,
-                        game.date,
-                        offeredAgainst.get(
-                          game.teamAId === team.id ? game.teamBId : game.teamAId
-                        ) ?? 1
-                      )}
-                      title={`${line.opponent}'s schedule named its opponent, and the name was matched to ${team.name}; nothing of ${team.name}'s own lists this game. Take it off ${team.name}, with every other game ${line.opponent} filed here by the name.`}
-                      className="inline-flex min-h-6 items-center rounded px-1.5 text-xs font-bold text-red-600 hover:underline dark:text-red-400"
-                    >
-                      Not this team
-                    </button>
-                  )}
-                  {ownRow && opponentRow && (
-                    <WhatIfButton
-                      open={whatIf === game.id}
-                      onToggle={() => setWhatIf((open) => (open === game.id ? null : game.id))}
-                      label={`${team.name} and ${line.opponent}`}
-                    />
-                  )}
-                </span>
-                {whatIf === game.id && ownRow && opponentRow && (
-                  <div className="basis-full">
-                    <WhatIf a={ownRow} b={opponentRow} />
-                  </div>
-                )}
-                {clauses && (
-                  // Each clause moves to the next line whole where it does not fit beside the one
-                  // before, and wraps inside only where it is wider than the line itself. Kept on
-                  // one line regardless (`whitespace-nowrap`), the longest clauses ran 423 px past
-                  // the panel at 320 px wide, measured in Chromium. The dot after a clause is in
-                  // its box, behind a non-breaking space, so no line opens on a dot or holds one
-                  // alone.
-                  <p className={`basis-full ${textRole.meta} tabular-nums`}>
-                    {clauses.map((clause, at) => (
-                      <Fragment key={at}>
-                        {at > 0 && " "}
-                        <span className="inline-block">
-                          {at < clauses.length - 1 ? `${clause}\u00a0·` : clause}
-                        </span>
-                      </Fragment>
-                    ))}
-                  </p>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+                {comingUp.map(gameRow)}
+              </ul>
+            </>
+          )}
+          {results.length > 0 && (
+            <>
+              <h4 id={resultsId} className={`mt-3 ${textRole.overline}`}>
+                Results
+              </h4>
+              {notes && (
+                <p className={`mt-1 ${textRole.meta}`}>
+                  {notes.headline} {notes.key}
+                </p>
+              )}
+              <ul
+                aria-labelledby={resultsId}
+                className="divide-y divide-slate-100 dark:divide-slate-800"
+              >
+                {results.map(gameRow)}
+              </ul>
+            </>
+          )}
+        </>
       )}
     </section>
   );

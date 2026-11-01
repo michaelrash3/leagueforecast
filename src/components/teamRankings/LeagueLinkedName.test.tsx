@@ -75,6 +75,8 @@ const openPanel = async (name: string) => {
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: /show all \d+ teams/i }));
   await user.click(within(screen.getByRole("table")).getByRole("button", { name }));
+  // The name box is with the tools that fix the club's data, folded away until asked for.
+  await user.click(await screen.findByRole("button", { name: "Fix this club's data" }));
   return { user, input: (await screen.findByLabelText("Team name")) as HTMLInputElement };
 };
 

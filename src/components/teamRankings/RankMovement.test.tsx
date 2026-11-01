@@ -41,12 +41,15 @@ describe("movement since last week", () => {
     const does = within(board).getByRole("button", { name: /Does/ }).closest("li")!;
     // Last on the 14th, and somewhere above that now.
     expect(await within(does).findByLabelText(/^up \d+ since last week$/)).toBeInTheDocument();
+    // A board's row keeps the mark alone, its words said only to a screen reader.
+    expect(does).not.toHaveTextContent("since last week");
   });
 
-  it("says it on the my-team card too", async () => {
+  it("says it on the my-team card too, in words", async () => {
     renderTeamRankings(pool("S-DOE"));
     const card = await screen.findByRole("region", { name: "My team" });
-    expect(await within(card).findByLabelText(/^up \d+ since last week$/)).toBeInTheDocument();
+    await waitFor(() => expect(card.textContent).toMatch(/nationally ▲\d+ since last week ·/));
+    expect(within(card).getByRole("img", { name: "up" })).toHaveTextContent("▲");
   });
 });
 

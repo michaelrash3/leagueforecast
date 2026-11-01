@@ -1,9 +1,11 @@
 import type { MyTeamGlance } from "../../lib/myTeamGlance";
-import { formatIsoDayShort } from "../../lib/date";
-import { formatRating, MovementMark } from "./RankingList";
-import { card } from "../../styles/tokens";
+import { dayAndTime, formatIsoDayShort, formatStartTime } from "../../lib/date";
+import { formatRating } from "./RankingList";
+import type { Movement } from "../../lib/movement";
+import { card, tapArea } from "../../styles/tokens";
 import type { RankHistoryPoint } from "../../hooks/useRankingsWorker";
 import type { ExpectedRecord, WeekendAhead } from "../../lib/clubForm";
+import type { UpcomingMatchup } from "../../lib/teamRankings";
 import { standingWords } from "../../lib/standing";
 import { MyTeamSince } from "./MyTeamSince";
 
@@ -83,6 +85,47 @@ const weekendExpected = ({ games, called, expectedWins }: WeekendAhead): string 
  */
 /** "Aug 30" for an ISO day, as the rest of the card says its dates. */
 const shortDay = (day: string): string => formatIsoDayShort(day);
+
+/**
+ * When one of a weekend's games is, within the weekend the line has named: "Sat 9:30 AM", in the
+ * reader's own time, or the day alone for a game GameChanger gave no start.
+ */
+const weekendWhen = ({ date, startTs }: UpcomingMatchup): string =>
+  [
+    new Date(`${date}T00:00:00Z`).toLocaleDateString(undefined, {
+      weekday: "short",
+      timeZone: "UTC",
+    }),
+    formatStartTime(startTs),
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+/**
+ * The card's week, said in words: "▼5 since last week". A board's row keeps the bare mark
+ * (`MovementMark`), but on the card it sat under the Since line's "▲6", which is since the last
+ * visit, and a parent read a red "▼5" with no words as the same question answered the other way;
+ * its only label was a hover title, which a phone never shows.
+ */
+function WeekMove({ movement }: { movement: Movement }) {
+  if (movement === "new")
+    return (
+      <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+        new this week
+      </span>
+    );
+  const up = movement > 0;
+  return (
+    <span
+      className={`text-xs font-bold ${up ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}
+    >
+      <span role="img" aria-label={up ? "up" : "down"}>
+        {up ? "▲" : "▼"}
+      </span>
+      {Math.abs(movement).toLocaleString()} since last week
+    </span>
+  );
+}
 
 const LINE_WIDTH = 168;
 const LINE_HEIGHT = 36;
@@ -186,9 +229,10 @@ export function MyTeamCard({
         <button
           type="button"
           onClick={() => onOpenTeam(glance.teamId)}
-          className="text-left text-lg font-black text-slate-950 hover:underline dark:text-white"
+          className={`${tapArea} text-left text-lg font-black text-slate-950 hover:underline dark:text-white`}
         >
-          <span aria-hidden="true" className="mr-1 text-amber-500">
+          {/* Amber-700, 3:1 and more as a mark: amber-500 measured 2.13:1 on the card's white. */}
+          <span aria-hidden="true" className="mr-1 text-amber-700 dark:text-amber-400">
             ★
           </span>
           {glance.teamName}
@@ -214,7 +258,7 @@ export function MyTeamCard({
         {glance.movement !== undefined && glance.movement !== 0 && (
           <>
             {" "}
-            <MovementMark movement={glance.movement} />
+            <WeekMove movement={glance.movement} />
           </>
         )}
         {glance.state && glance.stateRank !== undefined && glance.stateOf !== undefined && (
@@ -248,7 +292,7 @@ export function MyTeamCard({
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
           {next ? (
             <>
-              Next: {next.date ? formatIsoDayShort(next.date) : "date to come"} vs{" "}
+              Next: {next.date ? dayAndTime(shortDay(next.date), next.startTs) : "date to come"} vs{" "}
               <strong>{next.opponentName}</strong>
               {next.opponentRank !== undefined && ` (#${next.opponentRank.toLocaleString()})`}
               {next.winProb === undefined
@@ -263,7 +307,7 @@ export function MyTeamCard({
                     type="button"
                     onClick={() => onScout(next.opponentId)}
                     aria-label={`Scout ${next.opponentName}`}
-                    className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+                    className={`${tapArea} font-bold text-blue-600 hover:underline dark:text-blue-400`}
                   >
                     Scout
                   </button>
@@ -285,9 +329,10 @@ export function MyTeamCard({
             <>
               {" · toughest vs "}
               <strong>{weekend.toughest.opponentName}</strong> (
-              {Math.round(weekend.toughest.winProb! * 100)}%){" · likeliest vs "}
+              {Math.round(weekend.toughest.winProb! * 100)}%, {weekendWhen(weekend.toughest)})
+              {" · likeliest vs "}
               <strong>{weekend.likeliest.opponentName}</strong> (
-              {Math.round(weekend.likeliest.winProb! * 100)}%)
+              {Math.round(weekend.likeliest.winProb! * 100)}%, {weekendWhen(weekend.likeliest)})
             </>
           )}
         </p>

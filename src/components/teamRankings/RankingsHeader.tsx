@@ -16,7 +16,7 @@ import { SEASON_SEGMENTS } from "../../lib/rankingsRoute";
 import { defaultLevelIn, type DefaultAge } from "../../lib/preferences";
 import type { RankingsSection } from "../../lib/rankingsRoute";
 import { SectionNav } from "./SectionNav";
-import { button, card, tab } from "../../styles/tokens";
+import { button, card, tab, tapArea } from "../../styles/tokens";
 
 type RankingsHeaderProps = {
   ageGroups: AgeGroup[];
@@ -174,14 +174,14 @@ export function RankingsHeader({
                   type="button"
                   onClick={() => onOpenSegment(segment)}
                   aria-current={active ? "page" : undefined}
-                  className={tab(active)}
+                  className={`${tab(active)} ${tapArea}`}
                 >
                   {segmentLabel(selectedYear, segment)}
                   {/* A half nobody has played yet is still offered, and says so rather than
-                    disappearing: the season is going to reach it. */}
-                  {played === 0 && (
-                    <span className="ml-2 text-xs font-semibold opacity-60">not played</span>
-                  )}
+                    disappearing: the season is going to reach it. In the tab's own colour, told
+                    apart by its weight: faded to 60%, it measured 2.88:1 in light mode and 3.33:1
+                    in dark, under the 4.5:1 its 12 px needs. */}
+                  {played === 0 && <span className="ml-2 text-xs font-medium">not played</span>}
                 </button>
               );
             })}
@@ -199,7 +199,7 @@ export function RankingsHeader({
                   type="button"
                   onClick={() => onOpenPage(group.id)}
                   aria-current={active ? "page" : undefined}
-                  className={tab(active)}
+                  className={`${tab(active)} ${tapArea}`}
                 >
                   {level === undefined ? group.name : `${level}U`}
                   {isRankedAgeLevel(level) ? "" : " ·"}
@@ -224,7 +224,7 @@ export function RankingsHeader({
                 <button
                   type="button"
                   onClick={() => onSetDefaultAge(null)}
-                  className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+                  className={`${tapArea} font-bold text-blue-600 hover:underline dark:text-blue-400`}
                 >
                   Clear
                 </button>
@@ -233,7 +233,7 @@ export function RankingsHeader({
               <button
                 type="button"
                 onClick={() => onSetDefaultAge({ level: selectedLevel, year: selectedYear })}
-                className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+                className={`${tapArea} font-bold text-blue-600 hover:underline dark:text-blue-400`}
               >
                 Open on {selectedLevel}U by default
               </button>

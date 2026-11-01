@@ -10,7 +10,7 @@ import {
   type ScoutRankingRow,
   type UpcomingMatchup,
 } from "../../lib/teamRankings";
-import { formatIsoDayShort } from "../../lib/date";
+import { dayAndTime, formatIsoDayShort } from "../../lib/date";
 import { forecastWords, formatRating } from "../../lib/matchupForecast";
 import { holdsFrom, type WhatIfCurve, type WhatIfDeclined } from "../../lib/scoutWhatIf";
 import type { WhatIfState } from "../../hooks/useRankingsWorker";
@@ -20,7 +20,7 @@ import { TeamSearchSelect } from "../TeamSearchSelect";
 import { ClubCompare } from "./ClubCompare";
 import type { ClubComparison } from "../../lib/clubCompare";
 import { useWideViewport } from "../../hooks/useWideViewport";
-import { card, pill } from "../../styles/tokens";
+import { card, pill, tapArea } from "../../styles/tokens";
 
 const tierTone = (tier: MatchupTier) =>
   tier === "Favored" ? "emerald" : tier === "Underdog" ? "red" : "neutral";
@@ -55,7 +55,12 @@ const formatPct = (value: number) => `${Math.round(value * 100)}%`;
 
 const formatMargin = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
 
-const formatDay = formatIsoDayShort;
+/**
+ * A game's day as the rest of the page says it, and its start where GameChanger gave one, in the
+ * reader's own time: "Sat, Oct 31 · 9:30 AM". A tournament Saturday lists five games in the order
+ * they start, and the order alone did not say which was at 9:30 and which at 7:00.
+ */
+const formatDay = (row: UpcomingMatchup) => dayAndTime(formatIsoDayShort(row.date), row.startTs);
 
 /**
  * The answer to the question the pickers ask — how would this team fare against that one — said
@@ -89,8 +94,8 @@ function ClubForecast({ forRow, against }: { forRow: ScoutRankingRow; against: S
       </p>
       <p className="mt-2 text-xs wrap-break-word text-slate-500 dark:text-slate-400">
         Why: {forRow.teamName} rates {formatRating(forRow.rating)} runs against an average club (#
-        {forRow.rank}) and {against.teamName} {formatRating(against.rating)} (#{against.rank}); the
-        margin is the gap between them.
+        {forRow.rank.toLocaleString()}) and {against.teamName} {formatRating(against.rating)} (#
+        {against.rank.toLocaleString()}); the margin is the gap between them.
       </p>
     </section>
   );
@@ -157,11 +162,12 @@ const breakEven = (curve: WhatIfCurve, standing: number): string => {
   const best = curve.points[curve.points.length - 1];
   if (hold === null) {
     return best
-      ? `No result here can lift you. Even a ${RATING_CAP}-run win leaves you at #${best.rank}, so this game can only cost places.`
+      ? `No result here can lift you. Even a ${RATING_CAP}-run win leaves you at #${best.rank.toLocaleString()}, so this game can only cost places.`
       : "There is nothing to say about this one.";
   }
-  if (hold === 1) return `Any win holds #${standing} or better, and any loss costs you places.`;
-  return `Win by ${hold} or more and you hold #${standing} or better. Win by less and you still slip — the table already expects you to beat them.`;
+  if (hold === 1)
+    return `Any win holds #${standing.toLocaleString()} or better, and any loss costs you places.`;
+  return `Win by ${hold} or more and you hold #${standing.toLocaleString()} or better. Win by less and you still slip — the table already expects you to beat them.`;
 };
 
 /**
@@ -248,15 +254,16 @@ export function ScoutingSection({
         Scouting report
       </h2>
       {/*
-        On a phone the question is asked whole above a box of its own: squeezed into one line
-        beside "How would", a 224px box printed "fare?" over the name picked in it.
+        The question asked whole above the box, on every screen. Squeezed into one line beside "How
+        would", a phone's 224px box printed "fare?" over the name picked in it; a wide screen split
+        it around the box, "HOW WOULD [box] … FARE?", the last word at the far end of the card.
       */}
-      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+      <div className="mt-3 flex flex-col gap-2">
         <label
           className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
           htmlFor="scout-report-team"
         >
-          How would<span className="sm:hidden"> this team fare?</span>
+          How would this team fare?
         </label>
         {/*
           A dropdown, until this page held a nationwide pool. Picking one club out of several
@@ -271,9 +278,6 @@ export function ScoutingSection({
           placeholder="Search for a team or coach"
           className="w-full sm:w-auto sm:min-w-56 sm:max-w-xs"
         />
-        <span className="hidden text-xs font-semibold uppercase tracking-wide text-slate-500 sm:inline dark:text-slate-400">
-          fare?
-        </span>
       </div>
       {/*
         Under the question it finishes, and its answer under it, before the write-up of this team's
@@ -301,7 +305,7 @@ export function ScoutingSection({
               <button
                 type="button"
                 onClick={() => onCompareChange("")}
-                className="text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
+                className={`${tapArea} text-xs font-bold text-slate-600 hover:underline dark:text-slate-400`}
               >
                 Clear
               </button>
@@ -374,7 +378,7 @@ export function ScoutingSection({
                 <Fragment key={row.gameId}>
                   <tr className="border-t border-slate-100 dark:border-slate-800">
                     <td className="whitespace-nowrap py-3 font-semibold text-slate-700 dark:text-slate-200">
-                      {formatDay(row.date)}
+                      {formatDay(row)}
                       {row.event && (
                         <span className="block text-xs font-normal text-slate-500 dark:text-slate-400">
                           {row.event}
@@ -415,7 +419,7 @@ export function ScoutingSection({
                       </td>
                     ) : (
                       <>
-                        <td>#{row.opponentRank}</td>
+                        <td>#{row.opponentRank?.toLocaleString()}</td>
                         <td>
                           {formatMargin(row.projectedMargin ?? 0)}
                           {row.unconnected && <NoSharedOpponents />}
@@ -458,7 +462,7 @@ export function ScoutingSection({
               className="rounded-lg border border-slate-200 p-3 dark:border-slate-700"
             >
               <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                {formatDay(row.date)}
+                {formatDay(row)}
                 {row.event && <span className="block font-normal">{row.event}</span>}
               </div>
               <div className="mt-1 font-bold wrap-break-word text-slate-950 dark:text-white">
@@ -489,7 +493,7 @@ export function ScoutingSection({
                     </div>
                     <div>
                       <dt className="text-xs text-slate-500 dark:text-slate-400">Their rank</dt>
-                      <dd className="font-bold">#{row.opponentRank}</dd>
+                      <dd className="font-bold">#{row.opponentRank?.toLocaleString()}</dd>
                     </div>
                   </dl>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -646,7 +650,7 @@ function MatchupTable({
                       </span>
                     )}
                   </td>
-                  <td>#{preview.opponentRank}</td>
+                  <td>#{preview.opponentRank.toLocaleString()}</td>
                   <td>
                     {formatMargin(preview.projectedMargin)}
                     {preview.unconnected && <NoSharedOpponents />}
@@ -661,7 +665,7 @@ function MatchupTable({
                         type="button"
                         onClick={() => onDrop(preview.opponentId)}
                         aria-label={`Remove ${preview.opponentName} from the report`}
-                        className="text-xs font-semibold text-slate-500 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white"
+                        className={`${tapArea} text-xs font-semibold text-slate-600 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white`}
                       >
                         Remove
                       </button>
@@ -696,7 +700,7 @@ function MatchupTable({
                     type="button"
                     onClick={() => onDrop(preview.opponentId)}
                     aria-label={`Remove ${preview.opponentName} from the report`}
-                    className="shrink-0 text-xs font-semibold text-slate-500 underline hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
+                    className={`${tapArea} shrink-0 text-xs font-semibold text-slate-600 underline hover:text-slate-950 dark:text-slate-400 dark:hover:text-white`}
                   >
                     Remove
                   </button>
@@ -713,7 +717,7 @@ function MatchupTable({
                 </div>
                 <div>
                   <dt className="text-xs text-slate-500 dark:text-slate-400">Their rank</dt>
-                  <dd className="font-bold">#{preview.opponentRank}</dd>
+                  <dd className="font-bold">#{preview.opponentRank.toLocaleString()}</dd>
                 </div>
               </dl>
               <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -747,7 +751,11 @@ const declineNote = (decline: WhatIfDeclined): string | null => {
   return null;
 };
 
-/** The way into the answer, under the opponent's name. */
+/**
+ * The way into the answer, under the opponent's name, on a line of its own (`block`) as Scout is.
+ * Inline, the two sat side by side on a wide screen with nothing between them and read "What
+ * if?Scout". A button set as a block is still only as wide as its words.
+ */
 function WhatIfTrigger({
   gameId,
   opponentName,
@@ -775,7 +783,7 @@ function WhatIfTrigger({
       onClick={() => onToggle(gameId)}
       aria-expanded={open}
       aria-controls={`what-if-${gameId}`}
-      className="mt-1 block text-xs font-semibold text-slate-500 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white"
+      className={`${tapArea} mt-1 block text-xs font-semibold text-slate-600 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white`}
     >
       {open ? "Hide" : "What if?"}
       <span className="sr-only">
@@ -887,7 +895,7 @@ function WhatIfPanel({
                   </td>
                   {/* Unbroken only where there is room: on a phone the note goes under the place. */}
                   <td className="pr-3 sm:whitespace-nowrap">
-                    #{win.rank}{" "}
+                    #{win.rank.toLocaleString()}{" "}
                     <span className="block text-xs text-slate-500 sm:inline dark:text-slate-400">
                       {placesMoved(standing.rank, win.rank)}
                     </span>
@@ -895,7 +903,7 @@ function WhatIfPanel({
                   <td className="sm:whitespace-nowrap">
                     {loss ? (
                       <>
-                        #{loss.rank}{" "}
+                        #{loss.rank.toLocaleString()}{" "}
                         <span className="block text-xs text-slate-500 sm:inline dark:text-slate-400">
                           {placesMoved(standing.rank, loss.rank)}
                         </span>
@@ -932,14 +940,14 @@ function WhatIfPanel({
   );
 }
 
-/** Scout, beside a game still to play: its opponent into Compare with. */
+/** Scout, beside a game still to play: its opponent into Compare with, on a line of its own. */
 export function ScoutButton({ name, onScout }: { name: string; onScout: () => void }) {
   return (
     <button
       type="button"
       onClick={onScout}
       aria-label={`Scout ${name}`}
-      className="mt-1 block text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+      className={`${tapArea} mt-1 block text-xs font-bold text-blue-600 hover:underline dark:text-blue-400`}
     >
       Scout
     </button>
