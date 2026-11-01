@@ -7249,10 +7249,17 @@ type AnsweredLookup = (row: AnsweredRow, refused: NotThisTeam) => ScoutTeam | un
  * day no earlier than a week before its own first game of the year, and never where one of its own
  * rows that day starts within the hour against another club. Not on a name alone: the owner's word
  * on who the coach means by it stands where the two clubs are not neighbours, or not of one state,
- * since the owner has seen the games. Never a club the owner has said the name is not, or its own
- * name is not, on that schedule (`notThisTeam.ts`): a press of Not this team on a row the answer
- * filed refuses the club's own name (`refusalsFor`), as on any row a name filed onto the club, and
- * Not this team always wins.
+ * since the owner has seen the games. Read for every listing of the namer's, as its refusals are
+ * kept (`refusalsFor`): a club on GameChanger twice is one club writing the name.
+ *
+ * Never where the owner has said the name is not the club, on any of those listings
+ * (`notThisTeam.ts`), and that is read under the answer's own name: the name a press of Not this
+ * team on a row the answer filed refuses (`refusalsFor`), which no rename of the club, nor a fold
+ * of it into a club of another name, changes, so Not this team always wins. Read by the club's
+ * name, the refusal stopped counting once the club was renamed, and the tidy filed the refused rows
+ * back. Nor is a refusal of another name read: one of the club's own, given for a row the coach
+ * typed that way, says nothing of what the coach means by the answer's name, and read, it took
+ * back every answer the owner gave after it for that coach.
  *
  * The owner's case, from the sweep of 30 October 2026: a coach's "Bolts" of 12 September folded
  * into the club it was, the same coach's "Bolts" of 19 September went to a new stand-in, and the
@@ -7285,7 +7292,16 @@ const answeredNamesakes = (
       }
       answers = held;
     }
-    const found = (answers.get(`${schedule}\u0000${typed}`) ?? []).flatMap((id) => {
+    const byName = answers;
+    if (byName.size === 0) return undefined;
+    const schedules = new Set([
+      schedule,
+      ...(teamOf(row.namerId)?.gcTeams ?? []).map((link) => link.teamId),
+    ]);
+    const holders = new Set(
+      [...schedules].flatMap((each) => byName.get(`${each}\u0000${typed}`) ?? [])
+    );
+    const found = [...holders].flatMap((id) => {
       const club = teamOf(id);
       const listed = club?.gcTeams?.some(
         (link) => poolKeyOf(link.ageGroupId) === pool && link.ageLevel === level
@@ -7295,12 +7311,7 @@ const answeredNamesakes = (
     if (found.length !== 1) return undefined;
     const club = found[0]!;
     if (isPlaceholderName(club.name) || namesNobody(club.name)) return undefined;
-    if (
-      refusesName(refused, schedule, typed, club) ||
-      refusesName(refused, schedule, club.name, club)
-    ) {
-      return undefined;
-    }
+    if ([...schedules].some((each) => refusesName(refused, each, typed, club))) return undefined;
     const own = new Set((club.gcTeams ?? []).map((link) => link.teamId));
     const ownClub = (id: string) => (own.has(id) ? club.id : undefined);
     let first: string | undefined;
@@ -8110,14 +8121,19 @@ export const refileStandIns = (
     /*
      * The club the owner said the name is when this schedule wrote it before ("Same team as",
      * `answeredNamesakes`), ahead of every reading of the name alone, as the import reads it
-     * (`planOpponent`); the resettle leaves the row where this files it. By the name the row typed,
-     * which a stand-in made for a row taken off a club does not carry.
+     * (`planOpponent`); the resettle leaves the row where this files it. By the name the row typed
+     * (`typedAs`) and nothing else, as the resettle reads it: a stand-in made for a row taken off a
+     * club carries the club's name, not the row's. A row pulled before rows kept their typed name
+     * waits for its schedule's next pull to learn it. Read by its stand-in's name, it was filed onto
+     * the club here and taken off again by the resettle, which found no answer for it, onto a
+     * stand-in of the club's name; where the club held an answer under its own name, this filed it
+     * back every pass, and every tidy ran all six.
      */
     const own = puller.gcTeams.some((link) => link.teamId === game.source?.teamId);
     const answer = answered(
       {
         schedule: own ? game.source?.teamId : undefined,
-        typed: game.typedAs ?? key,
+        typed: game.typedAs,
         pool,
         level,
         date: game.date,

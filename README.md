@@ -1612,9 +1612,12 @@ the other listing's row in the very game). Not against the game: a re-pull finds
 the stand-in it has, so what brings the mistake back is the refile putting the stand-in on the club
 the next time the club has a game that day, and the namer's next row of that name, a league
 opponent being named over and over. The schedule and the name stay in the key, so another schedule
-naming the club, or this one naming it another way, is matched as before, and the pool keeps no
-row's name, so the club's name is the name: a name files a row onto a pulled club only where the two
-read the same. Every road a name takes onto a club asks it (`refusesName`): the import's match by
+naming the club, or this one naming it another way, is matched as before. The name is the club's,
+since a name files a row onto a pulled club only where the two read the same, and the name each
+row taken typed as well (`typedAs`), which is another where the owner's Same team as filed the row
+(`answeredNamesakes`): kept under the club's name alone, the refusal of such a row stopped counting
+once the club was renamed, or folded into a club of another name.
+Every road a name takes onto a club asks it (`refusesName`): the import's match by
 the name (`planOpponent`: the one club of it, the one something corroborates), the refile, a
 namesake taking a row off a club far from its age, and the slot settle where the row it would
 settle into is the name again. The step that takes a name's rows off a club (`resettleOffLevel`)
@@ -2060,20 +2063,32 @@ year, so a level typed into the name that the club is not listed at is another s
 a day no earlier than a week before the club's own first game of the year; and never within the
 hour of a game of the club's own against another club. Not the rest of what a name is asked: the
 two clubs need not be neighbours, nor of one state or next door, nor need the club have a game that
-day, since the owner has seen the games. Only the namer's own schedule reads it: another club's row
-of the same name is read as a name, as before, and two clubs holding one schedule's name at one
-level are two answers that disagree, so neither is read. An answer given across a level, a stand-in
-off a 9U page folded into a 10U club, files no later row, since a row with no age typed is read at
-its page's level; reading it at the level it was given would need that level kept with it.
+day, since the owner has seen the games. Only the namer reads it, on every listing of its own, as
+its refusals are kept (a club on GameChanger twice is one club writing the name): another club's
+row of the same name is read as a name, as before, and two clubs holding the namer's name at one
+level are two answers that disagree, so neither is read. The name asked is the one the row typed
+(`typedAs`), on every road alike, so a row pulled before rows kept theirs is read once its
+schedule's next pull learns it. Read by its stand-in's name in the refile alone, such a row was
+filed onto the club there and taken off again by the resettle, and where the club held the answer
+under its own name every tidy ran all six passes. An answer given across a level, a stand-in off a
+9U page folded into a 10U club, files no later row, since a row with no age typed is read at its
+page's level; reading it at the level it was given would need that level kept with it.
 
-Not this team always wins. A press on a row the answer filed takes it off, with the namer's other
-such rows (`takenWith`), as on any row a name filed, and the refusal it stores, the club's own name
-on the namer's schedules, takes the answer back for every later row of the name; so does a refusal
-of the very name typed. The rows the fold itself put on the club stay, as the owner's word
-(`namedByAvatar`), and undoing the fold takes the answer with it. A build on rules 37 reads no
-answer and would take such a row off a club that had no game that day; a pool stamped by newer rules
-is one an older build leaves alone (`stampFromNewerRules`), which is why the rules went to 38. No
-stored club held an answer before this, so the copy moves only as the owner answers.
+Not this team always wins. A press on a row the answer filed takes it off, with every other row
+the namer filed onto the club by a name (`takenWith`), as on any row a name filed, and refuses, on
+the namer's schedules, each name those rows were filed under: the club's, and the one each row
+typed (`refusalsFor`). The answer is refused only under its own name, which no rename of the club,
+nor a fold of it into a club of another name, changes: read by the club's name, the refusal
+stopped counting once the club was renamed, and the tidy filed the refused rows back. So a press on
+another of the coach's rows on the club takes the answer back too, its rows going with the press,
+and Undo gives both back; but a refusal of another name the coach wrote, given before the answer,
+does not, since it says nothing of what the coach means by this one, and read, it took back every
+answer the owner gave after it for that coach. The rows the fold itself put on the club stay, as
+the owner's word (`namedByAvatar`), and undoing the fold takes the answer with it. A build on
+rules 37 reads no answer and would take such a row off a club that had no game that day; a pool
+stamped by newer rules is one an older build leaves alone (`stampFromNewerRules`), which is why the
+rules went to 38. No stored club held an answer before this, so the copy moves only as the owner
+answers.
 
 A name nobody pulled is one stand-in per name, level and squad year among the clubs of a state that
 named it, and a lookup that missed made a second: a class year looked up at the page's age rather
