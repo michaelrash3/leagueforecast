@@ -343,4 +343,28 @@ describe("the review's counts and its button", () => {
     expect(screen.getByText("Tick a game above to add it.")).toBeInTheDocument();
     expect(screen.getByText(/1,200 games on this schedule have no result/)).toBeInTheDocument();
   });
+
+  // Every row "cannot be told apart", its box switched off, and no game to add: it said "Tick a
+  // game above to add it." with nothing to tick and nothing to add.
+  it("asks for nothing where nothing can be ticked", () => {
+    render(
+      <LeagueScoreFillPanel
+        plan={{
+          rows: [
+            base({ matchupId: "twin", awayName: "Aces", homeName: "Bears", action: "ambiguous" }),
+          ],
+          unmatched: 0,
+          unusedResults: 0,
+          seasonLinked: true,
+        }}
+        seasonLabel="Fall"
+        onApply={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByRole("checkbox", { name: "Fill Aces at Bears" })).toBeDisabled();
+    expect(screen.queryByText(/^Tick a game/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /^(Fill|Add)\b/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
 });

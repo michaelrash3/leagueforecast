@@ -212,15 +212,20 @@ export function LeagueScoreFillPanel({
         : `Fill ${plural(selected.size, "game")} and add ${adding.size.toLocaleString()}`;
   /*
    * With nothing ticked there is no button to press, and a line says what to do instead: switched
-   * off, it read "Fill 0 games".
+   * off, it read "Fill 0 games". With nothing that can be ticked, every row one that cannot be told
+   * apart and no game to add, there is nothing to say either, where it asked for a tick nobody
+   * could give; the counts under the table say why.
    */
+  const fillable = plan.rows.some(selectable);
   const apply =
     selected.size === 0 && adding.size === 0 ? (
-      <p className="self-center text-sm text-slate-600 dark:text-slate-300">
-        {`Tick a game above to ${
-          plan.rows.some(selectable) ? (missing.length > 0 ? "fill or add" : "fill") : "add"
-        } it.`}
-      </p>
+      fillable || missing.length > 0 ? (
+        <p className="self-center text-sm text-slate-600 dark:text-slate-300">
+          {`Tick a game above to ${
+            fillable ? (missing.length > 0 ? "fill or add" : "fill") : "add"
+          } it.`}
+        </p>
+      ) : null
     ) : (
       <button
         type="button"

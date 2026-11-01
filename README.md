@@ -9825,7 +9825,8 @@ footnote or a failed panel reads the same on every League view.
   skipped", "Imported 1 game". A control with nothing to act on is not offered: the full
   table's toggle is not drawn for a board with no teams, where it read "Show all 0 teams",
   and Fill scores with nothing ticked says "Tick a game above to fill it." where its button
-  read "Fill 0 games". Scouting asks "How would this team fare?" whole above its box on
+  read "Fill 0 games", or with nothing that can be ticked (every row one it cannot tell apart,
+  and no game to add) says nothing at all. Scouting asks "How would this team fare?" whole above its box on
   every screen, where a wide one split it around the box. The service worker's word that the
   app is stored for use offline, once on a first visit, is "Ready to use offline." at the top
   of the screen for three seconds (`place: "top"` on the toast), where "App shell cached for
