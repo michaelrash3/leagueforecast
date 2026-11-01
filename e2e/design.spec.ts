@@ -13,8 +13,9 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
  * - No text is smaller than 12px, but for the labels of a phone's tab bar, which are sized with the
  *   screen (`TabNav`).
  * - Nothing is wider than the screen.
- * - On a phone, every button and link Team Rankings draws is a tap area 44 px each way, but for one
- *   inside a run of the page's words (`smallTaps`).
+ * - No two of Team Rankings' buttons and links have their words touch on a line, and on a phone each
+ *   is a tap area 44 px each way, but for one that shares its line with the page's own words
+ *   (`controlProblems`).
  *
  * These read the rendered page and do not depend on how a font is drawn, so they hold in CI as on
  * any machine; a pixel-by-pixel comparison of screenshots would not, between one Chromium and its
@@ -177,46 +178,132 @@ const check = async (page: Page, info: TestInfo, state: string): Promise<Problem
 };
 
 /**
- * Every button and link a phone shows under `selector` that is smaller than 44 px either way, the
- * size a thumb finds without aiming (WCAG's 2.5.5), with its size. Runs in the page. One sized by a
- * line of the page's own words, a club's name in a sentence of The Weekly, is left out, as WCAG's
- * inline exception has it: it is drawn in the line, and the block it sits in says more than it
- * does. So is anything switched off, hidden, or read only by a screen reader.
+ * What is wrong with the buttons and links under `selector`, each said with `where`. Runs in the
+ * page, and passes over anything hidden or read only by a screen reader.
+ *
+ * - Two laid out in one box whose words touch on a line, less than a space apart, read as one word.
+ *   On a wide screen Scouting's What if? and Scout sat inline beside each other under a game with
+ *   nothing between them, and read "What if?Scout". Only one box's: a sheet, or the tab bar, is
+ *   drawn over the page's own controls without being read with them.
+ * - With `taps`, one smaller than 44 px either way, the size a thumb finds without aiming (WCAG's
+ *   2.5.5), with its size, but for one switched off. One that shares its line with the page's own
+ *   words, a club's name in a sentence of The Weekly, is left out, as WCAG's inline exception has
+ *   it: the line sizes it. Words elsewhere in its box do not make it one. Counted by the box's
+ *   words, as it first was, What if? and Scout, each on a line of its own under the opponent's
+ *   name, were let off by the name above them at 48 by 16 and 34 by 16 px.
  */
-const smallTaps = (page: Page, selector: string, where: string) =>
+const controlProblems = (page: Page, selector: string, where: string, taps: boolean) =>
   page
-    .evaluate((selector) => {
-      const words = (element: Element) => (element.textContent ?? "").replace(/\s+/g, " ").trim();
-      /** The nearest box the element's line belongs to: its first ancestor that is no inline. */
-      const block = (element: Element): Element => {
-        for (let at = element.parentElement; at; at = at.parentElement) {
-          const display = getComputedStyle(at).display;
-          if (!display.startsWith("inline") && display !== "contents") return at;
+    .evaluate(
+      ({ selector, taps }) => {
+        const CONTROL = "button, a[href], [role='button'], [role='tab']";
+        /** The box a line belongs to: the first of `start` and its ancestors that is no inline. */
+        const blockOf = (start: Element | null): Element => {
+          for (let at = start; at; at = at.parentElement) {
+            const display = getComputedStyle(at).display;
+            if (!display.startsWith("inline") && display !== "contents") return at;
+          }
+          return document.body;
+        };
+        /** Drawn where an eye sees it, and not clipped to nothing for a screen reader up to `top`. */
+        const seen = (element: Element, top: Element) => {
+          if (!element.checkVisibility({ checkOpacity: true, visibilityProperty: true })) {
+            return false;
+          }
+          for (let at: Element | null = element; at; at = at.parentElement) {
+            if (getComputedStyle(at).clipPath !== "none") return false;
+            if (at === top) break;
+          }
+          return true;
+        };
+        /** The words inside `within` an eye sees that `keep` chooses, each with its boxes. */
+        const shown = (within: Element, keep: (text: Text) => boolean) => {
+          const found: { text: Text; boxes: DOMRect[] }[] = [];
+          const walker = document.createTreeWalker(within, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const text = node as Text;
+            const parent = text.parentElement;
+            if (!text.data.trim() || !parent || !seen(parent, within) || !keep(text)) continue;
+            const range = document.createRange();
+            range.selectNodeContents(text);
+            const boxes = [...range.getClientRects()].filter(
+              (box) => box.width >= 1 && box.height >= 1
+            );
+            if (boxes.length > 0) found.push({ text, boxes });
+          }
+          return found;
+        };
+        /** Where those words are drawn, a box a line. */
+        const lines = (within: Element, keep: (text: Text) => boolean) =>
+          shown(within, keep).flatMap((one) => one.boxes);
+        /** A control as a reader knows it: its label, or the words it shows. */
+        const nameOf = (control: Element) =>
+          (
+            control.getAttribute("aria-label") ??
+            shown(control, () => true)
+              .map((one) => one.text.data)
+              .join("")
+              .replace(/\s+/g, " ")
+              .trim()
+          ).slice(0, 40);
+        /** Two boxes on one line: they overlap by more than half the shorter one's height. */
+        const sameLine = (one: DOMRect, two: DOMRect) =>
+          Math.min(one.bottom, two.bottom) - Math.max(one.top, two.top) >
+          Math.min(one.height, two.height) / 2;
+
+        const found: string[] = [];
+        for (const root of document.querySelectorAll(selector)) {
+          const controls = [...root.querySelectorAll<HTMLElement>(CONTROL)].filter((control) => {
+            const box = control.getBoundingClientRect();
+            return box.width >= 1 && box.height >= 1 && seen(control, control);
+          });
+          const drawn = controls.map((control) => ({
+            control,
+            block: blockOf(control.parentElement),
+            boxes: lines(control, () => true),
+          }));
+          drawn.forEach(({ control, block, boxes }, at) => {
+            for (const other of drawn.slice(at + 1)) {
+              if (other.block !== block) continue;
+              if (control.contains(other.control) || other.control.contains(control)) continue;
+              const gap = Math.min(
+                ...boxes.flatMap((one) =>
+                  other.boxes
+                    .filter((two) => sameLine(one, two))
+                    .map((two) => Math.max(two.left - one.right, one.left - two.right))
+                )
+              );
+              if (gap < 2) {
+                found.push(
+                  `${nameOf(control)} and ${nameOf(other.control)}: ${Math.round(gap)} px apart`
+                );
+              }
+            }
+          });
+          if (!taps) continue;
+          for (const control of controls) {
+            if (control.closest(":disabled, [aria-disabled='true'], [aria-hidden='true']"))
+              continue;
+            const box = control.getBoundingClientRect();
+            if (box.width >= 44 && box.height >= 44) continue;
+            if (getComputedStyle(control).display.startsWith("inline")) {
+              const block = blockOf(control.parentElement);
+              const sentence = lines(
+                block,
+                (text) =>
+                  !text.parentElement?.closest(CONTROL) && blockOf(text.parentElement) === block
+              );
+              if (sentence.some((line) => sameLine(line, box))) continue;
+            }
+            found.push(
+              `${nameOf(control)}: ${Math.round(box.width)} by ${Math.round(box.height)} px`
+            );
+          }
         }
-        return document.body;
-      };
-      const found: string[] = [];
-      for (const root of document.querySelectorAll(selector)) {
-        const controls = root.querySelectorAll<HTMLElement>(
-          "button, a[href], [role='button'], [role='tab']"
-        );
-        for (const control of controls) {
-          if (!control.checkVisibility({ checkOpacity: true, visibilityProperty: true })) continue;
-          if (control.closest(":disabled, [aria-disabled='true'], [aria-hidden='true']")) continue;
-          if (getComputedStyle(control).clipPath !== "none") continue;
-          const box = control.getBoundingClientRect();
-          if (box.width < 1 || box.height < 1) continue;
-          if (box.width >= 44 && box.height >= 44) continue;
-          const inline = getComputedStyle(control).display.startsWith("inline");
-          if (inline && words(block(control)).length > words(control).length) continue;
-          const name = control.getAttribute("aria-label") ?? words(control);
-          found.push(
-            `${name.slice(0, 40)}: ${Math.round(box.width)} by ${Math.round(box.height)} px`
-          );
-        }
-      }
-      return found;
-    }, selector)
+        return found;
+      },
+      { selector, taps }
+    )
     .then((found) => found.map((one) => `${where}: ${one}`));
 
 const tab = (page: Page, name: string) => page.getByRole("tab", { name, exact: true });
@@ -423,7 +510,7 @@ for (const scheme of ["light", "dark"] as const) {
         const phone = size.name === "phone";
         const state = `${size.name}-${scheme}-rankings`;
         const problems = await check(page, info, state);
-        const taps = phone ? await smallTaps(page, "#main-content", state) : [];
+        const controls = await controlProblems(page, "#main-content", state, phone);
 
         // The full table, cut to one state's clubs, where each row also carries its place on the
         // whole board in grey.
@@ -431,7 +518,7 @@ for (const scheme of ["light", "dark"] as const) {
         await page.locator("#scout-state-filter").selectOption("KY");
         await expect(page.getByText(/Showing 6 of 12 teams\./)).toBeVisible();
         problems.push(...(await check(page, info, `${size.name}-${scheme}-full-table`)));
-        if (phone) taps.push(...(await smallTaps(page, "#main-content", "full table")));
+        controls.push(...(await controlProblems(page, "#main-content", "full table", phone)));
         await page.getByRole("button", { name: "Hide the full table" }).click();
 
         // The club sheet, from the card's name.
@@ -439,19 +526,20 @@ for (const scheme of ["light", "dark"] as const) {
         const sheet = page.getByRole("dialog", { name: "Aces" });
         await expect(sheet.getByRole("region", { name: "Aces" })).toBeVisible();
         problems.push(...(await check(page, info, `${size.name}-${scheme}-club`)));
-        if (phone) taps.push(...(await smallTaps(page, "#main-content", "club")));
+        controls.push(...(await controlProblems(page, "#main-content", "club", phone)));
         await sheet.getByRole("button", { name: "Close" }).click();
         await expect(sheet).toHaveCount(0);
 
         for (const section of ["Games", "Scouting", "Import", "Archive", "Setup"]) {
           await openSection(page, section);
           problems.push(...(await check(page, info, `${size.name}-${scheme}-${section}`)));
-          // The sections a parent reads at the field; Import, Archive and Setup are the owner's.
-          if (phone && (section === "Games" || section === "Scouting"))
-            taps.push(...(await smallTaps(page, "#main-content", section)));
+          // Taps in the sections a parent reads at the field; Import, Archive and Setup are the
+          // owner's.
+          const field = section === "Games" || section === "Scouting";
+          controls.push(...(await controlProblems(page, "#main-content", section, phone && field)));
         }
         expect(problems).toEqual([]);
-        expect(taps).toEqual([]);
+        expect(controls).toEqual([]);
       });
     });
   }

@@ -1,6 +1,7 @@
 import { useContext, useState } from "react";
 
 import type { AiProvider, LeagueSummaryErrorReason } from "../lib/leagueSummary";
+import { tapArea } from "../styles/tokens";
 import { AiHealthCheck } from "./aiHealthCheck";
 
 /**
@@ -101,10 +102,11 @@ export function AiStoryPanel({
             {text}
           </p>
         )}
+        {/* A thumb's 44 px on a phone (`tapArea`), where the pill alone was 24 px tall. */}
         <button
           type="button"
           onClick={onAsk}
-          className="mt-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-black uppercase tracking-wide text-blue-700 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-900/60"
+          className={`${tapArea} mt-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-black uppercase tracking-wide text-blue-700 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-900/60`}
         >
           Write this up with AI
         </button>

@@ -64,6 +64,8 @@ export const tab = (active: boolean, size: "regular" | "fill" = "regular") =>
  * Close, Got it, "Open on 10U by default"), measured at 390 px in Chromium. From `sm` up a pointer
  * aims, and the control keeps its own size, so a wide screen's lines are not spread out for it.
  * Only the size: a button centres what it holds, so nothing here fights a control's own layout.
+ * Nor does it stand in for one: a control on a line of its own keeps its `block`. What if? and
+ * Scout lost theirs when this was added, and a wide screen drew them inline as "What if?Scout".
  */
 export const tapArea = "min-h-11 min-w-11 sm:min-h-0 sm:min-w-0";
 

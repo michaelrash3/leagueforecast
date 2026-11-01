@@ -751,7 +751,11 @@ const declineNote = (decline: WhatIfDeclined): string | null => {
   return null;
 };
 
-/** The way into the answer, under the opponent's name. */
+/**
+ * The way into the answer, under the opponent's name, on a line of its own (`block`) as Scout is.
+ * Inline, the two sat side by side on a wide screen with nothing between them and read "What
+ * if?Scout". A button set as a block is still only as wide as its words.
+ */
 function WhatIfTrigger({
   gameId,
   opponentName,
@@ -779,7 +783,7 @@ function WhatIfTrigger({
       onClick={() => onToggle(gameId)}
       aria-expanded={open}
       aria-controls={`what-if-${gameId}`}
-      className={`${tapArea} mt-1 text-xs font-semibold text-slate-600 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white`}
+      className={`${tapArea} mt-1 block text-xs font-semibold text-slate-600 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white`}
     >
       {open ? "Hide" : "What if?"}
       <span className="sr-only">
@@ -936,14 +940,14 @@ function WhatIfPanel({
   );
 }
 
-/** Scout, beside a game still to play: its opponent into Compare with. */
+/** Scout, beside a game still to play: its opponent into Compare with, on a line of its own. */
 export function ScoutButton({ name, onScout }: { name: string; onScout: () => void }) {
   return (
     <button
       type="button"
       onClick={onScout}
       aria-label={`Scout ${name}`}
-      className={`${tapArea} mt-1 text-xs font-bold text-blue-600 hover:underline dark:text-blue-400`}
+      className={`${tapArea} mt-1 block text-xs font-bold text-blue-600 hover:underline dark:text-blue-400`}
     >
       Scout
     </button>

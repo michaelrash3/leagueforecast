@@ -9809,8 +9809,10 @@ footnote or a failed panel reads the same on every League view.
 - **A thumb's tap area on a phone** (`tapArea`): Team Rankings' buttons and links are 44 px
   each way below `sm`, where its main ones were text links 16 to 26 px tall (Scout 34 by 16,
   What if? 48 by 16, the club sheet's Close 33 by 16, Got it 49 by 26, "Open on 10U by
-  default" 136 by 16, measured at 390 px). From `sm` up a pointer aims and each keeps its own
-  size. A board's row is one button, the whole row opening its club where only its name did,
+  default" 136 by 16, measured at 390 px; Scouting's "Write this up with AI" pill 172 by 24 at
+  360 px). From `sm` up a pointer aims and each keeps its own size, and its own line: What if?
+  and Scout are each set on a line of their own under a game's opponent, since inline, side by
+  side, a wide screen read them as "What if?Scout". A board's row is one button, the whole row opening its club where only its name did,
   a line 20 px tall: named by the club, described by the rest of the row, and reached by the
   keyboard once a row. A club's name inside a sentence of The Weekly is sized by its line, as
   WCAG's inline exception allows.
@@ -9846,10 +9848,17 @@ footnote or a failed panel reads the same on every League view.
     and after it fails to; and Team Rankings at the same sizes on a pool seeded as an
     older version kept it, on every section, a club's sheet, the full table cut to one
     state, and the My Team card telling what moved since a visit two days before, its
-    clock held so each run draws the same board. On the phone it also finds every button and link Team Rankings draws under
-    44 px either way, but for one inside a sentence (`smallTaps`). With the star put back
-    to amber-500 the contrast check fails at 2.13:1, and with "Open on 10U by default"
-    back to a text link the tap check fails at 136 by 16 px. Every visible run of text is measured against what is
+    clock held so each run draws the same board. At every size it also finds any two of
+    Team Rankings' buttons and links laid out together whose words touch on a line, less
+    than a space apart, and on the phone every one under 44 px either way, but for one
+    that shares its line with the page's own words, as a club's name in a sentence does
+    (`controlProblems`). Words elsewhere in a control's box do not let it off: counted
+    that way, as the check first was, the opponent's name above What if? and Scout let
+    both off, and with their tap area taken away it still passed. With the star put back
+    to amber-500 the contrast check fails at 2.13:1; with "Open on 10U by default" back
+    to a text link the tap check fails at 136 by 16 px; with What if? and Scout back to
+    inline text links it fails at 48 by 16 and 34 by 16 px on the phone and at "What if?
+    and Scout Hawks: 0 px apart" on the tablet and the desktop. Every visible run of text is measured against what is
     actually painted behind it (see-through layers blended down to the first solid
     one), no text may be under 12px, and nothing may be wider than the screen. On the
     2.4 build it found 10 or 11px text in about 40 places on League's pages and a
