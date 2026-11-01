@@ -6346,6 +6346,21 @@ leaves out the clubs taken off. The report's lists of the clubs holding the most
 games are never asked for, and a count that fails says so on its own line and
 leaves the night's colour alone.
 
+Once the views are out, it says how the clubs are known (`clubCensus.ts`): how many
+clubs the pool holds, how many carry one GameChanger id, how many several (squads and
+seasons folded together), and how many none, the clubs known only by name and the
+bracket slots apart; then the League Standings picks of a club, how many keep a
+GameChanger id beside them (`TeamBase.scoutGcTeamId`) and how many do not, and of
+those, how many could take one at their season's next save, the club picked carrying
+exactly one ("How the two modes connect"). A club's id is the pool's own, and Start
+again mints every one afresh, where GameChanger's is never another team's, so these
+say how much of what is remembered of clubs can be followed by it. It reads nothing
+of its own: the pool is the store's, which the views were built from, and the seasons
+are the documents the run's own reads already brought back (`tapLeagueDocs`), so it
+costs no read. Counts only, as every line of the log is. What devices keep of clubs
+(a watch list, saved fields, a look at My Team, a League team's club's place) never
+leaves them and is not counted.
+
 The memory the run holds is said after each step as the next begins
 (`stageMemory`, `memoryUse.ts`): after loading the copy, asking GameChanger,
 filing, tidying and sweeping, saving, publishing the views and, on the night it

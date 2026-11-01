@@ -33,6 +33,12 @@ import { appendFileSync } from "node:fs";
 import type { CloudStore } from "../src/lib/cloud/cloudEngine.ts";
 import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
 import { heldWord, radiusWords } from "../src/lib/cloud/blastRadius.ts";
+import {
+  censusLines,
+  clubCensus,
+  leagueTeamsOf,
+  tapLeagueDocs,
+} from "../src/lib/cloud/clubCensus.ts";
 import { heardNothing, runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.ts";
 import { ingestWord, ingestWords } from "../src/lib/cloud/ingestCanary.ts";
 import { memoryUseOf, memoryWords, type MemoryUse } from "../src/lib/cloud/memoryUse.ts";
@@ -190,6 +196,9 @@ const main = async (): Promise<void> => {
   const opened = openStores(key, live);
   readLedger = opened.readLedger;
   readRebuildJob = opened.readRebuildJob;
+  // The seasons' documents as the run's own reads bring them, kept for the census of how the
+  // clubs are known (`tapLeagueDocs`), which then reads none of its own.
+  const leagueDocs = tapLeagueDocs(opened.leagueDocs);
   const dry = live ? null : dryRun(opened.copy);
   console.log(
     `${live ? "Live" : "Dry run (nothing is saved)"}: the Refresh rota${
@@ -260,7 +269,7 @@ const main = async (): Promise<void> => {
         onStage,
         // The import pulls again, and the tidy keeps, every club a League Standings team links,
         // read as the boards read League.
-        leagueDocs: opened.leagueDocs,
+        leagueDocs: leagueDocs.list,
         // A save that would take too much of a year away is held for a person to look at
         // (`blastRadius.ts`), as a dry run would have shown it.
         cap: true,
@@ -336,7 +345,7 @@ const main = async (): Promise<void> => {
         manifest: result.manifest,
         today: todayIsoDay(),
         now: () => new Date().toISOString(),
-        leagueDocs: opened.leagueDocs,
+        leagueDocs: leagueDocs.list,
       });
       published = views;
       tellViews(views, dry !== null);
@@ -350,6 +359,15 @@ const main = async (): Promise<void> => {
       process.exitCode = 1;
     }
     memory.after("publishing the views");
+    // How the clubs are known, off the pool the views were built from and the seasons the publish
+    // read (`clubCensus.ts`): counts only, and said and never judged, as the stand-ins are.
+    try {
+      const docs = leagueDocs.last();
+      for (const line of censusLines(clubCensus(loadScoutTeams(), docs && leagueTeamsOf(docs))))
+        console.log(line);
+    } catch (error) {
+      console.log(`  The clubs were not counted: ${failureWords(error)}`);
+    }
   }
   // Once a week, as of its Monday, where a rating starts, re-measured on the pool the boards were
   // just built from, League as the publish read it (`remeasureAfterPublish`).
