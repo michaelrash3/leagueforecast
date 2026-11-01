@@ -343,6 +343,7 @@ export default function LiveGames({
       showToast={(message) => say(message)}
       loggedGames={shownGames}
       gamesWindow={gamesWindow}
+      today={today}
       keep={NOTHING_KEPT}
       teamNameById={names}
       editingGameId={editingGameId}

@@ -12,9 +12,10 @@ import {
 } from "../../test/teamRankingsHarness";
 
 /*
- * The Games tab lists today's games, and the rest one click away. The clock is pinned three days
- * after the newest pull, so the list is the reader's day and not the pull's: one measured from the
- * pull would show the game of 29 September and hide both of 2 October.
+ * The Games tab lists today's games, and the rest one click away; a day with none opens on the
+ * next day that has them. The clock is pinned three days after the newest pull, so the list is the
+ * reader's day and not the pull's: one measured from the pull would show the game of 29 September
+ * and hide both of 2 October.
  */
 const TODAY = "2026-10-02T12:00:00";
 const PULLED = new Date(2026, 8, 29, 12).toISOString();
@@ -81,9 +82,10 @@ describe("the Games tab's games of today", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderTeamRankings(pool());
     await user.click(screen.getByRole("button", { name: "Show all 7 games" }));
+    // The two still to play first, soonest first, then the rest newest first.
     expect(listedDates()).toEqual([
-      "2026-10-03",
       "2026-10-02",
+      "2026-10-03",
       "2026-10-02",
       "2026-09-29",
       "2026-09-12",
@@ -123,7 +125,7 @@ describe("the Games tab's games of today", () => {
     expect(loadScoutGames().some((entry) => entry.date === "2026-08-15")).toBe(true);
   });
 
-  it("opens another page on today again, whatever was shown on the last", async () => {
+  it("opens another page on its own day again, whatever was shown on the last", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderTeamRankings(pool());
     await user.click(screen.getByRole("button", { name: "Show all 7 games" }));
@@ -132,9 +134,34 @@ describe("the Games tab's games of today", () => {
         name: /^11U/,
       })
     );
-    expect(listedDates()).toEqual([]);
-    expect(screen.getByText("No games today (Fri, Oct 2).")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show all 1 game" })).toBeInTheDocument();
+    // Its one game is behind it and none is to come, so it opens on that game's day.
+    expect(listedDates()).toEqual(["2026-09-01"]);
+    expect(screen.getByTestId("games-window")).toHaveTextContent(
+      "No games today (Fri, Oct 2). The last games were on Tue, Sep 1."
+    );
+    // Every game it has is on the list, so there is no more to show.
+    expect(screen.queryByRole("button", { name: /^Show all/ })).not.toBeInTheDocument();
+  });
+
+  it("opens a day with no games on the next day that has them, a step from the last", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const quiet = pool();
+    // Today's two games taken off, so today has none.
+    quiet.games = quiet.games.filter((one) => one.date !== "2026-10-02");
+    renderTeamRankings(quiet);
+    expect(listedDates()).toEqual(["2026-10-03"]);
+    expect(screen.getByTestId("games-window")).toHaveTextContent(
+      "No games today (Fri, Oct 2). The next games are on Sat, Oct 3. 4 more are hidden (1 undated, 1 still need a score)."
+    );
+
+    await user.click(screen.getByRole("button", { name: "Last game day: Tue, Sep 29" }));
+    expect(listedDates()).toEqual(["2026-09-29"]);
+    expect(screen.getByTestId("games-window")).toHaveTextContent(
+      "No games today (Fri, Oct 2). The last games were on Tue, Sep 29."
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next game day: Sat, Oct 3" }));
+    expect(listedDates()).toEqual(["2026-10-03"]);
   });
 
   it("shows a finished season its own last day of games", () => {

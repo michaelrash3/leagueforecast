@@ -2666,6 +2666,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               showToast={showToast}
               loggedGames={ageGroupManualGames}
               gamesWindow={gamesWindow}
+              today={today}
               keep={keptOnList}
               teamNameById={teamNameById}
               editingGameId={editingGameId}

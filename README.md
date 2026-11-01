@@ -2286,10 +2286,22 @@ and on 2 October 2026 the user cut it to today's games. A squad year today is
 not in has no today to show: a finished season lists its last day with games,
 and one not yet begun its first, so neither opens on an empty list.
 
+**A day with no games.** Most weekdays in season have none, and the tab opened on
+"No games today": a parent looking on a Friday night for Saturday's games had to
+go to Show all. Since 1 November 2026 a day in season with no games opens on the
+next day that has them, and says so ("No games today (Sun, Nov 1). The next games
+are on Sat, Nov 7."), with **Last game day** a step back to the last day that had
+them and **Next game day** forward again; with none still to come it opens on the
+last. A day with games is listed alone, as the user ruled on 2 October, and a
+season finished or not begun opens as above.
+
 Nothing is out of reach. A line under the heading says how many games the day
 leaves out, how many of those have no date and how many were due earlier and
-still have no score, and **Show all** lists every one: an old game is still
-scored from here. A score is two whole numbers of runs (`typedScores`); a Save
+still have no score, and **Show all** lists every one: the games still to play
+first, soonest first by day and start, then the rest newest first, the undated
+last (`everyGameListed`). Newest first throughout, the farthest-off game led the
+list, and on a seeded page of 2,693 games the next day's first game came 497th.
+An old game is still scored from here. A score is two whole numbers of runs (`typedScores`); a Save
 pressed with a box left empty says so, where until October 2026 it recorded 0–0. A game just added stays on the list whatever its date, so it
 does not vanish the moment it goes in. On the pool of 29 September 2026 the 12U
 page of 2027 held 45,107 games: 326 of them were that day's, against 11,348
