@@ -12,6 +12,7 @@
  * assembly. `teamRankings.ts` re-exports this, so nothing that imports from there had to change.
  */
 import { ageSpanFromName } from "../gameChangerApi";
+import { rememberUpTo } from "../rememberUpTo";
 import { createTeamId } from "../sim";
 import {
   mintedIds,
@@ -92,8 +93,18 @@ export const cleanTeamName = (name: string): string => {
  * The key two names are compared by: age-label-free and case-insensitive. Exported so callers that
  * need to look a name up in the roster (the screenshot importer, for one) match names exactly the
  * way `resolveOrCreateTeam` does, instead of re-deriving the rule.
+ *
+ * Remembered by name, up to half a million names (`rememberUpTo`). The League pass, the bridge to
+ * League Standings and the tidy clean the same names on every pass and every open, a key is several
+ * passes of regular expressions, and a team object's own key (`nameKeyOf`) is only as good as the
+ * object, which a pass replaces. On the seeded full-size pool (`scripts/poolFixture.ts` at 12,000
+ * clubs a page: 121,204 clubs, 344,553 games) a tidy asked for 2,465,586 keys of 101,384 names;
+ * remembered, the League pass over the three squad years went from about 2.8 s to 2.1 s and the
+ * bridge for the three seasons from 2.7 s to 1.2 s, every answer the same to the digit
+ * (`rememberedNames.test.ts`). Those 101,384 names hold about 5 MB in Node; the bound is five times
+ * as many, so a page, worker or server open for days stops at a few tens of MB.
  */
-export const teamNameKey = (name: string) =>
+export const teamNameKey = rememberUpTo(500_000, (name) =>
   cleanTeamName(name)
     .toLowerCase()
     // Punctuation between words is spacing, not spelling: "Wheaton Warriors - Grey", "Wheaton
@@ -103,7 +114,8 @@ export const teamNameKey = (name: string) =>
     .replace(/[\u2018\u2019`]/g, "'")
     .replace(/\s*[-\u2013\u2014/]+\s*/g, " ")
     .replace(/\s{2,}/g, " ")
-    .trim();
+    .trim()
+);
 
 /**
  * The key two GameChanger *listings* are compared by when asking whether they are one squad: the

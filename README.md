@@ -3666,17 +3666,21 @@ So the forecast's fit counts each game's margin up to 20 runs (`FORECAST_RUN_CAP
 whatever the league's setting — twenty rather than none so a mistyped 91-1 is not a
 ninety-run win — and the rating pulls at 0.43 a run. The standings, their
 run-differential tiebreaker and the per-game stats model keep the league's cap. The
-Dashboard's matchup odds were refitted on the same games: a spread of 4.7 runs where
-it was 2.8 (log loss 0.6254 to 0.6188 with results), and 3.95 for machine and coach
-pitch, which is what the 8U pages fitted.
+prediction engine's odds curve, the Dashboard's matchup odds when this was measured,
+was refitted on the same games: a spread of 4.7 runs where it was 2.8 (log loss
+0.6254 to 0.6188 with results), and 3.95 for machine and coach pitch, which is what
+the 8U pages fitted. The Dashboard shows the per-game model's chance now (see "Why
+the forecast says what it does"); the curve's own chance is read only by a card's
+"Why" panel, to say when the margin and the chance shown part ways, and its spread
+is how widely a simulated game's margin is drawn.
 
 ### Ratings
 
 A rating estimates how many runs a team beats an average opponent by, adjusted
 for opponent strength, capped at ±12 so one blowout cannot run away with a season.
 Only completed games count; scheduled ones exist so a future opponent can be
-logged early. Win probabilities are clamped to 8–92% — youth baseball has no
-locks.
+logged early. A matchup's win probabilities (`predictMatchup`) are clamped to
+8–92% — youth baseball has no locks.
 
 Until teams share opponents, directly or through a chain, a rating is close to a
 plain run differential.
@@ -4453,9 +4457,18 @@ made for.
 ## Why the forecast says what it does
 
 Each of the Dashboard's upcoming predictions has a **Why Aces at 64%?** button (2.8). The
-win chance is read off a projected margin, and the prediction engine now gives that margin
-as data with every forecast (`LeaguePrediction.explanation`), as the sum of its parts in
-runs, which add up to it exactly:
+chance is the one every League screen gives the game: the per-game model's (`predictGame`),
+which the Schedule's pick, the Our team card, the team drawer and the Gold odds read, and so
+is the pick (**Projected Winner**, and **Pick:** on a phone's line). In a toss-up, both sides at
+50%, the Projected Winner is still the side the Schedule's pick names, the away side from 50% up
+by that model's rule (a phone's line says **Toss-up**), or **Pending data** while the engine has
+nothing to forecast from. The list used to show the prediction engine's own chance, a logistic
+over its margin held to 8–92%, beside it: one game could be 43% on the Our team card and the
+other side's pick at 54% in the list, and in a close game the two could back different sides.
+The engine's chance is now shown nowhere, and the card gives the engine's projected margin
+beside the pick only where the two lean the same way. What the panel explains is that margin,
+which the engine gives as data with every forecast (`LeaguePrediction.explanation`), as the sum
+of its parts in runs, which add up to it exactly:
 
 - **Results**: each side's average margin in the games its rating was fitted from (league
   and Team Rankings, each counted up to `FORECAST_RUN_CAP`), shrunk toward average by the
@@ -4479,17 +4492,20 @@ Beside them is what the margin does not count again or at all: recent form (alre
 results), runs scored and allowed in league games, the Team Rankings results behind each
 rating, how many games each rating rests on, each side's newest result and how long before
 the game it was (or after, or on the same day: a game whose date has passed with no score is
-still forecast, and the sides may have played since), and what the per-game model behind the
-Schedule's odds and the Gold chances makes of the same game (`forecastExplanation.ts`).
+still forecast, and the sides may have played since), and the per-game model the chance comes
+from, which reads runs scored and allowed beside the rating (`forecastExplanation.ts`): the
+reason given for its pick where no part of the margin leans that way.
 
 The panel leads with the strongest reason for each side (a part of the margin where there is
 one), then the margin as its parts ("Aces by 2.3 runs, from results +3.1, opponents faced
 −1.2, head-to-head +0.4"), with every factor on request. **What could change it** names a
 side with fewer than three games behind its rating, a newest result more than three weeks
 before the game, Team Rankings results from a club linked by a name more than one club
-carries, a rating and raw scoring that point different ways, and the two models disagreeing
-(backing different sides, or 15 points apart). Five numbers the page shows are said apart,
-since they are easily taken for one another: the **win chance** of this game, its **range**
+carries, a rating and raw scoring that point different ways, and the margin and the chance
+parting ways: the margin backing the other side, or the chance the engine reads off it 15
+points from the one shown, said as closer or more one-sided without that second number. A
+chance held at the per-game model's 96% (or 4%) says so. Five numbers the page shows are said
+apart, since they are easily taken for one another: the **win chance** of this game, its **range**
 (below), the model's **confidence** (how much it has to go on, not a second chance of
 winning), **Gold %** (the chance of finishing above the cut line over the season), and the
 **accuracy so far** (the season's finished games replayed one at a time, each called from the
@@ -4841,7 +4857,8 @@ moved for the team followed since the last visit, counting what was entered on t
 which the list above never tells (`src/lib/sinceLastLook.ts`, `SinceLastLook.tsx`): its place and
 Gold odds then and now, the numbers running from one to the other (shown at once where motion is
 turned down); each result since, with the chance the team was given while the game was still to
-play; the upset of the stretch, the new final whose winner had been given the least chance, under
+play (the one the Dashboard showed, the per-game model's, as every League screen gives it); the
+upset of the stretch, the new final whose winner had been given the least chance, under
 one in two; and who passed the team and whom it passed. With no team followed it gives the new
 results' count, the upset and the biggest climb. The card stands in the list's place while it is
 up, and **Got it** puts both away as they stood when the card came up: the card is what the season
@@ -9474,6 +9491,36 @@ shared handlers with recorded provider responses and require no deployed credent
 - The collapse of league games and their pulled copies keys only rows between
   clubs a league row names; on the 18:40 pool it went from about 1.1 s to 30 ms
   with no league laid over it, and dropped the same rows with one.
+- **Cleaned names are remembered.** Every pass that compares two clubs' names
+  cleans each to its key first (`teamNameKey`: the age label, the asides and the
+  punctuation off, several regular expressions a name), and the League pass, the
+  bridge to League Standings and the tidy clean the same names on every pass and
+  every open. The key is now remembered by name (`rememberUpTo`), up to half a
+  million names, past which all are let go and it starts again. And the link
+  between the two halves (`linkLeagueTeams`), which runs for every League
+  Standings season, keeps the roster's clubs by id and each page's places in a
+  year's games against the arrays it is handed, where it walked the whole roster
+  and the whole year each time. An array can stand for what it holds because the
+  app replaces a roster or a list of games when it changes and never edits one in
+  place: the import's fold edits only its own copies, and hands them on once it
+  has finished with them.
+  - **Measured** on the seeded full-size pool (`scripts/poolFixture.ts` at 12,000
+    clubs a page: 121,204 clubs, 344,553 games), in Node, the median of three runs
+    each taken in turn with the code before: the League pass over the three squad
+    years (`deriveAllKnown`) went from 2.8 s to 2.1 s the first time and from
+    2.6 s to 1.6 s asked again; the bridge for the three seasons
+    (`leagueScoutBridge`) from 2.7 s to 1.0 s, and from 2.6 s to 1.1 s; the tidy
+    from 8.7 s to 7.1 s at 40,404 clubs and from 28.9 s to 26.1 s at full size. A
+    full-size tidy asks for 2,465,586 keys of 101,384 names, which hold about
+    5 MB; the roster's index holds about 12 MB and a year's games' 2 MB, as long
+    as their arrays are held.
+  - **The answers did not move.** `rememberedNames.test.ts` pins the League pass,
+    the bridge (asked twice) and the tidy on the seeded fixture, and the keys of
+    its 3,034 names, each recorded before the change; every full-size answer
+    above hashed the same before and after.
+  - **Guarded** there too: a roster or a list of games that replaces another is
+    read afresh, and a season two pages claim gets its games in the list's
+    order; `rememberUpTo.test.ts` holds the memo to its bound.
 - The Monte Carlo loop copies the league once per simulated season and writes
   results onto that copy, rather than copying every team per game; on twelve
   teams and sixty games that took 220 seasons from 195 ms to 7 ms. It stops

@@ -790,6 +790,13 @@ const matchupWinEdge = ({ away, home, leagueK6, rawMargin, aggression }: Matchup
   return weightedEdge * sampleReliability * aggressionInfluence;
 };
 
+/**
+ * The nearest the per-game model's chance comes to certain, either way: no game at this level is a
+ * lock. Named for the Dashboard's "Why" panel, which says when a chance it shows is held there.
+ */
+export const GAME_CHANCE_FLOOR = 0.04;
+export const GAME_CHANCE_CEILING = 0.96;
+
 export const calibrateAwayWinPct = (
   rawPct: number,
   awayGames: number,
@@ -802,7 +809,7 @@ export const calibrateAwayWinPct = (
   const shrink = 0.58 + reliability * 0.28;
   const aggressionInfluence = clamp(1 + (aggression - 1) * 0.12, 0.9, 1.1);
   const calibrated = 1 / (1 + Math.exp(-logit(clipped) * shrink * aggressionInfluence));
-  return clamp(calibrated, 0.04, 0.96);
+  return clamp(calibrated, GAME_CHANCE_FLOOR, GAME_CHANCE_CEILING);
 };
 
 const playerPitchEdge = (away: Team, home: Team) => {

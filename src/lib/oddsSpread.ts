@@ -1,12 +1,15 @@
 /*
  * The odds curve's spread on its own, so that the simulators (`sim.ts`, in the forecast's worker)
- * can read the same number the Dashboard's matchup odds are drawn on without taking the prediction
+ * can read the same number the prediction engine's chance is drawn on without taking the prediction
  * engine into the worker with it.
  */
 
 /**
- * The spread of the Dashboard's matchup odds (`predictionFor`): the projected margin that moves a
- * matchup from even to about 73%.
+ * The spread of the prediction engine's odds curve (`predictionFor`): the projected margin that
+ * moves a matchup from even to about 73%. It drew the Dashboard's matchup odds when it was fitted;
+ * the Dashboard shows the per-game model's chance now (`predictGame`), and the curve's own is read
+ * only by a card's "Why" panel, to say when the margin and the chance shown part ways. The
+ * simulators draw a game's margin on the same spread, read as a normal curve (`seasonDraws`).
  *
  * It was 2.8 runs, fitted to ratings capped at the league's 8. Ratings capped at
  * `FORECAST_RUN_CAP` stretch further, and on the same pseudo-leagues the spread that fitted best

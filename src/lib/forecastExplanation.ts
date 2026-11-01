@@ -1,17 +1,20 @@
 import { formatGameDate } from "./date";
 import type { LeaguePrediction, MatchupEvidence } from "./predictionEngine";
+import { GAME_CHANCE_CEILING, GAME_CHANCE_FLOOR } from "./sim";
 
 /**
- * Why the Dashboard's matchup odds came out as they did (2.8), read from the account the
- * prediction engine gives with each forecast (`LeaguePrediction.explanation`).
+ * Why a Dashboard forecast came out as it did (2.8), read from the account the prediction engine
+ * gives with each forecast (`LeaguePrediction.explanation`).
  *
- * The win chance is read off the projected margin, and the margin is the sum of its parts: each
- * side's own results, the allowance for the opponents each faced, their meetings, home field and
- * the cap. Those are the factors in the margin, each with the runs it gives one side, and they add
- * up to it. Beside them is what the margin does not count again or at all: recent form (already in
- * the results), scoring and runs allowed, the Team Rankings results behind the ratings, how many
- * games each rating rests on, how recent they are, and what the per-game model behind the
- * Schedule's odds makes of the same game. What could move the forecast is said apart.
+ * The win chance shown is the per-game model's (`predictGame`), the one every League screen gives
+ * a game; the engine's own, read off its margin, is shown nowhere (sweep item 29). What is told is
+ * the engine's projected margin, the sum of its parts: each side's own results, the allowance for
+ * the opponents each faced, their meetings, home field and the cap. Those are the factors in the
+ * margin, each with the runs it gives one side, and they add up to it. Beside them is what the
+ * margin does not count again or at all: recent form (already in the results), scoring and runs
+ * allowed, the Team Rankings results behind the ratings, how many games each rating rests on, how
+ * recent they are, and the per-game model the chance comes from. What could move the forecast is
+ * said apart, a margin and a chance that part ways among it.
  */
 
 export type Side = "teamA" | "teamB";
@@ -60,14 +63,17 @@ export type ForecastExplanation = {
   factors: Factor[];
   /** What could move the forecast, in words. */
   sensitivities: string[];
-  /** Whether the chance was held at its floor or ceiling (8% and 92%). */
+  /** Whether the chance was held at the per-game model's floor or ceiling (4% and 96%). */
   probabilityCapped: boolean;
 };
 
 export type ExplainOptions = {
   nameOf: (id: string) => string;
-  /** The per-game model's chance that team A wins: the Schedule's odds for the same game. */
-  gameModelChance?: number;
+  /**
+   * Team A's chance of winning as the page shows it: the per-game model's (`predictGame`), which
+   * the Schedule's pick, the Our team card and the Gold odds read too.
+   */
+  chanceA: number;
   /** League teams whose Team Rankings link is a guess among clubs of one name. */
   ambiguous?: ReadonlySet<string>;
 };
@@ -81,7 +87,10 @@ const SCORING_GAP = 0.5;
 const THIN_GAMES = 3;
 /** More days than this from a side's newest result to the game, and it may not show them now. */
 const STALE_DAYS = 21;
-/** The two models disagree when they back different sides, or differ by this much. */
+/**
+ * The margin and the chance disagree when they back different sides, or when the chance the
+ * engine reads off the margin is this far from the one shown.
+ */
 const MODELS_APART = 0.15;
 
 const MINUS = "−";
@@ -112,7 +121,7 @@ const CONTEXT_ORDER: readonly FactorKey[] = ["form", "offense", "defense", "game
  */
 export const explainForecast = (
   prediction: LeaguePrediction,
-  { nameOf, gameModelChance, ambiguous }: ExplainOptions
+  { nameOf, chanceA, ambiguous }: ExplainOptions
 ): ForecastExplanation | null => {
   const explanation = prediction.explanation;
   if (!explanation) return null;
@@ -120,10 +129,8 @@ export const explainForecast = (
   const side: Record<Side, MatchupEvidence> = { teamA, teamB };
   const ids: Record<Side, string> = { teamA: prediction.teamAId, teamB: prediction.teamBId };
   const name: Record<Side, string> = { teamA: nameOf(ids.teamA), teamB: nameOf(ids.teamB) };
-  const chance = {
-    teamA: prediction.winProbability.teamA,
-    teamB: prediction.winProbability.teamB,
-  };
+  const chance = { teamA: chanceA, teamB: 1 - chanceA };
+  // Each side's own share rounded, as the card and every other League screen round it.
   const shownA = Math.round(chance.teamA * 100);
   const shownB = Math.round(chance.teamB * 100);
   const favorite: Side | null = shownA > shownB ? "teamA" : shownB > shownA ? "teamB" : null;
@@ -266,15 +273,15 @@ export const explainForecast = (
       inMargin: false,
     }
   );
-  if (gameModelChance !== undefined) {
-    context.push({
-      key: "gameModel",
-      label: "The Schedule's game odds",
-      favors: lean(gameModelChance - 0.5, 0.005),
-      text: `The per-game model behind the Schedule's odds and the Gold chances reads runs scored and allowed beside the rating, and gives ${name.teamA} ${Math.round(gameModelChance * 100)}% and ${name.teamB} ${Math.round((1 - gameModelChance) * 100)}%.`,
-      inMargin: false,
-    });
-  }
+  // Where the chance comes from, and so the reason for its favorite where no part of the margin
+  // is: in a close game the margin can lean to one side and the per-game model to the other.
+  context.push({
+    key: "gameModel",
+    label: "The per-game model",
+    favors: lean(chanceA - 0.5, 0.005),
+    text: `The win chance is the per-game model's, the one behind the Schedule's odds and the Gold chances: it reads runs scored and allowed beside the rating, and gives ${name.teamA} ${shownA}% and ${name.teamB} ${shownB}%.`,
+    inMargin: false,
+  });
 
   const strongestFor = (one: Side): Factor | null =>
     inMargin.find((factor) => factor.favors === one) ??
@@ -325,15 +332,21 @@ export const explainForecast = (
       );
     }
   }
-  if (gameModelChance !== undefined) {
-    const backs = lean(gameModelChance - 0.5, 0.005);
-    if (
-      (favorite !== null && backs !== null && backs !== favorite) ||
-      Math.abs(gameModelChance - chance.teamA) >= MODELS_APART
-    )
-      sensitivities.push(
-        `The Schedule's game odds give ${name.teamA} ${Math.round(gameModelChance * 100)}%, against ${shownA}% here: the two ways of reading the season disagree on this game.`
-      );
+  /*
+   * The margin above is the rating's reading of the game and the chance is the per-game model's.
+   * Where they part ways it is said, without the chance the engine reads off its margin: that is
+   * shown nowhere, and a second number here would be the two chances again.
+   */
+  const leader = lean(margin, EVEN_RUNS);
+  if (favorite !== null && leader !== null && leader !== favorite) {
+    sensitivities.push(
+      `The projected margin backs ${name[leader]}, but the per-game model, which also reads runs scored and allowed, makes ${name[favorite]} the pick: the two ways of reading the season disagree on this game.`
+    );
+  } else if (Math.abs(prediction.winProbability.teamA - chanceA) >= MODELS_APART) {
+    const closer = Math.abs(prediction.winProbability.teamA - 0.5) < Math.abs(chanceA - 0.5);
+    sensitivities.push(
+      `The projected margin alone reads this game as ${closer ? "closer" : "more one-sided"} than the per-game model does, which also reads runs scored and allowed: the two ways of reading the season disagree on how sure to be.`
+    );
   }
 
   return {
@@ -343,6 +356,6 @@ export const explainForecast = (
     strongest: { teamA: strongestFor("teamA"), teamB: strongestFor("teamB") },
     factors: [...inMargin, ...context],
     sensitivities,
-    probabilityCapped: explanation.probabilityCapped,
+    probabilityCapped: chanceA <= GAME_CHANCE_FLOOR || chanceA >= GAME_CHANCE_CEILING,
   };
 };

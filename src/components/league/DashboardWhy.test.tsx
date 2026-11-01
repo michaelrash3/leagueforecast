@@ -3,13 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import { backtestPredictions } from "../../lib/backtest";
 import { CLOSE_GAME_RISK, SMALL_SAMPLE_RISK } from "../../lib/confidenceTier";
 import { buildPredictionEngine } from "../../lib/predictionEngine";
-import { calculateTeams } from "../../lib/sim";
+import { attachAdjustedRatings, calculateTeams, predictGame } from "../../lib/sim";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../../lib/types";
 import { DashboardView } from "./DashboardView";
 
 /*
  * A prediction card's "Why…?" button (2.8) names the side it explains, or says the game is a
- * toss-up when the card shows the two sides even. Placeholder teams.
+ * toss-up when the card shows the two sides even, at the chance it shows: the per-game model's
+ * (sweep item 29). Placeholder teams.
  */
 
 const final = (away: number, home: number): GameLog => ({
@@ -33,10 +34,14 @@ const matchups: Matchup[] = [
 ];
 const logs = { g1: final(6, 2) };
 
+const live = calculateTeams(teams, matchups, logs, DEFAULT_SETTINGS);
+const engine = buildPredictionEngine(live, matchups, logs, DEFAULT_SETTINGS);
+const rated = attachAdjustedRatings(live, engine.ratings);
+/** The per-game model's chance for the away side, as the app hands the Dashboard it. */
+const gameOdds = (game: Matchup) => predictGame(game, rated, DEFAULT_SETTINGS).awayWinPct;
+
 describe("a prediction card's Why button", () => {
-  const live = calculateTeams(teams, matchups, logs, DEFAULT_SETTINGS);
-  const engine = buildPredictionEngine(live, matchups, logs, DEFAULT_SETTINGS);
-  const draw = (predictions = engine.predictions) =>
+  const draw = (predictions = engine.predictions, odds = gameOdds) =>
     render(
       <DashboardView
         engine={{ ...engine, predictions }}
@@ -45,6 +50,7 @@ describe("a prediction card's Why button", () => {
         matchups={matchups}
         setActiveView={vi.fn()}
         findings={[]}
+        gameOdds={odds}
       />
     );
 
@@ -70,28 +76,25 @@ describe("a prediction card's Why button", () => {
 
   it("names the side it explains, at the chance the card shows", () => {
     const [prediction] = engine.predictions;
-    if (!prediction) throw new Error("No forecast");
+    const game = matchups.find((one) => one.id === prediction?.gameId);
+    if (!prediction || !game) throw new Error("No forecast");
     draw();
-    const favored = prediction.winProbability.teamA > 0.5 ? "Bears" : "Aces";
-    const chance = Math.round(
-      Math.max(prediction.winProbability.teamA, prediction.winProbability.teamB) * 100
-    );
+    // Bears at Aces: the away side is the Bears.
+    const away = gameOdds(game);
+    const favored = away > 0.5 ? "Bears" : "Aces";
+    const chance = Math.round(Math.max(away, 1 - away) * 100);
     expect(
       screen.getByRole("button", { name: `Why ${favored} at ${chance}%?` })
     ).toBeInTheDocument();
   });
 
   it("says a game the card shows even is a toss-up", () => {
-    const [prediction] = engine.predictions;
-    if (!prediction) throw new Error("No forecast");
-    draw([{ ...prediction, winProbability: { teamA: 0.5, teamB: 0.5 } }]);
+    draw(engine.predictions, () => 0.5);
     expect(screen.getByRole("button", { name: "Why a toss-up?" })).toBeInTheDocument();
   });
 });
 
 describe("the Dashboard's confidence and risk lines", () => {
-  const live = calculateTeams(teams, matchups, logs, DEFAULT_SETTINGS);
-  const engine = buildPredictionEngine(live, matchups, logs, DEFAULT_SETTINGS);
   const draw = (predictions = engine.predictions) =>
     render(
       <DashboardView
@@ -101,6 +104,7 @@ describe("the Dashboard's confidence and risk lines", () => {
         matchups={matchups}
         setActiveView={vi.fn()}
         findings={[]}
+        gameOdds={gameOdds}
       />
     );
 
