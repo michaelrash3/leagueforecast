@@ -1,4 +1,4 @@
-import { byGameTime, shiftIsoDay } from "./date";
+import { byGameTime, shiftIsoDay, startMinutes } from "./date";
 import {
   countsTowardRating,
   inSegment,
@@ -54,6 +54,13 @@ export type WeeklyGame = {
   /** Side A's chance, and the margin the ratings project for it. */
   chanceA: number;
   margin: number;
+  /**
+   * Its start, for the card to say beside its day, in whole minutes since 1970 (`startMinutes`) as
+   * the other lists a phone reads carry one (a club card's `t`, a Games list's `times`); left out
+   * where the game has none, which the card says as the day alone. It plays no part in which game
+   * is picked, so a week is the one it was before the start was carried, the start aside.
+   */
+  start?: number;
 };
 
 /** A club's wins running, as of its latest game that counts. */
@@ -174,12 +181,14 @@ export const theWeekly = (
           (pair === nearest.pair && ahead !== null && game.date < ahead.date)));
     if (nearer) {
       nearest = { far, pair };
+      const start = startMinutes(game.startTs);
       ahead = {
         teamAId: a.teamId,
         teamBId: b.teamId,
         date: game.date,
         chanceA: odds.winProb,
         margin: odds.projectedMargin,
+        ...(start === undefined ? {} : { start }),
       };
     }
   }

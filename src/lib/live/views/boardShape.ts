@@ -25,6 +25,12 @@ export { BOARD_RULES } from "./boardRules";
  * A change older builds could not read raises `LIVE_SCHEMA` instead, and one that moves a number,
  * row or order raises `BOARD_RULES`.
  *
+ * An addition that can wait a night need not raise it, since the boards are built again for each
+ * new members' day (`boardsState`): the start of The Weekly's game ahead (`WeeklyGame.start`, 1
+ * November 2026) raised nothing, so that the deploy reads nothing more for it. It goes on each
+ * board with the boards' next rebuild or the night's, where a raise would have had the republish
+ * after the deploy read the whole cloud copy at once, to put a time beside a day.
+ *
  * 0, or none recorded: the boards before it. 1: each board carries what its rows' games were
  * fitted against (`BoardFit`).
  */
@@ -132,7 +138,9 @@ export type BoardFit = {
  *   the page's rank line walks it (`useRankingsWorker`), for the club the page names as its own.
  * - `weekly`: the page's week (`theWeekly`): the upsets of the week just played, the game of the
  *   week ahead and the winning streaks still running, on a board with rows. One this build cannot
- *   read is dropped and the board still reads, as an older build drops it unread.
+ *   read is dropped and the board still reads, as an older build drops it unread. A build from
+ *   before the game ahead's start (`WeeklyGame.start`) passes over it, reading the game's other
+ *   fields by name, and says the game by its day as it always did.
  * - `fit`: what its rows' games were fitted against (`BoardFit`), left out of a board with no
  *   rows. It raised no `LIVE_SCHEMA`: a device of an older build rebuilds a board field by field
  *   (`coerceBoardView`) and so drops it unread, and a board without it draws exactly as before.
@@ -233,6 +241,14 @@ const upsetOf = (raw: unknown): WeeklyUpset | null =>
       }
     : null;
 
+/** A start as the published lists carry one: whole minutes since 1970 (`startMinutes`). */
+const isMinute = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value);
+
+/**
+ * The game ahead as published. Its start is read where it is there, and one that is not whole
+ * minutes leaves the week unread, as any other field of it that is not what it should be does.
+ */
 const aheadOf = (raw: unknown): WeeklyGame | null | undefined => {
   if (raw === null) return null;
   return isRecord(raw) &&
@@ -240,13 +256,15 @@ const aheadOf = (raw: unknown): WeeklyGame | null | undefined => {
     isId(raw.teamBId) &&
     isDay(raw.date) &&
     isChance(raw.chanceA) &&
-    isNumber(raw.margin)
+    isNumber(raw.margin) &&
+    (raw.start === undefined || isMinute(raw.start))
     ? {
         teamAId: raw.teamAId,
         teamBId: raw.teamBId,
         date: raw.date,
         chanceA: raw.chanceA,
         margin: raw.margin,
+        ...(raw.start === undefined ? {} : { start: raw.start as number }),
       }
     : undefined;
 };

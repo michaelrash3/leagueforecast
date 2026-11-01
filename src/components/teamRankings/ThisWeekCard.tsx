@@ -2,7 +2,7 @@ import type { WeekMove, WeekMovers } from "../../lib/thisWeek";
 import { TOP_PLACES } from "../../lib/thisWeek";
 import type { TeamWeek, Weekly } from "../../lib/theWeekly";
 import type { ScoutRankingRow } from "../../lib/teamRankings";
-import { formatIsoDayShort } from "../../lib/date";
+import { dayAndTime, formatIsoDayShort, startTsOfMinutes } from "../../lib/date";
 import { card } from "../../styles/tokens";
 
 const pct = (chance: number) => `${Math.round(chance * 100)}%`;
@@ -114,7 +114,13 @@ export function ThisWeekCard({
       {ahead && (
         <p className="text-sm text-slate-700 dark:text-slate-200">
           <span className="font-bold">Game of the week: </span>
-          {faint(`${formatIsoDayShort(ahead.date)} · `)}
+          {/* Its day, and its start where GameChanger gave one, as Team Rankings' lists say them. */}
+          {faint(
+            `${dayAndTime(
+              formatIsoDayShort(ahead.date),
+              ahead.start === undefined ? undefined : startTsOfMinutes(ahead.start)
+            )} · `
+          )}
           {club(ahead.teamAId)} {faint(`(${placeOf(ahead.teamAId)})`)} vs {club(ahead.teamBId)}{" "}
           {faint(
             `(${placeOf(ahead.teamBId)}) · ${pct(ahead.chanceA)} to ${pct(1 - ahead.chanceA)}`
