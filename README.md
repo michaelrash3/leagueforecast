@@ -3666,17 +3666,21 @@ So the forecast's fit counts each game's margin up to 20 runs (`FORECAST_RUN_CAP
 whatever the league's setting — twenty rather than none so a mistyped 91-1 is not a
 ninety-run win — and the rating pulls at 0.43 a run. The standings, their
 run-differential tiebreaker and the per-game stats model keep the league's cap. The
-Dashboard's matchup odds were refitted on the same games: a spread of 4.7 runs where
-it was 2.8 (log loss 0.6254 to 0.6188 with results), and 3.95 for machine and coach
-pitch, which is what the 8U pages fitted.
+prediction engine's odds curve, the Dashboard's matchup odds when this was measured,
+was refitted on the same games: a spread of 4.7 runs where it was 2.8 (log loss
+0.6254 to 0.6188 with results), and 3.95 for machine and coach pitch, which is what
+the 8U pages fitted. The Dashboard shows the per-game model's chance now (see "Why
+the forecast says what it does"); the curve's own chance is read only by a card's
+"Why" panel, to say when the margin and the chance shown part ways, and its spread
+is how widely a simulated game's margin is drawn.
 
 ### Ratings
 
 A rating estimates how many runs a team beats an average opponent by, adjusted
 for opponent strength, capped at ±12 so one blowout cannot run away with a season.
 Only completed games count; scheduled ones exist so a future opponent can be
-logged early. Win probabilities are clamped to 8–92% — youth baseball has no
-locks.
+logged early. A matchup's win probabilities (`predictMatchup`) are clamped to
+8–92% — youth baseball has no locks.
 
 Until teams share opponents, directly or through a chain, a rating is close to a
 plain run differential.
@@ -4455,13 +4459,16 @@ made for.
 Each of the Dashboard's upcoming predictions has a **Why Aces at 64%?** button (2.8). The
 chance is the one every League screen gives the game: the per-game model's (`predictGame`),
 which the Schedule's pick, the Our team card, the team drawer and the Gold odds read, and so
-is the pick (**Projected Winner**, and **Pick:** on a phone's line). The list used to show the
-prediction engine's own chance, a logistic over its margin held to 8–92%, beside it: one game
-could be 43% on the Our team card and the other side's pick at 54% in the list, and in a close
-game the two could back different sides. The engine's chance is now shown nowhere, and the card
-gives the engine's projected margin beside the pick only where the two lean the same way. What
-the panel explains is that margin, which the engine gives as data with every forecast
-(`LeaguePrediction.explanation`), as the sum of its parts in runs, which add up to it exactly:
+is the pick (**Projected Winner**, and **Pick:** on a phone's line). In a toss-up, both sides at
+50%, the Projected Winner is still the side the Schedule's pick names, the away side from 50% up
+by that model's rule (a phone's line says **Toss-up**), or **Pending data** while the engine has
+nothing to forecast from. The list used to show the prediction engine's own chance, a logistic
+over its margin held to 8–92%, beside it: one game could be 43% on the Our team card and the
+other side's pick at 54% in the list, and in a close game the two could back different sides.
+The engine's chance is now shown nowhere, and the card gives the engine's projected margin
+beside the pick only where the two lean the same way. What the panel explains is that margin,
+which the engine gives as data with every forecast (`LeaguePrediction.explanation`), as the sum
+of its parts in runs, which add up to it exactly:
 
 - **Results**: each side's average margin in the games its rating was fitted from (league
   and Team Rankings, each counted up to `FORECAST_RUN_CAP`), shrunk toward average by the

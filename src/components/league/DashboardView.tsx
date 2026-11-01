@@ -129,17 +129,21 @@ function PredictionCard({
   const b = teamNameFor(teamsById, prediction.teamBId);
   const { aPct, bPct } = percentsOf(chanceA);
   /*
-   * The pick is the side the chance favors, as on the Schedule. The margin is the prediction
-   * engine's, which the "Why" panel explains, and it is given only where it leans the same way: in
-   * a close game the two can back different sides, and a card naming one side the winner beside a
-   * chance that favors the other is two favorites for one game.
+   * The pick is the side the chance favors, by the per-game model's own rule (`predictGame`'s
+   * winner: the away side from 50% up), so a toss-up names the side the Schedule's pick does and
+   * not the engine's, which in a close game can be the other. Where the engine has nothing to
+   * forecast from, a toss-up names no one: before any score every game is even, and each away
+   * side would be the winner. The margin is the prediction engine's, which the "Why" panel
+   * explains, and it is given only where it leans the same way: in a close game the two can back
+   * different sides, and a card naming one side the winner beside a chance that favors the other
+   * is two favorites for one game.
    */
   const pickId =
-    aPct > bPct
-      ? prediction.teamAId
-      : bPct > aPct
-        ? prediction.teamBId
-        : prediction.predictedWinnerId;
+    aPct === bPct && prediction.predictedWinnerId === null
+      ? null
+      : chanceA >= 0.5
+        ? prediction.teamAId
+        : prediction.teamBId;
   const winner = pickId ? teamNameFor(teamsById, pickId) : "Pending data";
   const margin =
     pickId && pickId === prediction.predictedWinnerId && prediction.projectedMargin !== null

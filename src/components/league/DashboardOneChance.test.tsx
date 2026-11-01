@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { backtestPredictions } from "../../lib/backtest";
 import { buildDemoSeason } from "../../lib/demoSeason";
-import { buildPredictionEngine } from "../../lib/predictionEngine";
+import { buildPredictionEngine, type LeaguePrediction } from "../../lib/predictionEngine";
 import { attachAdjustedRatings, calculateTeams, predictGame } from "../../lib/sim";
 import type { Matchup } from "../../lib/types";
 import { DashboardView } from "./DashboardView";
@@ -34,16 +34,24 @@ const gameOf = (id: string): Matchup => {
 };
 const percent = (chance: number) => `${Math.round(chance * 100)}%`;
 
-const draw = (predictions = engine.predictions) =>
+const draw = ({
+  forecast = engine,
+  predictions = forecast.predictions,
+  odds = gameOdds,
+}: {
+  forecast?: typeof engine;
+  predictions?: LeaguePrediction[];
+  odds?: (game: Matchup) => number;
+} = {}) =>
   render(
     <DashboardView
-      engine={{ ...engine, predictions }}
+      engine={{ ...forecast, predictions }}
       backtestResult={backtestPredictions([], [], {}, settings)}
       teamsById={byId}
       matchups={matchups}
       setActiveView={vi.fn()}
       findings={[]}
-      gameOdds={gameOdds}
+      gameOdds={odds}
     />
   );
 
@@ -83,13 +91,60 @@ describe("the Dashboard's upcoming games", () => {
     // The margin leans to the home side, and the per-game model makes the away side the pick.
     expect(call.predictedWinnerId).toBe(game.home);
     expect(percent(gameOdds(game))).toBe("52%");
-    draw([call]);
+    draw({ predictions: [call] });
     const card = cardOf(game);
     expect(blockOf(card, "Projected Winner")).toMatch(new RegExp(`^${nameOf(game.away)}(Range|$)`));
     expect(blockOf(card, "Win Probability")).toBe(`${nameOf(game.away)}52%${nameOf(game.home)}48%`);
     expect(
       within(card).getByRole("button", { name: `Why ${nameOf(game.away)} at 52%?` })
     ).toBeInTheDocument();
+  });
+
+  /*
+   * A toss-up, both sides at 50% once rounded. The Schedule's pick names a side even there, the
+   * per-game model's own (`predictGame`: the away side from 50% up), and the card named the
+   * engine's instead: the other side in 121 of the 249 toss-ups among the 11,773 forecast games of
+   * 400 made-up leagues. The engine's margin is 0.2 runs each time, the away side's in demo-23 and
+   * the home side's in demo-28.
+   */
+  it.each([
+    { id: "demo-23", chance: 0.497, engineBacks: "away", pick: "home", shown: "" },
+    { id: "demo-28", chance: 0.503, engineBacks: "home", pick: "away", shown: "" },
+    { id: "demo-28", chance: 0.5, engineBacks: "home", pick: "away", shown: "" },
+    // Where the margin backs the pick, it is still given beside it.
+    { id: "demo-23", chance: 0.503, engineBacks: "away", pick: "away", shown: " by 0.2" },
+  ] as const)(
+    "name the Schedule's pick in a toss-up ($id at $chance)",
+    ({ id, chance, engineBacks, pick, shown }) => {
+      const game = gameOf(id);
+      const call = engine.predictions.find((one) => one.gameId === game.id);
+      if (!call) throw new Error("No forecast");
+      expect(call.predictedWinnerId).toBe(game[engineBacks]);
+      draw({ predictions: [call], odds: () => chance });
+      const card = cardOf(game);
+      expect(blockOf(card, "Win Probability")).toBe(
+        `${nameOf(game.away)}50%${nameOf(game.home)}50%`
+      );
+      expect(blockOf(card, "Projected Winner")).toBe(`${nameOf(game[pick])}${shown}`);
+      expect(within(card).getByRole("button", { name: "Why a toss-up?" })).toBeInTheDocument();
+    }
+  );
+
+  it("name no winner where the engine has nothing to forecast and the chance is even", () => {
+    // Before any score is in, every game is even and the engine forecasts none of them: naming
+    // each game's away side the winner would be a pick made of nothing.
+    const unplayed = calculateTeams(teams, matchups, {}, settings);
+    const none = buildPredictionEngine(unplayed, matchups, {}, settings);
+    const known = attachAdjustedRatings(unplayed, none.ratings);
+    const knownById = new Map(known.map((team) => [team.id, team]));
+    const evenOdds = (game: Matchup) => predictGame(game, known, settings, knownById).awayWinPct;
+    draw({ forecast: none, odds: evenOdds });
+    const winners = screen
+      .getAllByText("Projected Winner")
+      .map((label) => label.nextElementSibling?.textContent);
+    expect(winners).toEqual(["Pending data", "Pending data", "Pending data"]);
+    for (const label of screen.getAllByText("Win Probability"))
+      expect(label.nextElementSibling?.textContent).toMatch(/^\D+50%\D+50%$/);
   });
 
   it("say the per-game model's pick and chance on a phone, a line each", () => {
