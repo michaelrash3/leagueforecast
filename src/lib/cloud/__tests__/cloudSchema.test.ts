@@ -14,6 +14,7 @@ import type {
   FoldedRow,
   GcAgeSource,
   GcTeamLink,
+  NamedAs,
   ScoutGame,
   ScoutGameSource,
   ScoutTeam,
@@ -164,7 +165,9 @@ const SHAPES_NOW = {
       "placeholder",
       "nameOnly",
       "gcTeams",
+      "namedAs",
     ]),
+    namedAs: fieldsOf<NamedAs>()(["schedule", "name"]),
     link: fieldsOf<GcTeamLink>()([
       "teamId",
       "name",
@@ -344,6 +347,8 @@ const SHAPES: readonly { schema: number; fingerprint: string }[] = [
   // listed with the roster value's own fields; a League pick keeps its club's GameChanger id
   // (`TeamBase.scoutGcTeamId`).
   { schema: 10, fingerprint: "299c45a1235c155944f212f1ff43175a67d63b03630f930f6a7f818aa2e1f6c8" },
+  // A club keeps the names the owner answered a namer's schedule writes for it (`ScoutTeam.namedAs`).
+  { schema: 11, fingerprint: "667530b6b20c1d377714169d5098e63408d68b10dd03843841645b8e4e1c8317" },
 ];
 
 /** Order-free, so a list tidied into another order is not taken for a new shape. */

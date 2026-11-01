@@ -120,6 +120,7 @@ import { namedAgeFor, type NamedAges } from "./namedAges";
 import { GC_PAIRING_EVIDENCE_LABEL, type GcPairingEvidence } from "./gcPairingEvidence";
 import { fillMissingStates } from "./clubStates";
 import { mintedIds, NO_RETIRED, type MintedIds, type RetiredIds } from "./teamRankings/retiredIds";
+import { joinNamedAs, sameNamedAs } from "./teamRankings/namedAs";
 
 /**
  * The lookups an import does, precomputed.
@@ -6108,14 +6109,20 @@ export const pairSettledSquads = (
     );
     const fallback = (field: "name" | "state" | "city") =>
       folded.map((old) => old[field]).find(Boolean);
+    // The owner's answers for the squads paired away go with the squad they pair into
+    // (`ScoutTeam.namedAs`), as their links do.
+    const { namedAs: _held, ...unnamed } = team;
+    const joined = joinNamedAs([team.namedAs, ...folded.map((old) => old.namedAs)]);
+    const namedAs = sameNamedAs(joined, team.namedAs) ? team.namedAs : joined;
     return [
       {
-        ...team,
+        ...unnamed,
         ...(!team.name.trim() && fallback("name") ? { name: fallback("name") } : {}),
         ...(!team.state && fallback("state") ? { state: fallback("state") } : {}),
         ...(!team.city && fallback("city") ? { city: fallback("city") } : {}),
         ...(team.isMine || folded.some((old) => old.isMine) ? { isMine: true } : {}),
         ...(links.length ? { gcTeams: links } : {}),
+        ...(namedAs?.length ? { namedAs } : {}),
       },
     ];
   });
@@ -6491,6 +6498,13 @@ const applyFolds = (foldInto: ReadonlyMap<string, string>, state: GcImportState)
       if (!merged.isMine && from.isMine) merged = { ...merged, isMine: true };
     });
     if (gcTeams.length !== (team.gcTeams?.length ?? 0)) merged = { ...merged, gcTeams };
+    // The owner's answers for the squads folded away go with the club, as their ids do
+    // (`ScoutTeam.namedAs`).
+    const namedAs = joinNamedAs([team.namedAs, ...folded.map((from) => from.namedAs)]);
+    if (!sameNamedAs(namedAs, team.namedAs)) {
+      const { namedAs: _held, ...unnamed } = merged;
+      merged = namedAs ? { ...unnamed, namedAs } : unnamed;
+    }
     return [merged];
   });
 

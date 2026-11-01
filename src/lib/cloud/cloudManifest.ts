@@ -64,8 +64,11 @@ const FORMAT_WITHOUT_EPOCH = 2;
  * (`CompactTeams.h`, `retiredIds.ts`), and a League team's pick the GameChanger id of the club it
  * picked (`TeamBase.scoutGcTeamId`); dropped by an older build, the next club of a folded or
  * deleted club's letters would be minted under its id again, and a pick of it handed to that club.
+ * 11: a club keeps the names the owner answered a namer's schedule writes for it, by folding a
+ * stand-in into it (`ScoutTeam.namedAs`); dropped by an older build, that namer's next game of the
+ * name would go to a new stand-in again, and the owner would have to answer again.
  */
-export const DATA_SCHEMA = 10;
+export const DATA_SCHEMA = 11;
 
 /**
  * Thrown for a manifest this build cannot read, which is never to be taken for no copy at all: the

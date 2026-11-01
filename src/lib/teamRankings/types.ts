@@ -99,6 +99,22 @@ export type ScoutTeam = {
    * two teams with different GameChanger ids are two teams, whatever they are called.
    */
   gcTeams?: GcTeamLink[];
+  /**
+   * The names other clubs' schedules write for this club, as the owner answered them: each one a
+   * stand-in's name, on the schedule that wrote it, that the owner folded into this club ("Same
+   * team as", `mergeScoutTeams`), and which that schedule goes on writing for its later games. Kept
+   * in the order a stored roster keeps it, by schedule and then name (`joinNamedAs`), and never
+   * published on a club's card.
+   */
+  namedAs?: NamedAs[];
+};
+
+/** One name a schedule writes for a club, as the owner answered it (`ScoutTeam.namedAs`). */
+export type NamedAs = {
+  /** The GameChanger team whose schedule wrote the name: the namer's id for that season. */
+  schedule: string;
+  /** The name it wrote, as names are compared (`teamNameKey`). */
+  name: string;
 };
 
 /**

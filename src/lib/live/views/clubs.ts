@@ -114,8 +114,10 @@ export const clubViews = ({
       const pages = leaguePages.get(teamId);
       const age = clubAgeOf(team, year, ageGroups, namedAges);
       const byName = byNameOf.get(teamId);
-      // The star is the owner's, as on a board (`withMine`): no member's device reads it here.
-      const { isMine: _mine, ...club } = team;
+      // The star is the owner's, as on a board (`withMine`): no member's device reads it here. Nor
+      // the owner's answers of who a namer means (`ScoutTeam.namedAs`), which no panel reads, and
+      // which would only add to every bucket that holds such a club.
+      const { isMine: _mine, namedAs: _answers, ...club } = team;
       const card: ClubCard = {
         team: club,
         games,

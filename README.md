@@ -2031,6 +2031,25 @@ not for an opponent, a club's own stand-in, an age, a season pairing or an organ
 and the stored pool keeps none (data schema 7). A pull's tally counts the opponents the game itself
 found (`opponentsMatchedByGame`); it called them found by picture before.
 
+**The answer, kept for the namer's later games.** Same team as also keeps, on the club, who each
+namer means by the name (`ScoutTeam.namedAs`): the GameChanger team whose schedule wrote each row it
+folds, and the name that row typed (`typedAs`), or the stand-in's own for a row pulled before rows
+kept theirs. Kept on the rows alone, the answer covered only the games already there: in the sweep
+of 30 October 2026 the same coach's game a week later, typed the same way, went to a new stand-in,
+and the owner had to answer again. A slot's name is anybody's, and a row of the club's own schedule
+naming the stand-in is a game against itself once folded, so neither keeps an answer. The list goes
+with the club wherever it is folded, by hand or by the tidy (one squad listed twice, the season
+pairing), the two clubs' lists made one in one order, and the fold's Undo takes it away with the
+rest, since it puts the club back as it was. It rides inside the roster's stored value, where a
+club's picture was once kept (`CompactTeams.r`), so a club with none is written as before; the
+stored pool, the worker's wire, the Team Rankings file, the whole-browser file and Undo keep it, the
+season's CSV does not, and no club's published card carries it. On the seeded fixture at its full
+size (20,204 clubs, 58,105 games), its GameChanger ids made twelve random letters and digits as
+GameChanger's are, each answer kept is 14 to 17 bytes of the gzipped copy: 100 stand-ins folded keep
+279 answers and add 4,410 bytes of the 1,041,845 (0.42%), and 1,000 keep 2,251 and add 33,247
+(3.2%). The data schema went to 11 for it, since an older build would drop it with its next save of
+the roster.
+
 A name nobody pulled is one stand-in per name, level and squad year among the clubs of a state that
 named it, and a lookup that missed made a second: a class year looked up at the page's age rather
 than the class's, a pull run before a rule. The tidy makes one of two such entries
