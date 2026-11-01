@@ -29,6 +29,20 @@ export const BRIDGE_RULES = 1;
 /** The bridge's rules and the boards' together, as a kept bridge's stamp names them. */
 export const BRIDGE_RULES_NOW = `${BRIDGE_RULES}.${BOARD_RULES}`;
 
+/**
+ * Which rules Fill's plan was worked out under, as the plan published beside the boards carries
+ * them (`views/league.ts`): a device takes a published plan only under its own build's
+ * (`fillFromView`), and asks the server otherwise, so a deploy that changes the plan reaches every
+ * device at once rather than at the next publish, which republishes nothing for a change of these
+ * (review of sweep item 23). Raised whenever `planLeagueScoreFill` would plan a question
+ * differently, which moves a plan's digest in `leagueAnswersPin.test.ts`. Not read beside the
+ * boards' rules, as the bridge's are: the plan reads whether a game was played and its day, never
+ * which games count.
+ *
+ * 1: the plan as first published beside the boards.
+ */
+export const FILL_RULES = 1;
+
 /*
  * What League Standings asks the server of Team Rankings, for a member whose device holds no pool
  * (1.6e): the season's bridge, the clubs a team could be picked as, and the scores the pool could

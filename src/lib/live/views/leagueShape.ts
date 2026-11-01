@@ -1,7 +1,7 @@
 import { hashValue } from "../../cloud/cloudPack";
 import type { LeagueFillPlan } from "../../leagueScoreFill";
 import type { LeagueScoutBridge } from "../../teamRankings";
-import { BRIDGE_RULES_NOW, fillPlanOf, leagueBridgeOf } from "../leagueAnswers";
+import { BRIDGE_RULES_NOW, FILL_RULES, fillPlanOf, leagueBridgeOf } from "../leagueAnswers";
 import { seasonDocId } from "../leagueDocs";
 import type { QueryOf } from "../queries";
 import { fits, type Shape } from "../shapes";
@@ -19,9 +19,10 @@ import { fits, type Shape } from "../shapes";
  * season's teams and schedule as the view's (the bridge's `shape`), its finals the same wherever
  * the bridge can turn on one (`finals`, `finalsTheBridgeReads`) so a final entered since elsewhere
  * is taken exactly and one the bridge would pair with a pool row is asked about, never counted
- * twice; Fill's every team, game and score the same (`print`); and the day it would be asked on
- * one the answer holds for (`from` the meta's day, `until` the first day a scored game the answer
- * reads is dated). The pool's side is the view's entry in the meta, the copy and version of the
+ * twice; Fill's every team, game and score the same (`print`); each worked out under this build's
+ * rules (`BRIDGE_RULES_NOW`, `FILL_RULES`); and the day it would be asked on one the answer holds
+ * for (`from` the meta's day, `until` the first day a scored game the answer reads is dated). The
+ * pool's side is the view's entry in the meta, the copy and version of the
  * publish that last vouched for it, which every publish stamps afresh at no cost: in the view it
  * would make every season's a new upload on every save. Anything else is asked as before.
  */
@@ -59,6 +60,8 @@ export type LeagueView = {
     answer: LeagueScoutBridge;
   };
   fill: {
+    /** The rules it was planned under (`FILL_RULES`), as the bridge carries its own. */
+    rules: number;
     /** SHA-256 of the question's season, teams, games and their runs (`fillPrintOf`). */
     print: string;
     /** As the bridge's, over the games the plan reads. */
@@ -86,7 +89,7 @@ const VIEW: Shape = {
         until: { optional: "string" },
       },
     },
-    fill: { record: { print: "string", until: { optional: "string" } } },
+    fill: { record: { rules: "count", print: "string", until: { optional: "string" } } },
   },
 };
 
@@ -184,7 +187,7 @@ export const fillFromView = async (
   question: QueryOf<"league.fill">
 ): Promise<LeagueFillPlan | null> => {
   const { view } = published;
-  if (view.season !== question.season) return null;
+  if (view.season !== question.season || view.fill.rules !== FILL_RULES) return null;
   if (!holdsOn(question.today, published.today, view.fill.until)) return null;
   return (await hashValue(fillPrintOf(question))) === view.fill.print ? view.fill.plan : null;
 };

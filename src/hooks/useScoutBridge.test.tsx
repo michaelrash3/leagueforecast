@@ -1592,30 +1592,118 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     });
 
     it("leaves an answer heard from a later save over one published before it", async () => {
-      const at = { copy: "c1", version: 6 };
-      const asked: Asked[] = [];
-      const asker = (async (query: Asked) => {
-        asked.push(query);
-        return { kind: "league.bridge", ...ANSWER, at };
-      }) as LeagueAsker;
+      const copy = cloudCopy();
+      copy.state.at = { copy: "c1", version: 6 };
+      const { asked, asker } = stamped(copy.state);
       const older = { ...ANSWER.bridge, linkedCount: 0 };
-      const { state, published } = publish(5, older);
+      const { read, state, published } = publish(5, older);
       state.answering = false;
-      const { result } = setup(props({ asker, published }));
+      const given = { asker, copyNow: copy.copyNow, published };
+      const { result } = setup(props(given));
       await settle();
       expect(asked).toHaveLength(1);
-      // Published again, from the version before the one the server answered from: left.
+      // Published again, from the version before the one the server answered from, with the copy
+      // moved past both since: the publish is not taken over the later answer, and the question
+      // goes, as it did before anything was published.
       state.answering = true;
+      copy.state.at = { copy: "c1", version: 7 };
       act(() => result.current.noteChange());
       await settle();
-      expect(asked).toHaveLength(1);
+      expect(read).toHaveLength(2);
+      expect(asked).toHaveLength(2);
       expect(result.current.bridge).toEqual(ANSWER.bridge);
-      // Published from a later save: taken.
-      state.version = 7;
+      expect(result.current.publishedAt).toBeUndefined();
+      // Published from a later save than that answer's: taken, and nothing asked.
+      state.version = 8;
+      copy.state.at = { copy: "c1", version: 8 };
       act(() => result.current.noteChange());
       await settle();
       expect(result.current.bridge).toEqual(older);
+      expect(asked).toHaveLength(2);
+    });
+
+    /*
+     * The publish is read only where a question would otherwise be sent (review of item 23): over
+     * the server's own answer to this very question, with a stamp that stands, the copy's manifest
+     * is read first, as before anything was published, and where the copy has not moved nothing
+     * more is read. So a publish that does not answer the season (none yet after the deploy, League
+     * read from the copy's part, a final the bridge turns on) costs a read only beside a question.
+     */
+    it("reads nothing published over the server's own answer while the copy stands", async () => {
+      const copy = cloudCopy();
+      const { asked, asker } = stamped(copy.state);
+      const { read, state, published } = publish();
+      state.answering = false;
+      const given = { asker, copyNow: copy.copyNow, published };
+      const { rerender } = setup(props(given));
+      await settle();
+      const reads = () => ({ read: read.length, manifest: copy.state.reads, asked: asked.length });
+      // The first question goes in any case, the publish read before it.
+      expect(reads()).toEqual({ read: 1, manifest: 0, asked: 1 });
+      roundTrip(rerender, given);
+      await settle();
+      roundTrip(rerender, given);
+      await settle();
+      // The manifest alone each time, as before anything was published.
+      expect(reads()).toEqual({ read: 1, manifest: 2, asked: 1 });
+      // The copy moved since: the publish is read where the question would go, and goes.
+      copy.state.at = { copy: "c1", version: 6 };
+      roundTrip(rerender, given);
+      await settle();
+      expect(reads()).toEqual({ read: 2, manifest: 3, asked: 2 });
+    });
+
+    it("takes the publish where the copy moved since the server's answer, and reads it first then", async () => {
+      const copy = cloudCopy();
+      const { asked, asker } = stamped(copy.state);
+      const newer = { ...ANSWER.bridge, linkedCount: 0 };
+      const { read, state, published } = publish(6, newer);
+      state.answering = false;
+      const given = { asker, copyNow: copy.copyNow, published };
+      const { result, rerender } = setup(props(given));
+      await settle();
       expect(asked).toHaveLength(1);
+      // A save since, the publish after it out: the manifest says so, and the publish answers.
+      state.answering = true;
+      copy.state.at = { copy: "c1", version: 6 };
+      roundTrip(rerender, given);
+      await settle();
+      expect({ read: read.length, manifest: copy.state.reads, asked: asked.length }).toEqual({
+        read: 2,
+        manifest: 1,
+        asked: 1,
+      });
+      expect(result.current.bridge).toEqual(newer);
+      expect(result.current.publishedAt).toBe(PUBLISHED_AT);
+      // With a published answer on hand, the publish is what has newer: read first, the manifest
+      // left unread.
+      roundTrip(rerender, given);
+      await settle();
+      expect({ read: read.length, manifest: copy.state.reads, asked: asked.length }).toEqual({
+        read: 3,
+        manifest: 1,
+        asked: 1,
+      });
+    });
+
+    it("reads the publish first over a published bridge kept from the visit before", async () => {
+      const copy = cloudCopy();
+      const { asked, asker } = stamped(copy.state);
+      const { read, published } = publish(5);
+      const given = { asker, copyNow: copy.copyNow, published };
+      const first = setup(props(given));
+      await settle();
+      expect(read).toHaveLength(1);
+      first.unmount();
+      // The next visit opens on it: what replaces it is a newer publish, so that is what is read.
+      const { result } = setup(props(given));
+      await settle();
+      expect({ read: read.length, manifest: copy.state.reads, asked: asked.length }).toEqual({
+        read: 2,
+        manifest: 0,
+        asked: 0,
+      });
+      expect(result.current.publishedAt).toBe(PUBLISHED_AT);
     });
 
     it("ends a question's timer retries once the published bridge answers it", async () => {

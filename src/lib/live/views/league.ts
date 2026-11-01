@@ -5,7 +5,7 @@ import { finalsTheBridgeReads } from "../../teamRankings/leagueBridge";
 import { ageGroupYear } from "../../teamRankings/seasons";
 import { loadAgeGroups, loadScoutGamesForSeason, loadScoutTeams } from "../../teamRankingsStorage";
 import type { SeasonReader } from "../allKnown";
-import { BRIDGE_RULES_NOW, bridgeQuestionOf, fillQuestionOf } from "../leagueAnswers";
+import { BRIDGE_RULES_NOW, bridgeQuestionOf, FILL_RULES, fillQuestionOf } from "../leagueAnswers";
 import { leagueBridgeFor, leagueFillFor } from "../queries";
 import type { PublishedView } from "../viewStore";
 import {
@@ -127,6 +127,7 @@ export const leagueViews = async ({
         answer: leagueBridgeFor(bridgeAsked, today),
       },
       fill: {
+        rules: FILL_RULES,
         print: await hashValue(fillPrintOf(fillAsked)),
         ...(fillUntil === undefined ? {} : { until: fillUntil }),
         plan: leagueFillFor(fillAsked),

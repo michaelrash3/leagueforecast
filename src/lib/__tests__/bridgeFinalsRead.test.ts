@@ -156,6 +156,42 @@ describe("the finals a league season's bridge can turn on", () => {
     expect(quiet).toEqual([1, 2]);
   });
 
+  /*
+   * The two ways a copy hides that the case above does not try (review of item 23): a club's own
+   * row stored with the club as side B, the slot as A, which the slot pass reads from either side;
+   * and a season two pages claim, its copy on the second, where the league's final is read off each
+   * page. Either left out names no place, and a device holding that final would take a bridge
+   * published before it, which counts the league's game a second time.
+   */
+  it("are read off the club's own row whichever side of it the club is", () => {
+    const flipped = GAMES.map((game) =>
+      game.id === "gc_aces_1"
+        ? row("gc_aces_1", "S-TBD", "S-ACES", "2026-09-25", 13, 0, "gcACES")
+        : game
+    );
+    expect(finalsTheBridgeReads("fall", ageGroups, teams, flipped, league, FIXTURES)).toEqual([0]);
+    const { moved } = quietFixtures(FIXTURES, { ageGroups, teams, games: flipped }, "fall", league);
+    expect(moved).toEqual([0]);
+  });
+
+  it("are read off every page that claims the season, the copy on the second of two", () => {
+    const twoPages: AgeGroup[] = [
+      ...ageGroups,
+      { id: "ag10", name: "10U 2026", ageLevel: 10, year: 2026, seasonIds: ["fall"] },
+    ];
+    const onSecond = GAMES.map((game) =>
+      game.id === "gc_aces_1" ? { ...game, ageGroupId: "ag10" } : game
+    );
+    expect(finalsTheBridgeReads("fall", twoPages, teams, onSecond, league, FIXTURES)).toEqual([0]);
+    const { moved } = quietFixtures(
+      FIXTURES,
+      { ageGroups: twoPages, teams, games: onSecond },
+      "fall",
+      league
+    );
+    expect(moved).toEqual([0]);
+  });
+
   it("are none for a season no page claims, which reaches no result at all", () => {
     const unclaimed = [{ ...ageGroups[0]!, seasonIds: [] }];
     expect(finalsTheBridgeReads("fall", unclaimed, teams, GAMES, league, FIXTURES)).toEqual([]);

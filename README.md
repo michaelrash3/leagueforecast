@@ -7168,6 +7168,13 @@ only where it is the very answer its own question would get (`views/leagueShape.
 - **Fill's plan**: the SHA-256 of its season, teams, games and the runs of those games, in
   the schedule's order (`print`), since a device's scores and a document's come in their
   own orders; a score typed since, or corrected, asks.
+- **The rules**: the bridge carries the rules a kept bridge's stamp names
+  (`BRIDGE_RULES_NOW`), and the plan its own (`FILL_RULES`, 1, raised with any change to
+  `planLeagueScoreFill`, which reads no board rule), and a device takes either only under
+  its own build's. A deploy that raises either and not the boards' rules republishes
+  nothing (`republishWanted` reads the boards' alone), so without the stamp devices would
+  have gone on taking answers the old code worked out until the next publish; with it they
+  ask the server, as before, until then.
 - **The day**: an answer holds from the meta's members' day, which no view in it was built
   after, until the first day a scored game it reads is dated (`until`): the only thing
   either reads of a day is whether a scored game is dated ahead of it. The bridge is held to
@@ -7178,24 +7185,38 @@ only where it is the very answer its own question would get (`views/leagueShape.
   would make every season's a new upload on every save. A view from before a save this
   device's own edit made of something the answers read (a club folded, a season put on a
   page: `ownEdits.ts`, noted by `callEdit`) is not taken, and an answer heard this visit
-  from a later save of the same copy is not replaced by an older publish's.
+  from a later save of the same copy is not replaced by an older publish's: the question
+  goes. A GameChanger pull this device started saves through its job, not `callEdit`, so
+  is not noted: League Standings can show the bridge from before it, with the publish's
+  time, until the publish after the pull catches up, as it does after another device's
+  save.
 
 The device reads the meta, one document, and the season's view only when a publish
 changed it (`publishedLeague.ts`, kept on the device by its fingerprint as a board is, in
 the one cache the live board uses, `browserViewCache`), behind `leagueAsk.ts`'s import, so
-League Standings' first download carries none of it. A view that does not answer the
-season as it stands, none published, or a device offline asks as before, timer retries,
-their cap of three a day and the copy's manifest for an answer on hand included. That read
-of the meta is the one thing added: an answer taken saves a question, its charge's read and
-write in the ledger and, on a cold instance, a load of the pool; one not taken has cost a
-document's read for nothing, as every bridge does from the deploy until the first publish
-after it. The link panel and the Fill panel say "Team Rankings as it was published at 7:42
-AM" over an answer read so, since it can be a publish behind a save made since, six or
-seven minutes on GitHub; one the server answered says no time.
+League Standings' first download carries none of it. It reads them only where a question
+would otherwise go (`useScoutBridge`): Fill's press; the bridge with nothing on hand for
+the question (a visit's first with nothing kept, or the teams, schedule or a final changed
+since), with a stamp that no longer stands (New York's day turned, or a day gone), or with
+the copy's manifest moved since the server's own answer, which is read first, as before,
+and where it has not moved nothing more is. Over a bridge itself read off the publish, the
+meta is read first, since a newer publish is what replaces it, and the manifest only where
+the publish does not answer. A view that does not answer the season as it stands, none
+published, or a device offline asks as before, timer retries, their cap of three a day and
+the manifest included. So the meta's read is the one thing added, and only beside a
+question that would have gone in any case: an answer taken saves that question, its
+charge's read and write in the ledger and, on a cold instance, a load of the pool; one not
+taken costs a document's read beside it. Those are the questions asked from the deploy
+until the first publish after it, those of a season read from the copy's part, which has
+no views, those with a final entered at a place the bridge turns on, and those after this
+device's own save, until the publish after it. The link panel and the Fill panel say "Team
+Rankings as it was published at 7:42 AM" over an answer read so, since it can be a publish
+behind a save made since, six or seven minutes on GitHub; one the server answered says no
+time.
 
-On the seeded fixture (300 clubs a page) the three seasons' views are 10,102, 17,802 and
-7,136 bytes of JSON, 1,560, 2,384 and 1,358 gzipped, one piece each, and 584 bytes of the
-meta (2,000 clubs a page: 14,575, 14,566 and 8,711; 2,254, 2,202 and 1,537). Publishing the
+On the seeded fixture (300 clubs a page) the three seasons' views are 10,112, 17,812 and
+7,146 bytes of JSON, 1,560, 2,384 and 1,359 gzipped, one piece each, and 584 bytes of the
+meta (2,000 clubs a page: 14,585, 14,576 and 8,721; 2,255, 2,203 and 1,538). Publishing the
 same again writes nothing; a republish after one season's score changed writes that season's
 view, one piece, beside the boards the score moved and the meta written anyway, and the
 other two not at all (`leagueViews.test.ts`); a season renamed writes none. Working the
@@ -8777,19 +8798,22 @@ functions the device would run, over the cloud's pool):
   no answer says that the cloud could not be asked, and opens nothing either. A
   game scored here while it was asked is not filled over (the fill above).
 
-**Read off the publish first** (from 1 November 2026). The bridge and Fill's plan are
+**Read off the publish** (from 1 November 2026). The bridge and Fill's plan are
 published beside the boards for every season with a document ("League Standings'
-answers", in "Views a server publishes" above), and before either is asked the device
-reads the meta and the season's view, and takes the answer there where it is the very one
-the question would get: the same teams and schedule, the same finals wherever the bridge
+answers", in "Views a server publishes" above), and where either would be asked the device
+first reads the meta and the season's view, and takes the answer there where it is the very
+one the question would get: the same teams and schedule, the same finals wherever the bridge
 can turn on one, every score the same for Fill, on a day the answer holds for, and no save
 of this device's own edit since. Every reason the bridge is asked (the season opening or
 changing, coming back from Team Rankings, the sign-in, coming online, the page shown anew,
-a timer retry) reads it first, and asks only where it does not answer; a final entered
-here, or on another device, at a fixture no pool row could be a copy of is taken without a
-question. While the link panel is open the bridge is asked as before, since the clubs each
-team could be come with a question alone, and an answer heard this visit from a later save
-than the publish's stands over it. A bridge or plan read so is kept and shown as one heard
+a timer retry) reads it so, and asks only where it does not answer, except that over the
+server's own answer to the same question, with a stamp that stands, the copy's manifest is
+read first, as before, and the publish only once the copy has moved: so a publish that does
+not answer costs a read only beside a question. A final entered here, or on another device,
+at a fixture no pool row could be a copy of is taken without a question. While the link
+panel is open the bridge is asked as before, since the clubs each team could be come with a
+question alone, and an answer heard this visit from a later save than the publish's stands
+over it. A bridge or plan read so is kept and shown as one heard
 is, and the two panels say when the publish went out. The questions stay for everything
 the views do not answer, and an older build asks as it always did until it is reloaded, so
 nothing on the server is taken away.

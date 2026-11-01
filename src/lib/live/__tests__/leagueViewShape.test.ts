@@ -3,6 +3,7 @@ import { memoryIo } from "../../cloud/cloudRunner";
 import {
   finalScoresKey,
   leagueFixturesOf,
+  type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
 } from "../../teamRankings";
@@ -16,7 +17,7 @@ import {
 import type { GameLog, Matchup, TeamBase } from "../../types";
 import { seasonsReader } from "../allKnown";
 import { asJson } from "../editHandle";
-import { BRIDGE_RULES_NOW, bridgeQuestionOf, fillQuestionOf } from "../leagueAnswers";
+import { BRIDGE_RULES_NOW, bridgeQuestionOf, FILL_RULES, fillQuestionOf } from "../leagueAnswers";
 import { answerQuery, type AnswerOf, type QueryOf } from "../queries";
 import { leagueViews } from "../views/league";
 import {
@@ -113,22 +114,31 @@ const publishedOf = async (logs: Record<string, GameLog>): Promise<PublishedLeag
 
 const NOON = Date.parse(`${TODAY}T16:00:00.000Z`);
 
-beforeAll(async () => {
-  vi.useFakeTimers({ toFake: ["Date"] });
-  vi.setSystemTime(new Date(`${TODAY}T12:00:00`));
+const PAGE: AgeGroup = { id: "ag9", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [SEASON] };
+/** The Aces' own row of the 25 September game, filed against a slot: what that game's final pairs. */
+const COPY = row("gc_aces_1", "S-ACES", "S-TBD", "2026-09-25", 0, 13, "gcACES");
+const OTHER_ROWS = [
+  row("gc_bears_2", "S-BEARS", "S-ACES", "2026-10-02", 4, 2, "gcBEARS"),
+  row("gc_bears_9", "S-BEARS", "S-TBD", "2026-09-06", 5, 1, "gcBEARS"),
+];
+
+/** The process's store holding these pages and rows, and the three clubs, alone. */
+const storePool = async (pages: AgeGroup[], games: ScoutGame[]) => {
   resetTeamRankingsStore();
   await initTeamRankingsStore(memoryIo());
-  saveAgeGroups([{ id: "ag9", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [SEASON] }]);
+  saveAgeGroups(pages);
   saveScoutTeams([
     pulled("S-ACES", "Aces Baseball", "gcACES"),
     pulled("S-BEARS", "Bears Baseball", "gcBEARS"),
     { id: "S-TBD", name: "TBD- 09/25/26, 7:15 PM", placeholder: true },
   ]);
-  saveScoutGames([
-    row("gc_aces_1", "S-ACES", "S-TBD", "2026-09-25", 0, 13, "gcACES"),
-    row("gc_bears_2", "S-BEARS", "S-ACES", "2026-10-02", 4, 2, "gcBEARS"),
-    row("gc_bears_9", "S-BEARS", "S-TBD", "2026-09-06", 5, 1, "gcBEARS"),
-  ]);
+  saveScoutGames(games);
+};
+
+beforeAll(async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(`${TODAY}T12:00:00`));
+  await storePool([PAGE], [COPY, ...OTHER_ROWS]);
 });
 afterAll(() => {
   vi.useRealTimers();
@@ -184,6 +194,56 @@ describe("a published bridge a final can turn", () => {
     const asked = fillQuestionOf(SEASON, TEAMS, MATCHUPS, LOGS, TODAY);
     expect(await fillFromView(found, asked)).toEqual(answered(asked).plan);
   });
+
+  /*
+   * Fill's plan carries the rules it was planned under, as the bridge does (review of item 23): a
+   * deploy that changes the plan reaches a device at once, which asks the server rather than take a
+   * plan the publish worked out by the old code, until the next publish plans it by the new.
+   */
+  it("plans Fill under this build's rules, and is asked about under others", async () => {
+    const found = await publishedOf(LOGS);
+    expect(found.view.fill.rules).toBe(FILL_RULES);
+    const asked = fillQuestionOf(SEASON, TEAMS, MATCHUPS, LOGS, TODAY);
+    for (const rules of [FILL_RULES - 1, FILL_RULES + 1]) {
+      const other = { ...found, view: { ...found.view, fill: { ...found.view.fill, rules } } };
+      expect(await fillFromView(other, asked), String(rules)).toBeNull();
+    }
+  });
+
+  /*
+   * The two ways the copy can be filed that the pool above does not try (review of item 23): the
+   * Aces as side B of their own row, the slot as A, and the row on the second of two pages that
+   * claim the season. Each stores its own pool for its case, and puts the one above back after.
+   */
+  describe("wherever the copy is filed", () => {
+    const SECOND: AgeGroup = { ...PAGE, id: "ag10", name: "10U 2026", ageLevel: 10, year: 2026 };
+    const cases: { filed: string; pages: AgeGroup[]; copy: ScoutGame }[] = [
+      {
+        filed: "the club as side B of its own row",
+        pages: [PAGE],
+        copy: row("gc_aces_1", "S-TBD", "S-ACES", "2026-09-25", 13, 0, "gcACES"),
+      },
+      {
+        filed: "on the second of two pages that claim the season",
+        pages: [PAGE, SECOND],
+        copy: { ...COPY, ageGroupId: SECOND.id },
+      },
+    ];
+    afterAll(() => storePool([PAGE], [COPY, ...OTHER_ROWS]));
+
+    for (const { filed, pages, copy } of cases) {
+      it(`is asked about by a device holding the final, ${filed}`, async () => {
+        await storePool(pages, [copy, ...OTHER_ROWS]);
+        const before = await publishedOf({ m2: LOGS.m2! });
+        expect(before.view.bridge.finals).toEqual([{ at: 0 }]);
+        const heldNow = bridgeAsked(LOGS);
+        expect(await bridgeFromView(before, heldNow, NOON)).toBeNull();
+        expect(before.view.bridge.answer.countedResults).toBe(
+          answered(heldNow).bridge.countedResults + 1
+        );
+      });
+    }
+  });
 });
 
 describe("a published view read back", () => {
@@ -198,6 +258,7 @@ describe("a published view read back", () => {
       { ...good, season: "" },
       { ...good, bridge: { ...good.bridge, shape: "abc" } },
       { ...good, fill: { ...good.fill, print: 5 } },
+      { ...good, fill: { ...good.fill, rules: "1" } },
       { ...good, bridge: { ...good.bridge, until: "soon" } },
       { ...good, fill: { ...good.fill, until: "2026-1-1" } },
       { ...good, bridge: { ...good.bridge, finals: [{ at: -1 }] } },
