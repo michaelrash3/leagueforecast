@@ -115,9 +115,10 @@ export type ScoutBridge = {
   noteChange: () => void;
   /**
    * This device's own pool as a club remembered is read by (`readClub`), where the bridge reads that
-   * pool: what gives an old pick its club's GameChanger id (`stampPicks`) and what a League team's
-   * club's place is followed by. Null on a member's device, whose bridge is the server's and whose
-   * own pool, if it kept one, is not the cloud's.
+   * pool: what a League team's club's place is followed by, and, in a browser no member has signed
+   * in to, what gives an old pick its club's GameChanger id (`stampPicks`, laid by App). Null on a
+   * member's device while its bridge is the server's, whose own pool, if it kept one, is not the
+   * cloud's.
    */
   clubs: ClubLookup | null;
 };

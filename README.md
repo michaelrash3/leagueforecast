@@ -869,16 +869,22 @@ into one both name the one club, the folded pick followed into it, and so clash
 it is for a person to say.
 
 A pick made before the id was kept takes it at its season's next save of its own,
-where the device holds the pool and the club picked carries exactly one GameChanger
-id (`stampPicks`): a club with several could be any of them, and waits to be picked
-again. It is laid over the page's own edits (`SeasonStore.amendEdits`), a score
-typed, a team renamed, a game moved, so the write the edit makes anyway carries it,
-in the cloud as in this browser, and none is ever made for it alone: not as the
-season opens, not as another device's changes arrive. League layout 2 already holds
-the field, so no device of an older build drops it again. A member's device, whose
-bridge is the server's, holds no pool to read the club's ids off and gives none; the
-next edit from a device that holds the pool does. The nightly counts how many picks
-are still without one and how many could take one ("The nightly refresh on GitHub").
+in a browser no member has signed in to, whose seasons and pool are its own, where
+the club picked carries exactly one GameChanger id (`stampPicks`): a club with
+several could be any of them, and waits to be picked again. It is laid over the
+page's own edits (`SeasonStore.amendEdits`), a score typed, a team renamed, a game
+moved, so the save the edit makes anyway carries it, and none is ever made for it
+alone: not as the season opens, not as a change made elsewhere arrives. League
+layout 2 already holds the field, so no device of an older build drops it again.
+A member's device gives none, signed in or not: its seasons are the cloud's
+documents, which an edit made signed out or offline still reaches at the device's
+next meeting with them, and its pool, if it kept one, is not the cloud's, so an id
+read off it could send the server's bridge (`readPick`, over the cloud's pool) to a
+club other than the one the cloud's id names. So the old picks of the seasons in
+the cloud keep none until a person picks the team again, which keeps the id the
+picker offers. The nightly counts how many are still without one, and how many name
+a club carrying exactly one ("The nightly refresh on GitHub"): what a stamp worked
+out by the server, over the cloud's own pool, would give them.
 The rule a pick is read by (`readPick`) is the one every club this device remembers
 is read by (`readClub`, "Clubs this device remembers").
 
@@ -5128,8 +5134,9 @@ always did.
   and none where its id is another club's now, as a club that left the board has
   none. 20 bytes a team.
 - **League picks** (`TeamBase.scoutGcTeamId`) are read the same way in the forecast,
-  Fill and the bridge, and an old one takes its id at its season's next save ("How the
-  two modes connect"): 31 bytes a pick, in the season's own document.
+  Fill and the bridge, and an old one takes its id at its season's next save in a
+  browser no member has signed in to, and in the cloud's seasons only when a person
+  picks the team again ("How the two modes connect"): 31 bytes a pick.
 
 This device's copy reads them all off its pool. The cloud's board carries no
 GameChanger ids on its rows, and reading cards or the Find a team list to find them
@@ -6429,8 +6436,10 @@ clubs the pool holds, how many carry one GameChanger id, how many several (squad
 seasons folded together), and how many none, the clubs known only by name and the
 bracket slots apart; then the League Standings picks of a club, how many keep a
 GameChanger id beside them (`TeamBase.scoutGcTeamId`) and how many do not, and of
-those, how many could take one at their season's next save, the club picked carrying
-exactly one ("How the two modes connect"). A club's id is the pool's own, and Start
+those, how many name a club carrying exactly one. No device gives these seasons' old
+picks one (a browser no member has signed in to stamps only its own, "How the two
+modes connect"), so that is what a stamp worked out by the server over the cloud's
+pool would give, and the rest wait for a person to pick the team again. A club's id is the pool's own, and Start
 again mints every one afresh, where GameChanger's is never another team's, so these
 say how much of what is remembered of clubs can be followed by it. It reads nothing
 of its own: the pool is the store's, which the views were built from, and the seasons

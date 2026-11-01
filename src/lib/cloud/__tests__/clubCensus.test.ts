@@ -77,7 +77,7 @@ describe("clubCensus", () => {
     const lines = censusLines(clubCensus(ROSTER, SEASONS));
     expect(lines).toEqual([
       "  Clubs by how GameChanger knows them: 7 on the pool; 2 with one GameChanger id, 2 with several (squads and seasons folded together), 3 with none (1 known only by name, 2 bracket slots).",
-      "  League picks of a club, in 2 seasons: 2 kept with a GameChanger id beside them, 4 without; of those 4, 1 could take one at its season's next save (the club picked has exactly one).",
+      "  League picks of a club, in 2 seasons: 2 kept with a GameChanger id beside them, 4 without; of those 4, 1 could be given one, the club picked having exactly one, though no device stamps the cloud's seasons (a person picking the team again keeps one).",
     ]);
     const said = lines.join("\n");
     for (const club of ROSTER) {

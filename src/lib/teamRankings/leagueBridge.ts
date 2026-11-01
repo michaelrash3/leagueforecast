@@ -365,7 +365,8 @@ export const clubLookupOf = (teams: readonly CarrierClub[]): ClubLookup => {
  * carries exactly one: a club with several could be any of them, and the season's own team cannot
  * be told without the season's pages, so it waits for a person to pick it again. `teams` itself
  * where none takes one, and every team it leaves as it was, so a save writes only those it changed.
- * Laid on the season's next save of its own (`SeasonStore.amendEdits`), never one made for it.
+ * Laid on the season's next save of its own (`SeasonStore.amendEdits`), never one made for it, and
+ * only in a browser no member has signed in to, whose pool is the one its seasons' picks name.
  */
 export const stampPicks = (teams: TeamBase[], lookup: ClubLookup): TeamBase[] => {
   let changed = false;

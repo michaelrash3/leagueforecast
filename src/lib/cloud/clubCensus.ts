@@ -31,7 +31,11 @@ export type ClubCensus = {
     seasons: number;
     withGc: number;
     withoutGc: number;
-    /** Of those without, the picks whose club carries exactly one, which their next save keeps. */
+    /**
+     * Of those without, the picks whose club carries exactly one: what a stamp worked out over this
+     * pool could give them, since no device stamps the cloud's seasons (`stampPicks` runs only in a
+     * browser no member has signed in to, on its own).
+     */
     couldTake: number;
   } | null;
 };
@@ -82,7 +86,7 @@ export const censusLines = (census: ClubCensus): string[] => {
   return [
     `  Clubs by how GameChanger knows them: ${count(census.clubs)} on the pool; ${count(census.oneGcId)} with one GameChanger id, ${count(census.severalGcIds)} with several (squads and seasons folded together), ${count(census.noGcId)} with none (${count(census.noGcId - census.slots)} known only by name, ${count(census.slots)} bracket slots).`,
     league
-      ? `  League picks of a club, in ${count(league.seasons)} seasons: ${count(league.withGc)} kept with a GameChanger id beside them, ${count(league.withoutGc)} without; of those ${count(league.withoutGc)}, ${count(league.couldTake)} could take one at its season's next save (the club picked has exactly one).`
+      ? `  League picks of a club, in ${count(league.seasons)} seasons: ${count(league.withGc)} kept with a GameChanger id beside them, ${count(league.withoutGc)} without; of those ${count(league.withoutGc)}, ${count(league.couldTake)} could be given one, the club picked having exactly one, though no device stamps the cloud's seasons (a person picking the team again keeps one).`
       : "  League picks were not counted: no season's document was read this run.",
   ];
 };

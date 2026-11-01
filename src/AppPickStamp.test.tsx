@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { CLOUD_STATE_KEY } from "./lib/cloud/cloudState";
 import { loadLogs, loadTeams, saveMatchups, saveTeams } from "./lib/storage";
 import { resetTeamRankingsStore, saveScoutTeams } from "./lib/teamRankingsStorage";
 import { prefetchAllViews } from "./components/league/leagueViews";
@@ -10,8 +11,9 @@ beforeAll(() => prefetchAllViews());
 
 /*
  * A pick made before the GameChanger id was kept beside it (League layout 2) takes the id of the
- * club picked at the season's next save of its own, where this device holds the pool and the club
- * carries exactly one (`stampPicks`), and never at a save made for it alone. Placeholder names.
+ * club picked at the season's next save of its own, in a browser no member has signed in to, whose
+ * seasons and pool are its own, where the club carries exactly one (`stampPicks`), and never at a
+ * save made for it alone. Placeholder names.
  */
 
 const link = (teamId: string) => ({ teamId, name: teamId, ageGroupId: "ag10" });
@@ -73,5 +75,28 @@ describe("an old League pick", () => {
         { id: "B", name: "Bears", scoutTeamId: "S-BEAR" },
       ])
     );
+  });
+
+  it("takes none in a browser a member has signed in to, whose seasons the cloud's documents hold", async () => {
+    // Signed out since: the record keeps the account, and the seasons edited here meet their
+    // documents at its next sign-in, where an id read off this pool, not the cloud's, would go.
+    window.localStorage.setItem(
+      CLOUD_STATE_KEY,
+      JSON.stringify({ enabled: false, device: "d1", uid: "u-member" })
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: /schedule/i }));
+    const away = await screen.findByLabelText("Aces Runs");
+    act(() => {
+      fireEvent.change(away, { target: { value: "7" } });
+    });
+    await waitFor(() => expect(loadLogs().g1).toMatchObject({ awayRuns: "7" }));
+    await act(async () => {
+      await new Promise((done) => setTimeout(done, 50));
+    });
+    expect(loadTeams()).toEqual([
+      { id: "A", name: "Aces", scoutTeamId: "S-ACES" },
+      { id: "B", name: "Bears", scoutTeamId: "S-BEAR" },
+    ]);
   });
 });

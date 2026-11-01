@@ -1012,21 +1012,35 @@ export default function App() {
       : {}),
   });
   /*
-   * An old pick, kept before the GameChanger id was, takes its club's at the season's next save of
-   * its own, where this device holds the pool and the club carries exactly one (`stampPicks`): laid
-   * over the page's own edits, so the write they make anyway carries it and none is made for it.
+   * Whether a member has ever signed in to this browser, its record keeping the account through a
+   * sign-out (`seasonDeleteRoute`'s `memberDevice`): read again as the session moves, which is when
+   * a sign-in records it.
    */
+  const memberDevice = useMemo(() => {
+    void cloud;
+    return loadCloudState().uid !== null;
+  }, [cloud]);
+  /*
+   * An old pick, kept before the GameChanger id was, takes its club's at the season's next save of
+   * its own, where the club carries exactly one (`stampPicks`): laid over the page's own edits, so
+   * the write they make anyway carries it and none is made for it. Only in a browser no member has
+   * signed in to, whose seasons and pool are its own. A member's seasons are the cloud's documents,
+   * which a signed-out or offline device's edits still reach at its next meeting, and its pool, if
+   * it kept one, is not the cloud's: an id read off it could send the server's bridge to a club
+   * other than the one the cloud's id names, so a member's device stamps none at all.
+   */
+  const stampClubs = memberDevice ? null : scoutClubs;
   useEffect(() => {
     seasonStore.amendEdits(
-      scoutClubs
+      stampClubs
         ? (season) => {
-            const stamped = stampPicks(season.teams, scoutClubs);
+            const stamped = stampPicks(season.teams, stampClubs);
             return stamped === season.teams ? season : { ...season, teams: stamped };
           }
         : null
     );
     return () => seasonStore.amendEdits(null);
-  }, [seasonStore, scoutClubs]);
+  }, [seasonStore, stampClubs]);
 
   const predictionEngine = useMemo(
     () =>
