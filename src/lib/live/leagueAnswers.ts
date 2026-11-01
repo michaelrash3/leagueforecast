@@ -3,7 +3,7 @@ import type { ClubPickOption } from "../leagueLinkOptions";
 import type { StartAnswer } from "../leagueStart";
 import type { LeagueScoutBridge, ScoutLinkCandidate } from "../teamRankings";
 import { fits, type Shape } from "./shapes";
-import { BOARD_RULES } from "./views/boardShape";
+import { BOARD_RULES } from "./views/boardRules";
 
 /**
  * Which rules a bridge was worked out under, as a device keeps it with the copy it came from

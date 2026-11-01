@@ -9,7 +9,8 @@ import {
 } from "../../lib/teamRankingsStorage";
 import type { ScoutTeam } from "../../lib/teamRankings";
 import { ageGroup, game, renderTeamRankings, team } from "../../test/teamRankingsHarness";
-import { beginPull, endPull } from "../../lib/pullSession";
+import { endPull } from "../../lib/pullSession";
+import { beginTrackedPull } from "../../test/pulls";
 
 /*
  * Pool health's list of clubs filed at the wrong age, and its two answers: file the club at the
@@ -94,9 +95,9 @@ describe("clubs filed at the wrong age", () => {
 
   it("disables bulk approval while a pull is live", async () => {
     const { list } = await checkThePool();
-    let session: ReturnType<typeof beginPull> = null;
+    let session: ReturnType<typeof beginTrackedPull> = null;
     act(() => {
-      session = beginPull(new Date().toISOString());
+      session = beginTrackedPull(new Date().toISOString());
     });
     expect(session).not.toBeNull();
     expect(within(list).getByRole("button", { name: "Approve all changes" })).toBeDisabled();

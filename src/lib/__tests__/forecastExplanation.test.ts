@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { explainForecast } from "../forecastExplanation";
 import { buildPredictionEngine, type ExternalResult } from "../predictionEngine";
-import { calculateTeams } from "../sim";
+import { attachAdjustedRatings, calculateTeams, GAME_CHANCE_CEILING, predictGame } from "../sim";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../types";
 
 /*
- * Forecast explanations (2.8): the Dashboard's matchup odds told as the sum of their parts, and the
- * context around them. Placeholder teams.
+ * Forecast explanations (2.8): the prediction engine's margin behind a Dashboard forecast told as
+ * the sum of its parts, and the context around it, beside the chance the card shows, which is the
+ * per-game model's (`predictGame`, sweep item 29). Placeholder teams.
  */
 
 const final = (away: number, home: number): GameLog => ({
@@ -97,6 +98,21 @@ const explanationOf = (engine: ReturnType<typeof engineFor>, gameId: string) => 
 
 const nameOf = (id: string) => teams.find((team) => team.id === id)?.name ?? id;
 
+/** The per-game model's chance for a game's away side, on the league `engineFor` reads: the card's. */
+const perGame = (
+  gameId: string,
+  games: Matchup[] = matchups,
+  scores: Record<string, GameLog> = logs,
+  outside: ExternalResult[] = external
+): number => {
+  const base = calculateTeams(teams, games, scores, DEFAULT_SETTINGS);
+  const engine = buildPredictionEngine(base, games, scores, DEFAULT_SETTINGS, outside);
+  const game = games.find((one) => one.id === gameId);
+  if (!game) throw new Error(`No game ${gameId}`);
+  return predictGame(game, attachAdjustedRatings(base, engine.ratings), DEFAULT_SETTINGS)
+    .awayWinPct;
+};
+
 describe("the margin's parts", () => {
   it("add up to the margin the win chance is read from", () => {
     const engine = engineFor();
@@ -140,7 +156,7 @@ describe("the margin's parts", () => {
 describe("explainForecast", () => {
   it("leans each factor toward the side it favors, the strongest for each side first", () => {
     const prediction = explanationOf(engineFor(), "g8");
-    const explained = explainForecast(prediction, { nameOf });
+    const explained = explainForecast(prediction, { nameOf, chanceA: perGame("g8") });
     if (!explained || !prediction.explanation) throw new Error("No explanation");
     const { parts } = prediction.explanation;
     const results = explained.factors.find((factor) => factor.key === "results");
@@ -160,8 +176,10 @@ describe("explainForecast", () => {
     // Aces at Eagles, and Eagles at Aces, both still to play: one game seen from either side.
     const games: Matchup[] = [...matchups, { id: "g12", date: "5/30", away: "E", home: "A" }];
     const engine = engineFor(games);
-    const one = explainForecast(explanationOf(engine, "g8"), { nameOf });
-    const other = explainForecast(explanationOf(engine, "g12"), { nameOf });
+    // The chance is the card's, handed in: the same game's from either side.
+    const chanceA = perGame("g8", games);
+    const one = explainForecast(explanationOf(engine, "g8"), { nameOf, chanceA });
+    const other = explainForecast(explanationOf(engine, "g12"), { nameOf, chanceA: 1 - chanceA });
     if (!one || !other) throw new Error("No explanation");
     expect(other.margin).toBeCloseTo(-one.margin, 10);
     expect(other.chance).toEqual({ teamA: one.chance.teamB, teamB: one.chance.teamA });
@@ -181,7 +199,7 @@ describe("explainForecast", () => {
     );
     const first = blank.predictions[0];
     if (!first) throw new Error("No forecast");
-    expect(explainForecast(first, { nameOf })).toBeNull();
+    expect(explainForecast(first, { nameOf, chanceA: 0.5 })).toBeNull();
   });
 
   it("counts a side with few games for less, and says so", () => {
@@ -192,45 +210,64 @@ describe("explainForecast", () => {
     const thin = explanationOf(engineFor(matchups, fewer, []), "g8");
     if (!full || !thin.explanation) throw new Error("No explanation");
     expect(thin.explanation.teamB.fittedGames).toBe(1);
-    const explained = explainForecast(thin, { nameOf });
+    const explained = explainForecast(thin, {
+      nameOf,
+      chanceA: perGame("g8", matchups, fewer, []),
+    });
     expect(explained?.sensitivities).toContain(
       "Eagles has one game the rating can use, so one more result could move this a long way."
     );
     expect(full.teamB.fittedGames).toBeGreaterThan(thin.explanation.teamB.fittedGames);
   });
 
-  it("says when the other model disagrees, a link is a guess, or a side has not played lately", () => {
+  it("says when the margin and the chance part ways, a link is a guess, or a side has not played lately", () => {
     const prediction = explanationOf(engineFor(), "g11");
+    const margin = prediction.explanation?.margin ?? 0;
+    const leader = margin > 0 ? "Eagles" : "Ducks";
+    const other = margin > 0 ? "Ducks" : "Eagles";
+    // A chance for the side the margin does not back, ten points from even.
+    const against = margin > 0 ? 0.4 : 0.6;
     const explained = explainForecast(prediction, {
       nameOf,
-      gameModelChance: 1 - prediction.winProbability.teamA,
+      chanceA: against,
       ambiguous: new Set(["E"]),
     });
     if (!explained) throw new Error("No explanation");
-    expect(explained.sensitivities.join(" ")).toMatch(
-      /The Schedule's game odds give Eagles \d+%, against \d+% here/
+    expect(explained.sensitivities).toContain(
+      `The projected margin backs ${leader}, but the per-game model, which also reads runs scored and allowed, makes ${other} the pick: the two ways of reading the season disagree on this game.`
     );
     expect(explained.sensitivities).toContain(
       "Eagles's Team Rankings results come from a club picked by name, and more than one club carries it: they may be another club's."
     );
+    // The chance's own source is the reason for its favorite, and says nothing of the engine's.
     const gameModel = explained.factors.find((factor) => factor.key === "gameModel");
-    expect(gameModel?.favors).toBe(explained.favorite === "teamA" ? "teamB" : "teamA");
+    expect(gameModel?.favors).toBe(explained.favorite);
+    expect(gameModel?.text).toMatch(/gives Eagles (40|60)% and Ducks (60|40)%\.$/);
+    expect(explained.sensitivities.join(" ")).not.toMatch(
+      new RegExp(`${Math.round(prediction.winProbability.teamA * 100)}%`)
+    );
 
-    // Backing the same side, they disagree only once 15 points apart.
-    const disagree = (gameModelChance: number) =>
-      explainForecast(prediction, { nameOf, gameModelChance })?.sensitivities.some((line) =>
-        line.startsWith("The Schedule's game odds")
+    // Backing the same side, they part ways only once the engine's own reading of the margin is
+    // 15 points from the chance shown, and say which way without giving it.
+    const parting = (chanceA: number) =>
+      explainForecast(prediction, { nameOf, chanceA })?.sensitivities.find((line) =>
+        line.startsWith("The projected margin")
       );
-    const shown = prediction.winProbability.teamA;
-    const away = shown >= 0.5 ? 1 : -1;
-    expect(disagree(shown + away * 0.2)).toBe(true);
-    expect(disagree(shown + away * 0.05)).toBe(false);
+    const own = prediction.winProbability.teamA;
+    const away = own >= 0.5 ? 1 : -1;
+    expect(parting(own + away * 0.2)).toBe(
+      "The projected margin alone reads this game as closer than the per-game model does, which also reads runs scored and allowed: the two ways of reading the season disagree on how sure to be."
+    );
+    expect(parting(own + away * 0.05)).toBeUndefined();
 
     // A month off: the Ducks' newest result is long before their game.
     const late: Matchup[] = matchups.map((game) =>
       game.id === "g11" ? { ...game, date: "7/18" } : game
     );
-    const stale = explainForecast(explanationOf(engineFor(late), "g11"), { nameOf });
+    const stale = explainForecast(explanationOf(engineFor(late), "g11"), {
+      nameOf,
+      chanceA: perGame("g11", late),
+    });
     expect(stale?.sensitivities.join(" ")).toMatch(/Ducks's newest result is \d+ days before/);
   });
 
@@ -239,6 +276,7 @@ describe("explainForecast", () => {
     const { g4: _g4, g6: _g6, ...withoutEagles } = logs;
     const explained = explainForecast(explanationOf(engineFor(matchups, withoutEagles), "g8"), {
       nameOf,
+      chanceA: perGame("g8", matchups, withoutEagles),
     });
     const freshness = explained?.factors.find((factor) => factor.key === "freshness");
     expect(freshness?.text).toContain("Eagles: 4/25, 35 days before this game.");
@@ -247,7 +285,7 @@ describe("explainForecast", () => {
     );
   });
 
-  it("takes off what the cap on a margin does, and holds the chance at 92%", () => {
+  it("takes off what the cap on a margin does, and says when the chance shown is held", () => {
     // Three teams, two of them routed by 25 runs: the Aces beat the Comets twice and lead by more
     // than a projected margin may.
     const three = teams.slice(0, 3);
@@ -278,9 +316,10 @@ describe("explainForecast", () => {
     expect(Object.values(parts).reduce((sum, value) => sum + value, 0)).toBeCloseTo(14, 10);
     expect(parts.capped).toBeLessThan(0);
     expect(parts.headToHead).toBeCloseTo(0.8, 10);
+    // The engine's own chance is held at 92%; the chance the card shows is the per-game model's.
     expect(prediction.explanation.probabilityCapped).toBe(true);
 
-    const explained = explainForecast(prediction, { nameOf });
+    const explained = explainForecast(prediction, { nameOf, chanceA: 0.9 });
     expect(
       explained?.factors.filter((factor) => factor.inMargin).map((factor) => factor.key)
     ).toEqual(["results", "schedule", "capped", "headToHead", "homeField"]);
@@ -288,6 +327,10 @@ describe("explainForecast", () => {
       /^A projected margin stops at 14 runs, so \d+\.\d runs over it are left out\.$/
     );
     expect(explained?.strongest.teamB?.key).toBe("schedule");
+    expect(explained?.probabilityCapped).toBe(false);
+    expect(
+      explainForecast(prediction, { nameOf, chanceA: GAME_CHANCE_CEILING })?.probabilityCapped
+    ).toBe(true);
   });
 
   it("never gives the cap as a reason for the side it takes nothing from", () => {
@@ -315,7 +358,10 @@ describe("explainForecast", () => {
     expect(prediction.explanation.margin).toBe(14);
     expect(prediction.explanation.parts.capped).toBeLessThan(-1);
 
-    const explained = explainForecast(prediction, { nameOf });
+    const explained = explainForecast(prediction, {
+      nameOf,
+      chanceA: perGame("r7", games, scores, []),
+    });
     const capped = explained?.factors.find((factor) => factor.key === "capped");
     expect(capped?.favors).toBeNull();
     expect(capped?.runs).toBeCloseTo(-prediction.explanation.parts.capped, 10);
@@ -365,8 +411,10 @@ describe("explainForecast", () => {
     expect(teamA.strengthOfSchedule).toBeLessThan(teamB.strengthOfSchedule);
     expect(parts.schedule).toBeGreaterThan(0.05);
 
+    // The chance shown is beside the point here, so the engine's own stands in for it.
     const explained = explainForecast(prediction, {
       nameOf: (id) => six.find((team) => team.id === id)?.name ?? id,
+      chanceA: prediction.winProbability.teamA,
     });
     const schedule = explained?.factors.find((factor) => factor.key === "schedule");
     expect(schedule?.favors).toBe("teamA");
@@ -382,7 +430,10 @@ describe("explainForecast", () => {
       const moved: Matchup[] = matchups.map((game) =>
         game.id === "g8" ? { ...game, date } : game
       );
-      const explained = explainForecast(explanationOf(engineFor(moved), "g8"), { nameOf });
+      const explained = explainForecast(explanationOf(engineFor(moved), "g8"), {
+        nameOf,
+        chanceA: perGame("g8", moved),
+      });
       return {
         text: explained?.factors.find((factor) => factor.key === "freshness")?.text,
         sensitivities: explained?.sensitivities ?? [],
@@ -408,18 +459,17 @@ describe("explainForecast", () => {
     );
     const explained = explainForecast(explanationOf(engineFor(undated, logs, []), "g8"), {
       nameOf,
+      chanceA: perGame("g8", undated, logs, []),
     });
     const freshness = explained?.factors.find((factor) => factor.key === "freshness");
     expect(freshness?.text).toContain("Eagles: none dated.");
     expect(explained?.sensitivities.join(" ")).not.toMatch(/Eagles's newest result/);
   });
 
-  it("names no favorite in a game it reads as even", () => {
+  it("names no favorite in a game the card shows even", () => {
     const prediction = explanationOf(engineFor(), "g8");
-    const even = {
-      ...prediction,
-      winProbability: { teamA: 0.5, teamB: 0.5 },
-    };
-    expect(explainForecast(even, { nameOf })?.favorite).toBeNull();
+    expect(explainForecast(prediction, { nameOf, chanceA: 0.5 })?.favorite).toBeNull();
+    // Each side's share rounded on its own, as the card rounds it: 50.4% against 49.6% is even.
+    expect(explainForecast(prediction, { nameOf, chanceA: 0.504 })?.favorite).toBeNull();
   });
 });

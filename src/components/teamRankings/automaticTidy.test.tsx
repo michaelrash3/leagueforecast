@@ -7,7 +7,8 @@ import {
   seasonDate,
   team,
 } from "../../test/teamRankingsHarness";
-import { beginPull, isPoolBusy, resetPullSession } from "../../lib/pullSession";
+import { isPoolBusy, resetPullSession } from "../../lib/pullSession";
+import { beginTrackedPull } from "../../test/pulls";
 import { loadScoutGames, loadTidyStamp } from "../../lib/teamRankingsStorage";
 
 afterEach(() => resetPullSession());
@@ -65,7 +66,7 @@ describe("tidying a pool nobody asked about", () => {
    * never fetch them again.
    */
   it("stays out of the way while a pull has the pool", async () => {
-    beginPull("2026-09-17T08:00:00.000Z");
+    beginTrackedPull("2026-09-17T08:00:00.000Z");
     const harness = renderTeamRankings(untidiedPool());
 
     await new Promise((resolve) => setTimeout(resolve, 20));

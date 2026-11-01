@@ -1,7 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { beginPull, isPoolBusy, resetPullSession } from "../lib/pullSession";
+import { isPoolBusy, resetPullSession } from "../lib/pullSession";
+import { beginTrackedPull } from "../test/pulls";
 import type { GcTeamResponse } from "../lib/gameChangerApi";
 import type { GcImportState } from "../lib/gameChangerImport";
 
@@ -137,7 +138,7 @@ describe("a pull that outlives its panel", () => {
      * resume then skips them for good. Two clicks used to reach it: Close, reopen, Carry on.
      */
     const user = userEvent.setup();
-    beginPull("2026-09-17T08:00:00.000Z");
+    beginTrackedPull("2026-09-17T08:00:00.000Z");
     const { toasts } = renderPanel(() => true);
 
     await user.type(screen.getByLabelText("Teams"), ids.join("\n"));
@@ -148,7 +149,7 @@ describe("a pull that outlives its panel", () => {
   });
 
   it("says so on screen, and offers to stop it", async () => {
-    beginPull("2026-09-17T08:00:00.000Z");
+    beginTrackedPull("2026-09-17T08:00:00.000Z");
     renderPanel(() => true);
 
     expect(screen.getByText(/A pull is already running/i)).toBeInTheDocument();
@@ -192,7 +193,7 @@ describe("the tidy at the end of a run", () => {
      * and the pull's cursor has already counted them settled, so a resume would never fetch them
      * again.
      */
-    beginPull("2026-09-17T08:00:00.000Z");
+    beginTrackedPull("2026-09-17T08:00:00.000Z");
     renderPanel(() => true, {
       ageGroups: [],
       teams: [],

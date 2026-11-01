@@ -5331,6 +5331,35 @@ describe("what waits for the board's first draw", () => {
     await waitFor(() => expect(handedOver()).not.toBeNull());
   });
 
+  /*
+   * The page fetches a section's code only as the section is first drawn, so handed over on the
+   * games it would open saying the games are loading. A board drawn and never handed over asks for
+   * the page's code alone (above).
+   */
+  it("fetches the code of the section it hands over on, with the page's", async () => {
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=games");
+    const preloadPage = vi.fn((_section?: string) => Promise.resolve());
+    const refusing: LiveReader = {
+      readMeta: () => Promise.reject({ code: "permission-denied" }),
+      getChunk: () => Promise.reject({ code: "permission-denied" }),
+    };
+    render(
+      <LiveTeamRankings
+        status={{ kind: "connecting" }}
+        renderPage={page}
+        preloadPage={preloadPage}
+        sources={sourcesOf(live, { reader: async () => refusing })}
+        seasons={[]}
+        showToast={showToast}
+        confirm={confirm}
+      />
+    );
+    await waitFor(() => expect(preloadPage).toHaveBeenCalledWith("games"));
+    await waitFor(() => expect(pool.prepared).toBe(1));
+    await act(async () => pool.finish());
+    await waitFor(() => expect(handedOver()).not.toBeNull());
+  });
+
   it("lays the page out by this device's own pages once its store is in, under a meta naming none", async () => {
     // A member's pool moved into IndexedDB: localStorage holds none of it, the store all of it,
     // read after the page; and the cloud's meta, an older build's, names no pages of its own.

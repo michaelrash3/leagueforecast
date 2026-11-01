@@ -23,8 +23,8 @@
  * before this existed, and is read as such; the next save writes it compactly.
  */
 
+import { isPlaceholderName } from "./teamRankings/names";
 import {
-  isPlaceholderName,
   type AgeGroup,
   type FoldedRow,
   GC_AGE_SOURCES,
@@ -34,7 +34,7 @@ import {
   type ScoutGame,
   type ScoutGameSource,
   type ScoutTeam,
-} from "./teamRankings";
+} from "./teamRankings/types";
 import {
   coerceRetired,
   NO_RETIRED,

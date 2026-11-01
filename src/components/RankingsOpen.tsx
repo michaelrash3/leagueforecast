@@ -6,7 +6,7 @@ import { loadCloudState } from "../lib/cloud/cloudState";
 import type { RankingsHandover } from "../lib/live/liveBoard";
 import type { SeasonMeta } from "../lib/storage";
 import { CloudPoolGate } from "./CloudPoolGate";
-import { loadTeamRankingsView } from "./teamRankingsChunk";
+import { preloadTeamRankings } from "./teamRankingsChunk";
 
 const LiveTeamRankings = lazy(() =>
   import("./teamRankings/LiveTeamRankings").then((module) => ({
@@ -59,7 +59,7 @@ export function RankingsOpen({
     <LiveTeamRankings
       status={status}
       renderPage={(handover) => page(handover)}
-      preloadPage={loadTeamRankingsView}
+      preloadPage={preloadTeamRankings}
       seasons={seasons}
       showToast={showToast}
       confirm={confirm}

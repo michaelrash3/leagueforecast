@@ -1,5 +1,5 @@
 import type { ScoutRankingRow, UpcomingMatchup } from "./teamRankings";
-import { movementOf, type Movement } from "./rankMovement";
+import { movementOf, type Movement } from "./movement";
 import type { ScheduleRank, WeekendAhead } from "./clubForm";
 
 /** Where one club stands on a board, and what it plays next: the card above the boards. */

@@ -61,7 +61,7 @@ import { useSeasons } from "./hooks/useSeasons";
 import { useSeasonFiles, type ImportedSeason } from "./hooks/useSeasonFiles";
 import { useSeasonState, type SeasonState } from "./hooks/useSeasonState";
 import { useScoutBridge } from "./hooks/useScoutBridge";
-import { finalScoresKey, leagueFixturesOf } from "./lib/teamRankings";
+import { finalScoresKey, leagueFixturesOf } from "./lib/teamRankings/leagueBridge";
 import { LoadingPanel } from "./components/LoadingPanel";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import {
@@ -1039,6 +1039,16 @@ export default function App() {
     liveTeams.forEach((team) => map.set(team.id, team));
     return map;
   }, [liveTeams]);
+  /*
+   * The chance the away side wins a game, as every League screen gives it: the per-game model's,
+   * which the Schedule's pick, the Our team card, the team drawer and the Gold odds read. The
+   * Dashboard's list showed the prediction engine's own (sweep item 29), a second chance for the
+   * same game; it reads this now. Kept while the teams and settings are, so the list's memo holds.
+   */
+  const gameOdds = useCallback(
+    (game: Matchup) => predictGame(game, liveTeams, settings, liveById).awayWinPct,
+    [liveTeams, settings, liveById]
+  );
   const teamBaseById = useMemo(() => {
     const map = new Map<string, TeamBase>();
     teams.forEach((team) => map.set(team.id, team));
@@ -3772,9 +3782,7 @@ export default function App() {
                       seasonFinal={seasonFinal}
                       hasCutLine={hasCutLine}
                       engine={predictionEngine}
-                      gameOdds={(game) =>
-                        predictGame(game, liveTeams, settings, liveById).awayWinPct
-                      }
+                      gameOdds={gameOdds}
                       backtestResult={backtestResult}
                       teamsById={liveById}
                       matchups={matchups}

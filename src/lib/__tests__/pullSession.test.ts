@@ -6,14 +6,18 @@ import {
   endTidy,
   isPoolBusy,
   isPullLive,
+  lastPullLog,
   livePull,
+  livePullTracker,
   noteTidyStep,
   resetPullSession,
   stopLivePull,
   tidyWatchNow,
   watchPull,
 } from "../pullSession";
+import { createPullTracker } from "../pullTracker";
 import type { TidyStep } from "../gameChangerImport";
+import { beginTrackedPull } from "../../test/pulls";
 
 afterEach(() => resetPullSession());
 
@@ -29,24 +33,24 @@ describe("the one pull that may be running", () => {
      * one overwrites the earlier's teams, and the cursor has already marked those settled — a
      * resume would skip them for good.
      */
-    const first = beginPull("2026-09-17T08:00:00.000Z");
+    const first = beginTrackedPull("2026-09-17T08:00:00.000Z");
     expect(first).not.toBeNull();
-    expect(beginPull("2026-09-17T08:00:01.000Z")).toBeNull();
+    expect(beginTrackedPull("2026-09-17T08:00:01.000Z")).toBeNull();
     expect(livePull()).toBe(first);
   });
 
   it("lets the next run start once the first gives the slot up", () => {
-    const first = beginPull("2026-09-17T08:00:00.000Z")!;
+    const first = beginTrackedPull("2026-09-17T08:00:00.000Z")!;
     endPull(first);
     expect(isPullLive()).toBe(false);
-    expect(beginPull("2026-09-17T08:05:00.000Z")).not.toBeNull();
+    expect(beginTrackedPull("2026-09-17T08:05:00.000Z")).not.toBeNull();
   });
 
   it("will not let a finishing straggler end a run that started after it", () => {
     // Otherwise a slow tail from the old run clears the slot the new one is holding.
-    const first = beginPull("2026-09-17T08:00:00.000Z")!;
+    const first = beginTrackedPull("2026-09-17T08:00:00.000Z")!;
     endPull(first);
-    const second = beginPull("2026-09-17T08:05:00.000Z")!;
+    const second = beginTrackedPull("2026-09-17T08:05:00.000Z")!;
     endPull(first);
     expect(livePull()).toBe(second);
     expect(isPullLive()).toBe(true);
@@ -54,7 +58,7 @@ describe("the one pull that may be running", () => {
 
   it("can be stopped by somebody who did not start it", () => {
     // The panel that began the run may be long closed by the time anyone wants it stopped.
-    const session = beginPull("2026-09-17T08:00:00.000Z")!;
+    const session = beginTrackedPull("2026-09-17T08:00:00.000Z")!;
     expect(session.controller.signal.aborted).toBe(false);
     stopLivePull();
     expect(session.controller.signal.aborted).toBe(true);
@@ -67,13 +71,29 @@ describe("the one pull that may be running", () => {
   it("tells watchers when a run starts and when it ends", () => {
     const seen = vi.fn();
     const unwatch = watchPull(seen);
-    const session = beginPull("2026-09-17T08:00:00.000Z")!;
+    const session = beginTrackedPull("2026-09-17T08:00:00.000Z")!;
     expect(seen).toHaveBeenCalledTimes(1);
     endPull(session);
     expect(seen).toHaveBeenCalledTimes(2);
     unwatch();
-    beginPull("2026-09-17T08:05:00.000Z");
+    beginTrackedPull("2026-09-17T08:05:00.000Z");
     expect(seen).toHaveBeenCalledTimes(2);
+  });
+
+  /*
+   * The pull makes its tracker and hands it over with the claim, so the slot, which League
+   * Standings reads at start, does not carry the tracker's code. Its log is the run's, live and
+   * after it ends, until the next pull claims the slot with its own.
+   */
+  it("keeps the log of the tracker it was claimed with, and the next pull's after it", () => {
+    const tracker = createPullTracker("2026-09-17T08:00:00.000Z");
+    const first = beginPull("2026-09-17T08:00:00.000Z", tracker)!;
+    expect(livePullTracker()).toBe(tracker);
+    endPull(first);
+    expect(livePullTracker()).toBeNull();
+    expect(lastPullLog()?.startedAt).toBe("2026-09-17T08:00:00.000Z");
+    beginTrackedPull("2026-09-17T08:05:00.000Z");
+    expect(lastPullLog()?.startedAt).toBe("2026-09-17T08:05:00.000Z");
   });
 });
 
@@ -85,13 +105,13 @@ describe("the tidy takes the same slot", () => {
    * that never saw them — with the cursor already counting them settled.
    */
   it("is refused while a pull is running", () => {
-    beginPull("2026-09-17T08:00:00.000Z");
+    beginTrackedPull("2026-09-17T08:00:00.000Z");
     expect(beginTidy("2026-09-17T08:00:01.000Z")).toBeNull();
   });
 
   it("refuses a pull while it runs", () => {
     beginTidy("2026-09-17T08:00:00.000Z");
-    expect(beginPull("2026-09-17T08:00:01.000Z")).toBeNull();
+    expect(beginTrackedPull("2026-09-17T08:00:01.000Z")).toBeNull();
   });
 
   it("refuses a second tidy", () => {
@@ -112,13 +132,13 @@ describe("the tidy takes the same slot", () => {
   it("lets a pull start once it gives the slot up", () => {
     const session = beginTidy("2026-09-17T08:00:00.000Z")!;
     endTidy(session);
-    expect(beginPull("2026-09-17T08:05:00.000Z")).not.toBeNull();
+    expect(beginTrackedPull("2026-09-17T08:05:00.000Z")).not.toBeNull();
   });
 
   it("will not let a finished tidy end the pull that followed it", () => {
     const tidy = beginTidy("2026-09-17T08:00:00.000Z")!;
     endTidy(tidy);
-    const pull = beginPull("2026-09-17T08:05:00.000Z")!;
+    const pull = beginTrackedPull("2026-09-17T08:05:00.000Z")!;
     endTidy(tidy);
     expect(livePull()).toBe(pull);
   });
@@ -200,7 +220,7 @@ describe("what the live tidy is doing", () => {
   });
 
   it("does not report a tidy while a pull holds the slot", () => {
-    const pull = beginPull("2026-09-19T00:00:00.000Z");
+    const pull = beginTrackedPull("2026-09-19T00:00:00.000Z");
     expect(pull).not.toBeNull();
 
     noteTidyStep(step(1, "named", 5, true));

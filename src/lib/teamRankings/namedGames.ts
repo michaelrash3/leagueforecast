@@ -1,5 +1,6 @@
-import { findDuplicateGame } from "./games";
-import { findSimilarTeam, isPlaceholderName, teamNameKey, teamResolver } from "./names";
+import { findDuplicateGame } from "./gameRows";
+import { findSimilarTeam, teamResolver } from "./rosterNames";
+import { isPlaceholderName, teamNameKey } from "./names";
 import { NO_RETIRED, type RetiredIds } from "./retiredIds";
 import type { ScoutGame, ScoutTeam } from "./types";
 

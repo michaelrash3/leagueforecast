@@ -10,6 +10,10 @@
  * - **First download**: the page's entry script, everything it preloads, and its stylesheet.
  * - **A view's own load**: what opening it fetches beyond the first download, its chunk and every
  *   chunk that one imports that the first download has not already brought.
+ * - **A Team Rankings section's own load**: what opening it fetches beyond the first download and
+ *   Team Rankings' own load, since a section is only ever opened from the page.
+ * - **Team Rankings' modules at start**: which of the modules only Team Rankings runs the first
+ *   download holds, read off the build's source maps. None may be there (`TEAM_RANKINGS_ONLY`).
  *
  * Writes the numbers to `dist/bundle-report.json` for any later comparison, prints them, and exits
  * non-zero naming each limit passed. A limit sits above what it measured when set (below), so an
@@ -17,9 +21,13 @@
  * commit says why.
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
 const DIST = "dist";
+/** The project's root, which a source map's paths are read against. */
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
  * Limits, in gzipped bytes: about a tenth above what each measured when set (9 Oct 2026, after the
@@ -140,13 +148,30 @@ const DIST = "dist";
  * and exports. The entry chunk keeps the components, 41.7 KB, so its line now has room it did not;
  * the first download's line, which holds both, is the one that binds. Team Rankings went from 166.2
  * KB to 165.3 KB with it, and each League view by 0 to 0.4 KB.
- * Team Rankings to 167.5 KB on 1 Nov 2026 for "Same team as" standing for that coach's later games
- * typed the same way (tidy rules 38, `answeredNamesakes`), 166.9 KB against 166.2 KB on main
- * (166,918 bytes against 166,193): the answer read at arrival, in the refile and in the resettle,
- * under the in-state rule's guards and the owner's refusals, and the answers carried through the
- * tidy's own two folds, all in the import and the tidy, which are part of that load. The first
- * download, 252.2 KB against 251.8 KB, carries the stored roster's reader and writer of the answers
- * and the hand fold that keeps them.
+ * Team Rankings came down on 31 Oct 2026, 60.3 KB against 166.2 KB on main (60,292 bytes against
+ * 166,193), with nothing removed: each section's code is fetched as the section is first opened
+ * (`teamRankings/sections.ts`), and the tidy's stamp (`tidyStamp.ts`) and the pool's packing for
+ * the tidy worker (`tidyWire.ts`) are modules of their own, so opening the page no longer fetches
+ * the tidy: the Import and Setup sections do as they open, since they name its steps and read the
+ * pool through it, and the page does to run it with no worker. Its line comes down to 62.0 KB, 1.7
+ * KB above what it measured, so what left stays out. Each section is a line of its own below, set
+ * as the views' were, a tenth above what it measured and at least 1.5 KB: Games 10.9 KB (10,882
+ * bytes), Import, the GameChanger pull, 57.8 (57,776), Scouting 7.4 (7,442), its tournament panel
+ * 3.6 (3,610), Archive 2.3 (2,321) and Setup 68.9 (68,918). The first download is 251.8 KB, as it
+ * was.
+ * The first download came down the same day, 221.2 KB against 251.8 KB on main (221,174 bytes
+ * against 251,816), with nothing removed: modules whose few lines League Standings' start reads sat
+ * beside a great deal only Team Rankings runs, and the first download carried all of it. Each was
+ * split along that line (README "Performance notes"), and the check below holds what is left of
+ * them out of the first download by name (`TEAM_RANKINGS_ONLY`). Its line stays at 255.0 KB, the
+ * owner's to lower. What left is fetched where it runs: the rating fit, the roster's names and the
+ * copies of a game with Team Rankings, whose open went from 60.3 KB to 84.1 KB (60,292 bytes to
+ * 84,108), and the GameChanger client's parsers, the pull's tracker and the refresh's schedule with
+ * the sections that pull and tidy, Import 67.7 KB against 57.8 (67,690 bytes) and Setup 75.9 KB
+ * against 68.9 (75,895). A first visit straight to Team Rankings fetches 305.3 KB, against 312.1 KB
+ * with the sections alone on demand and 418.0 KB on main. The Team Rankings line goes to 86.0 KB,
+ * 1.9 KB above what it measured, Import's to 74.5 KB and Setup's to 83.5 KB, a tenth above; the
+ * other sections and League Standings' views moved by under 0.1 KB.
  */
 const BUDGET = {
   firstDownload: 255_000,
@@ -163,7 +188,15 @@ const BUDGET = {
     Settings: 13_700,
     "Seasons at a glance": 4_400,
     "Since you last looked": 4_500,
-    "Team Rankings": 167_500,
+    "Team Rankings": 86_000,
+  },
+  sections: {
+    Games: 12_400,
+    Import: 74_500,
+    Scouting: 9_000,
+    Tournament: 5_200,
+    Archive: 3_900,
+    Setup: 83_500,
   },
 };
 
@@ -185,6 +218,51 @@ const VIEWS = {
   "Since you last looked": ["src/components/league/SinceLastLook.tsx"],
   "Team Rankings": ["src/components/TeamRankingsView.tsx"],
 };
+
+/**
+ * The modules each Team Rankings section loads from (`teamRankings/sections.ts`). The tournament
+ * panel is drawn below the scouting report and loads beside it, but is a chunk of its own.
+ */
+const SECTIONS = {
+  Games: ["src/components/teamRankings/GamesSection.tsx"],
+  Import: ["src/components/GameChangerImportPanel.tsx"],
+  Scouting: ["src/components/teamRankings/ScoutingSection.tsx"],
+  Tournament: ["src/components/teamRankings/TournamentPanel.tsx"],
+  Archive: ["src/components/teamRankings/ArchiveSection.tsx"],
+  Setup: ["src/components/teamRankings/SetupSection.tsx"],
+};
+
+/**
+ * Modules only Team Rankings runs, which League Standings' first download must not hold. Each of
+ * these, or the module it was split from, held what the page reads at start beside what only Team
+ * Rankings runs, and the first download carried all of it: the start's part is now a module of its
+ * own, and these are what is left (README "Performance notes"). With them are the two modules that
+ * left the first download beside them, how much an old result still counts (`ratingRecency.ts`)
+ * and the words in a name that say it is no team (`teamNameRules.ts`), and the tidy
+ * (`gameChangerImport.ts`), which the first download never held and which is on its own about the
+ * room that line has: 35.0 KB (35,046 bytes) against 33.8. A static import of one of them from
+ * anything the page loads at start brings the whole module back into the first download, and the
+ * first download's own line, which has room, would not say so; this does, by name. Read off the
+ * source maps, which list every module a file of the build holds, and each must be in some file of
+ * the build, or a rename would make the check pass for good.
+ */
+const TEAM_RANKINGS_ONLY = [
+  "src/lib/teamRankings.ts",
+  "src/lib/gameChangerApi.ts",
+  "src/lib/pullTracker.ts",
+  "src/lib/gameChangerSchedule.ts",
+  "src/lib/scheduleCommunities.ts",
+  "src/lib/teamRankings/opponentWeb.ts",
+  "src/lib/live/views/boardShape.ts",
+  "src/lib/notThisTeam.ts",
+  "src/lib/teamRankingsArchive.ts",
+  "src/lib/rankMovement.ts",
+  "src/lib/teamRankings/rosterNames.ts",
+  "src/lib/teamRankings/gameRows.ts",
+  "src/lib/ratingRecency.ts",
+  "src/lib/teamNameRules.ts",
+  "src/lib/gameChangerImport.ts",
+];
 
 const gzipped = new Map();
 const sizeOf = (file) => {
@@ -214,7 +292,28 @@ const closure = (key, into = new Set()) => {
 };
 
 const total = (files) => [...files].reduce((sum, file) => sum + sizeOf(file), 0);
+
+/** The source modules a built file holds, as its source map lists them. */
+const sourcesOf = (file) => {
+  if (!file.endsWith(".js")) return [];
+  try {
+    const map = JSON.parse(readFileSync(`${DIST}/${file}.map`, "utf8"));
+    return map.sources.map((source) => relative(ROOT, resolve(dirname(`${DIST}/${file}`), source)));
+  } catch {
+    return [];
+  }
+};
+const builtModules = new Set(
+  Object.values(manifest).flatMap((entry) => (entry.file ? sourcesOf(entry.file) : []))
+);
+for (const module of TEAM_RANKINGS_ONLY) {
+  if (!builtModules.has(module))
+    throw new Error(`No file of the build holds ${module}: was the module renamed or removed?`);
+}
+const startModules = new Set([...first].flatMap(sourcesOf));
 const entryFile = manifest["index.html"]?.file;
+/** What a visit has once Team Rankings is open, which a section's own load is beyond. */
+const rankingsOpen = new Set([...first, ...closure(VIEWS["Team Rankings"][0])]);
 const report = {
   firstDownload: total(first),
   entryChunk: entryFile ? sizeOf(entryFile) : 0,
@@ -226,6 +325,14 @@ const report = {
       return [view, total([...files].filter((file) => !first.has(file)))];
     })
   ),
+  sections: Object.fromEntries(
+    Object.entries(SECTIONS).map(([section, modules]) => {
+      const files = new Set();
+      modules.forEach((module) => closure(module, files));
+      return [section, total([...files].filter((file) => !rankingsOpen.has(file)))];
+    })
+  ),
+  teamRankingsAtStart: TEAM_RANKINGS_ONLY.filter((module) => startModules.has(module)),
 };
 
 writeFileSync(
@@ -235,9 +342,9 @@ writeFileSync(
 
 const kb = (bytes) => `${(bytes / 1000).toFixed(1)} KB`;
 const over = [];
-const line = (name, measured, limit) => {
+const line = (name, measured, limit, said = name) => {
   const mark = measured > limit ? "OVER" : "ok";
-  if (measured > limit) over.push(`${name}: ${kb(measured)} against a limit of ${kb(limit)}`);
+  if (measured > limit) over.push(`${said}: ${kb(measured)} against a limit of ${kb(limit)}`);
   console.log(`${mark.padEnd(5)}${name.padEnd(28)}${kb(measured).padStart(10)}  of ${kb(limit)}`);
 };
 console.log("Gzipped downloads, against the budget (scripts/bundleBudget.mjs):");
@@ -246,6 +353,18 @@ line("Entry chunk", report.entryChunk, BUDGET.entryChunk);
 line("Stylesheet", report.css, BUDGET.css);
 for (const [view, measured] of Object.entries(report.views)) {
   line(`Opening ${view}`, measured, BUDGET.views[view]);
+}
+for (const [section, measured] of Object.entries(report.sections)) {
+  line(`  then ${section}`, measured, BUDGET.sections[section], `Team Rankings' ${section}`);
+}
+{
+  const held = report.teamRankingsAtStart;
+  for (const module of held)
+    over.push(`the first download holds ${module}, which only Team Rankings runs`);
+  const said = held.length === 0 ? `none of ${TEAM_RANKINGS_ONLY.length}` : held.join(", ");
+  console.log(
+    `${(held.length > 0 ? "OVER" : "ok").padEnd(5)}${"Team Rankings modules at start".padEnd(32)}${said}`
+  );
 }
 if (over.length > 0) {
   for (const message of over) console.log(`::error::Over the bundle budget: ${message}`);

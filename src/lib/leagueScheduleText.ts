@@ -24,7 +24,8 @@ import {
   STATUS_SUFFIX,
 } from "./scheduleText";
 import { squadYearFromName } from "./seasonNames";
-import { isPlaceholderName, pasteNameKey, segmentOn } from "./teamRankings";
+import { isPlaceholderName, pasteNameKey } from "./teamRankings/names";
+import { segmentOn } from "./teamRankings/seasons";
 
 /** One game read off the paste, from the league's side: both teams named, away and home. */
 export type LeaguePasteRow = {

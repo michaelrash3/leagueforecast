@@ -2,17 +2,14 @@ import { clubPickOption, type ClubPickOption } from "./leagueLinkOptions";
 import { displayName } from "./format";
 import type { BuiltSeason } from "./roundRobin";
 import { createTeamId } from "./sim";
+import { ageGroupLevel, ageGroupYear } from "./teamRankings/seasons";
+import { clubIsPickable, gcAgeLevels, gcIdsForSeason } from "./teamRankings/leagueBridge";
 import {
-  ageGroupLevel,
-  ageGroupYear,
-  clubIsPickable,
-  gcAgeLevels,
-  gcIdsForSeason,
   isScoutGamePlayed,
   type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
-} from "./teamRankings";
+} from "./teamRankings/types";
 import { segmentOn, segmentWindow } from "./teamRankings/seasons";
 import { dayOf, tournamentReason } from "./tournamentDays";
 import type { GameLog, Matchup, TeamBase } from "./types";

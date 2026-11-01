@@ -3,14 +3,20 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { Finding } from "../../lib/leagueFindings";
 import { buildPredictionEngine } from "../../lib/predictionEngine";
-import { calculateTeams } from "../../lib/sim";
+import {
+  attachAdjustedRatings,
+  calculateTeams,
+  GAME_CHANCE_CEILING,
+  predictGame,
+} from "../../lib/sim";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../../lib/types";
 import { ForecastWhy } from "./ForecastWhy";
 
 /*
  * Why a matchup's odds are what they are (2.8), as a card shows it: the strongest reason for each
  * side, the margin as its parts, every factor on request, what could change it, and the four
- * numbers easily taken for one another, each said apart. Placeholder teams.
+ * numbers easily taken for one another, each said apart. The chance is the card's, the per-game
+ * model's (sweep item 29). Placeholder teams.
  */
 
 const final = (away: number, home: number): GameLog => ({
@@ -51,12 +57,23 @@ const predictionFor = (scores: Record<string, GameLog> = logs) => {
 
 const nameOf = (id: string) => teams.find((team) => team.id === id)?.name ?? id;
 
+/** The card's chance for the Aces in that game: the per-game model's. */
+const chanceFor = (scores: Record<string, GameLog> = logs) => {
+  const base = calculateTeams(teams, matchups, scores, DEFAULT_SETTINGS);
+  const engine = buildPredictionEngine(base, matchups, scores, DEFAULT_SETTINGS);
+  const game = matchups.find((one) => one.id === "g4");
+  if (!game) throw new Error("No game");
+  return predictGame(game, attachAdjustedRatings(base, engine.ratings), DEFAULT_SETTINGS)
+    .awayWinPct;
+};
+
 describe("ForecastWhy", () => {
   it("leads with the strongest reason for each side and the margin as its parts", () => {
     const prediction = predictionFor();
     render(
       <ForecastWhy
         prediction={prediction}
+        chanceA={chanceFor()}
         nameOf={nameOf}
         record={{ winnerAccuracy: 2 / 3, sampleSize: 3 }}
       />
@@ -71,9 +88,11 @@ describe("ForecastWhy", () => {
 
   it("keeps win chance, the range, confidence, Gold % and the record so far apart", () => {
     const prediction = predictionFor();
+    const chance = chanceFor();
     render(
       <ForecastWhy
         prediction={prediction}
+        chanceA={chance}
         nameOf={nameOf}
         record={{ winnerAccuracy: 2 / 3, sampleSize: 3 }}
       />
@@ -85,10 +104,8 @@ describe("ForecastWhy", () => {
     ).toBeVisible();
     const meaning = (term: string) =>
       screen.getByText(term, { selector: "dt" }).nextElementSibling?.textContent ?? "";
-    expect(meaning("Win chance:")).toMatch(
-      new RegExp(
-        `^${Math.round(prediction.winProbability.teamA * 100)}% for Aces, how often the model expects`
-      )
+    expect(meaning("Win chance:")).toBe(
+      `${Math.round(chance * 100)}% for Aces, how often the per-game model, which reads runs scored and allowed beside the rating, expects a side like Aces to beat one like Bears.`
     );
     // Aces by 3.5, expected 6.4 to 2.9: 9 runs either side of the margin, 6.5 either side of each
     // score, in whole runs.
@@ -113,6 +130,7 @@ describe("ForecastWhy", () => {
     render(
       <ForecastWhy
         prediction={predictionFor()}
+        chanceA={chanceFor()}
         nameOf={nameOf}
         record={{ winnerAccuracy: 2 / 3, sampleSize: 3 }}
         hasCutLine={false}
@@ -154,10 +172,18 @@ describe("ForecastWhy", () => {
     ).predictions.find((one) => one.gameId === "r7");
     if (!prediction?.explanation) throw new Error("No explanation");
     const cut = Math.abs(prediction.explanation.parts.capped).toFixed(1);
+    const base = calculateTeams(five, games, scores, DEFAULT_SETTINGS);
+    const live = attachAdjustedRatings(
+      base,
+      buildPredictionEngine(base, games, scores, DEFAULT_SETTINGS).ratings
+    );
+    const game = games.find((one) => one.id === "r7");
+    if (!game) throw new Error("No game");
     const user = userEvent.setup();
     render(
       <ForecastWhy
         prediction={prediction}
+        chanceA={predictGame(game, live, DEFAULT_SETTINGS).awayWinPct}
         nameOf={(id) => five.find((team) => team.id === id)?.name ?? id}
       />
     );
@@ -174,7 +200,7 @@ describe("ForecastWhy", () => {
 
   it("shows every factor, in the margin and beside it, on request", async () => {
     const user = userEvent.setup();
-    render(<ForecastWhy prediction={predictionFor()} nameOf={nameOf} />);
+    render(<ForecastWhy prediction={predictionFor()} chanceA={chanceFor()} nameOf={nameOf} />);
     const toggle = screen.getByRole("button", { name: "Every factor" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("heading", { name: "In the margin" })).toBeNull();
@@ -193,7 +219,9 @@ describe("ForecastWhy", () => {
 
   it("says what could change it, and when nothing stands out", () => {
     // Each side has played twice: one more result could move it a long way.
-    const { unmount } = render(<ForecastWhy prediction={predictionFor()} nameOf={nameOf} />);
+    const { unmount } = render(
+      <ForecastWhy prediction={predictionFor()} chanceA={chanceFor()} nameOf={nameOf} />
+    );
     expect(
       screen.getByText(
         "Aces has 2 games the rating can use, so one more result could move this a long way."
@@ -209,24 +237,30 @@ describe("ForecastWhy", () => {
     const prediction = predictionFor();
     const explanation = prediction.explanation;
     if (!explanation) throw new Error("No explanation");
-    // The same forecast with each side's rating resting on five games, and its chance held.
+    // The same forecast with each side's rating resting on five games.
     const settled = {
       ...prediction,
       explanation: {
         ...explanation,
         teamA: { ...explanation.teamA, fittedGames: 5 },
         teamB: { ...explanation.teamB, fittedGames: 5 },
-        probabilityCapped: true,
       },
     };
-    render(<ForecastWhy prediction={settled} nameOf={nameOf} />);
+    const { unmount } = render(
+      <ForecastWhy prediction={settled} chanceA={chanceFor()} nameOf={nameOf} />
+    );
     expect(
       screen.getByText(
         "Nothing stands out: both sides have played enough, and recently enough, to go on."
       )
     ).toBeInTheDocument();
+    expect(screen.getByText("Win chance:").nextElementSibling).not.toHaveTextContent(/Held at/);
+    unmount();
+
+    // The per-game model holds a chance at 96%, and the panel says so.
+    render(<ForecastWhy prediction={settled} chanceA={GAME_CHANCE_CEILING} nameOf={nameOf} />);
     expect(screen.getByText("Win chance:").nextElementSibling).toHaveTextContent(
-      /Held at 92%: no game at this level is a sure thing\.$/
+      /^96% for Aces, .* Held at 96%: no game at this level is a sure thing\.$/
     );
   });
 
@@ -249,7 +283,9 @@ describe("ForecastWhy", () => {
       affectsForecast: false,
       fingerprint: "link-ambiguous|B:x",
     };
-    render(<ForecastWhy prediction={linked} nameOf={nameOf} findings={[guessed]} />);
+    render(
+      <ForecastWhy prediction={linked} chanceA={chanceFor()} nameOf={nameOf} findings={[guessed]} />
+    );
     expect(
       screen.getByText(
         "Bears's Team Rankings results come from a club picked by name, and more than one club carries it: they may be another club's."
@@ -260,7 +296,7 @@ describe("ForecastWhy", () => {
   it("says it cannot explain a forecast it had nothing to go on for", () => {
     const blank = predictionFor({});
     expect(blank.explanation).toBeUndefined();
-    render(<ForecastWhy prediction={blank} nameOf={nameOf} />);
+    render(<ForecastWhy prediction={blank} chanceA={0.5} nameOf={nameOf} />);
     expect(screen.getByText(/The model needs finished games before it can say why/)).toBeVisible();
   });
 });

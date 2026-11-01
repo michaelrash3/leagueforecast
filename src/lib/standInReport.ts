@@ -6,7 +6,7 @@ import {
   type ScoutGame,
   type ScoutTeam,
 } from "./teamRankings";
-import { looseNameKey } from "./teamRankings/names";
+import { looseNameKey } from "./teamRankings/rosterNames";
 
 export { looseNameKey };
 

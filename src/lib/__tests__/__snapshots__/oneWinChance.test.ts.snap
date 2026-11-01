@@ -1,0 +1,91 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the two win chances, as they stood > on the App's pinned six-team season 1`] = `
+[
+  {
+    "engine": 0.69,
+    "gameId": "g10",
+    "predictGame": 0.6930321918711807,
+  },
+  {
+    "engine": 0.32,
+    "gameId": "g11",
+    "predictGame": 0.3225192546076869,
+  },
+  {
+    "engine": 0.45,
+    "gameId": "g12",
+    "predictGame": 0.4384905496441746,
+  },
+  {
+    "engine": 0.52,
+    "gameId": "g13",
+    "predictGame": 0.5106879324877794,
+  },
+  {
+    "engine": 0.39,
+    "gameId": "g14",
+    "predictGame": 0.387662995347928,
+  },
+  {
+    "engine": 0.7,
+    "gameId": "g15",
+    "predictGame": 0.6919724414677375,
+  },
+]
+`;
+
+exports[`the two win chances, as they stood > on the demo season 1`] = `
+[
+  {
+    "engine": 0.38,
+    "gameId": "demo-19",
+    "predictGame": 0.3827319631097133,
+  },
+  {
+    "engine": 0.54,
+    "gameId": "demo-20",
+    "predictGame": 0.5696051296671004,
+  },
+  {
+    "engine": 0.6,
+    "gameId": "demo-21",
+    "predictGame": 0.6454421855944418,
+  },
+  {
+    "engine": 0.34,
+    "gameId": "demo-22",
+    "predictGame": 0.3415045090587492,
+  },
+  {
+    "engine": 0.51,
+    "gameId": "demo-23",
+    "predictGame": 0.5362808004447902,
+  },
+  {
+    "engine": 0.44,
+    "gameId": "demo-24",
+    "predictGame": 0.44419586971561204,
+  },
+  {
+    "engine": 0.37,
+    "gameId": "demo-25",
+    "predictGame": 0.375401806055162,
+  },
+  {
+    "engine": 0.66,
+    "gameId": "demo-26",
+    "predictGame": 0.6538662911362995,
+  },
+  {
+    "engine": 0.4,
+    "gameId": "demo-27",
+    "predictGame": 0.4018786126319528,
+  },
+  {
+    "engine": 0.49,
+    "gameId": "demo-28",
+    "predictGame": 0.515861853709232,
+  },
+]
+`;

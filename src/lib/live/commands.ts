@@ -1,7 +1,9 @@
-import { ratedMargin, withScoreTyped } from "../teamRankings/games";
+import { ratedMargin } from "../teamRankings/games";
+import { withScoreTyped } from "../teamRankings/gameRows";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings/types";
 import { filedTeamIds, gcLinkSquadYear, mergeScoutTeams, unlinkGcTeam } from "../teamRankings";
-import { cleanTeamName, normalizeState, teamNameKey } from "../teamRankings/names";
+import { cleanTeamName, teamNameKey } from "../teamRankings/names";
+import { normalizeState } from "../teamRankings/rosterNames";
 import { ageGroupYear, seasonAtAge, type AgeGroupSeason } from "../teamRankings/seasons";
 import { coerceScoutGames, coerceScoutTeams } from "../teamRankingsCompact";
 import { coerceAgeGroups } from "../teamRankingsStorage";
