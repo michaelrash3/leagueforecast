@@ -178,6 +178,11 @@ export function TidyProgressView({ watch, running }: TidyProgressViewProps) {
                   const isNow = now?.pass === pass && now.step === name;
                   return (
                     <td key={name} className="p-0">
+                      {/*
+                        A step that found nothing reads quiet by its grey ground alone: its zero
+                        was slate-400 on slate-100, 2.40:1, and slate-600 on slate-900 in dark,
+                        2.35:1, under the 4.5:1 text needs.
+                      */}
                       <div
                         className={`rounded px-1 py-1 text-center tabular-nums ${
                           isNow ? "ring-2 ring-slate-950 dark:ring-white" : ""
@@ -185,7 +190,7 @@ export function TidyProgressView({ watch, running }: TidyProgressViewProps) {
                           cell === undefined
                             ? "text-slate-300 dark:text-slate-700"
                             : cell.found === 0
-                              ? "bg-slate-100 text-slate-400 dark:bg-slate-900 dark:text-slate-600"
+                              ? "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-400"
                               : "bg-emerald-500 font-bold text-white"
                         }`}
                         style={

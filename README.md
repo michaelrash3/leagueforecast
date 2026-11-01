@@ -9803,7 +9803,9 @@ footnote or a failed panel reads the same on every League view.
     every row. The My Team card's star was amber-500 on white, 2.13:1, and is amber-700,
     5.05:1 (amber-400 in dark). The Games tab's day was slate-400 on white, 2.63:1, and is
     slate-500, as is the full table's grey place on the whole board beside a state's own,
-    which measured the same.
+    which measured the same. A tidy step that found nothing printed its zero in slate-400
+    on slate-100, 2.40:1 (slate-600 on slate-900 in dark, 2.35:1), and is slate-600 (dark
+    slate-400) on the same grey.
 - **A thumb's tap area on a phone** (`tapArea`): Team Rankings' buttons and links are 44 px
   each way below `sm`, where its main ones were text links 16 to 26 px tall (Scout 34 by 16,
   What if? 48 by 16, the club sheet's Close 33 by 16, Got it 49 by 26, "Open on 10U by
