@@ -2,7 +2,6 @@ import type { GameLog, Matchup, Settings, Team, TeamBase } from "./types";
 import { clamp, isFinal, parseNumber } from "./util";
 import { normalizeDateInput, parseDateValue, seasonStartMonth } from "./date";
 import { dateInSquadYear } from "./teamRankings/seasons";
-import { forecastRange, type ForecastRange } from "./forecastRange";
 import { MATCHUP_ODDS_SPREAD, MATCHUP_ODDS_SPREAD_MACHINE_PITCH } from "./oddsSpread";
 import {
   CLOSE_GAME_RISK,
@@ -102,12 +101,6 @@ export type LeaguePrediction = {
   predictedWinnerId: string | null;
   projectedMargin: number | null;
   winProbability: { teamA: number; teamB: number };
-  expectedScore?: { teamA: number; teamB: number };
-  /**
-   * The margins and scores eight games in ten like this one end within (2.10, `forecastRange.ts`):
-   * how much a single game varies around the forecast, apart from the win chance and confidence.
-   */
-  range?: ForecastRange;
   confidence: { score: number; tier: ConfidenceTier; reasons: string[] };
   dataQuality: { tier: DataQualityTier; warnings: string[]; recommendedActions: string[] };
   keyFactors: string[];
@@ -329,10 +322,6 @@ export const buildPredictionEngine = (
   const completedGames = completedGamesFrom(matchups, logs);
   const futureGames = matchups.filter((game) => !isFinal(logs[game.id]));
   const dataQuality = tierForData(teams, completedGames, futureGames, externalResults.length);
-  const leagueAvgScoring = completedGames.length
-    ? completedGames.reduce((sum, game) => sum + game.awayScore + game.homeScore, 0) /
-      (completedGames.length * 2)
-    : 0;
 
   // NET-in-spirit power ratings: opponent-adjusted run margin, each game counted up to
   // `FORECAST_RUN_CAP` rather than the league's standings cap, with small-sample shrinkage.
@@ -603,12 +592,6 @@ export const buildPredictionEngine = (
             : null,
       };
     };
-    const expectedScore = leagueAvgScoring
-      ? {
-          teamA: Math.max(0, Number((leagueAvgScoring + margin / 2).toFixed(1))),
-          teamB: Math.max(0, Number((leagueAvgScoring - margin / 2).toFixed(1))),
-        }
-      : undefined;
     return {
       gameId: game.id,
       teamAId: a.id,
@@ -616,12 +599,6 @@ export const buildPredictionEngine = (
       predictedWinnerId: projectedWinnerId,
       projectedMargin: Math.abs(Number(margin.toFixed(1))),
       winProbability: { teamA: Number(probA.toFixed(2)), teamB: Number((1 - probA).toFixed(2)) },
-      expectedScore,
-      range: forecastRange({
-        margin: Number(margin.toFixed(1)),
-        ...(expectedScore ? { expectedScore } : {}),
-        machinePitch: oddsSpread === MATCHUP_ODDS_SPREAD_MACHINE_PITCH,
-      }),
       confidence,
       dataQuality,
       keyFactors,

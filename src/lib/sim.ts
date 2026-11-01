@@ -160,6 +160,38 @@ export const owedGames = (
 };
 
 /**
+ * Whether the postseason has begun: some bracket game, Gold or Silver, has a kept score, final with
+ * both sides' runs in. A score still being typed is not one, nor a game marked final with none.
+ */
+export const bracketBegun = (bracketLogs: Readonly<Record<string, GameLog>>): boolean =>
+  Object.values(bracketLogs).some(
+    (log) => isFinal(log) && log.awayRuns.trim() !== "" && log.homeRuns.trim() !== ""
+  );
+
+/**
+ * The settings the regular season is forecast under. The bracket is played once the regular season
+ * is over, so once it has begun (`bracketBegun`) games per team owes nothing more: every game the
+ * season was to have that it did not schedule went unplayed, and `owedGames` and the status's
+ * count (`getRemainingCounts`) play and count none, so the Gold odds, the projection, the exact
+ * numbers and the status read the season as the schedule has it, and the title odds read the
+ * bracket's kept scores as played (`simulateBracketOdds`). The owner's ruling of 1 November 2026:
+ * until then a setting the schedule never met, a rainout not made up say, kept every one of them
+ * waiting on games nobody would play, and the title odds drawing a bracket already played.
+ *
+ * The same settings where nothing changes, a new object only where games per team is set and the
+ * bracket has begun, so what is worked out from the settings is worked out again only then. Read
+ * by League Standings for its forecast alone: the setting itself, as saved, shared and shown in
+ * Settings, is the league's and stays as it was set.
+ */
+export const regularSeasonSettings = <S extends Pick<Settings, "regularSeasonGamesPerTeam">>(
+  settings: S,
+  begun: boolean
+): S =>
+  begun && settings.regularSeasonGamesPerTeam > 0
+    ? { ...settings, regularSeasonGamesPerTeam: 0 }
+    : settings;
+
+/**
  * The side a game owed beyond the schedule is played against in a simulated season (`playOwed`):
  * the league's average team. Every number the forecast reads off a team is the league's average of
  * it, each team counted by the games behind it, so a team yet to play adds nothing, and a league
@@ -973,12 +1005,49 @@ const leagueTallyOf = (teams: Team[], settings: Settings): LeagueTally => ({
   runDiffCap: resolveMaxRunDifferential(settings),
 });
 
+/**
+ * What the per-game model's projected margin is made of, from the away side, for a game card's
+ * Model Read (`modelRead`): the margin the league's own games give on their own (runs scored and
+ * allowed, form, and in machine pitch the strikeouts and power index), the ratings' margin, and how
+ * far the projection leans on the ratings (`blendWithRating`), which together are the margin the
+ * projected score is split from.
+ *
+ * Filled in where a caller hands one over, rather than returned: the simulators call the model once
+ * per game per season played out and never ask, and an object made for every one of those calls
+ * would be made for nothing.
+ */
+export type GameRead = {
+  /** The league's own games read alone; null where a side has fewer than two, as none is read. */
+  runs: number | null;
+  /** The ratings' margin, the away side's less the home side's; null where either has none. */
+  rating: number | null;
+  /** The share of the way from the league's games to the ratings the projection goes, 0 to 1. */
+  weight: number;
+  /** The projected margin each side's runs are split from, before they are rounded. */
+  margin: number;
+};
+
+/** Writes the model's reading of a game where one was asked for (`GameRead`). */
+const writeRead = (
+  read: GameRead | undefined,
+  runs: number | null,
+  prior: RatingPrior | null,
+  margin: number
+): void => {
+  if (!read) return;
+  read.runs = runs;
+  read.rating = prior ? prior.margin : null;
+  read.weight = prior ? prior.weight : 0;
+  read.margin = margin;
+};
+
 export const predictPlayerPitchGame = (
   game: Matchup,
   teams: Team[],
   settings: Pick<Settings, "modelAggression">,
   byId?: Map<string, Team>,
-  tally?: LeagueTally
+  tally?: LeagueTally,
+  read?: GameRead
 ): Prediction => {
   const lookup = byId ?? buildByIdMap(teams);
   const away = lookup.get(game.away);
@@ -989,6 +1058,7 @@ export const predictPlayerPitchGame = (
   const aggression = MODEL_AGGRESSION[settings.modelAggression] ?? 1;
 
   if (!away || !home) {
+    writeRead(read, null, null, 0);
     return {
       awayScore: Math.round(leagueRuns),
       homeScore: Math.round(leagueRuns),
@@ -1015,6 +1085,7 @@ export const predictPlayerPitchGame = (
     );
     // With no rating this is the spread this branch has always produced, from the pct alone.
     const spread = prior ? clamp(blended.margin / 2, -4, 4) : clamp((awayWinPct - 0.5) * 6, -1, 1);
+    writeRead(read, null, prior, spread * 2);
     return {
       awayScore: Math.max(1, Math.round(leagueRuns + spread)),
       homeScore: Math.max(1, Math.round(leagueRuns - spread)),
@@ -1037,7 +1108,9 @@ export const predictPlayerPitchGame = (
     (home.rsg * away.rag) / Math.max(leagueRuns, 1) + homeCommandPressure + home.momentum * 0.08
   );
   const edge = playerPitchEdge(away, home) * clamp(0.95 + aggression * 0.16, 0.95, 1.25);
-  const blended = blendWithRating(ratingPrior(away, home), awayScore - homeScore, edge);
+  const prior = ratingPrior(away, home);
+  const blended = blendWithRating(prior, awayScore - homeScore, edge);
+  writeRead(read, awayScore - homeScore, prior, blended.margin);
   const awayWinPct = calibrateAwayWinPct(
     logistic(blended.edge),
     knownGames(away),
@@ -1070,7 +1143,8 @@ export const predictMachinePitchGame = (
   teams: Team[],
   settings: Pick<Settings, "modelAggression">,
   byId?: Map<string, Team>,
-  tally?: LeagueTally
+  tally?: LeagueTally,
+  read?: GameRead
 ): Prediction => {
   const lookup = byId ?? buildByIdMap(teams);
   const away = lookup.get(game.away);
@@ -1084,6 +1158,7 @@ export const predictMachinePitchGame = (
   const aggression = MODEL_AGGRESSION[settings.modelAggression] ?? 1;
 
   if (!away || !home) {
+    writeRead(read, null, null, 0);
     return {
       awayScore: Math.round(leagueRuns),
       homeScore: Math.round(leagueRuns),
@@ -1109,6 +1184,7 @@ export const predictMachinePitchGame = (
     const scoreSpread = prior
       ? clamp(blended.margin / 2, -4, 4)
       : clamp((awayWinPct - 0.5) * 6, -1, 1);
+    writeRead(read, null, prior, scoreSpread * 2);
     return {
       awayScore: Math.max(1, Math.round(leagueRuns + scoreSpread)),
       homeScore: Math.max(1, Math.round(leagueRuns - scoreSpread)),
@@ -1137,7 +1213,9 @@ export const predictMachinePitchGame = (
   const safeHome = Math.max(1, homeScore);
   const rawMargin = safeAway - safeHome;
   const edge = matchupWinEdge({ away, home, leagueK6, rawMargin, aggression });
-  const blended = blendWithRating(ratingPrior(away, home), rawMargin, edge);
+  const prior = ratingPrior(away, home);
+  const blended = blendWithRating(prior, rawMargin, edge);
+  writeRead(read, rawMargin, prior, blended.margin);
   const midpoint = (safeAway + safeHome) / 2;
   const roundedAway = Math.max(1, Math.round(midpoint + blended.margin / 2));
   const roundedHome = Math.max(1, Math.round(midpoint - blended.margin / 2));
@@ -1173,11 +1251,13 @@ export const predictGame = (
   teams: Team[],
   settings: Pick<Settings, "modelAggression" | "pitchMode">,
   byId?: Map<string, Team>,
-  tally?: LeagueTally
+  tally?: LeagueTally,
+  /** Where given, filled in with what the projected margin is made of (`GameRead`). */
+  read?: GameRead
 ): Prediction => {
   if (settings.pitchMode === "player")
-    return predictPlayerPitchGame(game, teams, settings, byId, tally);
-  return predictMachinePitchGame(game, teams, settings, byId, tally);
+    return predictPlayerPitchGame(game, teams, settings, byId, tally, read);
+  return predictMachinePitchGame(game, teams, settings, byId, tally, read);
 };
 
 /**
@@ -1196,13 +1276,43 @@ const settleGame = (
   prediction: Prediction,
   settings: Settings
 ): void => {
+  const { awayRuns, homeRuns } = projectedRuns(game, winnerId, prediction);
+  bookScore(away, home, awayRuns, homeRuns, resolveMaxRunDifferential(settings));
+};
+
+/** The model's predicted score, nudged so the given winner wins: what a projection books. */
+const projectedRuns = (
+  game: Matchup,
+  winnerId: string,
+  prediction: Prediction
+): { awayRuns: number; homeRuns: number } => {
   let awayRuns = prediction.awayScore;
   let homeRuns = prediction.homeScore;
-
   if (winnerId === game.away && awayRuns <= homeRuns) awayRuns = homeRuns + 1;
   if (winnerId === game.home && homeRuns <= awayRuns) homeRuns = awayRuns + 1;
+  return { awayRuns, homeRuns };
+};
 
-  bookScore(away, home, awayRuns, homeRuns, resolveMaxRunDifferential(settings));
+/** In a game owed beyond the schedule (`owedGames`), the team that owes it. */
+const owerOf = (game: Matchup): string => (game.away === OWED_OPPONENT ? game.home : game.away);
+
+/**
+ * Books one projected result of a game owed beyond the schedule onto the team that owes it, in
+ * place: the model's score against the league's average side (`leagueAverageSide`), nudged so the
+ * given winner wins, as `settleGame` books a scheduled one, on the team's side alone, since the
+ * side it is played against is in no table.
+ */
+const settleOwed = (
+  team: Team,
+  game: Matchup,
+  winnerId: string,
+  prediction: Prediction,
+  settings: Settings
+): void => {
+  const { awayRuns, homeRuns } = projectedRuns(game, winnerId, prediction);
+  const cap = resolveMaxRunDifferential(settings);
+  if (game.away === team.id) bookSide(team, awayRuns, homeRuns, cap);
+  else bookSide(team, homeRuns, awayRuns, cap);
 };
 
 /**
@@ -1370,10 +1480,20 @@ export type SeasonDraws = {
  * Exported, with `drawMargin`, for their tests.
  */
 export const seasonDraws = (
-  teams: Team[],
-  settings: Settings,
+  teams: readonly Team[],
+  settings: Pick<Settings, "pitchMode">,
   random: () => number
-): SeasonDraws => {
+): SeasonDraws => ({ random, ...drawWidths(teams, settings) });
+
+/**
+ * How widely a simulated game is drawn (`seasonDraws`) apart from the stream it is drawn from: the
+ * share of games tied and the curve's width. What a game card's range is read off
+ * (`drawnMarginSpan`), so it is the width the Gold odds draw at.
+ */
+export const drawWidths = (
+  teams: readonly Team[],
+  settings: Pick<Settings, "pitchMode">
+): Pick<SeasonDraws, "tieShare" | "spread"> => {
   const ties = teams.reduce((sum, team) => sum + team.t, 0);
   const games = teams.reduce((sum, team) => sum + team.games, 0);
   const spread =
@@ -1381,7 +1501,6 @@ export const seasonDraws = (
       ? MATCHUP_ODDS_SPREAD_MACHINE_PITCH
       : MATCHUP_ODDS_SPREAD;
   return {
-    random,
     // Each game is counted on both sides, so the ties and games are both twice over.
     tieShare: ties / (games + 2 * TIE_PRIOR_GAMES),
     spread: spread * LOGISTIC_TO_NORMAL,
@@ -1413,6 +1532,59 @@ export const drawMargin = (
   return awayWins ? Math.max(1, Math.round(runs)) : Math.min(-1, Math.round(runs));
 };
 
+/** The share of a game's drawn margins a game card's range holds: eight games in ten. */
+export const DRAWN_RANGE_SHARE = 0.8;
+
+/**
+ * The margins one game is drawn at eight times in ten, as `drawMargin` draws them: its tenth and
+ * ninetieth percentiles, in whole runs, from the away side. Worked out rather than sampled, from the
+ * same three parts: a tie at the league's share, the away side winning at its chance, and the margin
+ * on the curve around the predicted one on the winner's side of level, rounded as drawn. So the
+ * range a card shows is the one the Gold odds play the game within, and it follows the chance as
+ * well as the margin: an underdog given more than the curve gives it wins more of its share by
+ * little, and the range reaches further its way.
+ */
+export const drawnMarginSpan = (
+  draws: Pick<SeasonDraws, "tieShare" | "spread">,
+  awayWinPct: number,
+  predicted: number,
+  share = DRAWN_RANGE_SHARE
+): { low: number; high: number } => {
+  const tie = draws.tieShare;
+  const homeWins = (1 - tie) * (1 - awayWinPct);
+  const awayWins = (1 - tie) * awayWinPct;
+  const level = normalCdf(-predicted / draws.spread);
+  const curve = (at: number) =>
+    predicted + draws.spread * normalQuantile(clamp(at, 1e-12, 1 - 1e-12));
+  /**
+   * The margin a share `q` of the game's draws fall at or below. Where `q` is exactly the share of
+   * one side's wins, a margin of 1 either way would do; the low end takes the nearer the home side
+   * and the high end the nearer the away side, so the game read from the other side is the same
+   * range turned round: an away side given exactly one chance in ten reaches no further than a home
+   * side given the same.
+   */
+  const at = (q: number, high: boolean): number => {
+    const within = (share: number) => (high ? q < share : q <= share);
+    if (within(homeWins)) return Math.min(-1, Math.round(curve((q / homeWins) * level)));
+    if (within(homeWins + tie)) return 0;
+    return Math.max(1, Math.round(curve(level + ((q - homeWins - tie) / awayWins) * (1 - level))));
+  };
+  const tail = (1 - share) / 2;
+  return { low: at(tail, false), high: at(1 - tail, true) };
+};
+
+/**
+ * One side's runs in a game drawn at `margin` from that side (`drawMargin`), the Gold odds' way: the
+ * projected total kept, split so that the margin is the drawn one, the loser never below nothing,
+ * and a tie each side half. The other side's runs are the same split at the margin turned round.
+ * What every simulated game is booked at (`settleDrawn`), and so what a card's score range is read
+ * off at the two ends of its margin range: a side's runs only ever rise with its margin.
+ */
+export const drawnRuns = (total: number, margin: number): number =>
+  margin === 0
+    ? Math.round(total / 2)
+    : Math.max(0, Math.round((total - Math.abs(margin)) / 2)) + Math.max(0, margin);
+
 /**
  * Books a drawn margin onto the two sides, in place: the predicted total kept, split so that the
  * margin is the drawn one, the loser never below nothing. The league's carried totals move by
@@ -1427,9 +1599,8 @@ const settleDrawn = (
   tally: LeagueTally
 ): void => {
   const total = prediction.awayScore + prediction.homeScore;
-  const loser = Math.max(0, Math.round((total - Math.abs(margin)) / 2));
-  const awayRuns = margin === 0 ? Math.round(total / 2) : margin > 0 ? loser + margin : loser;
-  const homeRuns = margin === 0 ? awayRuns : margin < 0 ? loser - margin : loser;
+  const awayRuns = drawnRuns(total, margin);
+  const homeRuns = drawnRuns(total, -margin);
   if (away && home) {
     tally.runs += awayRuns + homeRuns;
     tally.games += 2;
@@ -1491,10 +1662,10 @@ const playOut = (
 };
 
 /** The games owed beyond the schedule (`owedGames`), and the side they are played against. */
-type OwedPlay = { games: Matchup[]; side: Team };
+export type OwedPlay = { games: Matchup[]; side: Team };
 
-/** What a simulation plays beyond the schedule: undefined where nothing is owed. */
-const owedPlay = (
+/** What a simulation or a projection plays beyond the schedule: undefined where nothing is owed. */
+export const owedPlay = (
   teams: Team[],
   remaining: Matchup[],
   settings: Settings
@@ -1583,14 +1754,67 @@ export const isSeedingLocked = (
   return testOutcomeTree(0, baseline);
 };
 
-export const projectStandings = (teams: Team[], games: Matchup[], settings: Settings) => {
+/**
+ * The table with every game left to the favourite, each booked at the model's score
+ * (`applyResult`): the schedule's games, then the ones each team owes beyond it under games per team
+ * (`owedGames`), each against the league's average side and after every scheduled game, as the Gold
+ * odds play them (`playOwed`), the owing team's side alone booked. The Forecast's Projected Record,
+ * Run Diff and Range read this, and read the schedule alone until 1 November 2026: a team 3-0 with
+ * nine games owed was projected to finish 3-0 beside Gold odds that played all nine.
+ *
+ * `owed` is those games and that side, worked out from the teams given unless a caller hands over
+ * its own: the seed walk hands every scenario the season's (`useSeedRanges`), so each is projected
+ * against one side and plays the season's owed games, less the one it settles. Null plays none, and
+ * a league owing none plays none, so it is projected as it always was.
+ */
+export const projectStandings = (
+  teams: Team[],
+  games: Matchup[],
+  settings: Settings,
+  owed: OwedPlay | null = owedPlay(teams, games, settings) ?? null
+) => {
   let projected = teams.map((team) => ({ ...team }));
   games.forEach((game) => {
     const projectionById = buildByIdMap(projected);
     const prediction = predictGame(game, projected, settings, projectionById);
     projected = applyResult(projected, game, prediction.winnerId, projected, settings);
   });
+  if (owed) {
+    // The teams are this projection's own copies, and booking an owed game touches only the
+    // owing team's own numbers (`bookSide`), so they are booked in place.
+    const byId = buildByIdMap(projected);
+    byId.set(OWED_OPPONENT, owed.side);
+    for (const game of owed.games) {
+      const team = byId.get(owerOf(game));
+      if (!team) continue;
+      const prediction = predictGame(game, projected, settings, byId);
+      settleOwed(team, game, prediction.winnerId, prediction, settings);
+    }
+  }
   return rankTeams(projected, rankOptionsFromSettings(settings));
+};
+
+/**
+ * The teams with one game owed beyond the schedule settled, as new objects where they change; the
+ * inputs are untouched. What `applyResult` is for a scheduled game, for the seed walk's scenarios
+ * (`useSeedRanges`): the owing team's side booked at the model's score against `side`, the league's
+ * average side, nudged so the given winner wins.
+ */
+export const applyOwedResult = (
+  teams: Team[],
+  game: Matchup,
+  winnerId: string,
+  side: Team,
+  settings: Settings
+): Team[] => {
+  const owing = owerOf(game);
+  const next = teams.map((team) => (team.id === owing ? { ...team } : team));
+  const team = next.find((one) => one.id === owing);
+  if (!team) return next;
+  const model = buildByIdMap(teams);
+  model.set(OWED_OPPONENT, side);
+  settleOwed(team, game, winnerId, predictGame(game, teams, settings, model), settings);
+  return next;
 };
 
 export const hashSeed = (text: string) => {

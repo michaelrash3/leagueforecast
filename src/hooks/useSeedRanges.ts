@@ -1,5 +1,11 @@
 import { useCallback, useMemo } from "react";
-import { applyResult, projectStandings } from "../lib/sim";
+import {
+  applyOwedResult,
+  applyResult,
+  OWED_OPPONENT,
+  owedPlay,
+  projectStandings,
+} from "../lib/sim";
 import type { Matchup, Settings, Team } from "../lib/types";
 
 /** Where a team can still finish: its projection now, and the two ends of what is left to play. */
@@ -24,6 +30,14 @@ type SeedRangeInput = {
 /**
  * The scenario walk: what each remaining game does to the table, and the best and worst seed each
  * team can still reach.
+ *
+ * The games remaining are the schedule's and, under games per team, the ones each team owes beyond
+ * it (`owedPlay`), as the projection plays them (`projectStandings`): a team's owed game is one more
+ * result that can go either way, against the league's average side. Every scenario is projected
+ * against the one side worked out from the season as it stands, with the season's owed games less
+ * the one it settles, so a scenario differs from the projection by its one result and nothing else.
+ * Until 1 November 2026 the walk read the schedule alone, and a team whose games left were all owed
+ * read its projection at both ends.
  *
  * Every answer is cached, because the walk is expensive — one projection per remaining game per
  * team — and the model table asks for the same team's range three times over while it draws.
@@ -66,6 +80,8 @@ export const useSeedRanges = ({
       games: remainingGames,
       settings,
       exact,
+      // Worked out only for the walk, which alone reads it.
+      owed: exact ? (owedPlay(liveTeams, remainingGames, settings) ?? null) : null,
       scenarios: new Map<string, Map<string, number>>(),
       teamScenarios: new Map<string, number>(),
       ranges: new Map<string, SeedRange>(),
@@ -80,9 +96,22 @@ export const useSeedRanges = ({
       if (!caches.exact) return new Map<string, number>();
       const cached = caches.scenarios.get(scenarioKey);
       if (cached) return cached;
-      const scenario = applyResult(caches.teams, game, winnerId, caches.teams, caches.settings);
-      const scenarioGames = caches.games.filter((item) => item.id !== game.id);
-      const finalProjected = projectStandings(scenario, scenarioGames, caches.settings);
+      const { owed } = caches;
+      const owedGame = game.away === OWED_OPPONENT || game.home === OWED_OPPONENT;
+      const finalProjected =
+        owedGame && owed
+          ? projectStandings(
+              applyOwedResult(caches.teams, game, winnerId, owed.side, caches.settings),
+              caches.games,
+              caches.settings,
+              { ...owed, games: owed.games.filter((item) => item.id !== game.id) }
+            )
+          : projectStandings(
+              applyResult(caches.teams, game, winnerId, caches.teams, caches.settings),
+              caches.games.filter((item) => item.id !== game.id),
+              caches.settings,
+              owed
+            );
       const rankMap = new Map<string, number>();
       finalProjected.forEach((team) => rankMap.set(team.id, team.rank ?? 99));
       caches.scenarios.set(scenarioKey, rankMap);
@@ -124,7 +153,7 @@ export const useSeedRanges = ({
       }
       let best = baseline;
       let worst = baseline;
-      caches.games
+      [...caches.games, ...(caches.owed?.games ?? [])]
         .filter((game) => game.away === teamId || game.home === teamId)
         .forEach((game) => {
           const opponentId = game.away === teamId ? game.home : game.away;

@@ -5,6 +5,7 @@ import {
   calculateTeams,
   getMathGoldStatus,
   getRemainingCounts,
+  projectStandings,
   rankOptionsFromSettings,
   rankTeams,
   simulateBracketOdds,
@@ -21,11 +22,13 @@ import { isFinal } from "../util";
 
 /*
  * What a league that sets games per team, and has entered only part of its schedule, is told: the
- * Gold odds, the title odds, the magic and elimination numbers, the needed results and the Forecast's
- * Gold Bracket paths, each pinned to the digit for leagues that owe games beyond the schedule and for
- * leagues that owe none. A change meant to move a number for the leagues that owe games updates this
- * file, and its commit says which moved; a league that owes none must not move at all, whether the
- * setting is off or set to what its schedule already has. Placeholder names.
+ * Gold odds, the title odds, the magic and elimination numbers, the needed results, the Forecast's
+ * Gold Bracket paths and its projected standings (each team's record, run differential and place
+ * with every game left to the favourite), each pinned to the digit for leagues that owe games
+ * beyond the schedule and for leagues that owe none. A change meant to move a number for the
+ * leagues that owe games updates this file, and its commit says which moved; a league that owes
+ * none must not move at all, whether the setting is off or set to what its schedule already has.
+ * Placeholder names.
  */
 
 const final = (away: number, home: number): GameLog => ({
@@ -108,6 +111,9 @@ const pins = (matchups: Matchup[], gamesPerTeam: number, exact = true) => {
     places: rounded(run.places),
     iterations: run.iterations,
     swing: run.swing?.gameIds ?? [],
+    projected: projectStandings(live, remaining, settings).map(
+      (team) => `${team.id} ${team.w}-${team.l}-${team.t} ${team.runDiff} #${team.rank}`
+    ),
     champion: rounded(bracket.championOdds),
     finals: rounded(bracket.finalsOdds),
     exact: exact
@@ -178,6 +184,12 @@ describe("leagues that owe no games beyond the schedule", () => {
           "C": 3,
           "D": 4,
         },
+        "projected": [
+          "A 3-0-0 15 #1",
+          "B 2-1-0 -1 #2",
+          "C 1-2-0 -5 #3",
+          "D 0-3-0 -9 #4",
+        ],
         "status": [
           "A Clinched, 0 left",
           "B Clinched, 0 left",
@@ -224,6 +236,12 @@ describe("leagues that owe no games beyond the schedule", () => {
           "C": 3,
           "D": 4,
         },
+        "projected": [
+          "A 5-0-0 25 #1",
+          "B 2-3-0 -11 #2",
+          "C 1-2-0 -5 #3",
+          "D 0-3-0 -9 #4",
+        ],
         "status": [
           "A Clinched, 2 left",
           "B Clinched, 2 left",
@@ -278,6 +296,12 @@ describe("leagues that owe games the schedule does not show yet", () => {
           "C": 3,
           "D": 4,
         },
+        "projected": [
+          "A 4-0-0 20 #1",
+          "B 2-2-0 -2 #2",
+          "C 1-3-0 -7 #3",
+          "D 0-4-0 -12 #4",
+        ],
         "status": [
           "A Clinched, 1 left",
           "B In, 1 left",
@@ -324,6 +348,12 @@ describe("leagues that owe games the schedule does not show yet", () => {
           "C": 2.89,
           "D": 3.578,
         },
+        "projected": [
+          "A 12-0-0 60 #1",
+          "B 6-6-0 -2 #2",
+          "C 1-11-0 -23 #3",
+          "D 0-12-0 -28 #4",
+        ],
         "status": [
           "A In, 9 left",
           "B In, 9 left",
@@ -375,6 +405,12 @@ describe("leagues that owe games the schedule does not show yet", () => {
           "C": 2.947,
           "D": 3.893,
         },
+        "projected": [
+          "A 5-0-0 25 #1",
+          "B 2-3-0 -11 #2",
+          "C 1-4-0 -9 #3",
+          "D 0-5-0 -15 #4",
+        ],
         "status": [
           "A In, 2 left",
           "B In, 2 left",

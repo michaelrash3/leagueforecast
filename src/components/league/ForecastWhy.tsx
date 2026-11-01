@@ -1,6 +1,7 @@
 import { useId, useMemo, useState } from "react";
 import { explainForecast, type Factor, type Side } from "../../lib/forecastExplanation";
 import { marginSpanText, runSpanText } from "../../lib/forecastRangeText";
+import type { GameForecast } from "../../lib/gameForecast";
 import type { Finding } from "../../lib/leagueFindings";
 import type { LeaguePrediction } from "../../lib/predictionEngine";
 import { textRole } from "../../styles/tokens";
@@ -9,22 +10,28 @@ const NO_FINDINGS: readonly Finding[] = [];
 
 /**
  * Why a matchup's odds came out as they did (2.8, `forecastExplanation.ts`), opened from its card:
- * the strongest reason for each side first, the margin as the sum of its parts, every factor on
- * request, what could change it, and the numbers the page shows that are easily taken for one
- * another (win chance, the range a game lands in, confidence, Gold % and the record so far), each
- * said apart.
+ * the strongest reason for each side first, the ratings' margin as the sum of its parts, every
+ * factor on request, what could change it, and the numbers the page shows that are easily taken for
+ * one another (win chance, the range a game lands in, confidence, Gold % and the record so far),
+ * each said apart.
  */
 export function ForecastWhy({
   prediction,
   chanceA,
+  range,
   nameOf,
   findings = NO_FINDINGS,
   record,
   hasCutLine = true,
 }: {
   prediction: LeaguePrediction;
-  /** Team A's chance as the card shows it, the per-game model's (`DashboardView`'s `gameOdds`). */
+  /** Team A's chance as the card shows it, the per-game model's (`DashboardView`'s forecast). */
   chanceA: number;
+  /**
+   * The card's range, the Gold odds' draws of the game (`GameForecast`), and whether the card gives
+   * each side's runs, which it does once the league has a final to put a scoring level on.
+   */
+  range?: GameForecast["range"] & { scored: boolean };
   nameOf: (id: string) => string;
   /** The season's data-quality findings, for the Team Rankings links guessed from a name (2.3). */
   findings?: readonly Finding[];
@@ -84,7 +91,6 @@ export function ForecastWhy({
   const favorite = explained.favorite;
   const percent = (value: number) => `${Math.round(value * 100)}%`;
   const confidence = prediction.confidence;
-  const range = prediction.range;
 
   return (
     <div className="space-y-3 text-sm text-slate-700 dark:text-slate-300">
@@ -105,8 +111,8 @@ export function ForecastWhy({
       </ul>
       <p className={textRole.meta}>
         {Math.abs(explained.margin) < 0.05
-          ? "Projected margin: none."
-          : `Projected margin: ${name[leader]} by ${Math.abs(explained.margin).toFixed(1)} runs${partLine ? `, from ${partLine}` : ""}.`}
+          ? "Rating margin: none."
+          : `Rating margin: ${name[leader]} by ${Math.abs(explained.margin).toFixed(1)} runs${partLine ? `, from ${partLine}` : ""}.`}
       </p>
 
       <button
@@ -182,11 +188,11 @@ export function ForecastWhy({
             <div>
               <dt className="inline font-bold text-slate-950 dark:text-slate-100">Range: </dt>
               <dd className="inline">
-                {`${marginSpanText(range.margin, name)}, where eight games in ten like this one end${
-                  range.score
-                    ? `, with ${name.teamA} scoring ${runSpanText(range.score.teamA)} and ${name.teamB} ${runSpanText(range.score.teamB)}`
+                {`${marginSpanText(range.margin, name)}, where eight games in ten like this one end when the Gold odds play it out${
+                  range.scored
+                    ? `, with ${name.teamA} scoring ${runSpanText(range.away)} and ${name.teamB} ${runSpanText(range.home)}`
                     : ""
-                }. It is how far one game strays from its forecast, measured on about 97,000 youth games: the same width however sure the model is, and not a second chance of winning.`}
+                }. It is how far they let one game stray from the projected score, on a curve as wide however sure the model is, and not a second chance of winning.`}
               </dd>
             </div>
           )}

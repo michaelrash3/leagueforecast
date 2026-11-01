@@ -81,7 +81,6 @@ describe("the matchup odds", () => {
       predictedWinnerId: prediction.predictedWinnerId,
       projectedMargin: prediction.projectedMargin,
       winProbability: prediction.winProbability,
-      expectedScore: prediction.expectedScore,
       confidence: prediction.confidence,
       keyFactors: prediction.keyFactors,
       riskFactors: prediction.riskFactors,
@@ -234,7 +233,7 @@ describe("explainForecast", () => {
     });
     if (!explained) throw new Error("No explanation");
     expect(explained.sensitivities).toContain(
-      `The projected margin backs ${leader}, but the per-game model, which also reads runs scored and allowed, makes ${other} the pick: the two ways of reading the season disagree on this game.`
+      `The rating margin backs ${leader}, but the per-game model, which also reads runs scored and allowed, makes ${other} the pick: the two ways of reading the season disagree on this game.`
     );
     expect(explained.sensitivities).toContain(
       "Eagles's Team Rankings results come from a club picked by name, and more than one club carries it: they may be another club's."
@@ -251,12 +250,12 @@ describe("explainForecast", () => {
     // 15 points from the chance shown, and say which way without giving it.
     const parting = (chanceA: number) =>
       explainForecast(prediction, { nameOf, chanceA })?.sensitivities.find((line) =>
-        line.startsWith("The projected margin")
+        line.startsWith("The rating margin")
       );
     const own = prediction.winProbability.teamA;
     const away = own >= 0.5 ? 1 : -1;
     expect(parting(own + away * 0.2)).toBe(
-      "The projected margin alone reads this game as closer than the per-game model does, which also reads runs scored and allowed: the two ways of reading the season disagree on how sure to be."
+      "The rating margin alone reads this game as closer than the per-game model does, which also reads runs scored and allowed: the two ways of reading the season disagree on how sure to be."
     );
     expect(parting(own + away * 0.05)).toBeUndefined();
 
@@ -324,7 +323,7 @@ describe("explainForecast", () => {
       explained?.factors.filter((factor) => factor.inMargin).map((factor) => factor.key)
     ).toEqual(["results", "schedule", "capped", "headToHead", "homeField"]);
     expect(explained?.factors.find((factor) => factor.key === "capped")?.text).toMatch(
-      /^A projected margin stops at 14 runs, so \d+\.\d runs over it are left out\.$/
+      /^The rating margin stops at 14 runs, so \d+\.\d runs over it are left out\.$/
     );
     expect(explained?.strongest.teamB?.key).toBe("schedule");
     expect(explained?.probabilityCapped).toBe(false);

@@ -4486,17 +4486,45 @@ every number the forecast reads off a team, averaged over the league by the game
 behind each, and the league's average rating where its teams carry one, so a
 strong team wins more of its owed games than a weak one does. Nothing is booked
 onto that side and no table ranks it, and the title odds take the bracket's kept
-scores as played only once the owed games are played too, since until then
-nobody's seed is settled. In the league above, the Aces went from 100% to 99%, the
+scores as played only once the owed games are played too, or a kept score ends them
+(below), since until then nobody's seed is settled. In the league above, the Aces went from 100% to 99%, the
 Bears from 99%+ to 77%, the Comets from under 1% to 20% and the Ducks to 5%. A
 league with no games per team set, or whose schedule has them all, is searched and
 simulated exactly as before, to the digit.
 
-Waiting for the owed games has a cost where games per team counts one that will
+The Forecast's projected standings play them too, since 1 November 2026
+(`projectStandings`): after the scheduled games, each owed game goes to the favourite against
+the same average side, the owing team's side booked at the model's score, so the Projected
+Record and the Run Diff beside it come to games per team. The Range walks them as well
+(`useSeedRanges`): each owed game is one more result that can go either way, every scenario
+projected against the one average side the season as it stands gives, with the season's owed
+games less the one it settles. Both read the schedule alone before, so in the league above the
+Aces, 3-0 with nine owed, were projected to finish 3-0 beside Gold odds that played all nine;
+they are projected 12-0 now, the Bears 2-10, the Comets 1-11 and the Ducks 0-12, and a team
+whose games left were all owed read its projection at both ends of its Range. The projection and
+the walk count the owed games toward the games they wait for (250 and 60), as the exact search
+does. A league owing none is projected and walked exactly as before, to the digit.
+
+Waiting for the owed games had a cost where games per team counts one that will
 never be played, a rainout taken off the schedule and not made up, say: the title
-odds draw the bracket afresh even once it is played and the Dashboard names its
-champion. Data Quality's finding on the setting says so, and once the setting
-leaves no game owed, the kept scores are read again.
+odds drew the bracket afresh even once it was played and the Dashboard named its
+champion. Since 1 November 2026 a kept bracket score ends the owed games
+(`bracketBegun`, `regularSeasonSettings`): the bracket is played once the regular
+season is over, so once any game of it, Gold or Silver, has a final score in, games
+per team owes nothing more beyond the schedule. Every number that counted the owed
+games reads the season as scheduled then: the status column, the magic and
+elimination numbers, the needed results and the paths, the Gold odds and their trend,
+the projection and its Range, the season timeline, the recap, the playoff machine, and
+the title odds, which read the bracket's kept scores as played. In the league above
+with its final kept, the Bears beating the Aces 5 to 2, the Aces and the Bears read
+Clinched at 100% where they read 99% and 77%, the Comets and the Ducks Out at 0% where
+they read 20% and 5%, the projection is the round robin as it stands, the Aces 3-0
+where they were projected 12-0, and the Bears hold the title at 100%. A score still
+being typed, not marked final, keeps nothing, and the trend's points before the last
+are read without the owed games too, as they would be had the setting matched the
+schedule. Data Quality's finding on the setting says what holds the numbers back until
+then, and goes once the bracket begins; the setting itself, as Settings shows it and a
+backup or a shared link keeps it, is the league's and does not change.
 
 ## Playoff machine
 
@@ -4597,10 +4625,32 @@ by that model's rule (a phone's line says **Toss-up**), or **Pending data** whil
 nothing to forecast from. The list used to show the prediction engine's own chance, a logistic
 over its margin held to 8–92%, beside it: one game could be 43% on the Our team card and the
 other side's pick at 54% in the list, and in a close game the two could back different sides.
-The engine's chance is now shown nowhere, and the card gives the engine's projected margin
-beside the pick only where the two lean the same way. What the panel explains is that margin,
-which the engine gives as data with every forecast (`LeaguePrediction.explanation`), as the sum
-of its parts in runs, which add up to it exactly:
+The engine's chance is now shown nowhere.
+
+Nor, since 1 November 2026, is anything else of the engine's on the card: the margin beside the
+pick, the **Expected Score**, both **Range** lines (below) and the **Model Read** are the per-game
+model's too (`forecastGame`), so a card is one forecast. They were the engine's: its margin, its
+expected score (the league's scoring rate either side of that margin, to a tenth), ranges around
+those, and its line "Aces holds the stronger opponent-adjusted rating", beside a chance from the
+other model. In the Dashboard's own test league that card read Aces by 3.5, expected 6.4 to 2.9,
+beside a 65% from a model that had them 8 to 3. The margin is now the projected score's, in whole
+runs as the score is, given beside the pick only where the score leans the same way: a 52% can
+sit beside a level score, which names no winner by anything. The Model Read says what that score
+is made of, as the per-game model makes it (`modelRead.ts`): the margin this league's own games
+give on their own (runs scored and allowed, and form), the ratings' margin, and how far the
+projection goes from the first to the second, more the more rated games the thinner-rated side
+has ("This league's games alone (runs scored and allowed, and form) make it Aces by 7.8; the
+ratings, Aces by 3.1. The projection counts the ratings 60%."). With either side on fewer than
+two league games the model reads the ratings alone against an even game, and says so, naming the
+side. Before the league has a final the score is the model's placeholder, 7 runs a side, so the
+card says **Needs scores**, as it did; a margin read off Team Rankings results alone is still
+given, with its range.
+
+What the panel explains is the engine's margin, the gap between the two ratings that the per-game
+model counts beside the league's games, with the head-to-head nudge and the cap: the **rating
+margin**, as the panel calls it now that the card's margin is the per-game model's. The engine
+gives it as data with every forecast (`LeaguePrediction.explanation`), as the sum of its parts in
+runs, which add up to it exactly:
 
 - **Results**: each side's average margin in the games its rating was fitted from (league
   and Team Rankings, each counted up to `FORECAST_RUN_CAP`), shrunk toward average by the
@@ -4629,8 +4679,8 @@ from, which reads runs scored and allowed beside the rating (`forecastExplanatio
 reason given for its pick where no part of the margin leans that way.
 
 The panel leads with the strongest reason for each side (a part of the margin where there is
-one), then the margin as its parts ("Aces by 2.3 runs, from results +3.1, opponents faced
-−1.2, head-to-head +0.4"), with every factor on request. **What could change it** names a
+one), then the rating margin as its parts ("Rating margin: Aces by 2.3 runs, from results +3.1,
+opponents faced −1.2, head-to-head +0.4"), with every factor on request. **What could change it** names a
 side with fewer than three games behind its rating, a newest result more than three weeks
 before the game, Team Rankings results from a club linked by a name more than one club
 carries, a rating and raw scoring that point different ways, and the margin and the chance
@@ -4647,30 +4697,45 @@ fetched the first time one is opened.
 ### How far one game can stray
 
 Under each card's projected winner is the **range** of margins eight games in ten like it end
-within, and under the expected score each side's runs (2.10, `forecastRange.ts`): "Range:
-Bears by 6 to Aces by 13" and "Range: Aces 0–13, Bears 0–9" for Aces by 3.5, expected 6.4 to
-2.9. It is 9 runs either side of the projected margin at player pitch and 10 at machine pitch,
-and 6.5 and 8 runs either side of each expected score (never below none), in whole runs worked
-out from the margin and score the card shows. It says how much a single game varies, not how
-sure the model is, so it is the same width however many games are behind the ratings.
+within, and under the expected score each side's runs (2.10): "Range: Bears by 6 to Aces by 15"
+and "Range: Aces 3–15, Bears 0–9" for Aces 8 to 3 at 65%. They are the Gold odds' own draws of
+the game, worked out rather than sampled (`drawnMarginSpan`): the tenth and the ninetieth of the
+margins `drawMargin` draws, which is a tie at the league's own share of them, the away side
+winning at its chance, and the margin from a normal curve around the projected one, 8.0 runs wide
+at kid pitch and 6.7 at machine and coach pitch, held to the winner's side of level and rounded to
+whole runs. Each side's runs are the projected total split by the margins at those two ends, the
+loser never below none, as every simulated game is booked (`drawnRuns`), so a side's range is the
+two scores its side of the margin range leaves it. The range follows the chance as well as the
+score: Aces 8 to 3 at 65% is less than the curve alone gives a five-run favourite (73%), so the
+Bears win more often than the curve's 27%, and the range reaches further their way. It says how
+much a single game varies, not how sure the model is, so it is about as wide however many games
+are behind the ratings. A game read from either side is the same range turned round: where one
+side's wins are exactly a tenth of the draws, the low end is the home side's one-run win and the
+high end the away side's.
 
-The widths are measured, not read off the curve the win chance comes from. On 1,006
-pseudo-leagues from the 29 Sep 2026 pool (each state's pulled clubs on a 2027 page with
-twenty or more, their games with one another up to a mid-September cut the season so far,
-their other results what the bridge would hand over, and every later game between them
-scored), 81.0% of 89,998 player-pitch games ended inside the margin range and 81.9% of 7,492
-machine-pitch games; 79% and 78% where either side had played two games or fewer, 85% and 88%
-where both had played six or more. That curve would have put the band at 10.3 and 8.7 runs,
-holding 85% of player-pitch games but only 73% of machine-pitch ones. Both sides scored inside
-their score ranges in 79.5% and 79.7% of games: 85% where sides average four to six runs, 74%
-where they average eight or more.
+Until 1 November 2026 the range was measured rather than drawn, around the prediction engine's
+margin and expected score: 9 runs either side of the margin at player pitch and 10 at machine
+pitch, and 6.5 and 8 either side of each expected score. On 1,006 pseudo-leagues from the 29 Sep
+2026 pool (each state's pulled clubs on a 2027 page with twenty or more, their games with one
+another up to a mid-September cut the season so far, their other results what the bridge would
+hand over, and every later game between them scored), 81.0% of 89,998 player-pitch games ended
+inside that margin range and 81.9% of 7,492 machine-pitch games, and both sides scored inside
+their score ranges in 79.5% and 79.7%. The curve the Gold odds draw on would have put the
+engine's margin band at 10.3 and 8.7 runs either side, holding 85% of player-pitch games but only
+73% of machine-pitch ones. That curve is the card's now, the owner's ruling of 1 November 2026 that
+the card follow the model the Gold odds play by, and nothing has been measured of it around the
+per-game model's margin. Each side's runs are narrower than the measured ones were, about half
+the margin's band either side of the score, since the Gold odds keep a game's projected total and
+split it: in that measure both sides scored within 6.5 runs of the engine's expected score in four
+games in five, and a band half as wide can be expected to hold fewer.
 
 On the Forecast tab, the seed odds grid has a **Likely** column: the seeds a team finishes in
 once the best and worst tenth of simulated seasons are left out, so at least eight simulated
 seasons in ten (`seedRange.ts`). It is not the Projected Standings' **Range**, which is the
 best and worst seed one remaining result can move the projection to. That walk is a season's
-projection for each way each remaining game can go, so it waits until 60 or fewer games
-remain (`useSeedRanges`); until then the column, the phone rows and the Bubble Watch show a
+projection for each way each remaining game can go, the games owed beyond the schedule among
+them ([Postseason format](#postseason-format)), so it waits until 60 or fewer games remain,
+owed ones counted (`useSeedRanges`); until then the column, the phone rows and the Bubble Watch show a
 dash and the caption says the range is paused, rather than every team's projection at both
 ends, which would read as a seed nothing left to play can move.
 

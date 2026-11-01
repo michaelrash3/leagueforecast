@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { forecastGame } from "../../lib/gameForecast";
 import type { Finding } from "../../lib/leagueFindings";
 import { buildPredictionEngine } from "../../lib/predictionEngine";
 import {
@@ -67,6 +68,20 @@ const chanceFor = (scores: Record<string, GameLog> = logs) => {
     .awayWinPct;
 };
 
+/** The card's range for that game, as the Gold odds draw it, as the card hands the panel it. */
+const rangeFor = () => {
+  const base = calculateTeams(teams, matchups, logs, DEFAULT_SETTINGS);
+  const engine = buildPredictionEngine(base, matchups, logs, DEFAULT_SETTINGS);
+  const game = matchups.find((one) => one.id === "g4");
+  if (!game) throw new Error("No game");
+  const forecast = forecastGame(
+    game,
+    attachAdjustedRatings(base, engine.ratings),
+    DEFAULT_SETTINGS
+  );
+  return { ...forecast.range, scored: forecast.scored };
+};
+
 describe("ForecastWhy", () => {
   it("leads with the strongest reason for each side and the margin as its parts", () => {
     const prediction = predictionFor();
@@ -82,7 +97,7 @@ describe("ForecastWhy", () => {
     expect(reasons[0]).toHaveTextContent(/^For Aces: Results \(\d+\.\d runs\)\. Average margin/);
     expect(reasons[1]).toHaveTextContent(/^For Bears: /);
     expect(
-      screen.getByText(/^Projected margin: Aces by \d+\.\d runs, from results \+\d+\.\d/)
+      screen.getByText(/^Rating margin: Aces by \d+\.\d runs, from results \+\d+\.\d/)
     ).toBeInTheDocument();
   });
 
@@ -93,6 +108,7 @@ describe("ForecastWhy", () => {
       <ForecastWhy
         prediction={prediction}
         chanceA={chance}
+        range={rangeFor()}
         nameOf={nameOf}
         record={{ winnerAccuracy: 2 / 3, sampleSize: 3 }}
       />
@@ -107,10 +123,9 @@ describe("ForecastWhy", () => {
     expect(meaning("Win chance:")).toBe(
       `${Math.round(chance * 100)}% for Aces, how often the per-game model, which reads runs scored and allowed beside the rating, expects a side like Aces to beat one like Bears.`
     );
-    // Aces by 3.5, expected 6.4 to 2.9: 9 runs either side of the margin, 6.5 either side of each
-    // score, in whole runs.
+    // Aces 8 to 3 at 65%, the card's: the Gold odds' draws of the game, eight in ten.
     expect(meaning("Range:")).toBe(
-      "Bears by 6 to Aces by 13, where eight games in ten like this one end, with Aces scoring 0–13 and Bears 0–9. It is how far one game strays from its forecast, measured on about 97,000 youth games: the same width however sure the model is, and not a second chance of winning."
+      "Bears by 6 to Aces by 15, where eight games in ten like this one end when the Gold odds play it out, with Aces scoring 3–15 and Bears 0–9. It is how far they let one game stray from the projected score, on a curve as wide however sure the model is, and not a second chance of winning."
     );
     expect(meaning("Confidence:")).toContain(
       `${prediction.confidence.tier} (${prediction.confidence.score} of 100)`
@@ -131,6 +146,7 @@ describe("ForecastWhy", () => {
       <ForecastWhy
         prediction={predictionFor()}
         chanceA={chanceFor()}
+        range={rangeFor()}
         nameOf={nameOf}
         record={{ winnerAccuracy: 2 / 3, sampleSize: 3 }}
         hasCutLine={false}
@@ -190,7 +206,7 @@ describe("ForecastWhy", () => {
     const reasons = screen.getAllByRole("listitem").slice(0, 2);
     expect(reasons[1]).toHaveTextContent("For Bears: nothing in this forecast leans their way.");
     expect(
-      screen.getByText(/^Projected margin: Aces by 14\.0 runs, from results \+\d+\.\d/)
+      screen.getByText(/^Rating margin: Aces by 14\.0 runs, from results \+\d+\.\d/)
     ).toHaveTextContent(new RegExp(`, cap −${cut.replace(".", "\\.")}\\.$`));
     await user.click(screen.getByRole("button", { name: "Every factor" }));
     const margin = screen.getByRole("heading", { name: "In the margin" }).parentElement;

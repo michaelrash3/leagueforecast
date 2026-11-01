@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { useEffect, useMemo } from "react";
 import { describe, expect, it } from "vitest";
 import { useSeedRanges } from "./useSeedRanges";
-import { calculateTeams, rankTeams, rankOptionsFromSettings } from "../lib/sim";
+import { calculateTeams, projectStandings, rankTeams, rankOptionsFromSettings } from "../lib/sim";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../lib/types";
 
 /**
@@ -241,5 +241,72 @@ describe("the scenario caches and the walk being switched off", () => {
     rerender(<Probe logs={ONE_WAY} exact={true} tick={1} />);
 
     expect(rangeText()).toBe(first);
+  });
+});
+
+/*
+ * The walk with games owed beyond the schedule: the Range is the best and worst seed one result
+ * left can lead to, and a game a team still owes under games per team is one, played against the
+ * league's average side as the Gold odds play it. Read off the schedule alone, a team whose games
+ * left were all owed read its projection at both ends, a finish nothing left to play could move.
+ */
+describe("the walk with games owed beyond the schedule", () => {
+  /** Three teams, each 1-1 round a cycle: the Aces beat the Bears, who beat the Cubs, who beat them. */
+  const CYCLE: Matchup[] = [
+    { id: "c1", date: "2026-04-05", away: "aces", home: "bears" },
+    { id: "c2", date: "2026-04-12", away: "bears", home: "cubs" },
+    { id: "c3", date: "2026-04-19", away: "cubs", home: "aces" },
+  ];
+  const CYCLE_SCORES = { c1: played(5, 3), c2: played(6, 2), c3: played(4, 1) };
+  const THREE = TEAMS.slice(0, 3);
+  // Nothing left on the schedule, one array for every render, as the app keeps its own.
+  const NO_GAMES: Matchup[] = [];
+
+  function Ranges({ gamesPerTeam }: { gamesPerTeam: number }) {
+    const settings = useMemo(
+      () => ({ ...DEFAULT_SETTINGS, regularSeasonGamesPerTeam: gamesPerTeam }),
+      [gamesPerTeam]
+    );
+    const season = useMemo(() => {
+      const liveTeams = calculateTeams(THREE, CYCLE, CYCLE_SCORES, settings);
+      const projected = projectStandings(liveTeams, [], settings);
+      return {
+        liveTeams,
+        ranked: rankTeams(liveTeams, rankOptionsFromSettings(settings)),
+        projectedById: new Map(
+          projected.map((team) => [team.id, { ...team, rank: team.rank ?? 99 }])
+        ),
+      };
+    }, [settings]);
+    const { seedRangeForTeam } = useSeedRanges({
+      exact: true,
+      liveTeams: season.liveTeams,
+      remainingGames: NO_GAMES,
+      settings,
+      projectedById: season.projectedById,
+      ranked: season.ranked,
+    });
+    return (
+      <div data-testid="ranges">
+        {THREE.map(({ id }) => {
+          const range = seedRangeForTeam(id);
+          return `${id} #${range.best}–#${range.worst} (#${range.baseline})`;
+        }).join(", ")}
+      </div>
+    );
+  }
+
+  it("walks each team's owed games, so one with none on the schedule can still move", () => {
+    render(<Ranges gamesPerTeam={3} />);
+    const ranges = screen.getByTestId("ranges").textContent ?? "";
+    // Some team's single owed result moves it off its projected place, one way or the other.
+    expect(ranges.split(", ").some((line) => !/#(\d)–#\1 \(#\1\)$/.test(line))).toBe(true);
+    expect(ranges).toMatchInlineSnapshot(`"aces #1–#3 (#3), bears #1–#1 (#1), cubs #2–#2 (#2)"`);
+  });
+
+  it("leaves a league owing nothing at its projection, there being nothing left to play", () => {
+    render(<Ranges gamesPerTeam={2} />);
+    for (const line of (screen.getByTestId("ranges").textContent ?? "").split(", "))
+      expect(line).toMatch(/#(\d)–#\1 \(#\1\)$/);
   });
 });

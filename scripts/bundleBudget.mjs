@@ -172,13 +172,26 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
  * with the sections alone on demand and 418.0 KB on main. The Team Rankings line goes to 86.0 KB,
  * 1.9 KB above what it measured, Import's to 74.5 KB and Setup's to 83.5 KB, a tenth above; the
  * other sections and League Standings' views moved by under 0.1 KB.
+ * Dashboard to 7.5 KB on 1 Nov 2026 for each prediction card reading as one forecast, 7.3 KB
+ * against 6.9 KB on main (7,301 bytes against 6,928): the Model Read in the per-game model's own
+ * terms (`modelRead.ts`), which only the Dashboard shows, and the card's margin, expected score and
+ * both ranges read off that model's forecast rather than the prediction engine's. The forecast
+ * itself, the ranges the Gold odds draw a game within (`forecastGame`, `drawnMarginSpan`), is worked
+ * out where the chance beside it already was, in the first download, 222.8 KB against 222.6 KB
+ * (222,809 bytes against 222,563), less the engine's measured ranges, which went with it.
+ * Team Rankings to 87.0 KB the same day, 86.0 KB against 86.0 KB on main (86,036 bytes against
+ * 85,984): the line had 16 bytes left once #510 and #512 had spent its margin, and the simulation
+ * Team Rankings' opening shares with League Standings (`sim.ts`) gained the forecast a prediction
+ * card reads (`forecastGame`, `drawnMarginSpan`, `drawnRuns`), 52 bytes of it reaching that load.
+ * The line goes up by a whole kilobyte, so the next small change to the opening is not held up by
+ * bytes alone; it is still about half the 166.5 KB it stood at before the sections loaded on demand.
  */
 const BUDGET = {
   firstDownload: 255_000,
   entryChunk: 97_500,
   css: 15_200,
   views: {
-    Dashboard: 7_000,
+    Dashboard: 7_500,
     "Power Ratings": 3_800,
     Schedule: 8_200,
     Standings: 8_000,
@@ -188,7 +201,7 @@ const BUDGET = {
     Settings: 13_700,
     "Seasons at a glance": 4_400,
     "Since you last looked": 4_500,
-    "Team Rankings": 86_000,
+    "Team Rankings": 87_000,
   },
   sections: {
     Games: 12_400,
