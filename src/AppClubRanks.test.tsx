@@ -18,7 +18,7 @@ beforeAll(() => prefetchAllViews());
  */
 
 const link = (teamId: string) => ({ teamId, name: teamId, ageGroupId: "ag_9u_2027" });
-const place = (clubId: string, gc: string, rank: number) => ({
+const place = (clubId: string, gc: string[], rank: number) => ({
   clubId,
   gc,
   board: "9U 2027",
@@ -57,8 +57,8 @@ describe("a League team's club's place on Team Rankings", () => {
       "lf_league_club_ranks_v1",
       JSON.stringify({
         default: {
-          "L-HIVE": place("S-HIVE", "gcHive0001", 12),
-          "L-OWLS": place("S-OWL2", "gcOwls0002", 7),
+          "L-HIVE": place("S-HIVE", ["gcHive0001"], 12),
+          "L-OWLS": place("S-OWL2", ["gcOwls0002"], 7),
         },
       })
     );

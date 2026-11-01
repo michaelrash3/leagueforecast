@@ -39,8 +39,8 @@ describe("saved tournament fields", () => {
 });
 
 /*
- * A saved field keeps, beside each club, a GameChanger id it carried (`SavedField.gc`), and is
- * read by it (`readClub`): a club folded into another is that club, and one whose id is another
+ * A saved field keeps, beside each club, GameChanger ids it carried (`SavedField.gc`), and is
+ * read by them (`readClub`): a club folded into another is that club, and one whose id is another
  * club's now is shown gone, under an id no club has, so the field never plays the club now under
  * the id in its place. Placeholder names and ids throughout.
  */
@@ -51,10 +51,10 @@ describe("a saved field's clubs, by their GameChanger ids", () => {
     teamIds: ["S-ACES", "S-ACES2", "S-BEAR"],
     pools: 1,
     advance: 4,
-    gc: ["gcAces001", "gcAcesGld", ""],
+    gc: [["gcAces001"], ["gcAcesGld"], []],
   };
 
-  it("keeps each club's GameChanger id, and none where it had none", () => {
+  it("keeps each club's GameChanger ids, and none where it had none", () => {
     saveField("ag10", field);
     expect(readSavedFields("ag10")).toEqual([field]);
   });
@@ -67,7 +67,7 @@ describe("a saved field's clubs, by their GameChanger ids", () => {
       { id: "S-BEAR", gcTeams: [link("gcBears01")] },
     ]);
     expect(readSavedFields("ag10", now)).toEqual([
-      { ...field, teamIds: ["S-ACES", "S-BEAR"], gc: ["gcAces001", ""] },
+      { ...field, teamIds: ["S-ACES", "S-BEAR"], gc: [["gcAces001"], []] },
     ]);
     const again = clubLookupOf([
       // Started again: the Aces now under another id, S-ACES and S-ACES2 other clubs', and Aces
@@ -98,17 +98,38 @@ describe("a saved field's clubs, by their GameChanger ids", () => {
     expect(readSavedFields("ag10", again)).toEqual([old]);
   });
 
-  it("reads an id that is not text as none, beside the club it was kept with", () => {
+  it("reads ids that are not a list of text as none, beside the club they were kept with", () => {
     backing.set(
       "lf_tournament_fields_v1",
       JSON.stringify({
         ag10: [
-          { name: "Odd", teamIds: ["S-ACES", 4, "S-BEAR"], gc: [7, "gcSkipped", "gcBears01"] },
+          {
+            name: "Odd",
+            teamIds: ["S-ACES", 4, "S-BEAR", "S-COME"],
+            gc: [[7], ["gcSkipped"], ["gcBears01"], "gcComets1"],
+          },
         ],
       })
     );
     expect(readSavedFields("ag10")).toEqual([
-      { name: "Odd", teamIds: ["S-ACES", "S-BEAR"], pools: 1, advance: 4, gc: ["", "gcBears01"] },
+      {
+        name: "Odd",
+        teamIds: ["S-ACES", "S-BEAR", "S-COME"],
+        pools: 1,
+        advance: 4,
+        gc: [[], ["gcBears01"], []],
+      },
     ]);
+  });
+
+  it("is still each club where one of the GameChanger teams it was kept with is unlinked", () => {
+    saveField("ag10", { ...field, gc: [["gcAces002", "gcAces001"], ["gcAcesGld"], []] });
+    // The Aces' newer team unlinked since: the club is the Aces still, ranked and played.
+    const unlinked = clubLookupOf([
+      { id: "S-ACES", gcTeams: [link("gcAces001")] },
+      { id: "S-ACES2", gcTeams: [link("gcAcesGld")] },
+      { id: "S-BEAR", gcTeams: [link("gcBears01")] },
+    ]);
+    expect(readSavedFields("ag10", unlinked)[0]?.teamIds).toEqual(["S-ACES", "S-ACES2", "S-BEAR"]);
   });
 });

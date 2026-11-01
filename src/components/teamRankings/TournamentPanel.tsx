@@ -22,10 +22,11 @@ type TournamentPanelProps = {
   placeOf: (teamId: string) => string | undefined;
   /**
    * What the page knows of its clubs' GameChanger ids: the clubs a saved field is read by
-   * (`readSavedFields`), and the id a club is saved with on this page (`pageGcId`). Left out, a
-   * field is read as kept and a club is saved with the id the field it came from kept, if any.
+   * (`readSavedFields`), and the ids a club is saved with on this page (`keptGcIds`), undefined
+   * where it has none. Left out, a field is read as kept and a club is saved with the ids the field
+   * it came from kept, if any.
    */
-  clubs?: { lookup: ClubLookup; gcOf: (teamId: string) => string | undefined };
+  clubs?: { lookup: ClubLookup; gcOf: (teamId: string) => readonly string[] | undefined };
 };
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
@@ -64,8 +65,10 @@ export function TournamentPanel({
   );
   // The GameChanger ids the field opened kept, by the id each club is shown under, so saving it
   // again keeps them where the page cannot say (a club shown gone, or a page that holds no pool).
-  const [openedGc, setOpenedGc] = useState<ReadonlyMap<string, string>>(() => new Map());
-  const gcOf = (teamId: string) => clubs?.gcOf(teamId) ?? openedGc.get(teamId) ?? "";
+  const [openedGc, setOpenedGc] = useState<ReadonlyMap<string, readonly string[]>>(() => new Map());
+  const gcOf = (teamId: string): string[] => [
+    ...(clubs?.gcOf(teamId) ?? openedGc.get(teamId) ?? []),
+  ];
 
   const rowById = useMemo(() => new Map(rankings.map((row) => [row.teamId, row])), [rankings]);
   const options = useMemo(
@@ -136,7 +139,7 @@ export function TournamentPanel({
                   teamIds: fieldIds,
                   pools,
                   advance,
-                  ...(fieldIds.some((id) => gcOf(id)) ? { gc: fieldIds.map(gcOf) } : {}),
+                  ...(fieldIds.some((id) => gcOf(id).length > 0) ? { gc: fieldIds.map(gcOf) } : {}),
                 },
                 clubs?.lookup ?? null
               )
@@ -160,9 +163,9 @@ export function TournamentPanel({
                 setFieldIds(field.teamIds);
                 setOpenedGc(
                   new Map(
-                    field.teamIds.flatMap((id, at): [string, string][] => {
+                    field.teamIds.flatMap((id, at): [string, string[]][] => {
                       const kept = field.gc?.[at];
-                      return kept ? [[id, kept]] : [];
+                      return kept?.length ? [[id, kept]] : [];
                     })
                   )
                 );

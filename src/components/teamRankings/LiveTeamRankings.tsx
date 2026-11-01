@@ -73,7 +73,7 @@ import { ClubSheet } from "./ClubSheet";
 import { useWatchList } from "../../lib/watchList";
 import { withGcIds } from "../../lib/myTeamLook";
 import { clubLookupOf } from "../../lib/teamRankings/leagueBridge";
-import { pageGcId } from "../../lib/teamRankings/rememberedClub";
+import { keptGcIds } from "../../lib/teamRankings/rememberedClub";
 import { RankingsHeader } from "./RankingsHeader";
 import { NATIONAL_TOP, RankingsSection, STATE_TOP } from "./RankingsSection";
 import { SECTION_PANEL_ID, sectionTabId } from "./SectionNav";
@@ -1202,8 +1202,8 @@ function LiveBoard({
                     on: watchList.watched.some((club) => club.id === openClub),
                     full: watchList.full,
                     onToggle: (name, club) => {
-                      const gc = pageGcId(club, selectedAgeGroupId, ageGroups);
-                      toggleWatch({ id: openClub, name, ...(gc ? { gc } : {}) });
+                      const gc = keptGcIds(club, selectedAgeGroupId, ageGroups);
+                      toggleWatch({ id: openClub, name, ...(gc.length ? { gc } : {}) });
                     },
                   }}
                   {...(panelBoard ? { board: panelBoard } : {})}

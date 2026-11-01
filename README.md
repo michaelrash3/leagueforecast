@@ -641,9 +641,10 @@ which draws the board this account kept before the network's, none is taken unti
 vouched for the board on screen (`checked`): decided on the kept one, the line said nothing of an
 overnight climb, kept the old places as seen that day and told the climb a visit late. Offline the
 network never vouches, so the line waits for a visit that reaches it. A look keeps a
-GameChanger id the club carries beside its id, the page's own team first (`pageGcIds`), and
-is read by it (`readMyTeamLook`, on `readClub`): one kept for another club the club's id named
-once is none of its own, a first visit's, and one kept under an id the club no longer has, a
+few GameChanger ids the club carries beside its id, the page's own team first (`keptGcIds`),
+and is read by them (`readMyTeamLook`, on `readClub`): one kept for another club the club's id
+named once is none of its own, a first visit's, as is one kept with ids where the club now
+carries none, and one kept under an id the club no longer has, a
 club folded into it or itself before Team Rankings started again, is its own, the newest of
 them. This device's copy reads the club's ids off its pool, and the cloud's board off the
 club's card, which the line now waits for as it waits for the board. A look kept before, with
@@ -713,8 +714,8 @@ odds are each club's record and rating on the board, and, where the report's clu
 is ranked here, its projected margin and chance against each one (Us by, Our
 chance), from the same preview a matchup row's What if reads, so the table reads as
 the weekend from our bench and not only as odds. Fields are saved in this browser
-by name, per age group, each club with a GameChanger id it carries on the page
-(`SavedField.gc`), and read by it on this device's copy (`readClub`): a club folded
+by name, per age group, each club with a few GameChanger ids it carries on the page
+(`SavedField.gc`), and read by them on this device's copy (`readClub`): a club folded
 into another is that club, and one whose id is another club's now is not ranked
 here, never played as that club, and keeps its id when the field is saved again,
 so a club pulled back later is found by it. A field saved before, with no ids, is
@@ -5104,35 +5105,47 @@ subscription and sending to it, which the app does not have.
 
 A club's id is the pool's own (`S-RIVE`, `S-RIVE2`), and a fold or Team Rankings
 started again can leave it naming another club; GameChanger's is never another
-team's. So wherever this device remembers a club, it keeps a GameChanger id the club
-carried beside the club's id, the club's team on the page first, as a League pick
-keeps the season's own (`pageGcId`, `gcIdsForSeason`), and reads the club by one
-rule, the League pick's (`readClub`, which `readPick` now calls): the club id while
-it names a club carrying that GameChanger id; else the one club carrying it now,
-which a club folded into another is, since a fold carries the folded club's
-GameChanger teams on (`mergeScoutTeams`), and a club pulled again after a start is;
-else, where the id names a club that does not carry it and no one club does, the
-club is gone, shown as a gone club is, by the name it was kept with and with no
-place, under an id no club has (`GONE_CLUB`), so the club now under its id is never
-read as it. Something kept with no GameChanger id, before this was kept, reads as it
-always did.
+team's. So wherever this device remembers a club, it keeps up to three GameChanger
+ids the club carried beside the club's id, the club's team on the page first, as a
+League pick keeps the season's own (`keptGcIds`, `KEPT_GC_IDS`, `gcIdsForSeason`),
+and reads the club by one rule, the League pick's (`readClub`, which `readPick`
+calls with the pick's one id): the club id while it names a club carrying any of
+them; else the one club carrying them now, which a club folded into another is,
+since a fold carries the folded club's GameChanger teams on (`mergeScoutTeams`),
+and a club pulled again after a start is; else, where the id names a club carrying
+none of them and no one club carries them, the club is gone, shown as a gone club
+is, by the name it was kept with and with no place, under an id no club has
+(`GONE_CLUB`), so the club now under its id is never read as it. Something kept
+with no GameChanger id, before this was kept, reads as it always did.
+
+A few, not one, because an Unlink takes a link off a club still on the board, and
+the one a store would keep alone is the page's newest, the likeliest to be a wrong
+link undone: kept by it alone, the club read as gone after the Unlink (its watch
+card "Not on this board", a saved field's club not ranked, League's place lost, My
+Team's look started over; the review of 1 November 2026). Kept by three, the club
+is itself while it carries any of them, and a wrong link that moves on to the club
+it belongs to is not followed there. What is left: a club whose every kept team is
+unlinked carries none of them, as a club its id was minted to after Start again
+does, and reads as gone.
 
 - **Watched clubs** (`lf_watch_v1`, `watchList.ts`): a club folded into another is
   watched as that club, two folded into one are one, and one whose id is another's
   now is named and not on the board while that club's own Watch is off; Stop takes
-  off a club as it is shown. 20 bytes an entry, five at most a page.
+  off a club as it is shown. 22 bytes an entry with one id and 15 for each id
+  more, 52 at most; five entries at most a page.
 - **My Team's look** (`lf_my_team_look_v1_<club>`, `myTeamLook.ts`): another club's
   look kept under the club's id is none of its own, and one kept under an id it no
-  longer has is its own. 20 bytes a look, twelve at most. My Team itself is the
-  page's mark in the pool, which a fold moves to the club that stays.
+  longer has is its own. 22 to 52 bytes a look, twelve looks at most. My Team
+  itself is the page's mark in the pool, which a fold moves to the club that stays.
 - **Saved tournament fields** (`lf_tournament_fields_v1`, `tournamentFields.ts`): a
   club folded into another is that club, and one whose id is another's now is not
-  ranked here and keeps its id when saved again. 15 bytes a club and 7 a field.
+  ranked here and keeps its ids when saved again. 8 bytes a field, and 17 a club
+  with one id, 15 for each id more, 3 for a club with none.
 - **A League team's club's place** (`lf_league_club_ranks_v1`, `leagueClubRanks.ts`):
   read on League Standings where this device holds the pool (`useScoutBridge`'s
   `clubs`), followed where its club moved, so Scout opens the club the place was of,
   and none where its id is another club's now, as a club that left the board has
-  none. 20 bytes a team.
+  none. 22 to 52 bytes a team.
 - **League picks** (`TeamBase.scoutGcTeamId`) are read the same way in the forecast,
   Fill and the bridge, and an old one takes its id at its season's next save in a
   browser no member has signed in to, and in the cloud's seasons only when a person

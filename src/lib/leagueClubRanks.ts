@@ -4,7 +4,7 @@ import type { Movement } from "./movement";
 import { isRouteAgeLevel, isRouteYear, type RankingsRoute } from "./rankingsRoute";
 import type { ScoutRankingRow, SeasonSegment } from "./teamRankings";
 import { topShare } from "./standing";
-import { readClub, type ClubLookup } from "./teamRankings/leagueBridge";
+import { isGcIds, readClub, type ClubLookup } from "./teamRankings/leagueBridge";
 
 /**
  * The Team Rankings page a board was read off: its age level and squad year, and the half when the
@@ -35,11 +35,11 @@ export const clubRankPage = (
 export type LeagueClubRank = {
   clubId: string;
   /**
-   * A GameChanger id the club carried on the page (`pageGcId`): its id here is the pool's own, and
+   * GameChanger ids the club carried on the page (`keptGcIds`): its id here is the pool's own, and
    * a fold or Team Rankings started again can leave it naming another club, so the place is read by
-   * this where League Standings holds the pool (`leagueClubRankFor`).
+   * these where League Standings holds the pool (`leagueClubRankFor`).
    */
-  gc?: string;
+  gc?: string[];
   /** The board it was read off, as its page names it: "9U 2027", with the half when there is one. */
   board: string;
   rank: number;
@@ -90,7 +90,7 @@ const coerceRank = (raw: unknown): LeagueClubRank | null => {
       : undefined;
   return {
     clubId: row.clubId,
-    ...(typeof row.gc === "string" && row.gc ? { gc: row.gc } : {}),
+    ...(isGcIds(row.gc) && row.gc.length > 0 ? { gc: row.gc } : {}),
     board: row.board,
     rank: row.rank,
     of: row.of,
@@ -206,7 +206,7 @@ export const scoutRoute = (rank: LeagueClubRank): RankingsRoute => ({
 
 /**
  * Where one league team's club stood when its board was last up, if it ever was, its club read by
- * the GameChanger id kept with it where the pool is at hand (`readClub`): followed where it moved,
+ * the GameChanger ids kept with it where the pool is at hand (`readClub`): followed where it moved,
  * so Scout opens the club the place was of, and none where its id is another club's now, as a club
  * that left the board has none. A place kept with no id, or read with no pool, is as it was kept.
  */
@@ -216,7 +216,7 @@ export const leagueClubRankFor = (
   clubs: ClubLookup | null = null
 ): LeagueClubRank | undefined => {
   const rank = readLeagueClubRanks()[seasonId]?.[leagueTeamId];
-  if (!rank?.gc || !clubs) return rank;
+  if (!rank?.gc?.length || !clubs) return rank;
   const read = readClub({ id: rank.clubId, gc: rank.gc }, clubs);
   if ("moved" in read) return undefined;
   return read.id === rank.clubId ? rank : { ...rank, clubId: read.id };
@@ -254,8 +254,8 @@ export const leagueClubRanksFrom = (
   board: string,
   at: string,
   page: ClubRankPage = {},
-  /** The GameChanger id each club carries on the page, where the writer holds the clubs. */
-  gcOf: (clubId: string) => string | undefined = () => undefined
+  /** The GameChanger ids each club carries on the page (`keptGcIds`), where the writer holds them. */
+  gcOf: (clubId: string) => readonly string[] | undefined = () => undefined
 ): Record<string, LeagueClubRank> => {
   const out: Record<string, LeagueClubRank> = {};
   clubByLeagueTeam.forEach((clubId, leagueTeamId) => {
@@ -264,7 +264,7 @@ export const leagueClubRanksFrom = (
     const gc = gcOf(clubId);
     out[leagueTeamId] = {
       clubId,
-      ...(gc ? { gc } : {}),
+      ...(gc?.length ? { gc: [...gc] } : {}),
       board,
       rank: glance.nationalRank,
       of: glance.nationalOf,

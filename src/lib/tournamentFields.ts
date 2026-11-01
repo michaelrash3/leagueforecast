@@ -1,14 +1,14 @@
-import type { ClubLookup } from "./teamRankings/leagueBridge";
+import { isGcIds, type ClubLookup } from "./teamRankings/leagueBridge";
 import { shownClubId } from "./teamRankings/rememberedClub";
 
 /**
  * The tournament fields built on the Scouting tab, saved in this browser by age group, so a
  * weekend's field is there again on Saturday morning without being rebuilt from memory.
  *
- * Each club with a GameChanger id it carried on the page (`gc`, beside `teamIds` place for place,
- * "" where it had none, left out where none had one): a club's id here is the pool's own, and a
- * fold or Team Rankings started again can leave it naming another club. Read by it
- * (`readSavedFields`), a club folded into another is that club, and one whose id is another
+ * Each club with GameChanger ids it carried on the page (`gc`, beside `teamIds` place for place,
+ * none where it had none, left out where none had any; `keptGcIds`): a club's id here is the
+ * pool's own, and a fold or Team Rankings started again can leave it naming another club. Read by
+ * them (`readSavedFields`), a club folded into another is that club, and one whose id is another
  * club's now is shown gone, not ranked here, rather than played as that club.
  */
 export type SavedField = {
@@ -16,7 +16,7 @@ export type SavedField = {
   teamIds: string[];
   pools: number;
   advance: number;
-  gc?: string[];
+  gc?: string[][];
 };
 
 const KEY = "lf_tournament_fields_v1";
@@ -32,21 +32,21 @@ const readAll = (): Record<string, SavedField[]> => {
         if (!item || typeof item !== "object") return [];
         const { name, teamIds, pools, advance, gc } = item as Record<string, unknown>;
         if (typeof name !== "string" || !Array.isArray(teamIds)) return [];
-        // Each id with the GameChanger id kept in its place, so a club left out takes its own.
+        // Each id with the GameChanger ids kept in its place, so a club left out takes its own.
         const kept = Array.isArray(gc) ? (gc as unknown[]) : [];
-        const clubs = (teamIds as unknown[]).flatMap((id, at): [string, string][] => {
+        const clubs = (teamIds as unknown[]).flatMap((id, at): [string, string[]][] => {
           if (typeof id !== "string") return [];
-          const one = kept[at];
-          return [[id, typeof one === "string" ? one : ""]];
+          const ones = kept[at];
+          return [[id, isGcIds(ones) ? ones : []]];
         });
-        const ids = clubs.map(([, one]) => one);
+        const ids = clubs.map(([, ones]) => ones);
         return [
           {
             name,
             teamIds: clubs.map(([id]) => id),
             pools: typeof pools === "number" ? pools : 1,
             advance: typeof advance === "number" ? advance : 4,
-            ...(ids.some(Boolean) ? { gc: ids } : {}),
+            ...(ids.some((ones) => ones.length > 0) ? { gc: ids } : {}),
           },
         ];
       });
@@ -64,10 +64,10 @@ const readAll = (): Record<string, SavedField[]> => {
 const shownField = (field: SavedField, lookup: ClubLookup | null): SavedField => {
   if (!lookup || !field.gc) return field;
   const teamIds: string[] = [];
-  const gc: string[] = [];
+  const gc: string[][] = [];
   field.teamIds.forEach((id, at) => {
-    const kept = field.gc?.[at] ?? "";
-    const shown = shownClubId({ id, ...(kept ? { gc: kept } : {}) }, lookup);
+    const kept = field.gc?.[at] ?? [];
+    const shown = shownClubId({ id, gc: kept }, lookup);
     if (teamIds.includes(shown)) return;
     teamIds.push(shown);
     gc.push(kept);

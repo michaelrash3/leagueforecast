@@ -1448,7 +1448,7 @@ describe("Since you last looked, on the cloud's board", () => {
     forgetLiveBoard();
     const look = readMyTeamLook("S-2");
     window.localStorage.removeItem(lookKey("S-2"));
-    window.localStorage.setItem(lookKey(teamId), JSON.stringify({ ...look, teamId, gc: kept }));
+    window.localStorage.setItem(lookKey(teamId), JSON.stringify({ ...look, teamId, gc: [kept] }));
     vi.setSystemTime(new Date(`${TODAY}T12:00:00`));
     await publish(live, [
       { key: `board:2027:${PAGE}:spring`, value: CLIMBED },
@@ -1475,7 +1475,7 @@ describe("Since you last looked, on the cloud's board", () => {
     const mine = await screen.findByRole("region", { name: "My team" });
     // A first visit for this club: a look is kept, with its own GameChanger id, and nothing told.
     await waitFor(() =>
-      expect(readMyTeamLook("S-2")).toMatchObject({ national: 1, gc: "gcTwo00001" })
+      expect(readMyTeamLook("S-2")).toMatchObject({ national: 1, gc: ["gcTwo00001"] })
     );
     expect(within(mine).queryByRole("region", { name: "Since you last looked" })).toBeNull();
   });
@@ -1688,7 +1688,7 @@ describe("a club's panel on the cloud's board", () => {
     forgetWatchList();
     const gc = (teamId: string) => ({ teamId, name: teamId, ageGroupId: PAGE });
     // Watched on this device under an id since folded into S-2, the page's own club.
-    toggleWatch(PAGE, { id: "S-9", name: "Placeholder S-9", gc: "gcFolded01" });
+    toggleWatch(PAGE, { id: "S-9", name: "Placeholder S-9", gc: ["gcFolded01"] });
     await withCard({
       team: {
         id: "S-2",
@@ -1705,15 +1705,17 @@ describe("a club's panel on the cloud's board", () => {
       expect(within(card).getByRole("button", { name: "Placeholder S-2" })).toBeTruthy()
     );
     expect(card).not.toHaveTextContent("Not on this board");
-    // Watched from its panel, a club keeps the GameChanger id its card has on the page, the last
-    // of them listed, as a pick keeps the season's own (`pageGcId`).
+    // Watched from its panel, a club keeps the GameChanger ids its card has on the page, the last
+    // of them listed first, as a pick keeps the season's own (`keptGcIds`).
     await tapClub("Placeholder S-2");
     const panel = await screen.findByRole("region", { name: "Placeholder S-2" });
     expect(within(panel).getByRole("button", { name: "Watching" })).toBeTruthy();
     fireEvent.click(within(panel).getByRole("button", { name: "Watching" }));
     expect(watchedOn(PAGE)).toEqual([]);
     fireEvent.click(within(panel).getByRole("button", { name: "Watch" }));
-    expect(watchedOn(PAGE)).toEqual([{ id: "S-2", name: "Placeholder S-2", gc: "gcFolded01" }]);
+    expect(watchedOn(PAGE)).toEqual([
+      { id: "S-2", name: "Placeholder S-2", gc: ["gcFolded01", "gcTwo00001"] },
+    ]);
     window.localStorage.removeItem("lf_watch_v1");
     forgetWatchList();
   });

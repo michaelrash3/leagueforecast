@@ -129,16 +129,21 @@ describe("the tournament field", () => {
   });
 
   /*
-   * Each club of a saved field is kept with a GameChanger id it carried, and read by it off the
+   * Each club of a saved field is kept with GameChanger ids it carried, and read by them off the
    * pool: a club whose id is another club's now is not ranked here, never played as that club.
    */
-  it("saves each club with its GameChanger id, and never plays another club under its id", async () => {
+  it("saves each club with its GameChanger ids, and never plays another club under its id", async () => {
     const link = (teamId: string) => ({ teamId, name: teamId, ageGroupId: "ag_10u_2027" });
     const withIds = (kept?: Record<string, string>) => {
       const base = pool();
       return {
         ...base,
-        teams: base.teams.map((one) => ({ ...one, gcTeams: [link(`gc${one.id.slice(2)}`)] })),
+        // The Hawks with two teams on the page, the newer listed last.
+        teams: base.teams.map((one) => ({
+          ...one,
+          gcTeams:
+            one.id === "S-HAW" ? [link("gcHAW"), link("gcHAW2")] : [link(`gc${one.id.slice(2)}`)],
+        })),
         ...(kept ? { kept } : {}),
       };
     };
@@ -160,7 +165,7 @@ describe("the tournament field", () => {
         teamIds: ["S-HAW", "S-BEA"],
         pools: 1,
         advance: 4,
-        gc: ["gcHAW", "gcBEA"],
+        gc: [["gcHAW2", "gcHAW"], ["gcBEA"]],
       },
     ]);
   });
@@ -181,7 +186,7 @@ describe("the tournament field", () => {
               teamIds: ["S-HAW", "S-BEA"],
               pools: 1,
               advance: 4,
-              gc: ["gcHAW", "gcOldBears"],
+              gc: [["gcHAW"], ["gcOldBears"]],
             },
           ],
         }),
@@ -195,9 +200,9 @@ describe("the tournament field", () => {
     expect(list).not.toHaveTextContent("Bears");
     expect(list).toHaveTextContent("Not ranked here");
     expect(panel).toHaveTextContent("1 club is not ranked on this board");
-    // Saved again, the club shown gone keeps the GameChanger id it was kept with, which a club
+    // Saved again, the club shown gone keeps the GameChanger ids it was kept with, which a club
     // pulled back later is found by.
     await user.click(within(panel).getByRole("button", { name: "Save field" }));
-    expect(readSavedFields("ag_10u_2027")[0]?.gc).toEqual(["gcHAW", "gcOldBears"]);
+    expect(readSavedFields("ag_10u_2027")[0]?.gc).toEqual([["gcHAW"], ["gcOldBears"]]);
   });
 });

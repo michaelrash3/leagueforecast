@@ -80,7 +80,7 @@ describe("the league's clubs on the board", () => {
       },
     });
     await waitFor(() =>
-      expect(leagueClubRankFor("default", "L-HIVE")).toMatchObject({ gc: "gcHive0001" })
+      expect(leagueClubRankFor("default", "L-HIVE")).toMatchObject({ gc: ["gcHive0001"] })
     );
     // A club GameChanger has no id for keeps none.
     expect(leagueClubRankFor("default", "L-OWLS")).not.toHaveProperty("gc");

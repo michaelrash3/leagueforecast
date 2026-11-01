@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import type { ClubLookup } from "./teamRankings/leagueBridge";
+import { isGcIds, type ClubLookup } from "./teamRankings/leagueBridge";
 import { shownClubId } from "./teamRankings/rememberedClub";
 
 /*
@@ -8,9 +8,9 @@ import { shownClubId } from "./teamRankings/rememberedClub";
  * cloud copy: what one device watches is nobody else's business and costs the cloud nothing.
  *
  * Each club is kept with its name as it was watched, so a club with no row on the board on screen
- * (the other half of the season, or a club since taken off) is still named on the card, and with a
- * GameChanger id it carried, where it had one (`pageGcId`): a club's id here is the pool's own, and
- * a fold or Start again can leave it naming another club. Read by that id (`watchedNow`), a club
+ * (the other half of the season, or a club since taken off) is still named on the card, and with
+ * GameChanger ids it carried, where it had any (`keptGcIds`): a club's id here is the pool's own,
+ * and a fold or Start again can leave it naming another club. Read by them (`watchedNow`), a club
  * folded into another is watched as that club, and one whose id is another's now is shown gone.
  */
 
@@ -19,7 +19,7 @@ export const WATCH_MAX = 5;
 
 const KEY = "lf_watch_v1";
 
-export type Watched = { id: string; name: string; gc?: string };
+export type Watched = { id: string; name: string; gc?: string[] };
 type Store = Record<string, Watched[]>;
 
 const isWatched = (value: unknown): value is Watched =>
@@ -27,7 +27,8 @@ const isWatched = (value: unknown): value is Watched =>
   value !== null &&
   typeof (value as Record<string, unknown>).id === "string" &&
   typeof (value as Record<string, unknown>).name === "string" &&
-  ["string", "undefined"].includes(typeof (value as Record<string, unknown>).gc);
+  ((value as Record<string, unknown>).gc === undefined ||
+    isGcIds((value as Record<string, unknown>).gc));
 
 const read = (): Store => {
   try {
@@ -72,7 +73,7 @@ export const watchedNow = (
   list: readonly Watched[],
   lookup: ClubLookup | null
 ): readonly Watched[] => {
-  if (!lookup || !list.some((one) => one.gc)) return list;
+  if (!lookup || !list.some((one) => one.gc?.length)) return list;
   const seen = new Set<string>();
   const shown: Watched[] = [];
   let changed = false;

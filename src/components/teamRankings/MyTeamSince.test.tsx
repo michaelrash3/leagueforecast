@@ -137,27 +137,48 @@ describe("since you last looked, by the club's GameChanger id", () => {
     };
   };
 
-  it("keeps the club's GameChanger id with its look", async () => {
-    renderTeamRankings(pooled(["gcCows0001"], twoDaysAgo({ teamId: "S-ZZZ" })));
+  it("keeps the club's GameChanger ids with its look, the page's newest first", async () => {
+    renderTeamRankings(pooled(["gcCows0001", "gcCows0002"], twoDaysAgo({ teamId: "S-ZZZ" })));
     await waitFor(() =>
-      expect(readMyTeamLook("S-COW")).toMatchObject({ national: 3, gc: "gcCows0001" })
+      expect(readMyTeamLook("S-COW")).toMatchObject({
+        national: 3,
+        gc: ["gcCows0002", "gcCows0001"],
+      })
     );
   });
 
   it("tells nothing of a look kept for another club the club's id once named", async () => {
-    renderTeamRankings(pooled(["gcCows0001"], twoDaysAgo({ gc: "gcOldCows1" })));
+    renderTeamRankings(pooled(["gcCows0001"], twoDaysAgo({ gc: ["gcOldCows1"] })));
     const card = await screen.findByRole("region", { name: "My team" });
     // A first visit for this club: its own look is kept, and nothing told.
     await waitFor(() =>
-      expect(readMyTeamLook("S-COW")).toMatchObject({ national: 3, gc: "gcCows0001" })
+      expect(readMyTeamLook("S-COW")).toMatchObject({ national: 3, gc: ["gcCows0001"] })
     );
     expect(within(card).queryByRole("region", { name: "Since you last looked" })).toBeNull();
+  });
+
+  it("tells nothing of a look kept with a GameChanger id where the club now carries none", async () => {
+    // The page holds the club, and it has no GameChanger team: a stand-in or slot the id was
+    // minted to after Team Rankings started again. The look kept under its id is another club's.
+    renderTeamRankings(pool(twoDaysAgo({ gc: ["gcOldCows1"] })));
+    const card = await screen.findByRole("region", { name: "My team" });
+    await waitFor(() => expect(readMyTeamLook("S-COW")).toMatchObject({ national: 3 }));
+    expect(readMyTeamLook("S-COW")).not.toHaveProperty("gc");
+    expect(within(card).queryByRole("region", { name: "Since you last looked" })).toBeNull();
+  });
+
+  it("tells what moved since its look while one of the ids it was kept with is still its own", async () => {
+    // Kept with two of the Cows' teams; the newer one unlinked since.
+    renderTeamRankings(pooled(["gcCows0001"], twoDaysAgo({ gc: ["gcCows0002", "gcCows0001"] })));
+    const card = await screen.findByRole("region", { name: "My team" });
+    const since = await within(card).findByRole("region", { name: "Since you last looked" });
+    expect(since).toHaveTextContent("#4 nationally then, #3 now");
   });
 
   it("tells what moved since a look kept under an id the club no longer has", async () => {
     // A club since folded into the Cows, its GameChanger team with it.
     renderTeamRankings(
-      pooled(["gcCows0001", "gcCowsGld1"], twoDaysAgo({ teamId: "S-COW2", gc: "gcCowsGld1" }))
+      pooled(["gcCows0001", "gcCowsGld1"], twoDaysAgo({ teamId: "S-COW2", gc: ["gcCowsGld1"] }))
     );
     const card = await screen.findByRole("region", { name: "My team" });
     const since = await within(card).findByRole("region", { name: "Since you last looked" });

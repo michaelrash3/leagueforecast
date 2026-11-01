@@ -177,7 +177,7 @@ import { leftClubSheet, markClubSheet } from "../lib/clubSheetHistory";
 import { useWatchList } from "../lib/watchList";
 import { withGcIds } from "../lib/myTeamLook";
 import { clubLookupOf } from "../lib/teamRankings/leagueBridge";
-import { pageGcId } from "../lib/teamRankings/rememberedClub";
+import { keptGcIds } from "../lib/teamRankings/rememberedClub";
 import { EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/addGameDraft";
 import type { NamedChecker } from "./ScheduleImportPanel";
 import { checkNamedGames, type NamedGame } from "../lib/teamRankings/namedGames";
@@ -891,19 +891,20 @@ export function TeamRankingsView({
   }, [rankings]);
   /*
    * The pool as a club this device remembers is read by (`readClub`): the clubs watched on this
-   * page (`watchList.ts`), each by the GameChanger id kept with it, so one folded into another is
+   * page (`watchList.ts`), each by the GameChanger ids kept with it, so one folded into another is
    * watched as that club and one whose id is another club's now is shown gone.
    */
   const clubLookup = useMemo(() => clubLookupOf(allKnown.teams), [allKnown.teams]);
-  // And a saved tournament field's (`tournamentFields.ts`), whose clubs are saved with the id each
-  // carries on this page.
+  // And a saved tournament field's (`tournamentFields.ts`), whose clubs are saved with the ids each
+  // carries on this page, as a League team's club's place is.
   const fieldClubs = useMemo(() => {
     const byId = new Map(allKnown.teams.map((team) => [team.id, team]));
     return {
       lookup: clubLookup,
       gcOf: (teamId: string) => {
         const club = byId.get(teamId);
-        return club && pageGcId(club, selectedAgeGroupId, ageGroups);
+        const ids = club && keptGcIds(club, selectedAgeGroupId, ageGroups);
+        return ids?.length ? ids : undefined;
       },
     };
   }, [allKnown.teams, clubLookup, selectedAgeGroupId, ageGroups]);
@@ -2949,8 +2950,8 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                   on: watchList.watched.some((club) => club.id === openTeam.id),
                   full: watchList.full,
                   onToggle: (name) => {
-                    const gc = pageGcId(openTeam, selectedAgeGroupId, ageGroups);
-                    toggleWatch({ id: openTeam.id, name, ...(gc ? { gc } : {}) });
+                    const gc = keptGcIds(openTeam, selectedAgeGroupId, ageGroups);
+                    toggleWatch({ id: openTeam.id, name, ...(gc.length ? { gc } : {}) });
                   },
                 }}
               />

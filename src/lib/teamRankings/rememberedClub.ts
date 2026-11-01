@@ -18,7 +18,7 @@ export const GONE_CLUB = "gone:";
 
 /** The id a remembered club is shown under now: followed, as it was, or gone (`GONE_CLUB`). */
 export const shownClubId = (club: RememberedClub, lookup: ClubLookup | null): string => {
-  if (!lookup || !club.gc) return club.id;
+  if (!lookup || !club.gc?.length) return club.id;
   const read = readClub(club, lookup);
   return "moved" in read ? `${GONE_CLUB}${read.moved}` : read.id;
 };
@@ -39,12 +39,21 @@ export const pageGcIds = (
   )(club);
 
 /**
- * The GameChanger id a store keeps beside a club remembered on a page (`RememberedClub.gc`): the
- * first of `pageGcIds`, as a pick keeps the season's own, because that is the one that stays the
- * club's longest. None for a club GameChanger has no id for.
+ * How many of a club's GameChanger ids a store keeps beside it. One alone named the club by the
+ * page's newest link, the likeliest to be undone, and an Unlink of it left a club still on the
+ * board reading as gone (the review of 1 November 2026). With three, the club is itself while it
+ * carries any of them, through two Unlinks, at 15 bytes for each id past the first (twelve
+ * characters, quotes and a comma), measured on the stores' JSON.
  */
-export const pageGcId = (
+export const KEPT_GC_IDS = 3;
+
+/**
+ * The GameChanger ids a store keeps beside a club remembered on a page (`RememberedClub.gc`): the
+ * first `KEPT_GC_IDS` of `pageGcIds`, the page's own team first, as a pick keeps the season's own.
+ * None for a club GameChanger has no id for.
+ */
+export const keptGcIds = (
   club: { gcTeams?: readonly GcTeamLink[] },
   pageId: string,
   ageGroups: AgeGroup[]
-): string | undefined => pageGcIds(club, pageId, ageGroups)[0];
+): string[] => pageGcIds(club, pageId, ageGroups).slice(0, KEPT_GC_IDS);
