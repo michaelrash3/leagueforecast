@@ -110,6 +110,17 @@ export const surface = {
 } as const;
 
 /**
+ * A heat map's cell that found something, its ground the colour at `--heat` (a percentage) over
+ * whatever lies below and its figure at full strength: the tidy's table of passes. That table drew
+ * white bold figures on emerald-500 and faded the whole cell, figure too, to show less found:
+ * 2.46:1 at full strength and nearer 1:1 at the faintest, measured as `tokens.test.ts` does. A dark
+ * figure on emerald-500 is 4.5:1 or more at every strength over the light card, and white on
+ * emerald-700 over the dark one, as the seed odds grid does it.
+ */
+export const heatCell =
+  "bg-emerald-500/(--heat) font-bold text-emerald-950 dark:bg-emerald-700/(--heat) dark:text-white";
+
+/**
  * What a panel shows in place of its content (2.5): nothing yet, on its way, failed, out of reach
  * offline, or shown as it last was while the newer copy is fetched. Each has its own surface, so
  * the five never look alike, and the same one wherever it appears (`StatePanel`).

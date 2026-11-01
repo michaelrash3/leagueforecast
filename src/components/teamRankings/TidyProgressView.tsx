@@ -1,5 +1,7 @@
+import type { CSSProperties } from "react";
 import { TIDY_STEPS, type TidyStep, type TidyStepName } from "../../lib/gameChangerImport";
 import type { TidyWatch } from "../../lib/pullSession";
+import { heatCell } from "../../styles/tokens";
 
 /**
  * What the tidy is doing, while it does it.
@@ -181,7 +183,9 @@ export function TidyProgressView({ watch, running }: TidyProgressViewProps) {
                       {/*
                         A step that found nothing reads quiet by its grey ground alone: its zero
                         was slate-400 on slate-100, 2.40:1, and slate-600 on slate-900 in dark,
-                        2.35:1, under the 4.5:1 text needs.
+                        2.35:1, under the 4.5:1 text needs. One that found something is shaded by
+                        its ground alone (`heatCell`), its figure at full strength: the whole cell
+                        faded, white figure and all, and read at 2.46:1 at its strongest.
                       */}
                       <div
                         className={`rounded px-1 py-1 text-center tabular-nums ${
@@ -191,11 +195,13 @@ export function TidyProgressView({ watch, running }: TidyProgressViewProps) {
                             ? "text-slate-300 dark:text-slate-700"
                             : cell.found === 0
                               ? "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-400"
-                              : "bg-emerald-500 font-bold text-white"
+                              : heatCell
                         }`}
                         style={
                           cell && cell.found > 0
-                            ? { opacity: 0.35 + 0.65 * weight(cell.found) }
+                            ? ({
+                                "--heat": `${Math.round((0.35 + 0.65 * weight(cell.found)) * 100)}%`,
+                              } as CSSProperties)
                             : undefined
                         }
                         aria-label={

@@ -1,6 +1,14 @@
 import theme from "tailwindcss/theme.css?raw";
 import { describe, expect, it } from "vitest";
-import { pill, stateTone, surface, textRole, type PillTone, type StateKind } from "./tokens";
+import {
+  heatCell,
+  pill,
+  stateTone,
+  surface,
+  textRole,
+  type PillTone,
+  type StateKind,
+} from "./tokens";
 
 /*
  * Contrast, measured rather than eyeballed (2.5): every text role on every surface, and every
@@ -128,6 +136,29 @@ describe("contrast", () => {
         const ground = own ? over(own.rgb, own.alpha, card) : card;
         const ratio = textOn(classes, ground, dark);
         if (ratio < 4.5) short.push(`${tone}: ${ratio.toFixed(2)}`);
+      }
+      expect(short).toEqual([]);
+    });
+
+    /*
+     * The tidy's table of passes shades a cell that found something by how much it found, its
+     * colour at `--heat` over what lies below: the card, or the import panel's amber word that a
+     * tidy is running. Every strength from none to full is measured, so the shading can be scaled
+     * any way without a figure going under 4.5:1.
+     */
+    it(`gives a heat cell's figure 4.5:1 or more at every strength, ${mode}`, () => {
+      const short: string[] = [];
+      const classes = heatCell.split("/(--heat)").join("");
+      const shade = colourOf(classes, "bg", dark) ?? colourOf(classes, "bg", false);
+      if (!shade) throw new Error(`No ground in "${heatCell}"`);
+      const card = background(surface.primary, dark);
+      const banner = colourOf("bg-amber-50 dark:bg-amber-950/40", "bg", dark);
+      const grounds = { card, banner: banner ? over(banner.rgb, banner.alpha, card) : card };
+      for (const [name, below] of Object.entries(grounds)) {
+        for (let step = 0; step <= 20; step += 1) {
+          const ratio = textOn(classes, over(shade.rgb, step / 20, below), dark);
+          if (ratio < 4.5) short.push(`${step * 5}% on the ${name}: ${ratio.toFixed(2)}`);
+        }
       }
       expect(short).toEqual([]);
     });

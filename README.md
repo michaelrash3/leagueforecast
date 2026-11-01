@@ -9805,7 +9805,13 @@ footnote or a failed panel reads the same on every League view.
     slate-500, as is the full table's grey place on the whole board beside a state's own,
     which measured the same. A tidy step that found nothing printed its zero in slate-400
     on slate-100, 2.40:1 (slate-600 on slate-900 in dark, 2.35:1), and is slate-600 (dark
-    slate-400) on the same grey.
+    slate-400) on the same grey. One that found something faded its whole cell, white bold
+    figure and all, to show less found, from emerald-500 down: 2.46:1 at its strongest and
+    nearer 1:1 at its faintest. Only its ground is shaded now (`heatCell`, by `--heat`), an
+    emerald-950 figure on emerald-500 in light mode and white on emerald-700 in dark, 6.14:1
+    and 5.37:1 at the strongest and more as it fades, as the seed odds grid does it; the
+    audit's seeded pool gives the tidy nothing to find, so `tokens.test.ts` measures it at
+    every strength.
 - **A thumb's tap area on a phone** (`tapArea`): Team Rankings' buttons and links are 44 px
   each way below `sm`, where its main ones were text links 16 to 26 px tall (Scout 34 by 16,
   What if? 48 by 16, the club sheet's Close 33 by 16, Got it 49 by 26, "Open on 10U by
@@ -9839,7 +9845,8 @@ footnote or a failed panel reads the same on every League view.
   - `src/styles/tokens.test.ts` reads Tailwind's palette from its own theme
     (`tailwindcss/theme.css`, in OKLCH, converted as a browser draws it: slate-500
     comes out #62748e) and measures every text role on every surface, each status
-    pill on a card and each state panel's words, in light mode and dark.
+    pill on a card, each state panel's words, and a heat cell's figure at every
+    strength from none to full, in light mode and dark.
   - `src/components/textSize.test.ts` reads every component, Team Rankings' too, and
     the shared styles in `tokens.ts` for a size set below 12px, a size sized with the
     screen counted by its floor (the app-mode switch's `clamp(11px,…)` was 11.52px on
