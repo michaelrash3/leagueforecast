@@ -47,6 +47,8 @@ export type CloudLeague =
        */
       print: string;
       seasons: number;
+      /** The seasons' ids, in id order: whose answers are published beside the boards. */
+      ids: string[];
     }
   /**
    * `newer-league`: a season's document is of a later layout than this build reads, written by a
@@ -82,6 +84,7 @@ export const readCloudLeague = async (list: LeagueDocsList): Promise<CloudLeague
     readSeason: seasonsReader(seasons),
     print: await hashValue(held),
     seasons: held.length,
+    ids: held.map(([id]) => id),
   };
 };
 

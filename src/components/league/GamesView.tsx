@@ -389,6 +389,7 @@ export function GamesView({
   updateBracketLog,
   toggleBracketFinal,
   scoreFillPlan,
+  scoreFillPublishedAt,
   scoreFillAsking = false,
   openScoreFill,
   closeScoreFill,
@@ -437,6 +438,8 @@ export function GamesView({
   toggleBracketFinal: (gameId: string) => void;
   /** Set while the fill review is open; null when it is not. */
   scoreFillPlan: LeagueFillPlan | null;
+  /** When the publish the open plan was read off went out, where it was one (`publishedFill`). */
+  scoreFillPublishedAt?: string;
   /**
    * Whether the scores to fill are being asked of the server, which on a cold instance takes many
    * seconds: the button says so and takes no second press, which would ask, and open, twice.
@@ -701,6 +704,7 @@ export function GamesView({
                   onClose={closeScoreFill}
                   schedule={_matchups}
                   logs={logs}
+                  {...(scoreFillPublishedAt ? { publishedAt: scoreFillPublishedAt } : {})}
                 />
               </Suspense>
             )}

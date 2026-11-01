@@ -1,7 +1,14 @@
-import type { LeagueFillPlan } from "../leagueScoreFill";
+import type { LeagueFillPlan, RecordedRuns } from "../leagueScoreFill";
 import type { ClubPickOption } from "../leagueLinkOptions";
 import type { StartAnswer } from "../leagueStart";
-import type { LeagueScoutBridge, ScoutLinkCandidate } from "../teamRankings";
+import type {
+  LeagueFixture,
+  LeagueScoutBridge,
+  LeagueTeamLink,
+  ScoutLinkCandidate,
+} from "../teamRankings";
+import type { Matchup, TeamBase } from "../types";
+import type { QueryOf } from "./queries";
 import { fits, type Shape } from "./shapes";
 import { BOARD_RULES } from "./views/boardRules";
 
@@ -22,6 +29,20 @@ export const BRIDGE_RULES = 1;
 /** The bridge's rules and the boards' together, as a kept bridge's stamp names them. */
 export const BRIDGE_RULES_NOW = `${BRIDGE_RULES}.${BOARD_RULES}`;
 
+/**
+ * Which rules Fill's plan was worked out under, as the plan published beside the boards carries
+ * them (`views/league.ts`): a device takes a published plan only under its own build's
+ * (`fillFromView`), and asks the server otherwise, so a deploy that changes the plan reaches every
+ * device at once rather than at the next publish, which republishes nothing for a change of these
+ * (review of sweep item 23). Raised whenever `planLeagueScoreFill` would plan a question
+ * differently, which moves a plan's digest in `leagueAnswersPin.test.ts`. Not read beside the
+ * boards' rules, as the bridge's are: the plan reads whether a game was played and its day, never
+ * which games count.
+ *
+ * 1: the plan as first published beside the boards.
+ */
+export const FILL_RULES = 1;
+
 /*
  * What League Standings asks the server of Team Rankings, for a member whose device holds no pool
  * (1.6e): the season's bridge, the clubs a team could be picked as, and the scores the pool could
@@ -29,6 +50,53 @@ export const BRIDGE_RULES_NOW = `${BRIDGE_RULES}.${BOARD_RULES}`;
  * live here, apart from the questions' answerer and the live page's reader of answers, so League
  * Standings, which every visit loads, reads an answer, or one it kept, without either.
  */
+
+/**
+ * A season's teams as its questions carry them: what the bridge and the Fill plan read of a team,
+ * its id, name and pick, with the GameChanger id kept beside the pick (`TeamBase.scoutGcTeamId`).
+ */
+const linksOf = (teams: readonly TeamBase[]): LeagueTeamLink[] =>
+  teams.map(({ id, name, scoutTeamId, scoutGcTeamId }) => ({
+    id,
+    name,
+    ...(scoutTeamId === undefined ? {} : { scoutTeamId }),
+    ...(scoutGcTeamId === undefined ? {} : { scoutGcTeamId }),
+  }));
+
+/**
+ * The bridge question for season `season` as it stands (`league.bridge`): built here for the
+ * device that asks it (`useScoutBridge`) and for the boards' publish that answers it beside them
+ * (`views/league.ts`), so a season held the same way is asked the same question, field for field.
+ */
+export const bridgeQuestionOf = (
+  season: string,
+  teams: readonly TeamBase[],
+  fixtures: LeagueFixture[]
+): QueryOf<"league.bridge"> => ({ kind: "league.bridge", season, teams: linksOf(teams), fixtures });
+
+/**
+ * Fill's question for season `season` as it stands on `today` (`league.fill`), for the same two
+ * readers as `bridgeQuestionOf`: each game's teams and day, and the runs its two boxes hold.
+ */
+export const fillQuestionOf = (
+  season: string,
+  teams: readonly TeamBase[],
+  matchups: readonly Matchup[],
+  logs: Readonly<Record<string, RecordedRuns>>,
+  today: string
+): QueryOf<"league.fill"> => ({
+  kind: "league.fill",
+  season,
+  teams: linksOf(teams),
+  matchups: matchups.map(({ id, date, away, home }) => ({ id, date, away, home })),
+  runs: Object.entries(logs).map(([id, log]) => ({
+    id,
+    awayRuns: log.awayRuns,
+    homeRuns: log.homeRuns,
+    ...(log.isFinal ? { isFinal: true as const } : {}),
+  })),
+  today,
+});
 
 /**
  * The clubs each league team could be, by the team's name, best evidence first: the best few the

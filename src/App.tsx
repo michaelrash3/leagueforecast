@@ -36,7 +36,14 @@ import {
 } from "./lib/live/leagueWanted";
 import type { LocalSeasons } from "./lib/live/leagueSeasons";
 import { subscribeLeagueMet } from "./lib/preferences";
-import { askLeague, copyAtNow, LEAGUE_UNANSWERED, placeLeagueSeason } from "./lib/live/leagueAsk";
+import {
+  askLeague,
+  copyAtNow,
+  LEAGUE_UNANSWERED,
+  placeLeagueSeason,
+  publishedLeague,
+} from "./lib/live/leagueAsk";
+import { fillQuestionOf } from "./lib/live/leagueAnswers";
 import { useLiveLeague } from "./hooks/useLiveLeague";
 import {
   editingOffBecause,
@@ -993,6 +1000,7 @@ export default function App() {
     bridge: scoutBridge,
     externalResults,
     unanswered: scoutUnanswered,
+    publishedAt: scoutPublishedAt,
     candidatesFor: scoutCandidatesFor,
     wideOptions: scoutWideOptions,
     wideStatus: scoutWideStatus,
@@ -1011,6 +1019,7 @@ export default function App() {
       ? {
           asker: askLeague,
           copyNow: copyAtNow,
+          published: publishedLeague.bridge,
           signedIn: memberSignedIn(cloud),
           leagueOnScreen: appMode === "league",
           held: leagueHeldBack,
@@ -2142,6 +2151,8 @@ export default function App() {
   const scoreFillCode = useRef<ScoreFillCode | null>(null);
   // Asked of the server and not answered yet: the button says so and takes no second press.
   const [scoreFillAsking, setScoreFillAsking] = useState(false);
+  // When the publish the open plan was read off went out, where it was one: the panel says so.
+  const [scoreFillPublishedAt, setScoreFillPublishedAt] = useState<string | undefined>(undefined);
   // The season open now, for a plan the server answers after another one was switched to.
   const activeSeasonRef = useRef(activeSeasonId);
   useLayoutEffect(() => {
@@ -2159,6 +2170,7 @@ export default function App() {
           if (season !== activeSeasonRef.current) return;
           scoreFillCode.current = code;
           scoreFillSeen.current = seen;
+          setScoreFillPublishedAt(undefined);
           setScoreFillPlan(
             code.planLeagueScoreFill({
               seasonId: season,
@@ -2178,24 +2190,16 @@ export default function App() {
     const season = activeSeasonId;
     const seen = logs;
     setScoreFillAsking(true);
-    const asked = askLeague({
-      kind: "league.fill",
-      season,
-      teams: teams.map(({ id, name, scoutTeamId, scoutGcTeamId }) => ({
-        id,
-        name,
-        ...(scoutTeamId === undefined ? {} : { scoutTeamId }),
-        ...(scoutGcTeamId === undefined ? {} : { scoutGcTeamId }),
-      })),
-      matchups: matchups.map(({ id, date, away, home }) => ({ id, date, away, home })),
-      runs: Object.entries(logs).map(([id, log]) => ({
-        id,
-        awayRuns: log.awayRuns,
-        homeRuns: log.homeRuns,
-        ...(log.isFinal ? { isFinal: true as const } : {}),
-      })),
-      today: todayIsoDay(),
-    });
+    const question = fillQuestionOf(season, teams, matchups, logs, todayIsoDay());
+    // The plan published beside the boards where it is this very question's, which asks the server
+    // nothing (`publishedLeague`); the question where it is not.
+    const asked: Promise<{ plan: LeagueFillPlan; publishedAt?: string } | null> = publishedLeague
+      .fill(question)
+      .then((found) =>
+        found
+          ? { plan: found.answer, publishedAt: found.builtAt }
+          : askLeague(question).then((answer) => answer && { plan: answer.plan })
+      );
     void Promise.all([asked, loadScoreFill()]).then(
       ([answer, code]) => {
         setScoreFillAsking(false);
@@ -2208,6 +2212,7 @@ export default function App() {
         scoreFillCode.current = code;
         scoreFillSeen.current = seen;
         setScoreFillPlan(answer.plan);
+        setScoreFillPublishedAt(answer.publishedAt);
       },
       () => {
         setScoreFillAsking(false);
@@ -4040,6 +4045,7 @@ export default function App() {
                         <ScoutLinkPanel
                           bridge={scoutBridge}
                           {...(scoutUnanswered ? { unanswered: scoutUnanswered } : {})}
+                          {...(scoutPublishedAt ? { publishedAt: scoutPublishedAt } : {})}
                           candidatesFor={scoutCandidatesFor}
                           wideOptions={scoutWideOptions}
                           {...(scoutWideStatus ? { wideStatus: scoutWideStatus } : {})}
@@ -4101,6 +4107,7 @@ export default function App() {
                       updateBracketLog={updateBracketLog}
                       toggleBracketFinal={toggleBracketFinal}
                       scoreFillPlan={scoreFillPlan}
+                      {...(scoreFillPublishedAt ? { scoreFillPublishedAt } : {})}
                       scoreFillAsking={scoreFillAsking}
                       openScoreFill={openScoreFill}
                       closeScoreFill={() => setScoreFillPlan(null)}

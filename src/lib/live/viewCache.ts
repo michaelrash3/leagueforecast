@@ -219,3 +219,12 @@ export const openViewCache = (
   };
   return cache;
 };
+
+let browserCache: ViewCache | null = null;
+
+/**
+ * The browser's one cache, opened once and shared by everything that reads views (the live board,
+ * League Standings' published answers), so their writes to the index of views take turns in one
+ * line rather than two.
+ */
+export const browserViewCache = (): ViewCache => (browserCache ??= openViewCache());

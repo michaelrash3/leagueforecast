@@ -28,6 +28,13 @@ beforeAll(() => prefetchAllViews());
  * device holds no pool to work them out from. Placeholder names throughout.
  */
 
+/** When the stand-in publish went out: 7:42 in the morning of the day the test runs, here. */
+const PUBLISHED_AT = vi.hoisted(() => {
+  const at = new Date();
+  at.setHours(7, 42, 0, 0);
+  return at.toISOString();
+});
+
 const server = vi.hoisted(() => ({
   asked: [] as QueryOf<"league.bridge" | "league.clubs" | "league.fill">[],
   plan: null as LeagueFillPlan | null,
@@ -45,12 +52,31 @@ const server = vi.hoisted(() => ({
   placed: [] as unknown[],
   /** Whether League is kept live here, as a member's device whose seasons met the cloud's is. */
   leagueLive: false,
+  /** The season's answers as published beside the boards, where the publish answers one. */
+  published: {
+    bridge: null as LeagueBridgeAnswer["bridge"] | null,
+    plan: null as LeagueFillPlan | null,
+    read: [] as string[],
+  },
 }));
 
 vi.mock("./lib/live/leagueAsk", () => ({
   LEAGUE_UNANSWERED: "Team Rankings could not be asked.",
   // The copy unreadable here, so every question is put to the stand-in server.
   copyAtNow: async () => null,
+  // The publish beside the boards, which answers only where a test says it does.
+  publishedLeague: {
+    bridge: async () => {
+      server.published.read.push("league.bridge");
+      const answer = server.published.bridge;
+      return answer && { answer, at: { copy: "c1", version: 4 }, builtAt: PUBLISHED_AT };
+    },
+    fill: async () => {
+      server.published.read.push("league.fill");
+      const answer = server.published.plan;
+      return answer && { answer, at: { copy: "c1", version: 4 }, builtAt: PUBLISHED_AT };
+    },
+  },
   placeLeagueSeason: async (command: unknown) => {
     server.placed.push(command);
     return true;
@@ -188,6 +214,7 @@ describe("League Standings asking the server what Team Rankings has", () => {
     server.bridge = null;
     server.placed = [];
     server.leagueLive = false;
+    server.published = { bridge: null, plan: null, read: [] };
     // The Bears picked with their club's GameChanger id, which each question carries beside it.
     saveTeams([
       { id: "A", name: "Aces" },
@@ -408,6 +435,51 @@ describe("League Standings asking the server what Team Rankings has", () => {
       matchups: [{ id: "g1", date: "5/1", away: "A", home: "B" }],
       today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     });
+  });
+
+  it("opens the scores to fill published beside the boards, asking the server nothing, and says as of when", async () => {
+    server.published.plan = PLAN;
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: /schedule/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Fill scores from Team Rankings" }));
+    expect(
+      await screen.findByRole("heading", { name: "Fill scores from Team Rankings" })
+    ).toBeTruthy();
+    expect(server.published.read).toContain("league.fill");
+    expect(server.asked.filter((query) => query.kind === "league.fill")).toEqual([]);
+    const time = new Date(PUBLISHED_AT).toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    expect(screen.getByText(`Team Rankings as it was published at ${time}.`)).toBeTruthy();
+  });
+
+  it("takes the season's bridge published beside the boards, asking the server nothing, and says as of when", async () => {
+    server.published.bridge = {
+      results: [],
+      seasonLinked: true,
+      rows: [{ leagueTeamId: "A", leagueTeamName: "Aces", how: "none" }],
+      linkedCount: 0,
+      countedResults: 0,
+    };
+    render(<App />);
+    await waitFor(() => expect(server.published.read).toContain("league.bridge"), {
+      timeout: 4_000,
+    });
+    expect(server.asked.filter((query) => query.kind === "league.bridge")).toEqual([]);
+    // The link panel says what it shows is the publish's, and asks for its clubs, which come with
+    // a question alone; the server answers nothing here, so the published bridge stays.
+    fireEvent.click(await screen.findByRole("tab", { name: "Settings" }));
+    const time = new Date(PUBLISHED_AT).toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    expect(await screen.findByText(`Team Rankings as it was published at ${time}.`)).toBeTruthy();
+    await waitFor(
+      () => expect(server.asked.filter((query) => query.kind === "league.bridge")).toHaveLength(1),
+      { timeout: 4_000 }
+    );
+    expect(screen.queryByText(/could not be asked about/)).toBeNull();
   });
 
   it("moves a rained-out game to the day it was played, at that day's start, keeping what was typed against it", async () => {

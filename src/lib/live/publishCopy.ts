@@ -37,6 +37,8 @@ import { clubViews } from "./views/clubs";
 import { CLUB_FAMILY } from "./views/clubShape";
 import { gamesViews } from "./views/games";
 import { GAMES_FAMILY } from "./views/gamesShape";
+import { leagueViews } from "./views/league";
+import { LEAGUE_FAMILY } from "./views/leagueShape";
 import { searchViews } from "./views/search";
 import { SEARCH_FAMILY } from "./views/searchShape";
 import { publishViews, sweepViews, type LiveStore, type PublishResult } from "./viewStore";
@@ -104,6 +106,8 @@ export type CopyPublish =
       clubs: number;
       searches: number;
       games: number;
+      /** The League Standings seasons whose answers were built (`views/league.ts`). */
+      leagues: number;
       buildMs: number;
       /** The boards that carry a fit (`BoardFit`), and its JSON's bytes in all and at most. */
       fits: { boards: number; bytes: number; largest: number };
@@ -289,7 +293,14 @@ export const publishCopyViews = async ({
   });
   // And each page's Games list.
   const games = gamesViews({ ageGroups, built, gamesOfYear: loadScoutGamesForYear, roster: teams });
-  const views = [...boards, ...clubs, ...searches, ...games];
+  // And each League Standings season's answers, which a device opening it reads rather than asks
+  // the edit function for (`views/league.ts`): only where the seasons are their documents, which
+  // every device that reads them holds them as.
+  const leagues =
+    league.from === "docs"
+      ? await leagueViews({ seasonIds: league.ids, readSeason: league.readSeason, today })
+      : [];
+  const views = [...boards, ...clubs, ...searches, ...games, ...leagues];
   // With the copy's age groups, so a device that has never held the pool can lay the page out.
   const pages = livePagesOf(built, latestImportedAt(teams), ageGroups);
   const buildMs = Date.now() - started;
@@ -303,7 +314,7 @@ export const publishCopyViews = async ({
   const publish = await publishViews({
     store: liveStore,
     views,
-    owns: [BOARD_FAMILY, CLUB_FAMILY, SEARCH_FAMILY, GAMES_FAMILY],
+    owns: [BOARD_FAMILY, CLUB_FAMILY, SEARCH_FAMILY, GAMES_FAMILY, LEAGUE_FAMILY],
     copy: { id: manifest.copy, version: manifest.version },
     today,
     now: now(),
@@ -342,6 +353,7 @@ export const publishCopyViews = async ({
       clubs: clubs.length,
       searches: searches.length,
       games: games.length,
+      leagues: leagues.length,
       buildMs,
       fits,
       publish,
@@ -367,6 +379,7 @@ export const publishCopyViews = async ({
     clubs: clubs.length,
     searches: searches.length,
     games: games.length,
+    leagues: leagues.length,
     buildMs,
     fits,
     publish,

@@ -41,6 +41,7 @@ import {
   leagueScoutBridge,
   scoutLinkCandidates,
   type LeagueFixture,
+  type LeagueScoutBridge,
   type LeagueTeamLink,
   type ScoutLinkCandidate,
 } from "../teamRankings";
@@ -468,6 +469,38 @@ export const leagueCandidates = (
   return pick ? [...best, pick] : best;
 };
 
+/**
+ * A season's bridge as `league.bridge` answers it, from the process's store, on `today` where given
+ * and the clock's day otherwise: the question's own answer, and the one the boards' publish works
+ * out beside them for the members' day (`views/league.ts`), so the two cannot differ.
+ */
+export const leagueBridgeFor = (
+  query: QueryOf<"league.bridge">,
+  today?: string
+): LeagueScoutBridge =>
+  leagueScoutBridge(
+    query.season,
+    loadAgeGroups(),
+    loadScoutTeams(),
+    loadScoutGamesForSeason(query.season),
+    query.teams,
+    query.fixtures,
+    today
+  );
+
+/** The plan `league.fill` answers with, as `leagueBridgeFor` is the bridge, for both its readers. */
+export const leagueFillFor = (query: QueryOf<"league.fill">): LeagueFillPlan =>
+  planLeagueScoreFill({
+    seasonId: query.season,
+    teams: query.teams,
+    matchups: query.matchups,
+    logs: Object.fromEntries(query.runs.map(({ id, ...recorded }) => [id, recorded])),
+    ageGroups: loadAgeGroups(),
+    scoutTeams: loadScoutTeams(),
+    scoutGames: loadScoutGamesForSeason(query.season),
+    today: query.today,
+  });
+
 /** The questions answered with League Standings' games in the year, as the boards are built. */
 const LEAGUE_ASKED: ReadonlySet<QueryKind> = new Set<QueryKind>([
   "scouting.whatIf",
@@ -687,14 +720,7 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
       const ageGroups = loadAgeGroups();
       const teams = loadScoutTeams();
       const games = loadScoutGamesForSeason(query.season);
-      const bridge = leagueScoutBridge(
-        query.season,
-        ageGroups,
-        teams,
-        games,
-        query.teams,
-        query.fixtures
-      );
+      const bridge = leagueBridgeFor(query);
       // The club each team's pick names now, which the panel shows it picked as: followed by its
       // GameChanger id where the pool gave the pick's id to another club (`readPick`).
       const picked = new Map(
@@ -730,19 +756,7 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
         clubs: pickableClubs(query.season, loadAgeGroups(), loadScoutTeams()).map(clubPickOption),
       };
     case "league.fill":
-      return {
-        kind: "league.fill",
-        plan: planLeagueScoreFill({
-          seasonId: query.season,
-          teams: query.teams,
-          matchups: query.matchups,
-          logs: Object.fromEntries(query.runs.map(({ id, ...recorded }) => [id, recorded])),
-          ageGroups: loadAgeGroups(),
-          scoutTeams: loadScoutTeams(),
-          scoutGames: loadScoutGamesForSeason(query.season),
-          today: query.today,
-        }),
-      };
+      return { kind: "league.fill", plan: leagueFillFor(query) };
     case "games.check": {
       const ageGroups = loadAgeGroups();
       const page = ageGroups.find((group) => group.id === query.page);

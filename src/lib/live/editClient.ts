@@ -4,6 +4,7 @@ import { JOB_ID } from "../cloud/pullJobs";
 import { coerceCommand, type PoolCommand } from "./commands";
 import type { EditReply, WarmResult } from "./editHandle";
 import type { EditRefusal, QueryRefusal } from "./editRun";
+import { noteOwnEdit } from "./ownEdits";
 import type { AnswerOf, QueryKind, QueryOf } from "./queries";
 import { coerceQueryAnswer } from "./queryAnswers";
 import type { EditMonth } from "./rebuildLedger";
@@ -421,16 +422,23 @@ export const coerceWarmed = (raw: unknown): WarmResult | null => {
  * server's: the edit made, with its inverse, or why the command was refused. The boards follow a
  * little later, published by the rebuild the save asks for (`REBUILD_WINDOW_S.live`).
  */
-export const callEdit = (
+export const callEdit = async (
   ask: { command: PoolCommand; copy?: string },
   deps: CallDeps
-): Promise<Called<EditReply>> =>
-  call(
+): Promise<Called<EditReply>> => {
+  const called = await call(
     { command: ask.command, ...(ask.copy === undefined ? {} : { copy: ask.copy }) },
     coerceEditReply,
     { ...deps, retry: false },
     "unanswered"
   );
+  // What League Standings' published answers must not be older than to be taken (`ownEdits.ts`).
+  if (called.ok && called.value.ok) {
+    const { copy, version, changed } = called.value;
+    noteOwnEdit({ copy, version, changed });
+  }
+  return called;
+};
 
 /** Asks the server to bring its pool up ahead of an edit. */
 export const callWarm = (deps: CallDeps): Promise<Called<WarmResult>> =>

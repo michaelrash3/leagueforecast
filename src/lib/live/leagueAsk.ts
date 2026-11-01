@@ -1,5 +1,8 @@
 import { copyReader, memberToken } from "../cloud/cloudSession";
+import type { LeagueFillPlan } from "../leagueScoreFill";
+import type { LeagueScoutBridge } from "../teamRankings";
 import type { PoolCommand } from "./commands";
+import type { Published } from "./publishedLeague";
 import type { AnswerOf, QueryOf } from "./queries";
 import type { EditMonth } from "./rebuildLedger";
 
@@ -47,6 +50,31 @@ export const askLeague: LeagueAsker = async <K extends LeagueQueryKind>(
   if (!called.ok || !called.value.ok) return null;
   const { answer, copy, version } = called.value;
   return { ...answer, at: { copy, version } };
+};
+
+/**
+ * The reader of League Standings' answers published beside the boards (`publishedLeague.ts`), which
+ * only a member's device loads, and only once something is asked, as the call's client is.
+ */
+const publishedClient = () => import("./publishedLeague");
+
+/**
+ * A season's answer as published beside the boards, where it is the very answer the question would
+ * get (`views/leagueShape.ts`), or null, and the question is asked as before: none published, the
+ * season or the day moved since in a way the answer cannot be held to, offline, or the reader would
+ * not load. One read of the meta, and of the view only when a publish changed it, in place of a
+ * question to the 8 GiB edit function.
+ */
+export type PublishedReader = {
+  bridge: (question: QueryOf<"league.bridge">) => Promise<Published<LeagueScoutBridge> | null>;
+  fill: (question: QueryOf<"league.fill">) => Promise<Published<LeagueFillPlan> | null>;
+};
+
+export const publishedLeague: PublishedReader = {
+  bridge: async (question) =>
+    (await publishedClient().catch(() => null))?.publishedBridge(question) ?? null,
+  fill: async (question) =>
+    (await publishedClient().catch(() => null))?.publishedFill(question) ?? null,
 };
 
 /**
