@@ -1244,13 +1244,43 @@ const settleGame = (
   prediction: Prediction,
   settings: Settings
 ): void => {
+  const { awayRuns, homeRuns } = projectedRuns(game, winnerId, prediction);
+  bookScore(away, home, awayRuns, homeRuns, resolveMaxRunDifferential(settings));
+};
+
+/** The model's predicted score, nudged so the given winner wins: what a projection books. */
+const projectedRuns = (
+  game: Matchup,
+  winnerId: string,
+  prediction: Prediction
+): { awayRuns: number; homeRuns: number } => {
   let awayRuns = prediction.awayScore;
   let homeRuns = prediction.homeScore;
-
   if (winnerId === game.away && awayRuns <= homeRuns) awayRuns = homeRuns + 1;
   if (winnerId === game.home && homeRuns <= awayRuns) homeRuns = awayRuns + 1;
+  return { awayRuns, homeRuns };
+};
 
-  bookScore(away, home, awayRuns, homeRuns, resolveMaxRunDifferential(settings));
+/** In a game owed beyond the schedule (`owedGames`), the team that owes it. */
+const owerOf = (game: Matchup): string => (game.away === OWED_OPPONENT ? game.home : game.away);
+
+/**
+ * Books one projected result of a game owed beyond the schedule onto the team that owes it, in
+ * place: the model's score against the league's average side (`leagueAverageSide`), nudged so the
+ * given winner wins, as `settleGame` books a scheduled one, on the team's side alone, since the
+ * side it is played against is in no table.
+ */
+const settleOwed = (
+  team: Team,
+  game: Matchup,
+  winnerId: string,
+  prediction: Prediction,
+  settings: Settings
+): void => {
+  const { awayRuns, homeRuns } = projectedRuns(game, winnerId, prediction);
+  const cap = resolveMaxRunDifferential(settings);
+  if (game.away === team.id) bookSide(team, awayRuns, homeRuns, cap);
+  else bookSide(team, homeRuns, awayRuns, cap);
 };
 
 /**
@@ -1600,10 +1630,10 @@ const playOut = (
 };
 
 /** The games owed beyond the schedule (`owedGames`), and the side they are played against. */
-type OwedPlay = { games: Matchup[]; side: Team };
+export type OwedPlay = { games: Matchup[]; side: Team };
 
-/** What a simulation plays beyond the schedule: undefined where nothing is owed. */
-const owedPlay = (
+/** What a simulation or a projection plays beyond the schedule: undefined where nothing is owed. */
+export const owedPlay = (
   teams: Team[],
   remaining: Matchup[],
   settings: Settings
@@ -1692,14 +1722,67 @@ export const isSeedingLocked = (
   return testOutcomeTree(0, baseline);
 };
 
-export const projectStandings = (teams: Team[], games: Matchup[], settings: Settings) => {
+/**
+ * The table with every game left to the favourite, each booked at the model's score
+ * (`applyResult`): the schedule's games, then the ones each team owes beyond it under games per team
+ * (`owedGames`), each against the league's average side and after every scheduled game, as the Gold
+ * odds play them (`playOwed`), the owing team's side alone booked. The Forecast's Projected Record,
+ * Run Diff and Range read this, and read the schedule alone until 1 November 2026: a team 3-0 with
+ * nine games owed was projected to finish 3-0 beside Gold odds that played all nine.
+ *
+ * `owed` is those games and that side, worked out from the teams given unless a caller hands over
+ * its own: the seed walk hands every scenario the season's (`useSeedRanges`), so each is projected
+ * against one side and plays the season's owed games, less the one it settles. Null plays none, and
+ * a league owing none plays none, so it is projected as it always was.
+ */
+export const projectStandings = (
+  teams: Team[],
+  games: Matchup[],
+  settings: Settings,
+  owed: OwedPlay | null = owedPlay(teams, games, settings) ?? null
+) => {
   let projected = teams.map((team) => ({ ...team }));
   games.forEach((game) => {
     const projectionById = buildByIdMap(projected);
     const prediction = predictGame(game, projected, settings, projectionById);
     projected = applyResult(projected, game, prediction.winnerId, projected, settings);
   });
+  if (owed) {
+    // The teams are this projection's own copies, and booking an owed game touches only the
+    // owing team's own numbers (`bookSide`), so they are booked in place.
+    const byId = buildByIdMap(projected);
+    byId.set(OWED_OPPONENT, owed.side);
+    for (const game of owed.games) {
+      const team = byId.get(owerOf(game));
+      if (!team) continue;
+      const prediction = predictGame(game, projected, settings, byId);
+      settleOwed(team, game, prediction.winnerId, prediction, settings);
+    }
+  }
   return rankTeams(projected, rankOptionsFromSettings(settings));
+};
+
+/**
+ * The teams with one game owed beyond the schedule settled, as new objects where they change; the
+ * inputs are untouched. What `applyResult` is for a scheduled game, for the seed walk's scenarios
+ * (`useSeedRanges`): the owing team's side booked at the model's score against `side`, the league's
+ * average side, nudged so the given winner wins.
+ */
+export const applyOwedResult = (
+  teams: Team[],
+  game: Matchup,
+  winnerId: string,
+  side: Team,
+  settings: Settings
+): Team[] => {
+  const owing = owerOf(game);
+  const next = teams.map((team) => (team.id === owing ? { ...team } : team));
+  const team = next.find((one) => one.id === owing);
+  if (!team) return next;
+  const model = buildByIdMap(teams);
+  model.set(OWED_OPPONENT, side);
+  settleOwed(team, game, winnerId, predictGame(game, teams, settings, model), settings);
+  return next;
 };
 
 export const hashSeed = (text: string) => {

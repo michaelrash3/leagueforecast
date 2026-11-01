@@ -11,6 +11,7 @@ import {
   leagueAverageSide,
   OWED_OPPONENT,
   predictGame,
+  projectStandings,
   rankOptionsFromSettings,
   rankTeams,
   simulateBracketOdds,
@@ -127,7 +128,8 @@ const league = (
     simulateGoldOddsRun(live, remaining, iterations, "owed", 2, settings, follow);
   const bracket = (logs: Record<string, GameLog>) =>
     simulateBracketOdds(live, remaining, 400, "owed", 2, settings, logs);
-  return { status, magic, elimination, needs, paths, odds, bracket };
+  const projected = () => projectStandings(live, remaining, settings);
+  return { status, magic, elimination, needs, paths, odds, bracket, projected };
 };
 
 describe("the reproduction: the entered games played, games per team still owed", () => {
@@ -363,6 +365,29 @@ describe("the Gold odds with games owed beyond the schedule", () => {
     const crowned = owed.bracket({ "bracket-r1-g1": final(2, 5) });
     expect(crowned).toEqual(owed.bracket({}));
     expect(crowned.championOdds.C).toBeGreaterThan(0);
+  });
+});
+
+/*
+ * The Forecast's projected standings, every game left to the favourite: its Projected Record, Run
+ * Diff and Range read the schedule alone, so a team 3-0 with nine still owed was projected to finish
+ * 3-0, beside Gold odds that played all nine.
+ */
+describe("the projection with games owed beyond the schedule", () => {
+  it("plays the owed games after the schedule, so every record comes to games per team", () => {
+    const table = league(ROUND, 12).projected();
+    expect(table.map((team) => team.id).sort()).toEqual(["A", "B", "C", "D"]);
+    for (const team of table) expect(team.w + team.l + team.t).toBe(12);
+    // Each to the favourite against the league's average side: the Aces win theirs, the Ducks not.
+    const record = (id: string) => table.find((team) => team.id === id);
+    expect(record("A")).toMatchObject({ w: 12, l: 0, rank: 1 });
+    expect(record("D")).toMatchObject({ w: 0, l: 12, rank: 4 });
+  });
+
+  it("plays them for the teams that owe them, after the scheduled games, and no more", () => {
+    // The Comets and the Ducks owe two each; the Aces and the Bears play their two on the schedule.
+    const table = league(TWICE, 5).projected();
+    for (const team of table) expect(team.w + team.l + team.t).toBe(5);
   });
 });
 

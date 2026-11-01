@@ -1133,9 +1133,14 @@ export default function App() {
     () => withOwedGames(liveTeams, remainingGames, settings).length,
     [liveTeams, remainingGames, settings]
   );
-  const projectionAnalysisEnabled = remainingGames.length <= PROJECT_STANDINGS_REMAINING_GAME_LIMIT;
+  /*
+   * The projection and the seed walk play the games owed beyond the schedule too
+   * (`projectStandings`), so their limits count them, as the exact search's do: a league owing
+   * two hundred with nothing scheduled is two hundred games to walk, not none.
+   */
+  const projectionAnalysisEnabled = searchedCount <= PROJECT_STANDINGS_REMAINING_GAME_LIMIT;
   const exactScenarioAnalysisEnabled =
-    activeView === "model" && remainingGames.length <= EXACT_SCENARIO_REMAINING_GAME_LIMIT;
+    activeView === "model" && searchedCount <= EXACT_SCENARIO_REMAINING_GAME_LIMIT;
   /*
    * The seed walk for one team's panel, whatever tab it was opened from: its Range and its swing
    * games' seeds are that walk's. Run only on Forecast, a panel opened from the Dashboard or
@@ -1144,7 +1149,7 @@ export default function App() {
    */
   const seedWalkEnabled =
     (activeView === "model" || selectedTeamId !== null) &&
-    remainingGames.length <= EXACT_SCENARIO_REMAINING_GAME_LIMIT;
+    searchedCount <= EXACT_SCENARIO_REMAINING_GAME_LIMIT;
 
   const projected = useMemo(
     () =>

@@ -4457,6 +4457,19 @@ Bears from 99%+ to 77%, the Comets from under 1% to 20% and the Ducks to 5%. A
 league with no games per team set, or whose schedule has them all, is searched and
 simulated exactly as before, to the digit.
 
+The Forecast's projected standings play them too, since 1 November 2026
+(`projectStandings`): after the scheduled games, each owed game goes to the favourite against
+the same average side, the owing team's side booked at the model's score, so the Projected
+Record and the Run Diff beside it come to games per team. The Range walks them as well
+(`useSeedRanges`): each owed game is one more result that can go either way, every scenario
+projected against the one average side the season as it stands gives, with the season's owed
+games less the one it settles. Both read the schedule alone before, so in the league above the
+Aces, 3-0 with nine owed, were projected to finish 3-0 beside Gold odds that played all nine;
+they are projected 12-0 now, the Bears 2-10, the Comets 1-11 and the Ducks 0-12, and a team
+whose games left were all owed read its projection at both ends of its Range. The projection and
+the walk count the owed games toward the games they wait for (250 and 60), as the exact search
+does. A league owing none is projected and walked exactly as before, to the digit.
+
 Waiting for the owed games has a cost where games per team counts one that will
 never be played, a rainout taken off the schedule and not made up, say: the title
 odds draw the bracket afresh even once it is played and the Dashboard names its
@@ -4670,8 +4683,9 @@ On the Forecast tab, the seed odds grid has a **Likely** column: the seeds a tea
 once the best and worst tenth of simulated seasons are left out, so at least eight simulated
 seasons in ten (`seedRange.ts`). It is not the Projected Standings' **Range**, which is the
 best and worst seed one remaining result can move the projection to. That walk is a season's
-projection for each way each remaining game can go, so it waits until 60 or fewer games
-remain (`useSeedRanges`); until then the column, the phone rows and the Bubble Watch show a
+projection for each way each remaining game can go, the games owed beyond the schedule among
+them ([Postseason format](#postseason-format)), so it waits until 60 or fewer games remain,
+owed ones counted (`useSeedRanges`); until then the column, the phone rows and the Bubble Watch show a
 dash and the caption says the range is paused, rather than every team's projection at both
 ends, which would read as a seed nothing left to play can move.
 
