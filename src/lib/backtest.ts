@@ -1,7 +1,12 @@
-import type { GameLog, Matchup, Settings, TeamBase } from "./types";
+import type { GameLog, Matchup, Prediction, Settings, TeamBase } from "./types";
 import { seasonStartMonth } from "./date";
 import { attachAdjustedRatings, calculateTeams, predictGame } from "./sim";
-import { buildPredictionEngine, playedOn, type ExternalResult } from "./predictionEngine";
+import {
+  buildPredictionEngine,
+  playedOn,
+  type ExternalResult,
+  type PredictionEngineResult,
+} from "./predictionEngine";
 import { isFinal } from "./util";
 
 export type CalibrationBucket = {
@@ -46,14 +51,35 @@ const HIGH_CONFIDENCE_MARGIN = 0.15;
  */
 export type BacktestOutside = { outside?: readonly ExternalResult[]; squadYear?: number };
 
-export const backtestPredictions = (
+/**
+ * One final game as the walk reaches it, called from what was known before it alone: the season's
+ * earlier finals and the outside results played before its day.
+ */
+export type BacktestStep = {
+  game: Matchup;
+  /** Its final score, which nothing in `engine` or `prediction` has seen. */
+  log: GameLog;
+  /** The prediction engine fitted on the same, whose `predictions` hold this game's. */
+  engine: PredictionEngineResult;
+  /** The per-game model's call of it (`predictGame`), the chance every League screen shows. */
+  prediction: Prediction;
+};
+
+/**
+ * The season's final games walked in its own order, each handed to `visit` with the forecast made
+ * from only what came before it, and then counted as known for the games after it: a tie, and a
+ * score that is no number, are handed over and counted too, as every final is. The walk the
+ * backtest scores (`backtestPredictions`), on its own so the research sweep can score each game by
+ * both models from the very same fits (`scripts/modelSweep.ts`, `--league-models`).
+ */
+export const walkForward = (
   teamBases: TeamBase[],
   matchups: Matchup[],
   logs: Record<string, GameLog>,
   settings: Settings,
-  bucketSize = 0.1,
-  { outside = [], squadYear }: BacktestOutside = {}
-): BacktestResult => {
+  { outside = [], squadYear }: BacktestOutside,
+  visit: (step: BacktestStep) => void
+): void => {
   // The season's own order, which turns over New Year when its schedule does, over the outside
   // results' days too, as the trend reads them.
   const start = seasonStartMonth([
@@ -69,15 +95,6 @@ export const backtestPredictions = (
   };
   const ordered = [...matchups].sort((a, b) => dayOf(a) - dayOf(b) || a.id.localeCompare(b.id));
   const progressiveLogs: Record<string, GameLog> = {};
-  const rows: Array<{
-    p: number;
-    y: 0 | 1;
-    upset: boolean;
-    captured: boolean;
-    correct: boolean;
-    marginError: number;
-    highConfidence: boolean;
-  }> = [];
 
   /*
    * The latest day the season has reached: a game logged with no date is called as of the last day
@@ -107,12 +124,34 @@ export const backtestPredictions = (
     );
     const state = attachAdjustedRatings(base, engine.ratings);
     const prediction = predictGame(game, state, settings);
+    visit({ game, log: finalLog, engine, prediction });
+    progressiveLogs[game.id] = finalLog;
+  });
+};
+
+export const backtestPredictions = (
+  teamBases: TeamBase[],
+  matchups: Matchup[],
+  logs: Record<string, GameLog>,
+  settings: Settings,
+  bucketSize = 0.1,
+  outside: BacktestOutside = {}
+): BacktestResult => {
+  const rows: Array<{
+    p: number;
+    y: 0 | 1;
+    upset: boolean;
+    captured: boolean;
+    correct: boolean;
+    marginError: number;
+    highConfidence: boolean;
+  }> = [];
+
+  walkForward(teamBases, matchups, logs, settings, outside, ({ log: finalLog, prediction }) => {
     const awayRuns = Number(finalLog.awayRuns);
     const homeRuns = Number(finalLog.homeRuns);
-    if (!Number.isFinite(awayRuns) || !Number.isFinite(homeRuns) || awayRuns === homeRuns) {
-      progressiveLogs[game.id] = finalLog;
-      return;
-    }
+    // A tie has no winner to score, and is known to the games after it all the same.
+    if (!Number.isFinite(awayRuns) || !Number.isFinite(homeRuns) || awayRuns === homeRuns) return;
     const awayWon = awayRuns > homeRuns ? 1 : 0;
     const favoredAway = prediction.awayWinPct >= 0.5;
     const actualFavoriteWon = (favoredAway && awayWon === 1) || (!favoredAway && awayWon === 0);
@@ -128,7 +167,6 @@ export const backtestPredictions = (
       marginError,
       highConfidence: Math.abs(prediction.awayWinPct - 0.5) >= HIGH_CONFIDENCE_MARGIN,
     });
-    progressiveLogs[game.id] = finalLog;
   });
 
   if (!rows.length)

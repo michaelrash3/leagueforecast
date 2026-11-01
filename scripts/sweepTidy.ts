@@ -29,9 +29,20 @@ import {
   readTeamRankingsFile,
   type TeamRankingsBackup,
 } from "../src/lib/teamRankingsBackup.ts";
+import type { Settings } from "../src/lib/types.ts";
 
-/** A file the sweep reads: its pool, and its League Standings seasons where it carries them. */
-export type SweepFile = { pool: TeamRankingsBackup; seasons: SeasonReader | null };
+/** A League Standings season a file holds: its id, its name, and the settings it is forecast by. */
+export type SweepSeason = { id: string; name: string; settings: Settings };
+
+/**
+ * A file the sweep reads: its pool, and its League Standings seasons where it carries them, by id
+ * and as a list, in the file's order, for a measure that walks every one (`--league-models`).
+ */
+export type SweepFile = {
+  pool: TeamRankingsBackup;
+  seasons: SeasonReader | null;
+  leagueSeasons?: readonly SweepSeason[];
+};
 
 /** A season the file does not hold, read as the device's storage reads one: empty. */
 const NO_SEASON: LeagueSeasonData = { teams: [], matchups: [], logs: {} };
@@ -64,6 +75,7 @@ export const readSweepFile = (raw: string): SweepFile | null => {
   return {
     pool: whole.backup.teamRankings,
     seasons: (seasonId) => held.get(seasonId) ?? NO_SEASON,
+    leagueSeasons: whole.backup.seasons.map(({ id, name, settings }) => ({ id, name, settings })),
   };
 };
 

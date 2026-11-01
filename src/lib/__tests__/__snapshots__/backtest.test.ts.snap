@@ -1,5 +1,143 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`the backtest of a whole season, as pinned > at machine pitch 1`] = `
+{
+  "alone": {
+    "averageMarginError": 2.388888888888889,
+    "brierScore": 0.23960762130749325,
+    "calibration": [
+      {
+        "actual": 0,
+        "max": 0.4,
+        "min": 0.30000000000000004,
+        "predicted": 0.34416892001185034,
+        "samples": 1,
+      },
+      {
+        "actual": 0.6666666666666666,
+        "max": 0.5,
+        "min": 0.4,
+        "predicted": 0.4614752742879424,
+        "samples": 6,
+      },
+      {
+        "actual": 0.9090909090909091,
+        "max": 0.6000000000000001,
+        "min": 0.5,
+        "predicted": 0.5176666189053925,
+        "samples": 11,
+      },
+    ],
+    "confidentMissRate": 0.2,
+    "highConfidenceAccuracy": 1,
+    "highConfidenceSamples": 1,
+    "sampleSize": 18,
+    "winnerAccuracy": 0.7222222222222222,
+  },
+  "withResults": {
+    "averageMarginError": 2.5555555555555554,
+    "brierScore": 0.23693523362176144,
+    "calibration": [
+      {
+        "actual": 0.3333333333333333,
+        "max": 0.4,
+        "min": 0.30000000000000004,
+        "predicted": 0.3762367682333248,
+        "samples": 3,
+      },
+      {
+        "actual": 0.8333333333333334,
+        "max": 0.5,
+        "min": 0.4,
+        "predicted": 0.4608296326953029,
+        "samples": 6,
+      },
+      {
+        "actual": 0.8888888888888888,
+        "max": 0.6000000000000001,
+        "min": 0.5,
+        "predicted": 0.5512074322011845,
+        "samples": 9,
+      },
+    ],
+    "confidentMissRate": 0.42857142857142855,
+    "highConfidenceAccuracy": 1,
+    "highConfidenceSamples": 1,
+    "sampleSize": 18,
+    "winnerAccuracy": 0.6111111111111112,
+  },
+}
+`;
+
+exports[`the backtest of a whole season, as pinned > at player pitch 1`] = `
+{
+  "alone": {
+    "averageMarginError": 2.5,
+    "brierScore": 0.23958843926974374,
+    "calibration": [
+      {
+        "actual": 0,
+        "max": 0.4,
+        "min": 0.30000000000000004,
+        "predicted": 0.3526131994217706,
+        "samples": 1,
+      },
+      {
+        "actual": 0.6666666666666666,
+        "max": 0.5,
+        "min": 0.4,
+        "predicted": 0.46179473431441065,
+        "samples": 6,
+      },
+      {
+        "actual": 0.9090909090909091,
+        "max": 0.6000000000000001,
+        "min": 0.5,
+        "predicted": 0.5168053675505214,
+        "samples": 11,
+      },
+    ],
+    "confidentMissRate": 0.2,
+    "highConfidenceAccuracy": null,
+    "highConfidenceSamples": 0,
+    "sampleSize": 18,
+    "winnerAccuracy": 0.7222222222222222,
+  },
+  "withResults": {
+    "averageMarginError": 2.5,
+    "brierScore": 0.2369319532334083,
+    "calibration": [
+      {
+        "actual": 0.3333333333333333,
+        "max": 0.4,
+        "min": 0.30000000000000004,
+        "predicted": 0.37887701955403247,
+        "samples": 3,
+      },
+      {
+        "actual": 0.8333333333333334,
+        "max": 0.5,
+        "min": 0.4,
+        "predicted": 0.46024232488105293,
+        "samples": 6,
+      },
+      {
+        "actual": 0.8888888888888888,
+        "max": 0.6000000000000001,
+        "min": 0.5,
+        "predicted": 0.5508417924424684,
+        "samples": 9,
+      },
+    ],
+    "confidentMissRate": 0.42857142857142855,
+    "highConfidenceAccuracy": 1,
+    "highConfidenceSamples": 1,
+    "sampleSize": 18,
+    "winnerAccuracy": 0.6111111111111112,
+  },
+}
+`;
+
 exports[`the backtest, as pinned > scores the league's own games as it always has where no outside result is given 1`] = `
 {
   "averageMarginError": 4,

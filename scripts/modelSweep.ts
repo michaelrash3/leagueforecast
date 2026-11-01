@@ -16,6 +16,13 @@
  * `inStateNamesakes`, and for each how much of the year still leans on a stand-in or a slot and how
  * the rows it filed read (`readRules`).
  *
+ * With --league-models it measures League Standings' two win chances on its own seasons instead:
+ * every final game of every season walked forward as the season's backtest walks it
+ * (`walkForward`), each called from the finals before it and the Team Rankings results played
+ * before its day, by the per-game model (`predictGame`) and by the prediction engine
+ * (`buildPredictionEngine`), and both scored on who won. --min-played=N leaves out a game until each
+ * side has N finals behind it (none, as the backtest asks).
+ *
  * Options: --year=2027 (the squad year), --today=DAY (the board's day; the members' day by
  * default), --top=25 (the stand-ins named, most games first), --public (numbers only),
  * --seal=FILE with --seal-to-key=PEM (the named lines, sealed to that public key), and
@@ -51,7 +58,21 @@ import {
 } from "../src/lib/live/allKnown.ts";
 import { coerceNotThisTeam, type NotThisTeam } from "../src/lib/notThisTeam.ts";
 import { asWorkerSees } from "../src/lib/live/views/board.ts";
-import { readCloudLeague, seasonReaderOf } from "../src/lib/live/cloudLeague.ts";
+import {
+  readCloudLeague,
+  seasonReaderOf,
+  type LeagueDocsList,
+} from "../src/lib/live/cloudLeague.ts";
+import { docToSeason } from "../src/lib/live/leagueDocs.ts";
+import { coerceBackup } from "../src/lib/backup.ts";
+import { walkForward } from "../src/lib/backtest.ts";
+import type { ExternalResult } from "../src/lib/predictionEngine.ts";
+import {
+  finalScoresKey,
+  leagueFixturesOf,
+  leagueScoutBridge,
+} from "../src/lib/teamRankings/leagueBridge.ts";
+import { DEFAULT_SETTINGS } from "../src/lib/types.ts";
 import { fetchValues } from "../src/lib/cloud/cloudEngine.ts";
 import { LEAGUE_PART } from "../src/lib/cloud/cloudPlan.ts";
 import { loadPoolFrom, sparedByTidy } from "../src/lib/cloud/cloudRunner.ts";
@@ -71,7 +92,7 @@ import {
   runModelSweep,
   type ModelSweep,
 } from "../src/lib/modelSweep.ts";
-import type { PairedReading } from "../src/lib/scoutBacktest.ts";
+import { pairedImprovement, type PairedReading } from "../src/lib/scoutBacktest.ts";
 import {
   share,
   STAND_IN_WHYS,
@@ -96,6 +117,7 @@ import {
   loadNotThisTeam,
   loadRetiredIds,
   loadScoutGames,
+  loadScoutGamesForSeason,
   loadScoutGamesForYear,
   loadScoutTeams,
   resetTeamRankingsStore,
@@ -110,7 +132,7 @@ import {
 } from "../src/lib/teamRankings.ts";
 import { openStores } from "./cloudPool.ts";
 import { poolFixture } from "./poolFixture.ts";
-import { readSweepFile, sweepTidy } from "./sweepTidy.ts";
+import { readSweepFile, sweepTidy, type SweepSeason } from "./sweepTidy.ts";
 import { sweepStored } from "../src/lib/sweepStored.ts";
 import { lopsidedDrops } from "../src/lib/lopsidedDrops.ts";
 import { LOPSIDED_MARGIN } from "../src/lib/autoRemoved.ts";
@@ -143,6 +165,18 @@ type Source = {
   allGames: () => ScoutGame[];
   readSeason: SeasonReader;
   leagueRead: boolean;
+  /**
+   * Every League Standings season the source holds, in its order, with its name (which only the
+   * sealed lines carry) and the settings it is forecast by: the pitch and the aggression the
+   * per-game model reads, and whether its Team Rankings results count. None where League was not
+   * read.
+   */
+  leagueSeasons: readonly SweepSeason[];
+  /**
+   * The stored games a season's bridge reads (`leagueScoutBridge`), as the app hands them to it
+   * (`loadScoutGamesForSeason`); the bridge keeps those on the pages that claim the season.
+   */
+  gamesForSeason: (seasonId: string) => ScoutGame[];
   autoRemoved: AutoRemovals;
   /**
    * What a tidy honours, as the source holds it: the pairs kept apart, the names refused, and the
@@ -181,7 +215,7 @@ const fromBackup = (path: string, tidied = true): Source => {
         ' Setup, or the whole-browser backup from Settings ("Backup JSON").'
     );
   }
-  const { pool, seasons } = file;
+  const { pool, seasons, leagueSeasons = [] } = file;
   let read: GcImportState = { ageGroups: pool.ageGroups, teams: pool.teams, games: pool.games };
   if (tidied) {
     const tidy = sweepTidy(pool, seasons);
@@ -198,6 +232,9 @@ const fromBackup = (path: string, tidied = true): Source => {
     allGames: () => games,
     readSeason: seasons ?? (() => NO_SEASON),
     leagueRead: seasons !== null,
+    leagueSeasons,
+    // Every game: the bridge keeps the ones on the pages that claim the season, in this order.
+    gamesForSeason: () => games,
     autoRemoved: coerceAutoRemovals(pool.answers?.autoRemoved ?? []),
     // As `sweepTidy` spares and honours them: the backup's own word, not this machine's store.
     tidyAnswers: () => ({
@@ -226,6 +263,13 @@ const fromFixture = (): Source => {
     allGames: () => pool.games,
     readSeason: (id) => pool.seasons[id] ?? NO_SEASON,
     leagueRead: true,
+    // Its seasons carry no settings of their own, so each is forecast by the app's defaults.
+    leagueSeasons: Object.keys(pool.seasons).map((id) => ({
+      id,
+      name: id,
+      settings: DEFAULT_SETTINGS,
+    })),
+    gamesForSeason: () => pool.games,
     autoRemoved: coerceAutoRemovals([]),
     tidyAnswers: storedTidyAnswers((id) => pool.seasons[id] ?? NO_SEASON),
     today: flag("today") || pool.today,
@@ -245,18 +289,38 @@ const fromCloud = async (): Promise<Source> => {
   console.log(`Read the cloud copy once: ${copy.keys} pieces, ${copy.bytes} bytes stored.`);
   let readSeason: SeasonReader = () => NO_SEASON;
   let leagueRead = false;
+  let leagueSeasons: SweepSeason[] = [];
   try {
-    const league = await readCloudLeague(opened.leagueDocs);
+    // The documents listed once, as the publish lists them, and kept: `readCloudLeague` reads the
+    // seasons' games from them, and their names and settings, which it leaves out, are read here.
+    let listed: Awaited<ReturnType<LeagueDocsList>> = [];
+    const league = await readCloudLeague(async () => (listed = await opened.leagueDocs()));
     if (league.ok && league.from === "docs") {
       readSeason = league.readSeason;
       leagueRead = true;
+      // By id, the last document of one standing, as the reader keeps it.
+      const byId = new Map<string, SweepSeason>();
+      listed.forEach(({ id, fields }) => {
+        const read = docToSeason(fields, id);
+        if (!read.ok) return;
+        const { season } = read;
+        byId.set(season.id, { id: season.id, name: season.name, settings: season.settings });
+      });
+      leagueSeasons = [...byId.values()];
     } else if (league.ok) {
       const part = copy.manifest.parts.find((one) => one.key === LEAGUE_PART);
       const fetched = part ? await fetchValues({ store: opened.copy, parts: [part] }) : null;
-      const reader = fetched?.ok ? seasonReaderOf(fetched.values.get(LEAGUE_PART)) : null;
+      const value = fetched?.ok ? fetched.values.get(LEAGUE_PART) : undefined;
+      const reader = fetched?.ok ? seasonReaderOf(value) : null;
       if (reader) {
         readSeason = reader;
         leagueRead = true;
+        // The part as the reader took it (`coerceBackup`), for the seasons' names and settings.
+        const parsed = value === undefined || value === null ? null : coerceBackup(value);
+        leagueSeasons =
+          parsed?.kind === "full"
+            ? parsed.backup.seasons.map(({ id, name, settings }) => ({ id, name, settings }))
+            : [];
       }
     }
   } catch (error) {
@@ -270,6 +334,8 @@ const fromCloud = async (): Promise<Source> => {
     allGames: loadScoutGames,
     readSeason,
     leagueRead,
+    leagueSeasons,
+    gamesForSeason: loadScoutGamesForSeason,
     autoRemoved: loadAutoRemoved(),
     tidyAnswers: storedTidyAnswers(leagueRead ? readSeason : null),
     today: flag("today") || todayIsoDay(),
@@ -337,12 +403,12 @@ const say = (line = "") => {
   console.log(line);
   printed.push(line);
 };
-/** Lines that name clubs: printed only where the log is private, sealed either way. */
+/** Lines that name clubs or seasons: printed only where the log is private, sealed either way. */
 const sayNamed = (lines: string[], heading: string) => {
   if (lines.length === 0) return;
   sealedLines.push(heading, ...lines, "");
   if (publicLog) {
-    say(`  (${lines.length} line(s) naming clubs left out of this log; sealed)`);
+    say(`  (${lines.length} line(s) naming clubs or seasons left out of this log; sealed)`);
     return;
   }
   say(`  ${heading}`);
@@ -709,6 +775,315 @@ const measureLopsided = (source: Source) => {
   }
 };
 
+/* --------------------------------------------------- League Standings' two win chances, scored */
+
+/**
+ * The finals each side must have behind it before one of its games is scored: none, as the
+ * season's backtest asks (`backtestPredictions` scores every final from the season's first), unless
+ * --min-played says otherwise. The lines by the thinner side's finals read the early games apart.
+ */
+const BACKTEST_MIN_PLAYED = 0;
+
+/** One final game, called by both models from what was known before it, and who won it. */
+type BothCalled = {
+  /** Whether its forecast was handed Team Rankings results. */
+  linked: boolean;
+  /** Machine or coach pitch, which the per-game model and the engine's curve each read apart. */
+  machine: boolean;
+  /** The finals of the season the thinner side had played before it. */
+  earlier: number;
+  awayWon: boolean;
+  /** The away side's chance, by the per-game model (`predictGame`) and by the engine. */
+  perGame: number;
+  engine: number;
+  /** Its two teams, numbered across every season, which the standard error counts games by. */
+  away: number;
+  home: number;
+};
+
+const lossOf = (chance: number, won: boolean) => -Math.log(won ? chance : 1 - chance);
+const brierOf = (chance: number, won: boolean) => (chance - (won ? 1 : 0)) ** 2;
+
+/**
+ * Both models' mean log loss and Brier over `games`, and the engine's less the per-game model's,
+ * game by game (`pairedImprovement`, its reference the engine's): below zero, the engine is
+ * better. Its standard error counts the games by team, as the sweep's other readings do, since
+ * every game a team plays leans on the one rating each model gave it.
+ */
+const bothRead = (games: readonly BothCalled[]) => {
+  const mean = (of: (game: BothCalled) => number) =>
+    games.length === 0 ? Number.NaN : games.reduce((sum, game) => sum + of(game), 0) / games.length;
+  const sides = new Uint32Array(games.length * 2);
+  games.forEach((game, at) => {
+    sides[at * 2] = game.away;
+    sides[at * 2 + 1] = game.home;
+  });
+  const engineLess = (score: (chance: number, won: boolean) => number) =>
+    pairedImprovement(
+      { errors: Float32Array.from(games, (game) => score(game.perGame, game.awayWon)) },
+      { errors: Float32Array.from(games, (game) => score(game.engine, game.awayWon)), sides },
+      false
+    );
+  return {
+    games: games.length,
+    perGame: {
+      logLoss: mean((game) => lossOf(game.perGame, game.awayWon)),
+      brier: mean((game) => brierOf(game.perGame, game.awayWon)),
+    },
+    engine: {
+      logLoss: mean((game) => lossOf(game.engine, game.awayWon)),
+      brier: mean((game) => brierOf(game.engine, game.awayWon)),
+    },
+    logLoss: engineLess(lossOf),
+    brier: engineLess(brierOf),
+  };
+};
+
+const describeBoth = (label: string, games: readonly BothCalled[]) => {
+  const read = bothRead(games);
+  const four = (value: number) => fixed(value).padEnd(6);
+  say(
+    `  ${label.padEnd(30)} ${String(read.games).padStart(6)}   ${four(read.perGame.logLoss)}  ${four(read.perGame.brier)}   ${four(read.engine.logLoss)}  ${four(read.engine.brier)}   ${paired(read.logLoss).padEnd(26)}  ${paired(read.brier)}`
+  );
+};
+
+/** A model's calibration from the favourite's side, in the sweep's bands and words. */
+const describeCalibration = (label: string, games: readonly BothCalled[], engine: boolean) => {
+  say(`\n  ${label} calibration: the favourite's chance, and how often it won:`);
+  say("    chance said     games   said    won");
+  const favourites = games.map((game) => {
+    const win = engine ? game.engine : game.perGame;
+    return win >= 0.5 ? { said: win, won: game.awayWon } : { said: 1 - win, won: !game.awayWon };
+  });
+  for (let step = 0; step < 10; step += 1) {
+    const from = 0.5 + step * 0.05;
+    const to = from + 0.05;
+    const band = favourites.filter(
+      ({ said }) => said >= from - 1e-12 && (said < to - 1e-12 || step === 9)
+    );
+    if (band.length === 0) continue;
+    const said = band.reduce((sum, one) => sum + one.said, 0) / band.length;
+    const won = band.filter((one) => one.won).length / band.length;
+    say(
+      `    ${(from * 100).toFixed(0).padStart(3)}-${(to * 100).toFixed(0).padEnd(3)}%   ${String(band.length).padStart(9)}   ${(said * 100).toFixed(1).padStart(5)}%  ${(won * 100).toFixed(1).padStart(5)}%`
+    );
+  }
+};
+
+/**
+ * League Standings' two win chances on its own seasons (asked 1 November 2026): the per-game
+ * model's (`predictGame`), which every League screen shows and the Gold odds play by, and the
+ * prediction engine's, a logistic over its projected margin held to 8-92%, which scored a little
+ * better on the pseudo-leagues `oddsSpread.ts` describes. Every season's finals are walked as its
+ * backtest walks them (`walkForward`): each called from the finals before it and, where a Team
+ * Rankings page claims the season and its settings count them, the results the app's bridge hands
+ * the forecast (`leagueScoutBridge`) played before its day; then both chances are scored on who
+ * won. The fits are the backtest's own, so the two models face the same games with the same
+ * knowledge. Numbers only: the seasons' names are sealed.
+ */
+const measureLeagueModels = (source: Source) => {
+  say(
+    `\n${"=".repeat(78)}\nLeague Standings: the per-game model and the prediction engine, game by game\n${"=".repeat(78)}`
+  );
+  if (!source.leagueRead) {
+    say("  League Standings was not read: nothing to walk.");
+    process.exitCode = 1;
+    return;
+  }
+  const minPlayed = Math.max(0, Math.floor(Number(flag("min-played") || BACKTEST_MIN_PLAYED)) || 0);
+  const called: BothCalled[] = [];
+  const seasonLines: string[] = [];
+  const named: string[] = [];
+  let claimed = 0;
+  let counted = 0;
+  let handed = 0;
+  let resultsHanded = 0;
+  let finals = 0;
+  let ties = 0;
+  let unscored = 0;
+  let early = 0;
+  let unforecast = 0;
+  let stopped = 0;
+  let numbered = 0;
+  for (const read of source.leagueSeasons) {
+    const season = source.readSeason(read.id);
+    const { settings } = read;
+    const before = called.length;
+    const tally = { finals: 0, ties: 0, unscored: 0, early: 0 };
+    let results = 0;
+    try {
+      // Handed to the forecast as the app hands them (`useScoutBridge`): the bridge's results where
+      // the settings count them, and its squad year either way, which places "M/D" among ISO days.
+      let outside: ExternalResult[] = [];
+      let squadYear: number | undefined;
+      if (source.ageGroups.some((group) => group.seasonIds.includes(read.id))) {
+        claimed += 1;
+        const fixtures = leagueFixturesOf(
+          season.teams,
+          season.matchups,
+          finalScoresKey(season.matchups, season.logs)
+        );
+        const bridge = leagueScoutBridge(
+          read.id,
+          source.ageGroups,
+          source.teams,
+          source.gamesForSeason(read.id),
+          season.teams,
+          fixtures
+        );
+        squadYear = bridge.squadYear;
+        if (settings.useScoutResults) {
+          counted += 1;
+          outside = bridge.results;
+        }
+      }
+      results = outside.length;
+      const linked = results > 0;
+      if (linked) {
+        handed += 1;
+        resultsHanded += results;
+      }
+      const machine = settings.pitchMode !== "player";
+      const number = new Map(season.teams.map((team, at) => [team.id, numbered + at]));
+      numbered += season.teams.length;
+      const played = new Map<string, number>();
+      walkForward(
+        season.teams,
+        season.matchups,
+        season.logs,
+        settings,
+        { outside, ...(squadYear !== undefined ? { squadYear } : {}) },
+        ({ game, log, engine, prediction }) => {
+          const earlier = Math.min(played.get(game.away) ?? 0, played.get(game.home) ?? 0);
+          // Every final is played for the games after it, a tie too, as the walk knows it.
+          played.set(game.away, (played.get(game.away) ?? 0) + 1);
+          played.set(game.home, (played.get(game.home) ?? 0) + 1);
+          tally.finals += 1;
+          const awayRuns = Number(log.awayRuns);
+          const homeRuns = Number(log.homeRuns);
+          if (!Number.isFinite(awayRuns) || !Number.isFinite(homeRuns)) {
+            tally.unscored += 1;
+            return;
+          }
+          // A tie has no winner to score, and the backtest scores none; the games after it know it
+          // all the same.
+          if (awayRuns === homeRuns) {
+            tally.ties += 1;
+            return;
+          }
+          if (earlier < minPlayed) {
+            tally.early += 1;
+            return;
+          }
+          const forecast = engine.predictions.find((one) => one.gameId === game.id);
+          const away = number.get(game.away);
+          const home = number.get(game.home);
+          if (!forecast || away === undefined || home === undefined) {
+            unforecast += 1;
+            return;
+          }
+          called.push({
+            linked,
+            machine,
+            earlier,
+            awayWon: awayRuns > homeRuns,
+            perGame: prediction.awayWinPct,
+            // The engine's chance as it gives it, to the hundredth (`winProbability`).
+            engine: forecast.winProbability.teamA,
+            away,
+            home,
+          });
+        }
+      );
+    } catch (error) {
+      // Its games are left out whole, and why is sealed: an error can quote what it was reading.
+      stopped += 1;
+      called.length = before;
+      sayNamed([`    ${read.name} [${read.id}]: ${failureWords(error)}`], "A season that stopped:");
+      continue;
+    }
+    finals += tally.finals;
+    ties += tally.ties;
+    unscored += tally.unscored;
+    early += tally.early;
+    const mine = called.slice(before);
+    if (mine.length === 0) continue;
+    const both = bothRead(mine);
+    const lossLess = both.engine.logLoss - both.perGame.logLoss;
+    const brierLess = both.engine.brier - both.perGame.brier;
+    seasonLines.push(
+      `  ${String(seasonLines.length + 1).padStart(6)}  ${settings.pitchMode.padEnd(7)}  ${String(results).padStart(7)}  ${String(tally.finals).padStart(6)}  ${String(tally.ties).padStart(4)}  ${String(mine.length).padStart(6)}   ${fixed(both.perGame.logLoss)}  ${fixed(both.engine.logLoss)}  ${lossLess >= 0 ? "+" : ""}${fixed(lossLess)}   ${fixed(both.perGame.brier)}  ${fixed(both.engine.brier)}  ${brierLess >= 0 ? "+" : ""}${fixed(brierLess)}`
+    );
+    named.push(`    season ${seasonLines.length}: ${read.name} [${read.id}]`);
+  }
+
+  say(
+    `  Seasons read: ${source.leagueSeasons.length}; claimed by a Team Rankings page: ${claimed}, ` +
+      `${counted} of them set to count its results, ${handed} handed at least one ` +
+      `(${resultsHanded} results in all, each read only by games on later days).`
+  );
+  say(`  Seasons scored: ${seasonLines.length}${stopped ? `; ${stopped} stopped (sealed)` : ""}.`);
+  say(
+    `  Finals walked: ${finals}. Ties: ${ties}, not scored, as the backtest scores none, and played` +
+      ` for the games after them. Scores that are no number: ${unscored}, the same.`
+  );
+  say(
+    `  Early games skipped: ${early}, until each side had ${minPlayed} final(s) behind it` +
+      `${minPlayed === BACKTEST_MIN_PLAYED ? " (none, as the backtest asks: it scores from the season's first final)" : ""}.` +
+      `${unforecast ? ` Left out with no engine forecast: ${unforecast}.` : ""}`
+  );
+  say(`  Games scored: ${called.length} (${since()}).`);
+
+  say(
+    "\n  Lower is better. engine − predictGame, game by game: below zero the engine is better," +
+      " ± a standard error counted by team, and z:"
+  );
+  say(
+    `  ${"games".padEnd(30)} ${"scored".padStart(6)}   predictGame       engine            engine − predictGame`
+  );
+  say(
+    `  ${"".padEnd(30)} ${"".padStart(6)}   log loss Brier    log loss Brier    log loss                    Brier`
+  );
+  describeBoth("all", called);
+  describeBoth(
+    "linked to Team Rankings",
+    called.filter((game) => game.linked)
+  );
+  describeBoth(
+    "league games alone",
+    called.filter((game) => !game.linked)
+  );
+  describeBoth(
+    "player pitch",
+    called.filter((game) => !game.machine)
+  );
+  describeBoth(
+    "machine or coach pitch",
+    called.filter((game) => game.machine)
+  );
+  describeBoth(
+    "a side with no final before",
+    called.filter((game) => game.earlier === 0)
+  );
+  for (const least of [1, 2, 4, 8]) {
+    describeBoth(
+      `each side ${least}+ finals before`,
+      called.filter((game) => game.earlier >= least)
+    );
+  }
+
+  describeCalibration("The per-game model's (predictGame)", called, false);
+  describeCalibration("The prediction engine's", called, true);
+
+  say("\n  By season, numbered (which is which is sealed); chances scored the same way:");
+  say(
+    "  season  pitch    results  finals  ties  scored   log loss: predictGame engine  e − p    Brier: predictGame engine  e − p"
+  );
+  seasonLines.forEach((line) => say(line));
+  sayNamed(named, "The seasons, by the numbers above:");
+  say(`  (League Standings' two chances done at ${since()})`);
+};
+
 /* -------------------------------------------------------------------------------------- run */
 
 const main = async (): Promise<void> => {
@@ -747,6 +1122,11 @@ const main = async (): Promise<void> => {
   }
   if (has("lopsided")) {
     measureLopsided(source);
+    finish();
+    return;
+  }
+  if (has("league-models")) {
+    measureLeagueModels(source);
     finish();
     return;
   }

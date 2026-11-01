@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { backtestPredictions } from "../backtest";
+import { backtestPredictions, walkForward } from "../backtest";
+import { buildDemoSeason } from "../demoSeason";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../types";
 
 const teams: TeamBase[] = [
@@ -155,5 +156,55 @@ describe("the backtest with the season's Team Rankings results", () => {
     ).toEqual(
       backtestPredictions(teams, winter, winterScores, DEFAULT_SETTINGS, 0.1, { squadYear: 2027 })
     );
+  });
+});
+
+/*
+ * The demo season's eighteen finals, at both pitches and with Team Rankings results dated before,
+ * among and after its games: pinned before the walk was split out of `backtestPredictions`
+ * (`walkForward`) so the research sweep could score each game itself, and held to the digit since.
+ */
+describe("the backtest of a whole season, as pinned", () => {
+  const demo = buildDemoSeason();
+  const ids = demo.teams.map((team) => team.id);
+  const outside = ids.flatMap((id, at) => [
+    { away: id, home: "X1", homeMargin: at - 3, date: "2026-03-28", neutral: true },
+    { away: "X2", home: id, homeMargin: 4 - at, date: "2026-04-18", neutral: true },
+    { away: id, home: "X3", homeMargin: (at % 3) - 1, date: "2026-05-09", neutral: true },
+  ]);
+  it.each(["player", "machine"] as const)("at %s pitch", (pitchMode) => {
+    const settings = { ...demo.settings, pitchMode };
+    expect({
+      alone: backtestPredictions(demo.teams, demo.matchups, demo.logs, settings),
+      withResults: backtestPredictions(demo.teams, demo.matchups, demo.logs, settings, 0.1, {
+        outside,
+        squadYear: 2026,
+      }),
+    }).toMatchSnapshot();
+  });
+});
+
+/*
+ * The walk on its own (`walkForward`), as the research sweep reads it to score both models from one
+ * set of fits: every final handed over once, in the season's order, each called by an engine that
+ * has seen only the finals before it, a tie among them, and that holds a forecast of the game.
+ */
+describe("the walk the backtest scores", () => {
+  it("hands over each final in order, called from the finals before it alone", () => {
+    const demo = buildDemoSeason();
+    const tied = demo.matchups[4]!.id;
+    const logs = { ...demo.logs, [tied]: { ...demo.logs[tied]!, homeRuns: "7", awayRuns: "7" } };
+    const finals = demo.matchups
+      .filter((game) => logs[game.id]?.isFinal)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+      .map((game) => game.id);
+    const seen: string[] = [];
+    walkForward(demo.teams, demo.matchups, logs, demo.settings, {}, ({ game, engine }) => {
+      expect(engine.accuracy.gamesEvaluated).toBe(seen.length);
+      expect(engine.predictions.some((forecast) => forecast.gameId === game.id)).toBe(true);
+      seen.push(game.id);
+    });
+    expect(seen).toEqual(finals);
+    expect(seen).toContain(tied);
   });
 });
