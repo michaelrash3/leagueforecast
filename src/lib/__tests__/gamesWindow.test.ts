@@ -66,6 +66,41 @@ describe("gamesWindowFor", () => {
   });
 });
 
+/*
+ * Every choice the window makes on one page, as the day it lists and what that day is, for each
+ * kind of today: a change to the rule shows here as the rows it moves, and only those.
+ */
+describe("the window's choices on one page", () => {
+  const games = [
+    game("sep", "2026-09-12", [4, 2]),
+    game("oct-31-played", "2026-10-31", [3, 1]),
+    game("oct-31-open", "2026-10-31"),
+    game("nov-7", "2026-11-07"),
+    game("may", "2027-05-01"),
+    game("undated", undefined),
+  ];
+  const choice = (today: string, year: number | undefined, list = games) => {
+    const { day, basis } = gamesWindowFor({ today, year, games: list });
+    return `${day} ${basis}`;
+  };
+
+  it.each([
+    ["a day in season with games", "2026-10-31", 2027, "2026-10-31 today"],
+    ["a day in season between two with games", "2026-11-01", 2027, "2026-11-01 today"],
+    ["a day in season before its first game", "2026-08-02", 2027, "2026-08-02 today"],
+    ["a day in season after its last game", "2027-06-01", 2027, "2027-06-01 today"],
+    ["the day after the season", "2027-08-01", 2027, "2027-05-01 season-end"],
+    ["a day before the season", "2026-07-31", 2027, "2026-09-12 season-start"],
+    ["a page with no year", "2026-11-01", undefined, "2026-11-01 today"],
+  ])("%s", (_, today, year, said) => {
+    expect(choice(today, year)).toBe(said);
+  });
+
+  it("is today on a day in season when no game has a date", () => {
+    expect(choice("2026-11-01", 2027, [game("undated", undefined)])).toBe("2026-11-01 today");
+  });
+});
+
 describe("windowGames", () => {
   const window: GamesWindow = { day: "2026-10-02", basis: "today" };
   const games = [
