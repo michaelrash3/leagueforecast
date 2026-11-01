@@ -44,10 +44,12 @@ import {
   type GcTeamLink,
   type MatchupPreview,
   type MatchupTier,
+  type NamedAs,
   type ScoutGame,
   type ScoutRankingRow,
   type ScoutTeam,
 } from "./teamRankings/types";
+import { joinNamedAs, sameNamedAs } from "./teamRankings/namedAs";
 import { opponentWeb, type OpponentWeb } from "./teamRankings/opponentWeb";
 import {
   countsTowardRating,
@@ -3972,6 +3974,16 @@ export const mergeScoutTeams = (
    * club on the pool of 29 September 2026 did.
    */
   const identifies = !removed.gcTeams?.length && Boolean(survivor.gcTeams?.length);
+  /*
+   * And it says who each namer means by the name, which that namer's next game will be typed under
+   * again: each such row's schedule and the name it typed are kept on the club (`ScoutTeam.namedAs`),
+   * for the import and the tidy to read that schedule's later rows of the name by
+   * (`answeredNamesakes`). Kept only on the rows, the next week's game of the name went to a new
+   * stand-in, and the owner had to answer again (the sweep of 30 October 2026). Not for a slot,
+   * whose name is anybody's.
+   */
+  const answers: NamedAs[] = [];
+  const standInKey = teamNameKey(removed.name);
   const repointed: ScoutGame[] = [];
   let droppedGames = 0;
   games.forEach((game) => {
@@ -3989,6 +4001,9 @@ export const mergeScoutTeams = (
     }
     const moved =
       teamAId === game.teamAId && teamBId === game.teamBId ? game : { ...game, teamAId, teamBId };
+    if (identifies && !removed.placeholder) {
+      answers.push(...answersNaming(game, fromId, standInKey));
+    }
     const named = identifies ? namingSurvivor(game, moved, fromId, intoId) : moved;
     // A row claimed from the team folded away was filed against the survivor.
     repointed.push(withFiledRepointed(named, (id) => (id === fromId ? intoId : id)));
@@ -4006,16 +4021,22 @@ export const mergeScoutTeams = (
   // "Our team" is a fact about the club, so it survives whichever half carried it.
   const fillMine = !survivor.isMine && removed.isMine;
   const linksChanged = gcTeams.length !== (survivor.gcTeams?.length ?? 0);
-  const changed = fillName || fillState || fillCity || fillMine || linksChanged;
+  // Both clubs' answers go with the club that stays, as their links do, and the fold's own.
+  const joined = joinNamedAs([survivor.namedAs, removed.namedAs, answers]);
+  const answersChanged = !sameNamedAs(joined, survivor.namedAs);
+  const namedAs = answersChanged ? joined : survivor.namedAs;
+  const changed = fillName || fillState || fillCity || fillMine || linksChanged || answersChanged;
 
+  const { namedAs: _held, ...unnamed } = survivor;
   const merged: ScoutTeam = changed
     ? {
-        ...survivor,
+        ...unnamed,
         ...(fillName ? { name: removed.name } : {}),
         ...(fillState ? { state: removed.state } : {}),
         ...(fillCity ? { city: removed.city } : {}),
         ...(fillMine ? { isMine: true } : {}),
         ...(gcTeams.length ? { gcTeams } : {}),
+        ...(namedAs?.length ? { namedAs } : {}),
       }
     : survivor;
 
@@ -4057,6 +4078,24 @@ const namingSurvivor = (
     ...(stands ? { namedByAvatar: intoId } : {}),
     ...(alsoRows ? { alsoRows } : {}),
   };
+};
+
+/**
+ * What each row of `before` that `namingSurvivor` marks wrote for the stand-in `fromId`: its
+ * schedule, and the name it typed (`typedAs`), or the stand-in's own, `standInKey`, for a row that
+ * has kept none.
+ */
+const answersNaming = (before: ScoutGame, fromId: string, standInKey: string): NamedAs[] => {
+  const answers: NamedAs[] = [];
+  if (before.source !== undefined && (before.teamAId === fromId || before.teamBId === fromId)) {
+    answers.push({ schedule: before.source.teamId, name: before.typedAs ?? standInKey });
+  }
+  before.alsoRows?.forEach((record) => {
+    if ((record.onSideB ? before.teamAId : before.teamBId) === fromId) {
+      answers.push({ schedule: record.teamId, name: record.typedAs ?? standInKey });
+    }
+  });
+  return answers;
 };
 
 /**
