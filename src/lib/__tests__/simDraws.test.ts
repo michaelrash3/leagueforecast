@@ -295,6 +295,11 @@ describe("a paired run", () => {
      * left is owed. Drawn from the run's one stream, a tie drawn in one point and not the other
      * moved every owed draw after it, in that season and the ones after, and the step on a
      * league's first tie was two runs' worth of chance again (Codex, on #502).
+     *
+     * The two spreads play thirty pairs of 600-season runs each, 72,000 seasons in all, most of
+     * their games owed. That took about 1.5 s alone and 3.6 s under coverage on a quiet four-core
+     * machine, and ran past the 5 s default in CI's coverage run beside the other files (#505, on
+     * 1 November 2026), so the test has room of its own, as the App's owed-games tests do.
      */
     const owing = { ...DEFAULT_SETTINGS, regularSeasonGamesPerTeam: 9 };
     const tied = { ...logs, g1: final("4", "4") };
@@ -319,5 +324,5 @@ describe("a paired run", () => {
       return mean([0, 1].map((side) => sd(steps.map((step) => step[side] ?? 0))));
     };
     expect(spread(true)).toBeLessThan(spread(false) * 0.6);
-  });
+  }, 30_000);
 });
