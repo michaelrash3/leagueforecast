@@ -1,6 +1,7 @@
 import type { MyTeamMoves } from "../../lib/myTeamLook";
 import { Ago, CountUp, Move } from "../SinceParts";
 import { formatRating } from "./RankingList";
+import { focusRing, tapArea } from "../../styles/tokens";
 
 /** A place then and now, the number running to now, with the move's arrow. */
 function Place({ before, now, where }: { before: number; now: number; where: string }) {
@@ -41,10 +42,11 @@ export function MyTeamSinceLine({
             · <Ago since={moves.since} />
           </span>
         </p>
+        {/* A button that looks like one, and a thumb's size on a phone: it was 49 by 26 px. */}
         <button
           type="button"
           onClick={onDismiss}
-          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+          className={`${tapArea} rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm font-bold text-slate-800 shadow-xs hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 ${focusRing}`}
         >
           Got it
         </button>

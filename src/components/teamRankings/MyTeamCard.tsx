@@ -1,6 +1,7 @@
 import type { MyTeamGlance } from "../../lib/myTeamGlance";
 import { dayAndTime, formatIsoDayShort, formatStartTime } from "../../lib/date";
-import { formatRating, MovementMark } from "./RankingList";
+import { formatRating } from "./RankingList";
+import type { Movement } from "../../lib/movement";
 import { card } from "../../styles/tokens";
 import type { RankHistoryPoint } from "../../hooks/useRankingsWorker";
 import type { ExpectedRecord, WeekendAhead } from "../../lib/clubForm";
@@ -99,6 +100,32 @@ const weekendWhen = ({ date, startTs }: UpcomingMatchup): string =>
   ]
     .filter(Boolean)
     .join(" ");
+
+/**
+ * The card's week, said in words: "▼5 since last week". A board's row keeps the bare mark
+ * (`MovementMark`), but on the card it sat under the Since line's "▲6", which is since the last
+ * visit, and a parent read a red "▼5" with no words as the same question answered the other way;
+ * its only label was a hover title, which a phone never shows.
+ */
+function WeekMove({ movement }: { movement: Movement }) {
+  if (movement === "new")
+    return (
+      <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+        new this week
+      </span>
+    );
+  const up = movement > 0;
+  return (
+    <span
+      className={`text-xs font-bold ${up ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}
+    >
+      <span role="img" aria-label={up ? "up" : "down"}>
+        {up ? "▲" : "▼"}
+      </span>
+      {Math.abs(movement)} since last week
+    </span>
+  );
+}
 
 const LINE_WIDTH = 168;
 const LINE_HEIGHT = 36;
@@ -230,7 +257,7 @@ export function MyTeamCard({
         {glance.movement !== undefined && glance.movement !== 0 && (
           <>
             {" "}
-            <MovementMark movement={glance.movement} />
+            <WeekMove movement={glance.movement} />
           </>
         )}
         {glance.state && glance.stateRank !== undefined && glance.stateOf !== undefined && (

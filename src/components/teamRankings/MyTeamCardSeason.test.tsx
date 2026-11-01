@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { expectedWords, MyTeamCard, ordinal } from "./MyTeamCard";
 import type { MyTeamGlance } from "../../lib/myTeamGlance";
@@ -125,6 +125,26 @@ describe("the My Team card's season", () => {
     render(<MyTeamCard glance={GLANCE} onOpenTeam={() => undefined} />);
     expect(screen.getByRole("region", { name: "My team" }).textContent).toContain(
       "Next: Sat, Oct 31 vs H/R Bulldogs"
+    );
+  });
+
+  /*
+   * The card's week in words. Its arrow was bare, its only label a hover title a phone never
+   * shows, and under the Since line's "▲6 since you last looked" a red "▼5" read as the same
+   * question answered the other way.
+   */
+  it("says how far it moved since last week in words, by its place nationally", () => {
+    render(<MyTeamCard glance={{ ...GLANCE, movement: -5 }} onOpenTeam={() => undefined} />);
+    const card = screen.getByRole("region", { name: "My team" });
+    expect(card).toHaveTextContent("#2,737 of 7,126 nationally ▼5 since last week ·");
+    // The arrow is named for a screen reader, which would otherwise read out a triangle.
+    expect(within(card).getByRole("img", { name: "down" })).toHaveTextContent("▼");
+  });
+
+  it("says a club the board of a week ago did not rank is new this week", () => {
+    render(<MyTeamCard glance={{ ...GLANCE, movement: "new" }} onOpenTeam={() => undefined} />);
+    expect(screen.getByRole("region", { name: "My team" })).toHaveTextContent(
+      "nationally new this week ·"
     );
   });
 

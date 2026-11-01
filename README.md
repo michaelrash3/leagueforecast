@@ -560,7 +560,11 @@ at a time. The card reads only what the page already has, so it costs nothing.
 
 **Movement since last week.** The national board and the card mark how far each
 club has moved since the board of a week ago: ▲3, ▼5, or "new" for a club that was
-not ranked then. A board keeps no history, so last week's is fitted again from the
+not ranked then. A board's row keeps the bare mark, its words said only to a screen
+reader; the card says them ("▼5 since last week", "new this week"), since its mark sat
+under the Since line's "▲6", which is since the last visit, and with a hover title for
+its only label, which a phone never shows, a red "▼5" read as the same question
+answered the other way. A board keeps no history, so last week's is fitted again from the
 games played by then (`ranksAsOf`), once the board on screen is up, in the rankings
 worker for a large pool. That fit gives every page of the year at once and only its
 places are kept, a number a club, rather than a second year's fit of about 44 MB. The
@@ -629,7 +633,8 @@ every year.
 **Since you last looked.** Since 30 October 2026 the card opens, an hour or more after the
 last visit, on a line of what moved for the club since then: its place nationally and in its
 state then and now, each running from one to the other (shown at once where motion is turned
-down), its record and its rating, until **Got it** (`myTeamLook.ts`, `MyTeamSince.tsx`). A look
+down), its record and its rating, until **Got it**, a button a thumb's size on a phone where it
+was a 49 by 26 px chip (`myTeamLook.ts`, `MyTeamSince.tsx`). A look
 is kept per club in this browser only (`lf_my_team_look_v1_<club>`): the places, record, rating
 and the half of the season the board is for, for the twelve clubs looked at last, the rest let go
 as a look is kept (none was ever removed before). The first visit only keeps one; a later one

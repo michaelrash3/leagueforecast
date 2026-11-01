@@ -58,6 +58,15 @@ export const tab = (active: boolean, size: "regular" | "fill" = "regular") =>
       : "text-slate-600 hover:bg-white hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
   }`;
 
+/**
+ * A control's tap area on a phone: 44 px each way at the least, the size a thumb finds without
+ * aiming. Team Rankings drew its main controls as text links 16 to 26 px tall (Scout, What if?,
+ * Close, Got it, "Open on 10U by default"), measured at 390 px in Chromium. From `sm` up a pointer
+ * aims, and the control keeps its own size, so a wide screen's lines are not spread out for it.
+ */
+export const tapArea =
+  "inline-flex min-h-11 min-w-11 items-center justify-center sm:min-h-0 sm:min-w-0";
+
 export const button = {
   primary: `rounded-lg bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-lg shadow-slate-950/10 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`,
   dark: `rounded-lg bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-lg shadow-slate-950/10 ring-1 ring-slate-800 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:ring-white/20 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`,
