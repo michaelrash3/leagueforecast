@@ -163,4 +163,30 @@ describe("a tournament field when another tab folds one of its clubs", () => {
     await user.click(screen.getByRole("button", { name: "Save field" }));
     expect(readSavedFields(PAGE)[0]?.gc).toEqual([["gcACE"], ["gcOldBears"]]);
   });
+
+  /*
+   * A club of the open field can go gone while the field is open: Start again in another tab, and
+   * its id now names another club, while no club carries its GameChanger team. It is shown gone,
+   * and the field keeps the ids it carried, so a save keeps them and a later pull that brings the
+   * club back is followed to it.
+   */
+  it("keeps the ids of a club that goes gone while its field is open", async () => {
+    saveField(PAGE, {
+      name: "Fall Classic",
+      teamIds: ["S-ACE", "S-BEA"],
+      pools: 1,
+      advance: 4,
+      gc: [["gcACE"], ["gcBEA"]],
+    });
+    const user = userEvent.setup();
+    const { rerender } = render(<TournamentPanel {...props([ACES, BEARS])} />);
+    await user.selectOptions(screen.getByLabelText("Saved fields"), "Fall Classic");
+    expect(fieldNames()).toEqual(["Aces", "Bears"]);
+
+    rerender(<TournamentPanel {...props([ACES, { id: "S-BEA", name: "Ducks", gc: ["gcDUC"] }])} />);
+
+    expect(fieldNames()).toEqual(["Aces", "Not ranked here"]);
+    await user.click(screen.getByRole("button", { name: "Save field" }));
+    expect(readSavedFields(PAGE)[0]?.gc).toEqual([["gcACE"], ["gcBEA"]]);
+  });
 });

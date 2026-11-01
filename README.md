@@ -5184,7 +5184,9 @@ does, and reads as gone.
   ranked here and keeps its ids when saved again. Read again each time the roster
   is, a fold in another tab while this one stays on Scouting among them, and so is
   the field open on screen, by the ids each of its clubs carried, its name, pools
-  and bracket left as they were. 8 bytes a field, and 17 a club with one id, 15 for
+  and bracket left as they were. A club of the open field whose last GameChanger
+  link another tab took off drops out of it as not ranked here, as it would on a
+  fresh open of the saved field (a club is kept by its ids, `KEPT_GC_IDS`). 8 bytes a field, and 17 a club with one id, 15 for
   each id more, 3 for a club with none.
 - **A League team's club's place** (`lf_league_club_ranks_v1`, `leagueClubRanks.ts`):
   read on League Standings where this device holds the pool (`useScoutBridge`'s
