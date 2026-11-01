@@ -59,6 +59,25 @@ const plan: LeagueFillPlan = {
 };
 
 describe("the fill review's rows the names could not settle", () => {
+  it("says the plan is Team Rankings as published, and when, where it was read off the publish", () => {
+    const at = new Date();
+    at.setHours(7, 42, 0, 0);
+    const time = at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    const panel = (publishedAt?: string) => (
+      <LeagueScoreFillPanel
+        plan={plan}
+        seasonLabel="Fall 2026"
+        onApply={vi.fn()}
+        onClose={vi.fn()}
+        {...(publishedAt ? { publishedAt } : {})}
+      />
+    );
+    const { rerender } = render(panel(at.toISOString()));
+    expect(screen.getByText(`Team Rankings as it was published at ${time}.`)).toBeTruthy();
+    rerender(panel());
+    expect(screen.queryByText(/as it was published/)).toBeNull();
+  });
+
   it("names them for what they are and ticks only the plain fill", () => {
     render(
       <LeagueScoreFillPanel plan={plan} seasonLabel="Fall" onApply={vi.fn()} onClose={vi.fn()} />

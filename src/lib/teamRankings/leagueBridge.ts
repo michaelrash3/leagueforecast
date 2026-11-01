@@ -10,7 +10,13 @@
  */
 import type { GameLog, Matchup, TeamBase } from "../types";
 import { isFinal, parseNumber } from "../util";
-import type { AgeGroup, GcTeamLink, ScoutGame, ScoutTeam } from "./types";
+import {
+  isScoutGamePlayed,
+  type AgeGroup,
+  type GcTeamLink,
+  type ScoutGame,
+  type ScoutTeam,
+} from "./types";
 import {
   ageGroupLevel,
   ageGroupYear,
@@ -24,6 +30,7 @@ import {
   leagueCopiesFiledAgainstNobody,
   type LeagueRowReader,
   ratedMargin,
+  scoreSeenBy,
 } from "./games";
 import { isOffClubId, nameFitter, SCOUT_ID_PREFIX, teamNameKey } from "./names";
 import { normalizeDateInput } from "../date";
@@ -738,6 +745,43 @@ export const linkLeagueTeams = (
 };
 
 /**
+ * The club each league name stands for in the bridge's pairing of a club's own row filed against
+ * nobody with the league's final (`leagueCopiesFiledAgainstNobody`): the club the team is linked
+ * to, picked or guessed; and for a team with no club behind it, a stand-in under its league name
+ * (`unlinked`, filled as names are asked about), so a row filed against "TBD" by the club it played
+ * still pairs, and a stand-in's name can still be read against it. It has no schedule in the pool,
+ * so no row is ever taken for its own. Its own function so the bridge and what reads its finals
+ * (`finalsTheBridgeReads`) cannot come to disagree about who played.
+ */
+export const leagueClubsOf = (
+  rows: readonly ScoutLinkRow[],
+  leagueTeams: readonly LeagueTeamLink[]
+): { clubOf: (name: string) => string | undefined; unlinked: Map<string, ScoutTeam> } => {
+  const leagueIdByKey = new Map<string, string>();
+  leagueTeams.forEach((team) => {
+    const key = teamNameKey(team.name);
+    if (!leagueIdByKey.has(key)) leagueIdByKey.set(key, team.id);
+  });
+  const clubOfLeague = new Map<string, string>();
+  rows.forEach((row) => {
+    if ((row.how === "picked" || row.how === "guessed") && row.scoutTeamId) {
+      clubOfLeague.set(row.leagueTeamId, row.scoutTeamId);
+    }
+  });
+  const unlinked = new Map<string, ScoutTeam>();
+  const clubOf = (name: string): string | undefined => {
+    const leagueTeamId = leagueIdByKey.get(teamNameKey(name));
+    if (!leagueTeamId) return undefined;
+    const club = clubOfLeague.get(leagueTeamId);
+    if (club) return club;
+    const id = `${SCOUT_ID_PREFIX}league:${leagueTeamId}`;
+    if (!unlinked.has(id)) unlinked.set(id, { id, name, nameOnly: true });
+    return id;
+  };
+  return { clubOf, unlinked };
+};
+
+/**
  * Which Team Rankings club each league team is, and the outside results that follow from it.
  *
  * The results half is what the league's ratings read: games logged in Team Rankings for an age
@@ -770,7 +814,13 @@ export const leagueScoutBridge = (
    * stored game that is really one of these fixtures can be recognised. Required rather than
    * optional so a new caller has to answer the question instead of silently reopening the leak.
    */
-  seasonFixtures: LeagueFixture[]
+  seasonFixtures: LeagueFixture[],
+  /**
+   * The day a result counts on (`countsTowardRating`): the clock's, as every caller had it, unless
+   * one works the bridge out for a day of its own, as the boards' publish does for the members' day
+   * it publishes League Standings' answers for (`views/league.ts`).
+   */
+  today?: string
 ): LeagueScoutBridge => {
   const { linked, scoutById, seasonGames, rows, leagueIdByScoutId, leagueIdByName, movedAway } =
     linkLeagueTeams(seasonId, ageGroups, teams, games, leagueTeams, seasonFixtures);
@@ -880,27 +930,7 @@ export const leagueScoutBridge = (
    */
   const slotCopies = new Set<string>();
   if (seasonLinked && seasonFixtures.some((fixture) => fixture.awayRuns !== undefined)) {
-    const clubOfLeague = new Map<string, string>();
-    rows.forEach((row) => {
-      if ((row.how === "picked" || row.how === "guessed") && row.scoutTeamId) {
-        clubOfLeague.set(row.leagueTeamId, row.scoutTeamId);
-      }
-    });
-    /*
-     * A league team with no club behind it stands in under its league name, so a row filed against
-     * "TBD" by the club it played still pairs, and a stand-in's name can still be read against it.
-     * It has no schedule in the pool, so no row is ever taken for its own.
-     */
-    const unlinked = new Map<string, ScoutTeam>();
-    const clubOf = (name: string): string | undefined => {
-      const leagueTeamId = leagueIdByKey.get(teamNameKey(name));
-      if (!leagueTeamId) return undefined;
-      const club = clubOfLeague.get(leagueTeamId);
-      if (club) return club;
-      const id = `${SCOUT_ID_PREFIX}league:${leagueTeamId}`;
-      if (!unlinked.has(id)) unlinked.set(id, { id, name, nameOnly: true });
-      return id;
-    };
+    const { clubOf, unlinked } = leagueClubsOf(rows, leagueTeams);
     const finals: ScoutGame[] = [];
     seasonFixtures.forEach((fixture, index) => {
       if (fixture.awayRuns === undefined || fixture.homeRuns === undefined) return;
@@ -953,7 +983,9 @@ export const leagueScoutBridge = (
 
   const onLinkedPage = seasonGames.filter(
     (game) =>
-      !game.id.startsWith(LEAGUE_GAME_PREFIX) && !isSeasonFixture(game) && countsTowardRating(game)
+      !game.id.startsWith(LEAGUE_GAME_PREFIX) &&
+      !isSeasonFixture(game) &&
+      countsTowardRating(game, today)
   );
 
   /**
@@ -1004,6 +1036,81 @@ export const leagueScoutBridge = (
     countedResults: results.length,
     ...(squadYear !== undefined ? { squadYear } : {}),
   };
+};
+
+/**
+ * The places in `seasonFixtures` whose final score the bridge's results can turn on, whatever the
+ * score: the fixtures a pool row could be taken for a copy of, filed against nobody, once the
+ * league has a final for them (the slot pass of `leagueScoutBridge`). A fixture's final reaches
+ * nothing else the bridge works out: the pass by fixture and the one for a team said not to be in
+ * Team Rankings read its names and day alone, and the links read names. So two questions whose
+ * teams and schedule are the same, and whose finals agree at these places, have the same bridge,
+ * however their other finals differ: what lets a device take a published bridge for its season
+ * with a final entered since (`views/leagueShape.ts`), and ask where one of these was entered.
+ *
+ * A row counts where the slot pass would read it against such a fixture for some score: on a
+ * page claiming the season, played and dated that day, the club's own row (`pulledBy`) of one of
+ * the fixture's two clubs, and its other side not the fixture's other club but one that could
+ * stand in for it (`standsInFor`). A pairing turns on the score and on no other row's score being
+ * the same as well, and neither is looked at here, so a place is never left out for want of one.
+ * Worked out on the server alone, where the pool is; a season no page claims has no results to
+ * turn.
+ */
+export const finalsTheBridgeReads = (
+  seasonId: string,
+  ageGroups: AgeGroup[],
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  leagueTeams: LeagueTeamLink[],
+  seasonFixtures: LeagueFixture[]
+): number[] => {
+  const { linked, seasonGames, rows } = linkLeagueTeams(
+    seasonId,
+    ageGroups,
+    teams,
+    games,
+    leagueTeams,
+    seasonFixtures
+  );
+  if (linked.size === 0) return [];
+  const { clubOf, unlinked } = leagueClubsOf(rows, leagueTeams);
+  /** Page, club and day, to the fixtures that club played that day and who it played. */
+  const fixturesOn = new Map<string, { at: number; opponent: string }[]>();
+  const note = (key: string, at: number, opponent: string) => {
+    const held = fixturesOn.get(key);
+    if (held) held.push({ at, opponent });
+    else fixturesOn.set(key, [{ at, opponent }]);
+  };
+  seasonFixtures.forEach(({ away, home, date }, at) => {
+    const awayClub = clubOf(away);
+    const homeClub = clubOf(home);
+    const day = normalizeDateInput(date ?? "");
+    if (!awayClub || !homeClub || !day) return;
+    linked.forEach((page) => {
+      note(`${page}|${awayClub}|${day}`, at, homeClub);
+      note(`${page}|${homeClub}|${day}`, at, awayClub);
+    });
+  });
+  // Read once every name a fixture brings is in, as the slot pass reads it once its finals are.
+  const roster = leagueStandIns([...teams, ...unlinked.values()]);
+  const read = new Set<number>();
+  for (const game of seasonGames) {
+    if (game.id.startsWith(LEAGUE_GAME_PREFIX) || !isScoutGamePlayed(game)) continue;
+    const day = normalizeDateInput(game.date ?? "");
+    if (!day) continue;
+    (
+      [
+        [game.teamAId, game.teamBId],
+        [game.teamBId, game.teamAId],
+      ] as const
+    ).forEach(([clubId, sideId]) => {
+      if (!roster.pulledBy(game, clubId) || !scoreSeenBy(game, clubId)) return;
+      for (const { at, opponent } of fixturesOn.get(`${game.ageGroupId}|${clubId}|${day}`) ?? []) {
+        if (opponent !== sideId && roster.standsInFor(sideId, opponent)) read.add(at);
+      }
+    });
+  }
+  return [...read].sort((a, b) => a - b);
 };
 
 /** A pool club that could be this league team, and the evidence for it. */

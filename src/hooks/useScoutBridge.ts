@@ -9,10 +9,12 @@ import {
 import { clubPickOption, pickableClubs, type ClubPickOption } from "../lib/leagueLinkOptions";
 import {
   BRIDGE_RULES_NOW,
+  bridgeQuestionOf,
   leagueBridgeOf,
   type LeagueBridgeAnswer,
 } from "../lib/live/leagueAnswers";
 import type { CopyAt, LeagueAsker } from "../lib/live/leagueAsk";
+import type { Published } from "../lib/live/publishedLeague";
 import type { QueryOf } from "../lib/live/queries";
 import type { EditMonth } from "../lib/live/rebuildLedger";
 import { BRIDGE_KEY } from "../lib/preferences";
@@ -76,6 +78,14 @@ export type ScoutBridgeOptions = {
    * (`leagueOnScreen`).
    */
   held?: boolean;
+  /**
+   * The season's bridge as published beside the boards (`publishedLeague.bridge`), where it is the
+   * very answer the question would get: read where a question would otherwise go, a document's read
+   * in place of the 8 GiB server, and asked as before where it is not, or while the link panel is
+   * open, whose clubs come with an answer alone. Over the server's own answer with a stamp that
+   * stands, the copy's manifest is read first, as without it. Absent, nothing published is read.
+   */
+  published?: (question: QueryOf<"league.bridge">) => Promise<Published<LeagueScoutBridge> | null>;
 };
 
 export type ScoutBridge = {
@@ -90,6 +100,12 @@ export type ScoutBridge = {
    * an answer.
    */
   unanswered?: "asking" | "failed";
+  /**
+   * When the publish the bridge shown was read off went out, where it was one (`published`), as an
+   * ISO time: the panel says the bridge is Team Rankings as of then, which can be a publish behind
+   * a save made since. Absent for one the server answered, or none.
+   */
+  publishedAt?: string;
   /** The clubs that could be a given league team, best evidence first. */
   candidatesFor: (leagueTeamName: string) => ReturnType<typeof scoutLinkCandidates>;
   /** Every club that could be picked by hand, as the wide picker lists each. */
@@ -280,17 +296,38 @@ const readKept = (): Record<string, unknown> => {
 
 /**
  * A kept bridge, the question it answered (`askedOf`), or null where the question is not known: one
- * an earlier build kept, the bridge alone, which off League Standings is then asked about once; and
- * the copy it came from (`Stamp`), or null where none was kept or it cannot be read.
+ * an earlier build kept, the bridge alone, which off League Standings is then asked about once; the
+ * copy it came from (`Stamp`), or null where none was kept or it cannot be read; and, for one read
+ * off the publish beside the boards, when that publish went out (`published`), which the link panel
+ * says it is as of.
  */
-type Kept = { bridge: LeagueScoutBridge; asked: string | null; at: Stamp | null };
+type Kept = {
+  bridge: LeagueScoutBridge;
+  asked: string | null;
+  at: Stamp | null;
+  published?: string;
+};
+
+/**
+ * The bridge on hand, as what is asked next reads it: the question it answered, the copy it came
+ * from, and whether it was read off the publish, over which the publish is read before the copy's
+ * manifest, since a newer publish is what replaces it.
+ */
+type OnHand = { asked: string | null; at: Stamp | null; published: boolean };
 
 /** What is kept for a season read back whole, its bridge through the same checks as the network's. */
 const keptOf = (value: unknown): Kept | null => {
   if (value && typeof value === "object" && "asked" in value) {
-    const { bridge, asked, at } = value as { bridge?: unknown; asked?: unknown; at?: unknown };
+    const { bridge, asked, at, published } = value as Record<string, unknown>;
     const read = leagueBridgeOf(bridge);
-    return read && typeof asked === "string" ? { bridge: read, asked, at: stampOf(at) } : null;
+    return read && typeof asked === "string"
+      ? {
+          bridge: read,
+          asked,
+          at: stampOf(at),
+          ...(typeof published === "string" ? { published } : {}),
+        }
+      : null;
   }
   const alone = leagueBridgeOf(value);
   return alone && { bridge: alone, asked: null, at: null };
@@ -302,9 +339,14 @@ export const keptBridge = (seasonId: string): LeagueScoutBridge | null =>
 
 const keepBridge = (
   seasonId: string,
-  { bridge, asked, at }: { bridge: LeagueScoutBridge; asked: string; at: Stamp | null }
+  {
+    bridge,
+    asked,
+    at,
+    published,
+  }: { bridge: LeagueScoutBridge; asked: string; at: Stamp | null; published?: string }
 ) => {
-  const kept = { bridge, asked, ...(at ? { at } : {}) };
+  const kept = { bridge, asked, ...(at ? { at } : {}), ...(published ? { published } : {}) };
   const others = Object.entries(readKept()).filter(([id]) => id !== seasonId);
   const write = (entries: [string, unknown][]) =>
     localStorage.setItem(KEPT_KEY, JSON.stringify(Object.fromEntries(entries)));
@@ -364,6 +406,7 @@ export function useScoutBridge({
   leagueOnScreen = true,
   copyNow,
   held = false,
+  published,
 }: ScoutBridgeOptions): ScoutBridge {
   const [revision, setRevision] = useState(0);
   // The device's own pool, read in after the page on a member's device (`poolFill.ts`): what is
@@ -422,14 +465,19 @@ export function useScoutBridge({
   /*
    * The server's answers this visit, by season (`seasonKey`), with the clubs each team could be,
    * which are held here alone; the bridge is kept for the next visit too, and read back as a kept
-   * one is.
+   * one is. A bridge read off the publish beside the boards comes with no clubs, and with when that
+   * publish went out.
    */
-  const [heard, setHeard] = useState<Record<string, LeagueBridgeAnswer>>({});
+  const [heard, setHeard] = useState<Record<string, LeagueBridgeAnswer & { publishedAt?: string }>>(
+    {}
+  );
   /**
-   * The question each of this visit's answers answered (`askedOf`), and the copy it was worked out
-   * from where the reply named one, by season, as `heard` is.
+   * The question each of this visit's answers answered (`askedOf`), the copy it was worked out
+   * from where the reply named one, whether it came with the clubs each team could be, which a
+   * published bridge does not, and whether it was read off the publish beside the boards rather
+   * than answered by the server: by season, as `heard` is.
    */
-  const heardOn = useRef<Record<string, { asked: string; at: Stamp | null }>>({});
+  const heardOn = useRef<Record<string, OnHand & { asked: string; clubs: boolean }>>({});
   /** Whether the link panel is open (`wantLinks`), whose clubs come with this visit's answer alone. */
   const linksWanted = useRef(false);
   /** The season whose last question went unanswered, and is waiting to be asked again. */
@@ -487,24 +535,15 @@ export function useScoutBridge({
     if (!asker || !activeSeasonId || held) return;
     let current = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const question: QueryOf<"league.bridge"> = {
-      kind: "league.bridge",
-      season: activeSeasonId,
-      teams: teams.map(({ id, name, scoutTeamId, scoutGcTeamId }) => ({
-        id,
-        name,
-        ...(scoutTeamId === undefined ? {} : { scoutTeamId }),
-        ...(scoutGcTeamId === undefined ? {} : { scoutGcTeamId }),
-      })),
-      fixtures: seasonFixtures,
-    };
+    const question = bridgeQuestionOf(activeSeasonId, teams, seasonFixtures);
     const asked = askedOf(question);
     /**
-     * The question the bridge shown answered, and the copy it came from: this visit's answer, else
-     * the kept one, whose copy is not known.
+     * The question the bridge shown answered, the copy it came from and whether it was read off the
+     * publish: this visit's answer, else the kept one.
      */
-    const onHand = () =>
-      heardOn.current[seasonKey] ?? (kept ? { asked: kept.asked, at: kept.at } : null);
+    const onHand = (): OnHand | null =>
+      heardOn.current[seasonKey] ??
+      (kept ? { asked: kept.asked, at: kept.at, published: kept.published !== undefined } : null);
     /** After an answer, or a question found to need none: a change noted meanwhile is asked about. */
     const carryOn = () => {
       if (again.current) {
@@ -528,32 +567,97 @@ export function useScoutBridge({
        * The same question this visit already has an answer to, from a copy known: asked again only
        * where the copy has moved since, which one read of its manifest tells. Coming back from Team
        * Rankings, the page shown anew, the sign-in, coming online and a retry all ask this way; a
-       * copy that cannot be read is no proof it stood still, so the server is asked.
+       * copy that cannot be read is no proof it stood still, so the server is asked. Where no
+       * stamp stands for the answer on hand the question goes, as it does while the link panel is
+       * open with no clubs heard this visit, since they come with an answer alone; the publish is
+       * read before it where it can answer (`offThePublish`).
        */
       const at = hand?.asked === asked ? hand.at : null;
-      // To the server where no stamp stands for the answer on hand, and while the link panel is
-      // open with nothing heard this visit: its clubs come with an answer alone.
+      const sendNow = () => send(failures);
       if (
         !copyNow ||
         !at ||
         !trusted(at, Date.now()) ||
-        (linksWanted.current && !heardOn.current[seasonKey])
+        (linksWanted.current && !heardOn.current[seasonKey]?.clubs)
       ) {
-        send(failures);
+        offThePublish(hand, sendNow);
+        return;
+      }
+      /*
+       * The publish is read only where a question would otherwise go (review of sweep item 23),
+       * so one that does not answer the season costs a read only beside a question: over the
+       * server's own answer the manifest is read first, as before anything was published, and the
+       * publish only once the copy has moved. Over a published answer the publish is what holds
+       * a newer one, so it is read first, and the manifest only where it does not answer.
+       */
+      if (hand?.published) offThePublish(hand, () => unlessMoved(copyNow, at, sendNow));
+      else unlessMoved(copyNow, at, () => offThePublish(hand, sendNow));
+    };
+    /** Carries on where `read` finds the copy still at `at`, and does `otherwise` where it moved. */
+    const unlessMoved = (read: () => Promise<CopyAt | null>, at: Stamp, otherwise: () => void) => {
+      out.current = true;
+      askedAt.current = Date.now();
+      // A read that fails says nothing of the copy, as one that answers nothing does.
+      void read()
+        .catch(() => null)
+        .then((now) => {
+          if (!current) return;
+          out.current = false;
+          if (now?.copy === at.copy && now.version === at.version) carryOn();
+          else otherwise();
+        });
+    };
+    /*
+     * The bridge published beside the boards, where it is this very question's answer (sweep item
+     * 23): one read of the meta, and of the season's view only when a publish changed it, in place
+     * of the 8 GiB server, a timer retry included. Not while the link panel is open, whose clubs
+     * come with a question alone, and not over an answer on hand to the same question from a later
+     * save of the same copy, which the publish has yet to catch up on. Where nothing published
+     * answers it, `otherwise`.
+     */
+    const offThePublish = (hand: OnHand | null, otherwise: () => void) => {
+      if (!published || linksWanted.current) {
+        otherwise();
         return;
       }
       out.current = true;
       askedAt.current = Date.now();
-      // A read that fails says nothing of the copy, as one that answers nothing does.
-      void copyNow()
+      void published(question)
         .catch(() => null)
-        .then((now) => {
+        .then((found) => {
           if (!current) return;
-          if (now?.copy === at.copy && now.version === at.version) {
-            out.current = false;
-            carryOn();
-          } else send(failures);
+          out.current = false;
+          const later =
+            found !== null &&
+            hand?.asked === asked &&
+            hand.at !== null &&
+            hand.at.copy === found.at.copy &&
+            hand.at.version > found.at.version &&
+            trusted(hand.at, Date.now());
+          if (!found || later) {
+            otherwise();
+            return;
+          }
+          takePublished(found);
+          carryOn();
         });
+    };
+    /** A published bridge taken for the question: shown, kept for the next visit, stamped. */
+    const takePublished = (found: Published<LeagueScoutBridge>) => {
+      const at: Stamp = { ...found.at, heard: Date.now(), rules: BRIDGE_RULES_NOW };
+      keepBridge(activeSeasonId, { bridge: found.answer, asked, at, published: found.builtAt });
+      // The clubs heard with this very question stay; a published bridge brings none of its own.
+      const before = heardOn.current[seasonKey];
+      const clubs = before?.asked === asked && before.clubs;
+      heardOn.current[seasonKey] = { asked, at, clubs, published: true };
+      setHeard((was) => ({
+        ...was,
+        [seasonKey]: {
+          bridge: found.answer,
+          candidates: clubs ? (was[seasonKey]?.candidates ?? []) : [],
+          publishedAt: found.builtAt,
+        },
+      }));
     };
     /*
      * What the reply said of the edits' month, the server's whatever became of the question it came
@@ -577,7 +681,7 @@ export function useScoutBridge({
         if (reply) {
           const at = reply.at ? { ...reply.at, heard: sent, rules: BRIDGE_RULES_NOW } : null;
           keepBridge(activeSeasonId, { bridge: reply.bridge, asked, at });
-          heardOn.current[seasonKey] = { asked, at };
+          heardOn.current[seasonKey] = { asked, at, published: false, clubs: true };
           setHeard((was) => ({
             ...was,
             [seasonKey]: { bridge: reply.bridge, candidates: reply.candidates },
@@ -624,9 +728,22 @@ export function useScoutBridge({
       waiting.current = null;
       clearTimeout(timer);
     };
-  }, [asker, activeSeasonId, seasonKey, kept, teams, seasonFixtures, revision, held, copyNow]);
+  }, [
+    asker,
+    activeSeasonId,
+    seasonKey,
+    kept,
+    teams,
+    seasonFixtures,
+    revision,
+    held,
+    copyNow,
+    published,
+  ]);
 
   const bridge = asker ? (answer?.bridge ?? kept?.bridge ?? NOTHING) : local;
+  // When the publish the bridge shown came off went out: this visit's, else the kept one's.
+  const publishedAt = asker ? (answer ? answer.publishedAt : kept?.published) : undefined;
   const unanswered =
     asker && activeSeasonId && !answer && !kept
       ? failedFor === seasonKey
@@ -674,7 +791,7 @@ export function useScoutBridge({
     (wanted: boolean) => {
       linksWanted.current = wanted;
       // Opened with nothing heard this visit for the season: asked, for the clubs.
-      if (wanted && !heardOn.current[seasonKey]) noteChange();
+      if (wanted && !heardOn.current[seasonKey]?.clubs) noteChange();
     },
     [noteChange, seasonKey]
   );
@@ -714,6 +831,7 @@ export function useScoutBridge({
     bridge,
     externalResults,
     ...(unanswered ? { unanswered } : {}),
+    ...(publishedAt ? { publishedAt } : {}),
     candidatesFor,
     wideOptions,
     ...(wideStatus ? { wideStatus } : {}),

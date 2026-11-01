@@ -22,6 +22,7 @@ const NIGHT: CopyPublish = {
   clubs: 64,
   searches: 1,
   games: 11,
+  leagues: 0,
   buildMs: 81_000,
   fits: { boards: 33, bytes: 1_200_000, largest: 61_000 },
   publish: {
@@ -97,6 +98,24 @@ describe("the views' lines in a server's log", () => {
     };
     expect(said(again, true)[1]).toBe(
       "  By family, had the run been live: boards 30 unchanged, 3 refused as older; Games lists 11 unchanged; notes: 1 sent."
+    );
+  });
+
+  it("says how many seasons' League Standings answers were built, and what became of them", () => {
+    if (!NIGHT.ok) throw new Error("the night published");
+    const lines = said({
+      ...NIGHT,
+      leagues: 3,
+      publish: {
+        ...NIGHT.publish,
+        families: { ...NIGHT.publish.families, "league:": counts(1, 2) },
+      },
+    });
+    expect(lines[0]).toContain(
+      "1 Find a team lists, 11 Games lists and 3 seasons' League Standings answers built in 81 s"
+    );
+    expect(lines[1]).toMatch(
+      /; Games lists 10 sent, 1 reused; League Standings answers 1 sent, 2 reused\.$/
     );
   });
 });

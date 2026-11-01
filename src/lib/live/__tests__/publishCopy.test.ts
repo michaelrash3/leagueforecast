@@ -829,6 +829,7 @@ describe("whether a server's run failed at publishing the views", () => {
     clubs: 0,
     searches: 0,
     games: 0,
+    leagues: 0,
     buildMs: 0,
     fits: { boards: 1, bytes: 1, largest: 1 },
     publish: {

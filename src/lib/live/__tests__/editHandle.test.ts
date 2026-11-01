@@ -760,6 +760,39 @@ describe("a question", () => {
     expect(ledger.held()?.dayUnanswered).toBe(1);
   });
 
+  it("counts its kind in the write its charge makes, and none turned away before its turn", async () => {
+    const ledger = memoryLedger(ledgerOf());
+    const seen = counting(ledger.store);
+    const summary: QueryAsk = { query: { kind: "health.summary", today: TODAY }, copy: "c1" };
+    await ask(seen.store, workerOf());
+    await ask(seen.store, workerOf(), undefined, { question: summary });
+    await ask(seen.store, {
+      query: async () => {
+        throw new TurnFailed("the worker died", 500, true);
+      },
+    });
+    // Answered, answered, and left unanswered after a turn: three charges, three writes, no more.
+    expect(seen.made).toEqual({ reads: 3, writes: 3 });
+    expect(ledger.held()?.editMonthAsked).toEqual({ "health.summary": 1, "merge.preview": 2 });
+    // Turned away before its turn it spent nothing: read, not written, and not counted.
+    expect(
+      await ask(seen.store, { query: async () => ({ ran: false, why: "late" }) })
+    ).toMatchObject({ notAnswered: NOT_ANSWERED });
+    expect(seen.made).toEqual({ reads: 4, writes: 3 });
+    expect(ledger.held()?.editMonthAsked).toEqual({ "health.summary": 1, "merge.preview": 2 });
+    // An edit and a warm-up are charged as they were, and count no question.
+    await handleEdit({
+      ask: ASK,
+      worker: { edit: async () => ran(EDITED, 1_000) },
+      ledger: seen.store,
+      today: () => TODAY,
+      size: SIZE,
+      startupS: () => 0,
+      charges: chargeQueue(),
+    });
+    expect(ledger.held()?.editMonthAsked).toEqual({ "health.summary": 1, "merge.preview": 2 });
+  });
+
   it("turned away before its turn is counted where it was charged a new instance's start-up", async () => {
     // A new instance's start-up is charged to its first call (`startupS`), which may be turned away
     // all the same: that one spent compute, so it is counted, in the write its charge makes anyway.

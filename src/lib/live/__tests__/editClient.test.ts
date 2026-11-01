@@ -16,6 +16,7 @@ import {
 } from "../editClient";
 import type { EditReply } from "../editHandle";
 import { EDIT_TIMEOUT_S } from "../editWorkerProtocol";
+import { forgetOwnEdits, ownEditsPast } from "../ownEdits";
 
 /*
  * A device's call to the edit function (`editClient.ts`): the callable protocol over fetch, with the
@@ -218,6 +219,23 @@ describe("a call to the edit function", () => {
       Authorization: "Bearer id-token",
     });
     expect(JSON.parse(String(init.body))).toEqual({ data: { command: COMMAND, copy: "c0ffee01" } });
+  });
+
+  it("notes the save an edit made, and none for an edit refused, for League Standings' answers", async () => {
+    forgetOwnEdits();
+    const made = answering(200, { result: MADE });
+    await callEdit(
+      { command: COMMAND, copy: "c0ffee01" },
+      { ...signedIn, fetchImpl: made.fetchImpl }
+    );
+    expect(ownEditsPast("c0ffee01", 8)).toEqual([
+      { copy: "c0ffee01", version: 9, changed: ["league_forecast_scout_teams_v1"] },
+    ]);
+    expect(ownEditsPast("c0ffee01", 9)).toEqual([]);
+    const refused = answering(200, { result: { ok: false, why: "missing" } });
+    await callEdit({ command: COMMAND }, { ...signedIn, fetchImpl: refused.fetchImpl });
+    expect(ownEditsPast("c0ffee01", 0)).toHaveLength(1);
+    forgetOwnEdits();
   });
 
   it("hands back a refusal as the server's answer", async () => {

@@ -81,6 +81,30 @@ describe("the nightly's lines on the rebuilds", () => {
     }
   });
 
+  it("says the month's questions by kind, the most asked first, read off the ledger it reads already", () => {
+    const lines = describeRebuilds({
+      on: true,
+      mode: "live",
+      month: "2026-11",
+      editMonthGiBs: 9_600,
+      editMonthVcpuS: 2_400,
+      editMonthAsked: { "health.summary": 12, "league.bridge": 1_204, "import.status": 12 },
+    });
+    // Counts and kinds only: the log is public, and a kind names a question, never anyone.
+    expect(lines).toContain(
+      "  Questions asked, 2026-11: league.bridge 1,204, health.summary 12, import.status 12."
+    );
+    expect(
+      lines.indexOf(
+        "  Questions asked, 2026-11: league.bridge 1,204, health.summary 12, import.status 12."
+      )
+    ).toBe(lines.findIndex((line) => line.startsWith("  Edits and questions, 2026-11")) + 1);
+    // A month with none counted yet, or a ledger from before the count, says nothing of them.
+    expect(
+      describeRebuilds({ on: true, month: "2026-11", editMonthGiBs: 8 }).join("\n")
+    ).not.toMatch(/Questions asked/);
+  });
+
   it("says they are off where there is no ledger, or none this build reads", () => {
     expect(describeRebuilds(null)).toEqual([
       "Rebuilds after saves: there is no ledger in ops/rebuild, so they are off.",

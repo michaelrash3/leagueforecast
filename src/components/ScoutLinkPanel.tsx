@@ -6,6 +6,7 @@ import {
   type ScoutLinkCandidate,
   type ScoutLinkRow,
 } from "../lib/teamRankings/leagueBridge";
+import { publishedTimeLabel } from "../lib/date";
 import { displayName } from "../lib/format";
 import { levelOf, placeOf, type ClubPickOption } from "../lib/leagueLinkOptions";
 import { card, pill } from "../styles/tokens";
@@ -18,6 +19,11 @@ type ScoutLinkPanelProps = {
    * answer and would otherwise read as a season no age group claims.
    */
   unanswered?: "asking" | "failed";
+  /**
+   * When the publish the bridge was read off went out (`useScoutBridge`'s `publishedAt`), said under
+   * it, since a bridge published beside the boards can be a publish behind a change made since.
+   */
+  publishedAt?: string;
   /** The clubs that could be this team, best evidence first. */
   candidatesFor: (leagueTeamName: string) => ScoutLinkCandidate[];
   /**
@@ -159,6 +165,7 @@ export const ScoutLinkPanel = memo(ScoutLinkPanelInner);
 function ScoutLinkPanelInner({
   bridge,
   unanswered,
+  publishedAt,
   candidatesFor,
   wideOptions,
   wideStatus,
@@ -191,6 +198,11 @@ function ScoutLinkPanelInner({
       <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Which Team Rankings club is each team?
       </h2>
+      {publishedAt && publishedTimeLabel(publishedAt) && (
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          Team Rankings as it was published at {publishedTimeLabel(publishedAt)}.
+        </p>
+      )}
 
       {unanswered === "asking" ? (
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">

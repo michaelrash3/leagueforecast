@@ -56,6 +56,7 @@ export const describeRebuilds = (
           `  Edits and questions, ${ledger.month}: ${count(ledger.editMonthGiBs)} of ${count(caps.editMonthGiBs)} GiB-seconds and ${count(ledger.editMonthVcpuS)} of ${count(caps.editMonthVcpuS)} vCPU-seconds.`,
         ]
       : []),
+    ...askedOf(ledger),
     ...(ledger.dayUnanswered > 0 || ledger.lastUnanswered
       ? [
           `  Questions left unanswered after a turn: ${count(ledger.dayUnanswered)} on ${ledger.day}${
@@ -154,6 +155,20 @@ const heldBack = (job: unknown, now: number, onGithub: boolean): string[] => {
     default:
       return [`  Deferred until ${at}.`];
   }
+};
+
+/**
+ * The month's questions by kind, the most asked first and then by name (`editMonthAsked`), read
+ * off the ledger the nightly reads already: which of them use the edit function most, and, once
+ * their answers are published beside the boards, how far each has fallen. Kinds and counts only.
+ */
+const askedOf = (ledger: Ledger): string[] => {
+  const kinds = Object.entries(ledger.editMonthAsked ?? {}).sort(
+    ([a, one], [b, other]) => other - one || (a < b ? -1 : a > b ? 1 : 0)
+  );
+  if (kinds.length === 0) return [];
+  const said = kinds.map(([kind, asked]) => `${kind} ${count(asked)}`).join(", ");
+  return [`  Questions asked, ${ledger.month}: ${said}.`];
 };
 
 const switchOf = (ledger: Ledger): string => {
