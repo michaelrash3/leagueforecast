@@ -8,7 +8,7 @@ function Place({ before, now, where }: { before: number; now: number; where: str
   return (
     <>
       <span className="sr-only">
-        #{before} {where} then, #{now} now
+        #{before.toLocaleString()} {where} then, #{now.toLocaleString()} now
       </span>
       <span aria-hidden="true">
         <strong>

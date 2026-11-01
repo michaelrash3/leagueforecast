@@ -94,8 +94,8 @@ function ClubForecast({ forRow, against }: { forRow: ScoutRankingRow; against: S
       </p>
       <p className="mt-2 text-xs wrap-break-word text-slate-500 dark:text-slate-400">
         Why: {forRow.teamName} rates {formatRating(forRow.rating)} runs against an average club (#
-        {forRow.rank}) and {against.teamName} {formatRating(against.rating)} (#{against.rank}); the
-        margin is the gap between them.
+        {forRow.rank.toLocaleString()}) and {against.teamName} {formatRating(against.rating)} (#
+        {against.rank.toLocaleString()}); the margin is the gap between them.
       </p>
     </section>
   );
@@ -162,11 +162,12 @@ const breakEven = (curve: WhatIfCurve, standing: number): string => {
   const best = curve.points[curve.points.length - 1];
   if (hold === null) {
     return best
-      ? `No result here can lift you. Even a ${RATING_CAP}-run win leaves you at #${best.rank}, so this game can only cost places.`
+      ? `No result here can lift you. Even a ${RATING_CAP}-run win leaves you at #${best.rank.toLocaleString()}, so this game can only cost places.`
       : "There is nothing to say about this one.";
   }
-  if (hold === 1) return `Any win holds #${standing} or better, and any loss costs you places.`;
-  return `Win by ${hold} or more and you hold #${standing} or better. Win by less and you still slip — the table already expects you to beat them.`;
+  if (hold === 1)
+    return `Any win holds #${standing.toLocaleString()} or better, and any loss costs you places.`;
+  return `Win by ${hold} or more and you hold #${standing.toLocaleString()} or better. Win by less and you still slip — the table already expects you to beat them.`;
 };
 
 /**
@@ -253,15 +254,16 @@ export function ScoutingSection({
         Scouting report
       </h2>
       {/*
-        On a phone the question is asked whole above a box of its own: squeezed into one line
-        beside "How would", a 224px box printed "fare?" over the name picked in it.
+        The question asked whole above the box, on every screen. Squeezed into one line beside "How
+        would", a phone's 224px box printed "fare?" over the name picked in it; a wide screen split
+        it around the box, "HOW WOULD [box] … FARE?", the last word at the far end of the card.
       */}
-      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+      <div className="mt-3 flex flex-col gap-2">
         <label
           className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
           htmlFor="scout-report-team"
         >
-          How would<span className="sm:hidden"> this team fare?</span>
+          How would this team fare?
         </label>
         {/*
           A dropdown, until this page held a nationwide pool. Picking one club out of several
@@ -276,9 +278,6 @@ export function ScoutingSection({
           placeholder="Search for a team or coach"
           className="w-full sm:w-auto sm:min-w-56 sm:max-w-xs"
         />
-        <span className="hidden text-xs font-semibold uppercase tracking-wide text-slate-500 sm:inline dark:text-slate-400">
-          fare?
-        </span>
       </div>
       {/*
         Under the question it finishes, and its answer under it, before the write-up of this team's
@@ -420,7 +419,7 @@ export function ScoutingSection({
                       </td>
                     ) : (
                       <>
-                        <td>#{row.opponentRank}</td>
+                        <td>#{row.opponentRank?.toLocaleString()}</td>
                         <td>
                           {formatMargin(row.projectedMargin ?? 0)}
                           {row.unconnected && <NoSharedOpponents />}
@@ -494,7 +493,7 @@ export function ScoutingSection({
                     </div>
                     <div>
                       <dt className="text-xs text-slate-500 dark:text-slate-400">Their rank</dt>
-                      <dd className="font-bold">#{row.opponentRank}</dd>
+                      <dd className="font-bold">#{row.opponentRank?.toLocaleString()}</dd>
                     </div>
                   </dl>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -651,7 +650,7 @@ function MatchupTable({
                       </span>
                     )}
                   </td>
-                  <td>#{preview.opponentRank}</td>
+                  <td>#{preview.opponentRank.toLocaleString()}</td>
                   <td>
                     {formatMargin(preview.projectedMargin)}
                     {preview.unconnected && <NoSharedOpponents />}
@@ -718,7 +717,7 @@ function MatchupTable({
                 </div>
                 <div>
                   <dt className="text-xs text-slate-500 dark:text-slate-400">Their rank</dt>
-                  <dd className="font-bold">#{preview.opponentRank}</dd>
+                  <dd className="font-bold">#{preview.opponentRank.toLocaleString()}</dd>
                 </div>
               </dl>
               <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -892,7 +891,7 @@ function WhatIfPanel({
                   </td>
                   {/* Unbroken only where there is room: on a phone the note goes under the place. */}
                   <td className="pr-3 sm:whitespace-nowrap">
-                    #{win.rank}{" "}
+                    #{win.rank.toLocaleString()}{" "}
                     <span className="block text-xs text-slate-500 sm:inline dark:text-slate-400">
                       {placesMoved(standing.rank, win.rank)}
                     </span>
@@ -900,7 +899,7 @@ function WhatIfPanel({
                   <td className="sm:whitespace-nowrap">
                     {loss ? (
                       <>
-                        #{loss.rank}{" "}
+                        #{loss.rank.toLocaleString()}{" "}
                         <span className="block text-xs text-slate-500 sm:inline dark:text-slate-400">
                           {placesMoved(standing.rank, loss.rank)}
                         </span>

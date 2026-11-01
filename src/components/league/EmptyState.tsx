@@ -115,7 +115,8 @@ export function EmptyState({
       eyebrow: "Practice",
       title: "Explore with demo data",
       body: "Load a sample season to see the model, cut line, and recap flow before importing yours.",
-      meta: "Safe sandbox mode",
+      // Not a sandbox, as it said it was: loaded over a season, it replaces it, with an undo.
+      meta: "Made-up teams and scores",
       tone: "red",
       actions: [{ label: "Load Demo", edits: true, onClick: loadDemoSeason }],
     },
@@ -123,9 +124,13 @@ export function EmptyState({
 
   return (
     <div className="grid grid-cols-1 gap-6">
+      {/*
+        In a parent's words: it opened on "Launch the season with a guided flow" and "A visual setup
+        lane keeps the first import, roster build, validation, and demo rehearsal in one place".
+      */}
       <DesignFlowPanel
-        title="Launch the season with a guided flow"
-        subtitle="A visual setup lane keeps the first import, roster build, validation, and demo rehearsal in one place before the standings go live."
+        title="Start your season"
+        subtitle="Pick the way in that suits your league. The standings fill in once its teams and games are here."
         steps={kickoffFlow}
         footer={
           <button

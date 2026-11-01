@@ -9812,6 +9812,23 @@ footnote or a failed panel reads the same on every League view.
   a line 20 px tall: named by the club, described by the rest of the row, and reached by the
   keyboard once a row. A club's name inside a sentence of The Weekly is sized by its line, as
   WCAG's inline exception allows.
+- **Words a parent reads** (since 1 November 2026). A count of a thousand or more has its
+  comma wherever Team Rankings, its pull or League's Fill scores prints one: a board's "of
+  1,190 ranked" and "Show all 1,190 teams", a place on it ("#1,203") in the full table,
+  Scouting, The Weekly, Watching, the archive and the Since line, a pulled list's counts, and
+  Fill scores' "1,993 pool results not on this schedule", which a nationwide pool printed as
+  "1993". Nothing says "(s)": "About 1 minute of requests", "2 lines ignored", "1 row
+  skipped", "Imported 1 game". A control with nothing to act on is not offered: the full
+  table's toggle is not drawn for a board with no teams, where it read "Show all 0 teams",
+  and Fill scores with nothing ticked says "Tick a game above to fill it." where its button
+  read "Fill 0 games". Scouting asks "How would this team fare?" whole above its box on
+  every screen, where a wide one split it around the box. The service worker's word that the
+  app is stored for use offline, once on a first visit, is "Ready to use offline." at the top
+  of the screen for three seconds (`place: "top"` on the toast), where "App shell cached for
+  offline use." sat above the tab bar over the My Team card. League's start screen opens on
+  "Start your season" in place of "a guided flow" and "a visual setup lane", and calls the
+  sample season "Made-up teams and scores", where "Safe sandbox mode" was not so: loaded over
+  a season, it replaces it, with an undo.
 - **How it is checked.**
   - `src/styles/tokens.test.ts` reads Tailwind's palette from its own theme
     (`tailwindcss/theme.css`, in OKLCH, converted as a browser draws it: slate-500

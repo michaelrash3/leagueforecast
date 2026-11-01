@@ -1511,8 +1511,8 @@ export function TeamRankingsView({
   const setTeamAges = async (clubs: readonly WrongAgeClub[]) => {
     const years = [...new Set(clubs.map((club) => club.year))].sort((a, b) => a - b);
     const confirmed = await requestConfirmation({
-      title: `Approve age changes for ${clubs.length} ${clubs.length === 1 ? "club" : "clubs"}?`,
-      message: `${clubs.length} ${clubs.length === 1 ? "club" : "clubs"} will be moved in squad ${
+      title: `Approve age changes for ${clubs.length.toLocaleString()} ${clubs.length === 1 ? "club" : "clubs"}?`,
+      message: `${clubs.length.toLocaleString()} ${clubs.length === 1 ? "club" : "clubs"} will be moved in squad ${
         years.length === 1 ? `year ${years[0]}` : `years ${years.join(", ")}`
       }. Each suggested level comes from the evidence displayed in Pool health. “It plays up/down” remains an individual opt-out.`,
       confirmLabel: "Approve all changes",
@@ -1527,11 +1527,11 @@ export function TeamRankingsView({
     );
     const run = commands.length > 0 ? runCommand({ kind: "batch", commands }) : null;
     if (run && !run.ok) return null;
-    const result = `${changedTeamIds.length} ${changedTeamIds.length === 1 ? "club" : "clubs"} moved to ${
+    const result = `${changedTeamIds.length.toLocaleString()} ${changedTeamIds.length === 1 ? "club" : "clubs"} moved to ${
       changedTeamIds.length === 1 ? "its" : "their"
-    } suggested age groups; ${moved} ${moved === 1 ? "game" : "games"} refiled.`;
+    } suggested age groups; ${moved.toLocaleString()} ${moved === 1 ? "game" : "games"} refiled.`;
     const failure = failed
-      ? ` ${failed} ${failed === 1 ? "club could" : "clubs could"} not be changed and remain in the review list.`
+      ? ` ${failed.toLocaleString()} ${failed === 1 ? "club could" : "clubs could"} not be changed and remain in the review list.`
       : "";
     showToast(`${result}${failure}`, {
       ...(run?.ok
@@ -1599,7 +1599,7 @@ export function TeamRankingsView({
     why: GamesDropped = "ahead"
   ): Promise<boolean> => {
     if (ids.length === 0) return false;
-    const games = `${ids.length} game${ids.length === 1 ? "" : "s"}`;
+    const games = `${ids.length.toLocaleString()} game${ids.length === 1 ? "" : "s"}`;
     const confirmed = await requestConfirmation({
       title: `Delete ${games}?`,
       message: `${
@@ -2265,11 +2265,14 @@ export function TeamRankingsView({
     noteAdded(newGames);
     setImportOpen(false);
     // Undo takes the games back out, and the clubs they brought with them.
-    showToast(`Added ${newGames.length} game${newGames.length === 1 ? "" : "s"}.`, {
-      tone: "undo",
-      actionLabel: "Undo",
-      onAction: () => runCommand(run.inverse),
-    });
+    showToast(
+      `Added ${newGames.length.toLocaleString()} game${newGames.length === 1 ? "" : "s"}.`,
+      {
+        tone: "undo",
+        actionLabel: "Undo",
+        onAction: () => runCommand(run.inverse),
+      }
+    );
   };
 
   /**

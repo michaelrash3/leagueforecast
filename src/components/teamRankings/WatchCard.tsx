@@ -34,8 +34,8 @@ export function WatchCard({
           return (
             <li key={club.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
               <span className="flex min-w-0 items-baseline gap-2 text-sm">
-                <span className="w-10 shrink-0 tabular-nums font-black text-slate-500 dark:text-slate-400">
-                  {row ? `#${row.rank}` : "—"}
+                <span className="min-w-10 shrink-0 tabular-nums font-black text-slate-500 dark:text-slate-400">
+                  {row ? `#${row.rank.toLocaleString()}` : "—"}
                 </span>
                 <button
                   type="button"

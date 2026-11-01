@@ -321,8 +321,12 @@ This will replace the current season data and save an undo snapshot.`,
         const pool = inCloud
           ? await restoreImportedRankings(importedRankings, { reload: false })
           : null;
+        // Each count said as a person says it: "1 game", "1 skipped row", where it said "1 games"
+        // and "row(s)".
+        const counted = (count: number, noun: string) =>
+          `${count.toLocaleString()} ${noun}${count === 1 ? "" : "s"}`;
         showToast(
-          `Imported ${importedMatchups.length} games${importIssues.length ? ` with ${importIssues.length} skipped row(s)` : ""}${importedScoreCount ? `; ${importedScoreCount} scored game${importedScoreCount === 1 ? "" : "s"} pending verification` : ""}.${pool ? ` ${pool.said}` : ""}`,
+          `Imported ${counted(importedMatchups.length, "game")}${importIssues.length ? ` with ${counted(importIssues.length, "skipped row")}` : ""}${importedScoreCount ? `; ${counted(importedScoreCount, "scored game")} pending verification` : ""}.${pool ? ` ${pool.said}` : ""}`,
           {
             tone: pool?.failed ? "error" : "undo",
             actionLabel: "Undo",

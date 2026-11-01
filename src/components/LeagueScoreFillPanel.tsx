@@ -48,7 +48,9 @@ const ACTION_LABEL: Record<LeagueFillAction, string> = {
   ambiguous: "Can't tell",
 };
 
-const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+/** "1 game", "1,993 pool results": a pool's counts run to six figures, and read with their commas. */
+const plural = (count: number, noun: string) =>
+  `${count.toLocaleString()} ${noun}${count === 1 ? "" : "s"}`;
 
 /**
  * Review before the league's own scores are written from the Team Rankings pool.
@@ -207,7 +209,33 @@ export function LeagueScoreFillPanel({
       ? `Fill ${plural(selected.size, "game")}`
       : selected.size === 0
         ? `Add ${plural(adding.size, "game")}`
-        : `Fill ${plural(selected.size, "game")} and add ${adding.size}`;
+        : `Fill ${plural(selected.size, "game")} and add ${adding.size.toLocaleString()}`;
+  /*
+   * With nothing ticked there is no button to press, and a line says what to do instead: switched
+   * off, it read "Fill 0 games".
+   */
+  const apply =
+    selected.size === 0 && adding.size === 0 ? (
+      <p className="self-center text-sm text-slate-600 dark:text-slate-300">
+        {`Tick a game above to ${
+          plan.rows.some(selectable) ? (missing.length > 0 ? "fill or add" : "fill") : "add"
+        } it.`}
+      </p>
+    ) : (
+      <button
+        type="button"
+        onClick={() =>
+          onApply(
+            [...selected],
+            [...otherVersion].filter((matchupId) => selected.has(matchupId)),
+            ...(adding.size > 0 ? [additions()] : [])
+          )
+        }
+        className={button.primary}
+      >
+        {applyLabel}
+      </button>
+    );
 
   return (
     <div className={`${card} p-5`}>
@@ -242,14 +270,7 @@ export function LeagueScoreFillPanel({
           {missingSection}
           {missing.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => onApply([], [], additions())}
-                disabled={adding.size === 0}
-                className={button.primary}
-              >
-                {applyLabel}
-              </button>
+              {apply}
               <button type="button" onClick={onClose} className={button.ghost}>
                 Cancel
               </button>
@@ -375,10 +396,12 @@ export function LeagueScoreFillPanel({
           </div>
 
           <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-            {counts.fill} to fill · {counts.suggested + counts.slot} to check · {counts.disputed}{" "}
-            the clubs dispute · {counts.unchanged} already in · {counts.overwrite} disagree ·{" "}
-            {counts.ambiguous} cannot be told apart
-            {plan.unmatched > 0 ? ` · ${plan.unmatched} with no result yet` : ""}
+            {counts.fill.toLocaleString()} to fill ·{" "}
+            {(counts.suggested + counts.slot).toLocaleString()} to check ·{" "}
+            {counts.disputed.toLocaleString()} the clubs dispute ·{" "}
+            {counts.unchanged.toLocaleString()} already in · {counts.overwrite.toLocaleString()}{" "}
+            disagree · {counts.ambiguous.toLocaleString()} cannot be told apart
+            {plan.unmatched > 0 ? ` · ${plan.unmatched.toLocaleString()} with no result yet` : ""}
             {plan.unusedResults > 0
               ? ` · ${plural(plan.unusedResults, "pool result")} not on this schedule`
               : ""}
@@ -388,20 +411,7 @@ export function LeagueScoreFillPanel({
           {missingSection}
 
           <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                onApply(
-                  [...selected],
-                  [...otherVersion].filter((matchupId) => selected.has(matchupId)),
-                  ...(adding.size > 0 ? [additions()] : [])
-                )
-              }
-              disabled={selected.size === 0 && adding.size === 0}
-              className={button.primary}
-            >
-              {applyLabel}
-            </button>
+            {apply}
             <button type="button" onClick={onClose} className={button.ghost}>
               Cancel
             </button>

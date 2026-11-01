@@ -134,10 +134,12 @@ describe("removing a team from a page", () => {
     const row = within(table).getByRole("button", { name: "Comets" }).closest("tr")!;
     await user.click(within(row).getByRole("button", { name: "Remove" }));
 
-    // The button used to toast success and leave the team exactly where it was.
-    expect(within(screen.getByRole("table")).queryByText("Comets")).toBeNull();
-    // Their only opponent had no other games, so the page empties rather than leaving a stray row.
-    expect(within(screen.getByRole("table")).queryByText("Rockets")).toBeNull();
+    // The button used to toast success and leave the team exactly where it was. Their only
+    // opponent had no other games, so the page empties rather than leaving a stray row, and the
+    // full table goes with its rows rather than standing empty.
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Comets" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Rockets" })).toBeNull();
   });
 
   it("keeps a team in the roster that a claimed row on another page was filed against", async () => {
@@ -160,7 +162,9 @@ describe("removing a team from a page", () => {
       .closest("tr")!;
     await user.click(within(row).getByRole("button", { name: "Remove" }));
 
-    expect(within(screen.getByRole("table")).queryByText("Comets")).toBeNull();
+    // Off the page, which empties with it, and the full table with its rows.
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Comets" })).toBeNull();
     expect(loadScoutTeams().some((one) => one.id === "S-COMET")).toBe(true);
   });
 
