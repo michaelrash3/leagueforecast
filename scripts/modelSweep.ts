@@ -17,7 +17,9 @@
  * the rows it filed read (`readRules`).
  *
  * With --why-unjoined it reads the stand-ins the nightly says should have joined their one pulled
- * namesake, row by row through the refile, and counts why each row stayed (`unjoinedReasons`).
+ * namesake, row by row through the refile, and counts why each row stayed (`unjoinedReasons`);
+ * with --name-sha256=HEX as well, every club of the one name whose key (`teamNameKey`) has that
+ * digest, and each row filed against a stand-in of it, nameless (`oneNameRows`).
  *
  * Options: --year=2027 (the squad year), --today=DAY (the board's day; the members' day by
  * default), --top=25 (the stand-ins named, most games first), --public (numbers only),
@@ -36,6 +38,7 @@ import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import {
   constants,
   createCipheriv,
+  createHash,
   createDecipheriv,
   createPublicKey,
   privateDecrypt,
@@ -112,7 +115,12 @@ import {
 import { openStores } from "./cloudPool.ts";
 import { poolFixture } from "./poolFixture.ts";
 import { readSweepFile, sweepTidy } from "./sweepTidy.ts";
-import { unjoinedReasonLines, unjoinedReasons } from "../src/lib/unjoinedReasons.ts";
+import {
+  oneNameLines,
+  oneNameRows,
+  unjoinedReasonLines,
+  unjoinedReasons,
+} from "../src/lib/unjoinedReasons.ts";
 
 declare const process: {
   argv: string[];
@@ -568,6 +576,12 @@ const main = async (): Promise<void> => {
       `\n${"=".repeat(78)}\nWhy the stand-ins that should have joined did not\n${"=".repeat(78)}`
     );
     const { refused } = source.tidyAnswers();
+    const digest = flag("name-sha256");
+    if (digest) {
+      const pool = { ageGroups: source.ageGroups, teams: source.teams, games: source.allGames() };
+      const matches = (key: string) => createHash("sha256").update(key).digest("hex") === digest;
+      oneNameLines(oneNameRows(pool, year, matches, refused)).forEach((line) => say(line));
+    }
     unjoinedReasonLines(
       unjoinedReasons(
         { ageGroups: source.ageGroups, teams: source.teams, games: source.allGames() },

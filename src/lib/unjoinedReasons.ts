@@ -6,7 +6,13 @@ import {
 } from "./gameChangerImport";
 import { NO_REFUSALS, type NotThisTeam } from "./notThisTeam";
 import { standInReport } from "./standInReport";
-import { ageGroupLevel, ageGroupYear, isScoutGamePlayed, type ScoutTeam } from "./teamRankings";
+import {
+  ageGroupLevel,
+  ageGroupYear,
+  isScoutGamePlayed,
+  teamNameKey,
+  type ScoutTeam,
+} from "./teamRankings";
 
 /**
  * Why the stand-ins the nightly calls "should have joined" were not: the clubs known only by name
@@ -156,4 +162,122 @@ export const unjoinedReasonLines = (found: UnjoinedReasons): string[] => [
   ),
   "  Where neither rule found a club, the report's candidate:",
   ...found.noneWhy.map((reason) => `    ${reason.key}: ${reason.rows} rows`),
+];
+
+/** One club of a name, as `oneNameRows` lists it, nameless. */
+export type NamedClubLine = {
+  kind: "pulled" | "stand-in" | "slot" | "typed";
+  state: string | undefined;
+  /** The levels its GameChanger links are listed at in the squad year. */
+  levels: (number | undefined)[];
+  /** Its games in the squad year, and the first day of a row of its own schedules there. */
+  games: number;
+  firstOwnDay: string | undefined;
+  /** When its schedules were last pulled, the latest of its links' stamps, and how many links. */
+  lastPulled: string | undefined;
+  links: number;
+};
+
+/** One row a pulled club's schedule filed against a stand-in of the name, and what the refile says. */
+export type NamedRowLine = {
+  date: string | undefined;
+  pageLevel: number | undefined;
+  typedLevel: number | undefined;
+  namerState: string | undefined;
+  played: boolean;
+  why: string;
+};
+
+/**
+ * Every club of one name in a squad year, and every row a pulled club's schedule filed against a
+ * stand-in of it with the refile's reasons for leaving it there: one club's case read on the whole
+ * pool, without the name. `matches` picks the name by its key (`teamNameKey`), so a caller can
+ * pass a digest of it and keep the name out of a public log.
+ */
+export const oneNameRows = (
+  state: GcImportState,
+  year: number,
+  matches: (key: string) => boolean,
+  refused: NotThisTeam = NO_REFUSALS
+): { clubs: NamedClubLine[]; rows: NamedRowLine[] } => {
+  const yearOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupYear(group)]));
+  const levelOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
+  const ofName = state.teams.filter((team) => matches(teamNameKey(team.name)));
+  const ids = new Set(ofName.map((team) => team.id));
+  const yearGames = state.games.filter((game) => yearOf.get(game.ageGroupId) === year);
+  const byId = new Map(state.teams.map((team) => [team.id, team]));
+  const clubs = ofName.map((team): NamedClubLine => {
+    const own = new Set((team.gcTeams ?? []).map((link) => link.teamId));
+    const played = yearGames.filter((game) => game.teamAId === team.id || game.teamBId === team.id);
+    const ownDays = played
+      .filter(
+        (game) =>
+          (game.source !== undefined && own.has(game.source.teamId)) ||
+          (game.alsoFrom ?? []).some((id) => own.has(id))
+      )
+      .flatMap((game) => (game.date ? [game.date] : []))
+      .sort();
+    return {
+      kind: team.placeholder
+        ? "slot"
+        : team.nameOnly
+          ? "stand-in"
+          : team.gcTeams?.length
+            ? "pulled"
+            : "typed",
+      state: team.state,
+      levels: (team.gcTeams ?? [])
+        .filter((link) => yearOf.get(link.ageGroupId) === year)
+        .map((link) => link.ageLevel),
+      games: played.length,
+      firstOwnDay: ownDays[0],
+      lastPulled: (team.gcTeams ?? [])
+        .flatMap((link) => (link.importedAt ? [link.importedAt] : []))
+        .sort()
+        .reverse()[0],
+      links: team.gcTeams?.length ?? 0,
+    };
+  });
+  const reasons = new Map<string, string>();
+  refileStandIns(state, refused, SHIPPED_TIDY_RULES, (game, why) => {
+    if (ids.has(game.teamAId) || ids.has(game.teamBId)) reasons.set(game.id, reasonKey(why));
+  });
+  const rows = yearGames.flatMap((game): NamedRowLine[] => {
+    const side = [game.teamAId, game.teamBId].findIndex(
+      (id) => ids.has(id) && byId.get(id)?.nameOnly === true
+    );
+    if (side < 0) return [];
+    const namer = byId.get(side === 0 ? game.teamBId : game.teamAId);
+    if (!namer?.gcTeams?.length) return [];
+    return [
+      {
+        date: game.date,
+        pageLevel: levelOf.get(game.ageGroupId),
+        typedLevel: side === 0 ? game.ageLevelA : game.ageLevelB,
+        namerState: namer.state,
+        played: isScoutGamePlayed(game),
+        why: reasons.get(game.id) ?? "would move",
+      },
+    ];
+  });
+  rows.sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
+  return { clubs, rows };
+};
+
+/** `oneNameRows` in words, nameless, for a public log. */
+export const oneNameLines = (found: { clubs: NamedClubLine[]; rows: NamedRowLine[] }): string[] => [
+  `Clubs of the name in the squad year: ${found.clubs.length}`,
+  ...found.clubs.map(
+    (club) =>
+      `  ${club.kind}, ${club.state ?? "no state"}, listed at ${
+        club.levels.map((at) => (at === undefined ? "?" : `${at}U`)).join(", ") || "nothing"
+      }; ${club.games} games, first own day ${club.firstOwnDay ?? "none"}; ${club.links} link(s), last pulled ${club.lastPulled ?? "never"}`
+  ),
+  `Rows pulled clubs' schedules filed against a stand-in of the name: ${found.rows.length}`,
+  ...found.rows.map(
+    (row) =>
+      `  ${row.date ?? "no date"} on the ${row.pageLevel ?? "?"}U page${
+        row.typedLevel === undefined ? "" : `, typed ${row.typedLevel}U`
+      }, named from ${row.namerState ?? "no state"}${row.played ? ", played" : ""}: ${row.why}`
+  ),
 ];

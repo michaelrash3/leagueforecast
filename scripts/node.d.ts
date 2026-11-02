@@ -43,6 +43,9 @@ declare module "node:crypto" {
   export function createCipheriv(algorithm: string, key: Uint8Array, iv: Uint8Array): Cipher;
   export function createDecipheriv(algorithm: string, key: Uint8Array, iv: Uint8Array): Decipher;
   export const constants: { RSA_PKCS1_OAEP_PADDING: number };
+  /** What `modelSweep.ts` keys one name by, so a public log can pick it without naming it. */
+  type Hash = { update: (data: string) => Hash; digest: (encoding: "hex") => string };
+  export function createHash(algorithm: string): Hash;
 }
 
 declare module "node:zlib" {

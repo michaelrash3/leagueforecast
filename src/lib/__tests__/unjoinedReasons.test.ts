@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { tidyPool, type GcImportState } from "../gameChangerImport";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
-import { unjoinedReasonLines, unjoinedReasons } from "../unjoinedReasons";
+import {
+  oneNameLines,
+  oneNameRows,
+  unjoinedReasonLines,
+  unjoinedReasons,
+} from "../unjoinedReasons";
 
 /*
  * Why a stand-in the nightly says should have joined its one pulled namesake did not
@@ -81,5 +86,37 @@ describe("why a stand-in that should have joined did not", () => {
     expect(unjoinedReasonLines(found)).toContain(
       "    candidate listed 3 levels from the row: 1 rows"
     );
+  });
+});
+
+describe("one name's clubs and rows, nameless", () => {
+  it("lists each club of the name and each row filed against a stand-in of it, with its reason", () => {
+    const bombers = {
+      ...pulled("BOMB", "Bluegrass Bombers", "KY"),
+      gcTeams: [
+        {
+          teamId: "gcBOMB",
+          name: "Bluegrass Bombers",
+          ageGroupId: "ag10",
+          ageLevel: 10,
+          importedAt: "2026-11-02T12:25:00.000Z",
+        },
+      ],
+    };
+    const state: GcImportState = {
+      ageGroups: groups,
+      teams: [namer, bombers, named, someone],
+      games: [row(namer, named.id, "2026-09-01"), row(bombers, someone.id, "2026-09-20")],
+    };
+    const lines = oneNameLines(
+      oneNameRows(tidyPool(state).state, 2027, (key) => key === "bluegrass bombers")
+    );
+    expect(lines).toEqual([
+      "Clubs of the name in the squad year: 2",
+      "  pulled, KY, listed at 10U; 1 games, first own day 2026-09-20; 1 link(s), last pulled 2026-11-02T12:25:00.000Z",
+      "  stand-in, no state, listed at nothing; 1 games, first own day none; 0 link(s), last pulled never",
+      "Rows pulled clubs' schedules filed against a stand-in of the name: 1",
+      "  2026-09-01 on the 10U page, named from KY, played: beforeSeason | beforeSeason",
+    ]);
   });
 });
