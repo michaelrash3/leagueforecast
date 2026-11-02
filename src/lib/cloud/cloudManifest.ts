@@ -67,8 +67,11 @@ const FORMAT_WITHOUT_EPOCH = 2;
  * 11: a club keeps the names the owner answered a namer's schedule writes for it, by folding a
  * stand-in into it (`ScoutTeam.namedAs`); dropped by an older build, that namer's next game of the
  * name would go to a new stand-in again, and the owner would have to answer again.
+ * 12: a League season says it is archived (`Settings.archived`); dropped by an older build, a
+ * season put away would be listed among those in use again, and could be edited, with that build's
+ * next save.
  */
-export const DATA_SCHEMA = 11;
+export const DATA_SCHEMA = 12;
 
 /**
  * Thrown for a manifest this build cannot read, which is never to be taken for no copy at all: the

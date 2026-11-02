@@ -4,6 +4,7 @@ import { leagueMetHere, loadCloudState } from "../lib/cloud/cloudState";
 import { storedBases, type BaseKeeper } from "../lib/live/leagueBase";
 import { seasonDocId } from "../lib/live/leagueDocs";
 import type { SeasonEntry, SeasonParts, UndoTarget } from "../lib/live/leagueLive";
+import { sendArchiveMark, type ArchiveSent } from "../lib/live/archiveSeason";
 import { meetSeasons, type LocalSeasons } from "../lib/live/leagueSeasons";
 import type { LeagueStore } from "../lib/live/leagueStore";
 import { startLeagueSync, type LeagueSync, type LiveLeagueState } from "../lib/live/leagueSync";
@@ -96,6 +97,12 @@ export type LiveLeague = {
    * false when there is no cloud to delete it from.
    */
   removeSeason: (id: string) => Promise<boolean>;
+  /**
+   * Sends the archive mark of a season that is not open (`sendArchiveMark`): what became of it, or
+   * null when there is no cloud to send it to. It rejects with no connection, and the visit's next
+   * meeting sends it then.
+   */
+  archiveSeason: (id: string, archived: boolean) => Promise<ArchiveSent | null>;
 };
 
 /**
@@ -170,7 +177,8 @@ export function useLiveLeague({
             // Seasons brought down are in storage whether or not the page still wants League
             // live, and the list is read again even then: a meeting run again finds them held and
             // brings down nothing, so would never say so.
-            if (met.added.length > 0) latest.current.onSeasonsAdded();
+            // And a season archived or brought back elsewhere is listed apart, or among the rest.
+            if (met.added.length > 0 || met.archived.length > 0) latest.current.onSeasonsAdded();
             if (cancelled) return;
             if (first) {
               firstMeeting.done();
@@ -228,7 +236,23 @@ export function useLiveLeague({
     [bases]
   );
 
+  const archiveSeason = useCallback(
+    async (id: string, archived: boolean): Promise<ArchiveSent | null> => {
+      const found = store.current;
+      const season = latest.current.local.read(id);
+      if (!found || !season) return null;
+      return sendArchiveMark({
+        store: found,
+        bases,
+        season,
+        archived,
+        now: new Date().toISOString(),
+      });
+    },
+    [bases]
+  );
+
   // Turned on, it waits for the cloud's version before anything may be edited.
   const shown = !enabled ? OFF : state.kind === "off" ? CONNECTING : state;
-  return { state: shown, guardUndo, removeSeason };
+  return { state: shown, guardUndo, removeSeason, archiveSeason };
 }

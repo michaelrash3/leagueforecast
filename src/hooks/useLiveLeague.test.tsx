@@ -60,6 +60,13 @@ const localOf = (extra: SeasonSnapshot[] = []): LocalSeasons & { held: SeasonSna
       held.push(...more);
       return true;
     },
+    markArchived: (id, archived) => {
+      const at = held.findIndex((one) => one.id === id);
+      const found = held[at];
+      if (!found) return false;
+      held[at] = { ...found, settings: { ...found.settings, archived } };
+      return true;
+    },
   };
 };
 
@@ -129,6 +136,20 @@ describe("League kept live on the page", () => {
     const { added } = mount({ open: async () => cloud.store, local });
     await act(settled);
     expect(local.held.map((one) => one.id)).toEqual(["spring", "fall"]);
+    expect(added).toEqual([1]);
+  });
+
+  it("reads the list again when a season held here was archived on another device", async () => {
+    const cloud = memoryLeague();
+    const fall = { ...ENTRY, id: "fall", name: "Fall", ...PARTS };
+    cloud.put(
+      seasonDocId("fall"),
+      seasonToDoc({ ...fall, settings: { ...fall.settings, archived: true } })
+    );
+    const local = localOf([fall]);
+    const { added } = mount({ open: async () => cloud.store, local });
+    await act(settled);
+    expect(local.held.find((one) => one.id === "fall")?.settings.archived).toBe(true);
     expect(added).toEqual([1]);
   });
 

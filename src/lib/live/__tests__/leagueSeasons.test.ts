@@ -30,6 +30,13 @@ const localOf = (seasons: SeasonSnapshot[]): LocalSeasons & { held: SeasonSnapsh
       held.push(...more);
       return true;
     },
+    markArchived: (id, archived) => {
+      const at = held.findIndex((one) => one.id === id);
+      const found = held[at];
+      if (!found) return false;
+      held[at] = { ...found, settings: { ...found.settings, archived } };
+      return true;
+    },
   };
 };
 

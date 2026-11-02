@@ -248,6 +248,13 @@ export type Settings = {
    * once it has a game; it can be opened again only while no game exists.
    */
   teamsLocked?: boolean;
+  /**
+   * Put away once the league is done with it (`seasonArchive.ts`): listed apart from the seasons
+   * in use, and read-only until it is brought back. Absent on every season from before seasons
+   * could be archived, which reads as not archived; brought back, it is false rather than absent,
+   * so the change is a field of its own in the season's document like any other setting's.
+   */
+  archived?: boolean;
 };
 
 export type RankSnapshot = (Team & {

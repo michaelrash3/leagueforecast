@@ -454,13 +454,45 @@ export const duplicateSeason = (id: string, name: string): SeasonMeta | null => 
    * it was opened. Everything else in the settings is copied as it was.
    */
   const settings = parseJson(safeGet(seasonKey(newId, "settings")));
-  safeSet(
-    seasonKey(newId, "settings"),
-    JSON.stringify({ ...(isRecord(settings) ? settings : {}), seasonLabel: meta.name })
-  );
+  // Nor the archive mark: a copy is made to be used, so it starts among the seasons in use.
+  const { archived: _archived, ...kept } = isRecord(settings) ? settings : {};
+  safeSet(seasonKey(newId, "settings"), JSON.stringify({ ...kept, seasonLabel: meta.name }));
   // The copy takes the original's data, and none of what this device kept of the original.
   if (writeSeasons([...seasons, meta])) forgetSeasons([newId]);
   return meta;
+};
+
+/**
+ * The seasons archived (`seasonArchive.ts`), read from each one's own settings: the season picker
+ * and the Seasons card list them apart. A season's settings are a few hundred bytes, so reading
+ * every season's for the list costs next to nothing beside the list itself.
+ */
+export const archivedSeasonIds = (): Set<string> => {
+  ensureInitialized();
+  return new Set(
+    readSeasons()
+      .filter((season) => loadSettingsFor(season.id).archived === true)
+      .map((season) => season.id)
+  );
+};
+
+/**
+ * Archives a season this browser holds, or brings it back: its settings with the mark, every other
+ * setting as it was, the season marked changed only if the mark moved. For a season that is not
+ * open: the open one's settings are on screen, and its mark is changed there and saved with them.
+ * False when storage refused it or holds no such season.
+ */
+export const setSeasonArchived = (id: string, archived: boolean): boolean => {
+  ensureInitialized();
+  if (!readSeasons().some((season) => season.id === id)) return false;
+  const key = seasonKey(id, "settings");
+  const before = safeGet(key);
+  const settings = parseJson(before);
+  const text = JSON.stringify({ ...(isRecord(settings) ? settings : {}), archived });
+  if (before === text) return true;
+  if (!safeSet(key, text)) return false;
+  touchSeason(id);
+  return true;
 };
 
 /** Delete a season and its data. Refuses to remove the last remaining season. */

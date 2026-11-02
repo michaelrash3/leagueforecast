@@ -1,4 +1,6 @@
+import { isArchived } from "../seasonArchive";
 import type { SeasonMeta, SeasonSnapshot } from "../storage";
+import { archivedAsKnown, sendArchiveMark } from "./archiveSeason";
 import type { BaseKeeper } from "./leagueBase";
 import { createdApart, decodeKey, docToSeason, seasonDocId, seasonToDoc } from "./leagueDocs";
 import { madeAt, type LeagueStore } from "./leagueStore";
@@ -37,6 +39,8 @@ export type LocalSeasons = {
   list: () => SeasonMeta[];
   read: (id: string) => SeasonSnapshot | null;
   add: (seasons: readonly SeasonSnapshot[]) => boolean;
+  /** Gives a season held here the archive mark (`seasonArchive.ts`); false if storage refused. */
+  markArchived: (id: string, archived: boolean) => boolean;
 };
 
 export type SeasonsMet = {
@@ -50,6 +54,10 @@ export type SeasonsMet = {
   gone: string[];
   /** Seasons in the cloud this version of the app cannot read. */
   unread: string[];
+  /** Seasons held here archived or brought back on another device, now so here too. */
+  archived: string[];
+  /** Seasons archived or brought back here whose mark had not reached the cloud, sent now. */
+  archiveSent: string[];
 };
 
 /** A season as held here, unchanged from the copy's: the same name, teams, games and settings. */
@@ -89,7 +97,15 @@ export const meetSeasons = async ({
   openId: () => string;
   now?: () => Date;
 }): Promise<SeasonsMet> => {
-  const met: SeasonsMet = { added: [], agreed: [], sent: [], gone: [], unread: [] };
+  const met: SeasonsMet = {
+    added: [],
+    agreed: [],
+    sent: [],
+    gone: [],
+    unread: [],
+    archived: [],
+    archiveSent: [],
+  };
   const remote = await store.list();
   const here = local.list();
   const heldIds = new Set(here.map((season) => season.id));
@@ -97,12 +113,17 @@ export const meetSeasons = async ({
   // When each season in the cloud says it was made.
   const cloudMade = new Map<string, string | null>();
   const arrivals: { season: SeasonSnapshot; rev: number }[] = [];
+  // Seasons held here as the cloud has them, for their archive marks once the bases are laid.
+  const heldInCloud: { id: string; docId: string; data: unknown }[] = [];
   for (const { docId, data } of remote) {
     const id = decodeKey(docId);
     if (id === null) continue;
     inCloud.add(id);
     cloudMade.set(id, madeAt(data));
-    if (heldIds.has(id)) continue;
+    if (heldIds.has(id)) {
+      heldInCloud.push({ id, docId, data });
+      continue;
+    }
     const read = docToSeason(data, docId);
     if (!read.ok) {
       met.unread.push(id);
@@ -138,6 +159,50 @@ export const meetSeasons = async ({
       bases.write(docId, { season, rev: 0, landed: [] });
       met.agreed.push(entry.id);
     }
+  }
+
+  /*
+   * The archive mark of each season held here and not open, as the cloud has it now: the season
+   * picker and the Seasons card list a season by it, and a season archived on another device is
+   * otherwise taken in only when next opened here, which an archived one seldom is. Only the mark:
+   * the rest of the season is taken in when it is next opened, as ever, and nothing is read for it
+   * but the list this meeting reads anyway. After the bases a first meeting lays, which are what
+   * says whether the mark was changed here since (`archivedAsKnown`).
+   */
+  for (const { id, docId, data } of heldInCloud) {
+    if (id === openId()) continue;
+    const held = local.read(id);
+    if (!held) continue;
+    const read = docToSeason(data, docId);
+    if (!read.ok || createdApart(read.season.createdAt, held.createdAt)) continue;
+    const known = bases.read(docId);
+    const knownMark =
+      known && !createdApart(known.season.createdAt, held.createdAt)
+        ? archivedAsKnown(known, read.rev)
+        : null;
+    const here = isArchived(held.settings);
+    const cloud = isArchived(read.season.settings);
+    if (here === cloud) continue;
+    if (knownMark !== null && here !== knownMark) {
+      // Changed here since, and not in the cloud: archived offline, so its send did not go. Sent
+      // now; with no connection still, at the next visit's meeting.
+      try {
+        const sent = await sendArchiveMark({
+          store,
+          bases,
+          season: held,
+          archived: here,
+          now: now().toISOString(),
+        });
+        if (sent === "sent") met.archiveSent.push(id);
+      } catch {
+        // Left for the next meeting, as the list it would have been read with.
+      }
+      continue;
+    }
+    // Not changed here since, or nothing known of the document: the cloud's, as a first opening
+    // keeps the cloud's record where both sides hold one.
+    if (local.markArchived(id, cloud)) met.archived.push(id);
   }
 
   if (arrivals.length > 0 && local.add(arrivals.map((one) => one.season))) {

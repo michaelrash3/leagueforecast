@@ -291,6 +291,8 @@ export function DashboardView({
   seasonFinal,
   hasCutLine = true,
   look,
+  archived = false,
+  onArchive,
 }: {
   engine: ReturnType<typeof buildPredictionEngine>;
   backtestResult: ReturnType<typeof backtestPredictions>;
@@ -330,6 +332,10 @@ export function DashboardView({
   seasonFinal?: SeasonFinal | null;
   /** Whether the league has a cut line: without one, a card's explanation has no Gold % to tell apart. */
   hasCutLine?: boolean;
+  /** Whether the season is archived (`seasonArchive.ts`), which the finished season's card says. */
+  archived?: boolean;
+  /** Archives the season, or brings it back: offered on the finished season's card. */
+  onArchive?: (archived: boolean) => void;
 }) {
   const why: WhyContext = {
     nameOf: (id) => displayName(teamNameFor(teamsById, id)),
@@ -490,6 +496,22 @@ export function DashboardView({
                   )}
                   {seasonFinal.ourTeam && <li>{seasonFinal.ourTeam}</li>}
                 </ul>
+                {onArchive && (
+                  <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-200 pt-4 dark:border-slate-800">
+                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+                      {archived
+                        ? "This season is archived, so it is read-only."
+                        : "Done with this season? Archive it to put it away, read-only."}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => onArchive(!archived)}
+                      className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 shadow-xs hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+                    >
+                      {archived ? "Unarchive" : "Archive this season"}
+                    </button>
+                  </div>
+                )}
               </section>
             ) : (
               <EmptyPanel

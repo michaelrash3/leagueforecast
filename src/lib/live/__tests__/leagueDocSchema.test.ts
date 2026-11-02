@@ -176,6 +176,7 @@ describe("a season at either layout, read by everything that reads one", () => {
           held.push(...more);
           return true;
         },
+        markArchived: () => true,
       },
       bases: { read: () => null, write: () => {}, remove: () => {} },
       openId: () => "",
@@ -308,6 +309,7 @@ const LAYOUT_NOW = {
     "trackErrors",
     "recapGrouping",
     "teamsLocked",
+    "archived",
   ]),
   tiebreakers: wordsOf<TiebreakerFactor>()([
     "headToHead",
@@ -336,6 +338,9 @@ const LAYOUTS: readonly { schema: number; fingerprint: string }[] = [
   // keeps the GameChanger id of the club it picked (`TeamBase.scoutGcTeamId`), added before any
   // build wrote layout 2, so one raise covers the three.
   { schema: 2, fingerprint: "50b8d72d81216e39951467dc6e311599aad3630608da160011e0e27d7e850af3" },
+  // A season says it is archived (`Settings.archived`), which a build of layout 2 would show as in
+  // use and let be edited.
+  { schema: 3, fingerprint: "24abc7342a56cb2b44e0125ca162fe5f9845f17be1f09130af72447b6e1e206d" },
 ];
 
 /** Order-free, so a list tidied into another order is not taken for a new layout. */

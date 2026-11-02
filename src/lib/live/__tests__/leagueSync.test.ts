@@ -500,7 +500,7 @@ describe("a season that may not be written", () => {
     await settled();
     expect(sent).toHaveLength(1);
     expect(sent[0]).toContainEqual({ path: ["schema"], value: LEAGUE_DOC_SCHEMA });
-    expect(cloud.read(DOC_ID)?.schema).toBe(2);
+    expect(cloud.read(DOC_ID)?.schema).toBe(LEAGUE_DOC_SCHEMA);
     expect(cloudSeason().matchups[0]?.startTs).toBe("2027-04-03T15:00:00.000Z");
     // A season at this layout is written without it, as every write was before.
     setLogs({ g1: score("1", "0") });
@@ -508,7 +508,7 @@ describe("a season that may not be written", () => {
     await settled();
     expect(sent).toHaveLength(2);
     expect(sent[1]?.map((change) => change.path[0])).toEqual(["logs", "updatedAt", "rev"]);
-    expect(cloud.read(DOC_ID)?.schema).toBe(2);
+    expect(cloud.read(DOC_ID)?.schema).toBe(LEAGUE_DOC_SCHEMA);
   });
 
   it("gives an old pick its club's GameChanger id in the write an edit makes, and none of its own", async () => {

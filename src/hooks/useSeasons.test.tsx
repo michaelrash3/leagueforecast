@@ -1,7 +1,14 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSeasons } from "./useSeasons";
-import { createSeason, getActiveSeasonId, listSeasons, setActiveSeason } from "../lib/storage";
+import {
+  archivedSeasonIds,
+  createSeason,
+  getActiveSeasonId,
+  listSeasons,
+  loadSettingsForSeason,
+  setActiveSeason,
+} from "../lib/storage";
 import { adoptTabTurn, TAB_READ_ONLY } from "../lib/tabTurn";
 import { createTabTurn } from "../lib/tabTurnChannel";
 
@@ -47,12 +54,15 @@ const setup = (
     seasonLabel?: string;
     beforeDelete?: (id: string) => Promise<boolean>;
     beforeSwitch?: () => void;
+    archiveOpen?: (archived: boolean) => boolean;
+    afterArchive?: (id: string, archived: boolean) => Promise<unknown>;
   } = {}
 ) => {
   const loadActiveSeason = vi.fn();
+  const archiveOpen = vi.fn(over.archiveOpen ?? (() => true));
   const showToast = vi.fn();
   const requestConfirmation = vi.fn().mockResolvedValue(over.confirm ?? true);
-  const { beforeDelete, beforeSwitch } = over;
+  const { beforeDelete, beforeSwitch, afterArchive } = over;
   const hook = renderHook(
     ({ seasonLabel }: { seasonLabel: string }) =>
       useSeasons({
@@ -62,10 +72,12 @@ const setup = (
         requestConfirmation,
         ...(beforeDelete ? { beforeDelete } : {}),
         ...(beforeSwitch ? { beforeSwitch } : {}),
+        archiveOpen,
+        ...(afterArchive ? { afterArchive } : {}),
       }),
     { initialProps: { seasonLabel: over.seasonLabel ?? "" } }
   );
-  return { ...hook, loadActiveSeason, showToast, requestConfirmation };
+  return { ...hook, loadActiveSeason, showToast, requestConfirmation, archiveOpen };
 };
 
 const toastText = (showToast: ReturnType<typeof vi.fn>) =>
@@ -104,6 +116,64 @@ describe("switching between seasons", () => {
 
     expect(loadActiveSeason).not.toHaveBeenCalled();
     expect(showToast).not.toHaveBeenCalled();
+  });
+});
+
+describe("archiving a season", () => {
+  it("marks one that is not open in storage, lists it apart, sends it, and says so", () => {
+    const other = createSeason("Fall 2026");
+    const afterArchive = vi.fn(async () => null);
+    const { result, showToast, archiveOpen } = setup({ afterArchive });
+
+    act(() => result.current.setArchived(other.id, true));
+
+    expect(archivedSeasonIds()).toEqual(new Set([other.id]));
+    expect(result.current.archived).toEqual(new Set([other.id]));
+    expect(afterArchive).toHaveBeenCalledWith(other.id, true);
+    expect(archiveOpen).not.toHaveBeenCalled();
+    expect(toastText(showToast)).toBe(
+      "Archived Fall 2026. It is read-only until you unarchive it."
+    );
+
+    act(() => result.current.setArchived(other.id, false));
+
+    expect(result.current.archived).toEqual(new Set());
+    expect(afterArchive).toHaveBeenLastCalledWith(other.id, false);
+    expect(toastText(showToast)).toContain("Unarchived Fall 2026.");
+  });
+
+  it("hands the open season's mark to the page, whose settings are on screen", () => {
+    const open = getActiveSeasonId();
+    const afterArchive = vi.fn(async () => null);
+    const { result, archiveOpen } = setup({ afterArchive });
+
+    act(() => result.current.setArchived(open, true));
+
+    expect(archiveOpen).toHaveBeenCalledWith(true);
+    // Saved with the page's settings, and sent with them while live: not written from here.
+    expect(loadSettingsForSeason(open).archived).toBeUndefined();
+    expect(afterArchive).not.toHaveBeenCalled();
+  });
+
+  it("says nothing when the page refused the open season's mark, having said why", () => {
+    const { result, showToast } = setup({ archiveOpen: () => false });
+
+    act(() => result.current.setArchived(getActiveSeasonId(), true));
+
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it("keeps the mark here when the send cannot go, for the next visit's meeting to send", async () => {
+    const other = createSeason("Fall 2026");
+    const afterArchive = vi.fn(async () => {
+      throw new Error("offline");
+    });
+    const { result } = setup({ afterArchive });
+
+    act(() => result.current.setArchived(other.id, true));
+    await act(async () => {});
+
+    expect(archivedSeasonIds()).toEqual(new Set([other.id]));
   });
 });
 
@@ -215,6 +285,21 @@ describe("in a tab another tab has the turn from", () => {
     expect(beforeDelete).not.toHaveBeenCalled();
     expect(listSeasons().map((season) => season.id)).toContain(other.id);
     expect(toastText(showToast)).toBe(TAB_READ_ONLY);
+  });
+
+  it("archives nothing, and says why", () => {
+    const other = createSeason("Fall 2026");
+    readOnly();
+    const afterArchive = vi.fn(async () => null);
+    const { result, showToast, archiveOpen } = setup({ afterArchive });
+
+    act(() => result.current.setArchived(other.id, true));
+    act(() => result.current.setArchived(getActiveSeasonId(), true));
+
+    expect(archivedSeasonIds()).toEqual(new Set());
+    expect(afterArchive).not.toHaveBeenCalled();
+    expect(archiveOpen).not.toHaveBeenCalled();
+    expect(toastText(showToast)).toBe(`${TAB_READ_ONLY} | ${TAB_READ_ONLY}`);
   });
 
   it("makes no season and copies none, rather than saying it did", () => {
