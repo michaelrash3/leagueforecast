@@ -16,6 +16,11 @@
  * `inStateNamesakes`, and for each how much of the year still leans on a stand-in or a slot and how
  * the rows it filed read (`readRules`).
  *
+ * With --why-unjoined it reads the stand-ins the nightly says should have joined their one pulled
+ * namesake, row by row through the refile, and counts why each row stayed (`unjoinedReasons`);
+ * with --name-sha256=HEX as well, every club of the one name whose key (`teamNameKey`) has that
+ * digest, and each row filed against a stand-in of it, nameless (`oneNameRows`).
+ *
  * Options: --year=2027 (the squad year), --today=DAY (the board's day; the members' day by
  * default), --top=25 (the stand-ins named, most games first), --public (numbers only),
  * --seal=FILE with --seal-to-key=PEM (the named lines, sealed to that public key), and
@@ -33,6 +38,7 @@ import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import {
   constants,
   createCipheriv,
+  createHash,
   createDecipheriv,
   createPublicKey,
   privateDecrypt,
@@ -109,6 +115,12 @@ import {
 import { openStores } from "./cloudPool.ts";
 import { poolFixture } from "./poolFixture.ts";
 import { readSweepFile, sweepTidy } from "./sweepTidy.ts";
+import {
+  oneNameLines,
+  oneNameRows,
+  unjoinedReasonLines,
+  unjoinedReasons,
+} from "../src/lib/unjoinedReasons.ts";
 
 declare const process: {
   argv: string[];
@@ -544,7 +556,7 @@ const main = async (): Promise<void> => {
     return;
   }
   const source = path
-    ? fromBackup(path, !has("stand-in-rules"))
+    ? fromBackup(path, !has("stand-in-rules") && !has("why-unjoined"))
     : has("cloud")
       ? await fromCloud()
       : fromFixture();
@@ -556,6 +568,27 @@ const main = async (): Promise<void> => {
   );
   if (has("stand-in-rules")) {
     measureStandInRules(source, year);
+    finish();
+    return;
+  }
+  if (has("why-unjoined")) {
+    say(
+      `\n${"=".repeat(78)}\nWhy the stand-ins that should have joined did not\n${"=".repeat(78)}`
+    );
+    const { refused } = source.tidyAnswers();
+    const digest = flag("name-sha256");
+    if (digest) {
+      const pool = { ageGroups: source.ageGroups, teams: source.teams, games: source.allGames() };
+      const matches = (key: string) => createHash("sha256").update(key).digest("hex") === digest;
+      oneNameLines(oneNameRows(pool, year, matches, refused)).forEach((line) => say(line));
+    }
+    unjoinedReasonLines(
+      unjoinedReasons(
+        { ageGroups: source.ageGroups, teams: source.teams, games: source.allGames() },
+        year,
+        refused
+      )
+    ).forEach((line) => say(line));
     finish();
     return;
   }
