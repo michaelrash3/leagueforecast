@@ -14,6 +14,8 @@ import { displayName } from "../../lib/format";
 import type { SeasonFinal } from "../../lib/seasonFinal";
 import { confidenceTier, SMALL_SAMPLE_RISK } from "../../lib/confidenceTier";
 import type { buildPredictionEngine, LeaguePrediction } from "../../lib/predictionEngine";
+import type { GameForecast } from "../../lib/gameForecast";
+import { modelRead } from "../../lib/modelRead";
 import type { backtestPredictions } from "../../lib/backtest";
 import type { ActiveShareView, Matchup, Team } from "../../lib/types";
 import { SEVERITY_LABEL, severityCounts, type Finding } from "../../lib/leagueFindings";
@@ -74,7 +76,7 @@ function PredictionLine({
   onOpen,
 }: {
   prediction: LeaguePrediction;
-  /** The away side's chance (`gameOdds`). */
+  /** The away side's chance (`gameForecast`). */
   chanceA: number;
   teamsById: Map<string, Team>;
   matchups: Matchup[];
@@ -110,14 +112,14 @@ function PredictionLine({
 
 function PredictionCard({
   prediction,
-  chanceA,
+  forecast,
   teamsById,
   matchups,
   why: whyContext,
 }: {
   prediction: LeaguePrediction;
-  /** The away side's chance (`gameOdds`). */
-  chanceA: number;
+  /** The game's forecast, all of it the per-game model's (`gameForecast`). */
+  forecast: GameForecast;
   teamsById: Map<string, Team>;
   matchups: Matchup[];
   why: WhyContext;
@@ -127,16 +129,17 @@ function PredictionCard({
   const game = matchups.find((item) => item.id === prediction.gameId);
   const a = teamNameFor(teamsById, prediction.teamAId);
   const b = teamNameFor(teamsById, prediction.teamBId);
+  const chanceA = forecast.awayWinPct;
   const { aPct, bPct } = percentsOf(chanceA);
+  // Whether the model has anything to forecast from: the engine forecasts no game before a score.
+  const known = prediction.explanation !== undefined;
   /*
    * The pick is the side the chance favors, by the per-game model's own rule (`predictGame`'s
-   * winner: the away side from 50% up), so a toss-up names the side the Schedule's pick does and
-   * not the engine's, which in a close game can be the other. Where the engine has nothing to
-   * forecast from, a toss-up names no one: before any score every game is even, and each away
-   * side would be the winner. The margin is the prediction engine's, which the "Why" panel
-   * explains, and it is given only where it leans the same way: in a close game the two can back
-   * different sides, and a card naming one side the winner beside a chance that favors the other
-   * is two favorites for one game.
+   * winner: the away side from 50% up), so a toss-up names the side the Schedule's pick does. Where
+   * the engine has nothing to forecast from, a toss-up names no one: before any score every game is
+   * even, and each away side would be the winner. The margin is the same model's projected score's,
+   * given only where it leans the same way: its chance and its score are read apart, and in a close
+   * game a 52% can sit beside a level score, which names no winner by anything.
    */
   const pickId =
     aPct === bPct && prediction.predictedWinnerId === null
@@ -145,12 +148,13 @@ function PredictionCard({
         ? prediction.teamAId
         : prediction.teamBId;
   const winner = pickId ? teamNameFor(teamsById, pickId) : "Pending data";
-  const margin =
-    pickId && pickId === prediction.predictedWinnerId && prediction.projectedMargin !== null
-      ? ` by ${prediction.projectedMargin}`
-      : "";
-  // How far the game can stray from the forecast (2.10), once the model has finals to go on.
-  const range = prediction.range;
+  const projected = forecast.awayScore - forecast.homeScore;
+  const leans = projected > 0 ? prediction.teamAId : projected < 0 ? prediction.teamBId : null;
+  const margin = known && pickId && pickId === leans ? ` by ${Math.abs(projected)}` : "";
+  // How far the game can stray from the forecast (2.10), as the Gold odds draw it.
+  const range = known ? forecast.range : null;
+  // A score once the league has a final to put a scoring level on.
+  const scored = known && forecast.scored;
   const whyLabel =
     aPct === bPct
       ? "Why a toss-up?"
@@ -209,14 +213,12 @@ function PredictionCard({
             Expected Score
           </p>
           <p className="mt-1 text-lg font-black">
-            {prediction.expectedScore
-              ? `${prediction.expectedScore.teamA}-${prediction.expectedScore.teamB}`
-              : "Needs scores"}
+            {scored ? `${forecast.awayScore}-${forecast.homeScore}` : "Needs scores"}
           </p>
-          {range?.score && (
+          {range && scored && (
             <p className={`mt-1 ${textRole.meta}`}>
-              Range: {displayName(a)} {runSpanText(range.score.teamA)}, {displayName(b)}{" "}
-              {runSpanText(range.score.teamB)}
+              Range: {displayName(a)} {runSpanText(range.away)}, {displayName(b)}{" "}
+              {runSpanText(range.home)}
             </p>
           )}
         </div>
@@ -226,7 +228,9 @@ function PredictionCard({
           Model Read
         </p>
         <p className="mt-2 text-sm font-semibold leading-6 text-slate-700 dark:text-slate-300">
-          {prediction.keyFactors[0] ?? "Add completed scores to unlock a model read."}
+          {known
+            ? modelRead(forecast, { away: displayName(a), home: displayName(b) })
+            : "Add completed scores to unlock a model read."}
         </p>
         {prediction.explanation && (
           <button
@@ -252,6 +256,7 @@ function PredictionCard({
                 <ForecastWhy
                   prediction={prediction}
                   chanceA={chanceA}
+                  {...(range ? { range: { ...range, scored } } : {})}
                   nameOf={whyContext.nameOf}
                   findings={whyContext.findings}
                   record={whyContext.record}
@@ -282,7 +287,7 @@ export function DashboardView({
   findings,
   ourTeam,
   digest,
-  gameOdds,
+  gameForecast,
   seasonFinal,
   hasCutLine = true,
   look,
@@ -307,15 +312,17 @@ export function DashboardView({
   /**
    * The season as it stands, for the big "Since you last looked" card (`SinceLastLookCard`): the
    * followed team's place and Gold odds then and now, its results, the upset, who passed whom.
-   * Unlike the digest, it counts what was entered here too. The chances come from `gameOdds`.
+   * Unlike the digest, it counts what was entered here too. The chances come from `gameForecast`.
    */
   look?: Omit<LookInput, "predictions">;
   /**
-   * The per-game model's chance that the away side wins a game (`predictGame`): the one chance the
-   * page gives a game, as the Schedule, the Our team card and the Gold odds read it. The prediction
-   * engine's own chance is not shown (sweep item 29); its margin and its words are.
+   * A game's forecast as the per-game model gives it (`forecastGame`): the one chance the page
+   * gives a game, as the Schedule, the Our team card and the Gold odds read it (sweep item 29), and
+   * the score, margin, ranges and reading beside it, so a card is one forecast. The prediction
+   * engine's own chance, score and range are not shown; its account of its margin is, in words, in
+   * a card's "Why" panel.
    */
-  gameOdds: (game: Matchup) => number;
+  gameForecast: (game: Matchup) => GameForecast;
   /**
    * How the season ended, once it has (`seasonFinalOf`): shown where the next games would be,
    * since a finished season has none to predict.
@@ -338,16 +345,16 @@ export function DashboardView({
   // The forecast lists them as the schedule stores them, which need not be either.
   const gameById = new Map(matchups.map((game) => [game.id, game]));
   const seasonStart = seasonStartMonth(matchups.map((game) => game.date));
-  // Each forecast game's chance as the page shows it, worked out once for the list and the look.
-  const chances = useMemo(() => {
+  // Each forecast game as the page shows it, worked out once for the list and the look.
+  const forecasts = useMemo(() => {
     const scheduled = new Map(matchups.map((game) => [game.id, game]));
     return new Map(
       engine.predictions.flatMap((call) => {
         const game = scheduled.get(call.gameId);
-        return game ? [[call.gameId, gameOdds(game)] as const] : [];
+        return game ? [[call.gameId, gameForecast(game)] as const] : [];
       })
     );
-  }, [engine.predictions, matchups, gameOdds]);
+  }, [engine.predictions, matchups, gameForecast]);
   const upcoming = [...engine.predictions].sort((x, y) => {
     const a = gameById.get(x.gameId);
     const b = gameById.get(y.gameId);
@@ -364,10 +371,10 @@ export function DashboardView({
   const lookPredictions = useMemo(
     () =>
       engine.predictions.flatMap((call) => {
-        const pA = chances.get(call.gameId);
+        const pA = forecasts.get(call.gameId)?.awayWinPct;
         return pA === undefined ? [] : [{ gameId: call.gameId, teamAId: call.teamAId, pA }];
       }),
-    [engine.predictions, chances]
+    [engine.predictions, forecasts]
   );
   const lookRows = useMemo(
     () => look?.rows.map((row) => ({ ...row, name: displayName(row.name) })),
@@ -444,13 +451,13 @@ export function DashboardView({
             </button>
           </div>
           {upcoming.slice(0, 3).map((p) => {
-            const chanceA = chances.get(p.gameId);
-            if (chanceA === undefined) return null;
+            const forecast = forecasts.get(p.gameId);
+            if (!forecast) return null;
             return narrow && openPrediction !== p.gameId ? (
               <PredictionLine
                 key={p.gameId}
                 prediction={p}
-                chanceA={chanceA}
+                chanceA={forecast.awayWinPct}
                 teamsById={teamsById}
                 matchups={matchups}
                 onOpen={() => setOpenPrediction(p.gameId)}
@@ -459,7 +466,7 @@ export function DashboardView({
               <PredictionCard
                 key={p.gameId}
                 prediction={p}
-                chanceA={chanceA}
+                forecast={forecast}
                 teamsById={teamsById}
                 matchups={matchups}
                 why={why}

@@ -511,6 +511,55 @@ describe("a season that may not be written", () => {
     expect(cloud.read(DOC_ID)?.schema).toBe(2);
   });
 
+  it("gives an old pick its club's GameChanger id in the write an edit makes, and none of its own", async () => {
+    const picked: SeasonState = {
+      ...PARTS,
+      teams: PARTS.teams.map((team) =>
+        team.id === "A" ? { ...team, scoutTeamId: "S-ACES" } : team
+      ),
+    };
+    const cloud = memoryLeague();
+    cloud.put(DOC_ID, docOf(picked));
+    // Counted before the season opens, so its opening and hearing are counted too.
+    const written = cloud.counts.writes;
+    const { seasons, setLogs, sync, cloudSeason } = setup({ cloud, parts: picked });
+    // What League Standings lays over its own edits where it stamps (`stampPicks`).
+    seasons.amendEdits((season) => ({
+      ...season,
+      teams: season.teams.map((team) =>
+        team.scoutTeamId && !team.scoutGcTeamId ? { ...team, scoutGcTeamId: "gcAces001" } : team
+      ),
+    }));
+    await settled();
+    await vi.advanceTimersByTimeAsync(5_000);
+    // Another device's score arrives, the one write since the season was put there.
+    cloud.edit(DOC_ID, [{ path: ["logs", "g2"], value: score("1", "0") }]);
+    await settled();
+    await vi.advanceTimersByTimeAsync(5_000);
+    // Opened, heard and arrived at: nothing is written for the stamp alone, and the season is as
+    // it came.
+    expect(cloud.counts.writes).toBe(written + 1);
+    expect(seasons.get().season.logs.g2).toEqual(score("1", "0"));
+    expect(seasons.get().season.teams[0]?.scoutGcTeamId).toBeUndefined();
+    setLogs({ ...seasons.get().season.logs, g1: score("7", "4") });
+    sync.settle();
+    await settled();
+    // The score's own write carries it.
+    expect(cloud.counts.writes).toBe(written + 2);
+    expect(cloudSeason().logs).toEqual({ g1: score("7", "4"), g2: score("1", "0") });
+    expect(cloudSeason().teams[0]).toEqual({
+      id: "A",
+      name: "Club A",
+      scoutTeamId: "S-ACES",
+      scoutGcTeamId: "gcAces001",
+    });
+    expect(seasons.get().season.teams[0]?.scoutGcTeamId).toBe("gcAces001");
+    // And it is settled: nothing goes back and forth after it.
+    await vi.advanceTimersByTimeAsync(5_000);
+    await settled();
+    expect(cloud.counts.writes).toBe(written + 2);
+  });
+
   it("never writes back a season deleted on another device", async () => {
     const { cloud, states, setLogs, sync } = setup();
     await settled();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SeasonSnapshot } from "../../storage";
-import { DEFAULT_SETTINGS, type GameLog, type Matchup } from "../../types";
+import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../../types";
 import { encodeKey, LEAGUE_DOC_SCHEMA } from "../leagueDocs";
 import {
   fieldsChanged,
@@ -87,6 +87,94 @@ describe("laying this device's changes over the cloud's", () => {
     };
     const local = withLogs(BASE, { g1: score("5", "0") });
     expect(layOver(BASE, local, remote).logs.g1).toEqual(score("5", "0"));
+  });
+});
+
+/*
+ * A GameChanger id laid beside a team's pick of the same club (`stampPicks`, or the club picked
+ * again) changes nothing of which club the team is, so the merge never weighs it against another
+ * device's change to the team: the other change is taken, and the id kept on it only while the
+ * team is still of the club the id was laid beside.
+ */
+describe("a GameChanger id added beside the same pick", () => {
+  const PICKED: SeasonSnapshot = {
+    ...BASE,
+    teams: [
+      ...BASE.teams.map((team) => (team.id === "A" ? { ...team, scoutTeamId: "S-ACES" } : team)),
+      { id: "E", name: "Club E", scoutTeamId: "S-EAGL" },
+    ],
+  };
+  const teamOf = (season: SeasonSnapshot, id: string) => season.teams.find((one) => one.id === id);
+  const withTeam = (season: SeasonSnapshot, id: string, team: Partial<TeamBase> | null) => ({
+    ...season,
+    teams: season.teams.flatMap((one) =>
+      one.id !== id ? [one] : team === null ? [] : [{ ...one, ...team }]
+    ),
+  });
+  /** This device's score, saved with the stamp laid over it. */
+  const stamped = withLogs(withTeam(PICKED, "A", { scoutGcTeamId: "gcAces001" }), {
+    g2: score("4", "3"),
+  });
+
+  it("is kept where no other device changed the team", () => {
+    expect(teamOf(layOver(PICKED, stamped, PICKED), "A")).toEqual({
+      id: "A",
+      name: "Club A",
+      scoutTeamId: "S-ACES",
+      scoutGcTeamId: "gcAces001",
+    });
+  });
+
+  it("gives way to another device's rename of the team, and is kept on it", () => {
+    const remote = withTeam(PICKED, "A", { name: "Aces Blue" });
+    const merged = layOver(PICKED, stamped, remote);
+    expect(teamOf(merged, "A")).toEqual({
+      id: "A",
+      name: "Aces Blue",
+      scoutTeamId: "S-ACES",
+      scoutGcTeamId: "gcAces001",
+    });
+    expect(merged.logs.g2).toEqual(score("4", "3"));
+    // And the same the other way about: the stamp in the cloud, the rename here.
+    const stampedThere = withTeam(PICKED, "A", { scoutGcTeamId: "gcAces001" });
+    expect(teamOf(layOver(PICKED, remote, stampedThere), "A")).toEqual(teamOf(merged, "A"));
+  });
+
+  it("gives way to another device's pick of another club, and goes with the club it was of", () => {
+    const remote = withTeam(PICKED, "A", {
+      name: "Aces Blue",
+      scoutTeamId: "S-BEAR",
+      scoutGcTeamId: "gcBears01",
+    });
+    expect(teamOf(layOver(PICKED, stamped, remote), "A")).toEqual({
+      id: "A",
+      name: "Aces Blue",
+      scoutTeamId: "S-BEAR",
+      scoutGcTeamId: "gcBears01",
+    });
+    // A pick cleared there is cleared, and takes no id here.
+    const cleared = withTeam(PICKED, "A", null);
+    const unpicked = { ...cleared, teams: [{ id: "A", name: "Club A" }, ...cleared.teams] };
+    expect(teamOf(layOver(PICKED, stamped, unpicked), "A")).toEqual({ id: "A", name: "Club A" });
+  });
+
+  it("brings back no team another device deleted", () => {
+    const local = withTeam(PICKED, "E", { scoutGcTeamId: "gcEagles1" });
+    const remote = withTeam(PICKED, "E", null);
+    expect(teamOf(layOver(PICKED, local, remote), "E")).toBeUndefined();
+  });
+
+  it("is a change like any other where the pick moved with it, or the team held an id already", () => {
+    // Picked again as another club here: the two picks are two changes, settled toward this one.
+    const repicked = withTeam(PICKED, "A", { scoutTeamId: "S-COME", scoutGcTeamId: "gcComets1" });
+    const renamed = withTeam(PICKED, "A", { name: "Aces Blue" });
+    expect(teamOf(layOver(PICKED, repicked, renamed), "A")).toEqual(teamOf(repicked, "A"));
+    // An id changed beside a pick that kept one is a pick of another of the club's teams.
+    const kept = withTeam(PICKED, "A", { scoutGcTeamId: "gcAces001" });
+    const other = withTeam(kept, "A", { scoutGcTeamId: "gcAces002" });
+    expect(teamOf(layOver(kept, other, withTeam(kept, "A", { name: "Aces Blue" })), "A")).toEqual(
+      teamOf(other, "A")
+    );
   });
 });
 

@@ -6,10 +6,12 @@ import {
   type PoolFixture,
 } from "../../../../scripts/poolFixture";
 import { NO_REMOVALS } from "../../autoRemoved";
-import { ageGroupYear, type ScoutGame } from "../../teamRankings";
+import { ageGroupYear, isScoutGamePlayed, type ScoutGame } from "../../teamRankings";
 import { dateInSquadYear } from "../../teamRankings/seasons";
 import { deriveAllKnown, type SeasonReader } from "../allKnown";
-import { buildAllBoards, type PageBoard } from "../views/board";
+import { boardViews, buildBoardsAndFacts, type BuildInput, type PageBoard } from "../views/board";
+import { coerceBoardView } from "../views/boardShape";
+import type { Weekly } from "../../theWeekly";
 
 /*
  * League Standings games carry their starts into Team Rankings, and no rating reads a start: the
@@ -89,15 +91,15 @@ const gamesOf = (pool: PoolFixture) => (year: number | undefined) =>
     (game) => ageGroupYear(pool.ageGroups.find((group) => group.id === game.ageGroupId)) === year
   );
 
-const boardsOf = (pool: PoolFixture): PageBoard[] =>
-  buildAllBoards({
-    ageGroups: pool.ageGroups,
-    teams: pool.teams,
-    gamesOfYear: gamesOf(pool),
-    readSeason: readerOf(pool),
-    autoRemoved: NO_REMOVALS,
-    today: FIXTURE_TODAY,
-  });
+const inputOf = (pool: PoolFixture): BuildInput => ({
+  ageGroups: pool.ageGroups,
+  teams: pool.teams,
+  gamesOfYear: gamesOf(pool),
+  readSeason: readerOf(pool),
+  autoRemoved: NO_REMOVALS,
+  today: FIXTURE_TODAY,
+});
+const boardsOf = (pool: PoolFixture): PageBoard[] => buildBoardsAndFacts(inputOf(pool)).boards;
 
 /** A number to the millionth, which no engine's last bit reaches (`boardParity.test.ts`). */
 const toMillionth = (value: number) => Math.round(value * 1e6) / 1e6 || 0;
@@ -119,20 +121,23 @@ const steady = (boards: PageBoard[]) =>
       .sort((a, b) => (a.teamId < b.teamId ? -1 : a.teamId > b.teamId ? 1 : 0)),
   }));
 
-/** The boards' weeks less what one engine's last bit can move: their odds to the millionth. */
+/** A week less what one engine's last bit can move: its odds to the millionth. */
+const steadyWeek = (weekly: Weekly) => ({
+  ...weekly,
+  upsets: weekly.upsets.map((upset) => ({ ...upset, chance: toMillionth(upset.chance) })),
+  ahead: weekly.ahead && {
+    ...weekly.ahead,
+    chanceA: toMillionth(weekly.ahead.chanceA),
+    margin: toMillionth(weekly.ahead.margin),
+  },
+});
+
+/** The boards' weeks, each less what one engine's last bit can move. */
 const steadyWeeks = (boards: PageBoard[]) =>
   boards.map(({ pageId, half, weekly }) => ({
     pageId,
     half,
-    weekly: weekly && {
-      ...weekly,
-      upsets: weekly.upsets.map((upset) => ({ ...upset, chance: toMillionth(upset.chance) })),
-      ahead: weekly.ahead && {
-        ...weekly.ahead,
-        chanceA: toMillionth(weekly.ahead.chanceA),
-        margin: toMillionth(weekly.ahead.margin),
-      },
-    },
+    weekly: weekly && steadyWeek(weekly),
   }));
 
 describe("League Standings starts on the boards", () => {
@@ -159,12 +164,65 @@ describe("League Standings starts on the boards", () => {
   it("move no board, to the last digit", () => {
     const withStarts = boardsOf(timed());
     // Whole boards: the rows, the week before, the history, the fit and the Weekly, whose streaks
-    // read a club's games in playing order (`byGameTime`) and so read starts.
+    // read a club's games in playing order (`byGameTime`) and so read starts. None of the games
+    // ahead here is a league game, so none carries a start onto its board (the next test's do).
     expect(withStarts).toStrictEqual(boardsOf(untimed(timed())));
     expect(fingerprint(steady(withStarts))).toBe("aa8e91c9");
     // 28 boards with a week, naming 22 streaks and 9 games ahead between them.
     const weeks = steadyWeeks(withStarts);
     expect(weeks.flatMap(({ weekly }) => weekly?.streaks ?? [])).toHaveLength(22);
     expect(fingerprint(weeks)).toBe("23a5731b");
+  });
+
+  it("publish each board's week as a member's device reads it back, its game ahead's start too", () => {
+    /*
+     * The fixture's games ahead are none of them league games, so each game still to play is given
+     * a start of its own as well, at 6 PM UTC on its day: every board's game of the week has one.
+     */
+    const pool = timed();
+    const ahead: PoolFixture = {
+      ...pool,
+      games: pool.games.map((game) =>
+        isScoutGamePlayed(game) || game.date === undefined || game.startTs !== undefined
+          ? game
+          : { ...game, startTs: `${game.date}T18:00:00.000Z` }
+      ),
+    };
+    const views = boardViews(ahead.ageGroups, buildBoardsAndFacts(inputOf(ahead)));
+    const published = views.flatMap(({ key, value }) =>
+      value.weekly ? [{ key, weekly: JSON.parse(JSON.stringify(value.weekly)) as Weekly }] : []
+    );
+    expect(published).toHaveLength(28);
+    // What a member's device reads back off the wire is the week the build made, field for field.
+    for (const { key, value } of views)
+      expect(coerceBoardView(JSON.parse(JSON.stringify(value)))?.weekly, key).toStrictEqual(
+        value.weekly
+      );
+    // Each game ahead carries its start, in whole minutes since 1970, the start of a game it names.
+    const starts = published.flatMap(({ weekly }) => (weekly.ahead ? [weekly.ahead] : []));
+    expect(starts).toHaveLength(9);
+    for (const game of starts) {
+      expect(Number.isSafeInteger(game.start), JSON.stringify(game)).toBe(true);
+      const named = ahead.games.filter(
+        (one) =>
+          one.date === game.date &&
+          new Set([one.teamAId, one.teamBId, game.teamAId, game.teamBId]).size === 2
+      );
+      expect(named.map((one) => Date.parse(one.startTs ?? "") / 60_000)).toContain(game.start);
+    }
+    /*
+     * Less the starts, the weeks published are the ones published before the start was carried,
+     * fingerprint 52c07ee1 taken on the code before it, from this fixture without the starts given
+     * here; and since a start plays no part in the pick, the same games with these starts too.
+     */
+    const steadyOf = (weeks: typeof published) =>
+      weeks.map(({ key, weekly }) => ({ key, weekly: steadyWeek(weekly) }));
+    const unstarted = published.map(({ key, weekly }) => {
+      if (!weekly.ahead) return { key, weekly };
+      const { start: _start, ...game } = weekly.ahead;
+      return { key, weekly: { ...weekly, ahead: game } };
+    });
+    expect(fingerprint(steadyOf(unstarted))).toBe("52c07ee1");
+    expect(fingerprint(steadyOf(published))).toBe("9ba760b3");
   });
 });

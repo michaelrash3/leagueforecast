@@ -175,6 +175,9 @@ import { card } from "../styles/tokens";
 import { ClubSheet } from "./teamRankings/ClubSheet";
 import { leftClubSheet, markClubSheet } from "../lib/clubSheetHistory";
 import { useWatchList } from "../lib/watchList";
+import { withGcIds } from "../lib/myTeamLook";
+import { clubLookupOf } from "../lib/teamRankings/leagueBridge";
+import { keptGcIds } from "../lib/teamRankings/rememberedClub";
 import { EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/addGameDraft";
 import type { NamedChecker } from "./ScheduleImportPanel";
 import { checkNamedGames, type NamedGame } from "../lib/teamRankings/namedGames";
@@ -886,8 +889,26 @@ export function TeamRankingsView({
     const byId = new Map(rankings.map((row) => [row.teamId, row]));
     return (teamId: string) => byId.get(teamId);
   }, [rankings]);
-  // The clubs watched on this page, on this device (`watchList.ts`).
-  const watchList = useWatchList(selectedAgeGroupId);
+  /*
+   * The pool as a club this device remembers is read by (`readClub`): the clubs watched on this
+   * page (`watchList.ts`), each by the GameChanger ids kept with it, so one folded into another is
+   * watched as that club and one whose id is another club's now is shown gone.
+   */
+  const clubLookup = useMemo(() => clubLookupOf(allKnown.teams), [allKnown.teams]);
+  // And a saved tournament field's (`tournamentFields.ts`), whose clubs are saved with the ids each
+  // carries on this page, as a League team's club's place is.
+  const fieldClubs = useMemo(() => {
+    const byId = new Map(allKnown.teams.map((team) => [team.id, team]));
+    return {
+      lookup: clubLookup,
+      gcOf: (teamId: string) => {
+        const club = byId.get(teamId);
+        const ids = club && keptGcIds(club, selectedAgeGroupId, ageGroups);
+        return ids?.length ? ids : undefined;
+      },
+    };
+  }, [allKnown.teams, clubLookup, selectedAgeGroupId, ageGroups]);
+  const watchList = useWatchList(selectedAgeGroupId, clubLookup);
   const { toggle: toggleWatch } = watchList;
   const watchCard = useMemo(
     () => ({ watched: watchList.watched, rowOf: rankingRowOf, onStop: toggleWatch }),
@@ -1054,10 +1075,22 @@ export function TeamRankingsView({
         : buildUpcomingSchedule(myTeamId, rankings, poolGames, allKnown.teams, today);
     const stateOf = (teamId: string) => stateById.get(teamId);
     const glance = myTeamGlance(rankings, myTeamId, stateOf, upcoming, lastWeek?.ranks ?? null);
-    return glance && withSeason(glance, rankings, stateOf, upcoming);
+    // With its GameChanger ids, which its look is read by (`myTeamLook.ts`).
+    const club = allKnown.teams.find((team) => team.id === myTeamId);
+    return (
+      glance &&
+      withGcIds(
+        withSeason(glance, rankings, stateOf, upcoming),
+        club,
+        selectedAgeGroupId,
+        ageGroups
+      )
+    );
   }, [
     lastWeek,
     myTeamId,
+    selectedAgeGroupId,
+    ageGroups,
     reportForId,
     upcomingRows,
     rankings,
@@ -1105,7 +1138,8 @@ export function TeamRankingsView({
           lastWeek?.ranks ?? null,
           board,
           at,
-          page
+          page,
+          fieldClubs.gcOf
         )
       );
     });
@@ -1120,6 +1154,7 @@ export function TeamRankingsView({
     allKnown.leagueClubs,
     allKnown.leagueHalves,
     lastWeek,
+    fieldClubs,
   ]);
 
   /**
@@ -2803,6 +2838,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 reportForId={reportForId}
                 upcomingRows={upcomingRows}
                 placeOf={placeOf}
+                clubs={fieldClubs}
               />
             </ErrorBoundary>
           )}
@@ -2928,7 +2964,10 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 watch={{
                   on: watchList.watched.some((club) => club.id === openTeam.id),
                   full: watchList.full,
-                  onToggle: (name) => toggleWatch({ id: openTeam.id, name }),
+                  onToggle: (name) => {
+                    const gc = keptGcIds(openTeam, selectedAgeGroupId, ageGroups);
+                    toggleWatch({ id: openTeam.id, name, ...(gc.length ? { gc } : {}) });
+                  },
                 }}
               />
             </Suspense>

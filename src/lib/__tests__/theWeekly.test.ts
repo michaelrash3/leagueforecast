@@ -110,6 +110,22 @@ describe("The Weekly", () => {
     expect(weekly.ahead!.chanceA).toBeLessThan(0.54);
   });
 
+  it("carries the game ahead's start, in whole minutes since 1970, as the published lists do", () => {
+    const start = "2026-10-30T23:30:00.000Z";
+    const timed = GAMES.map((one) =>
+      one.teamAId === "C" && one.teamBId === "D" && one.date === "2026-10-30"
+        ? { ...one, startTs: start }
+        : one
+    );
+    // The same game, picked as before, with its start beside its day.
+    expect(theWeekly(PAGE, ROWS, timed, TODAY).ahead).toStrictEqual({
+      ...weekly.ahead,
+      start: Date.parse(start) / 60_000,
+    });
+    // A game GameChanger gave no start carries none, rather than a start of nought.
+    expect(weekly.ahead).not.toHaveProperty("start");
+  });
+
   it("has no game of the week when no two top clubs meet in it", () => {
     const later = theWeekly(PAGE, ROWS, GAMES, "2026-11-10");
     expect(later.ahead).toBeNull();

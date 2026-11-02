@@ -15,6 +15,11 @@ import { GAME_CHANCE_CEILING, GAME_CHANCE_FLOOR } from "./sim";
  * allowed, the Team Rankings results behind the ratings, how many games each rating rests on, how
  * recent they are, and the per-game model the chance comes from. What could move the forecast is
  * said apart, a margin and a chance that part ways among it.
+ *
+ * The card's own margin, score, range and reading are the per-game model's too (`forecastGame`), so
+ * the engine's margin is called the rating margin here: it is the gap between the two ratings, which
+ * the per-game model counts beside the league's own games, with the head-to-head nudge and the cap,
+ * and not the margin the card gives.
  */
 
 export type Side = "teamA" | "teamB";
@@ -187,7 +192,7 @@ export const explainForecast = (
       label: "Cap",
       favors: null,
       runs: Math.abs(parts.capped),
-      text: `A projected margin stops at 14 runs, so ${runs(Math.abs(parts.capped))} over it are left out.`,
+      text: `The rating margin stops at 14 runs, so ${runs(Math.abs(parts.capped))} over it are left out.`,
       inMargin: true,
     });
   inMargin.sort((one, two) => (two.runs ?? 0) - (one.runs ?? 0));
@@ -340,12 +345,12 @@ export const explainForecast = (
   const leader = lean(margin, EVEN_RUNS);
   if (favorite !== null && leader !== null && leader !== favorite) {
     sensitivities.push(
-      `The projected margin backs ${name[leader]}, but the per-game model, which also reads runs scored and allowed, makes ${name[favorite]} the pick: the two ways of reading the season disagree on this game.`
+      `The rating margin backs ${name[leader]}, but the per-game model, which also reads runs scored and allowed, makes ${name[favorite]} the pick: the two ways of reading the season disagree on this game.`
     );
   } else if (Math.abs(prediction.winProbability.teamA - chanceA) >= MODELS_APART) {
     const closer = Math.abs(prediction.winProbability.teamA - 0.5) < Math.abs(chanceA - 0.5);
     sensitivities.push(
-      `The projected margin alone reads this game as ${closer ? "closer" : "more one-sided"} than the per-game model does, which also reads runs scored and allowed: the two ways of reading the season disagree on how sure to be.`
+      `The rating margin alone reads this game as ${closer ? "closer" : "more one-sided"} than the per-game model does, which also reads runs scored and allowed: the two ways of reading the season disagree on how sure to be.`
     );
   }
 

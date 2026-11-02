@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ageGroup, game, renderTeamRankings, team } from "../../test/teamRankingsHarness";
+import { formatStartTime } from "../../lib/date";
 
 /*
  * After a tournament weekend the question is "did we climb?", and a board keeps no history. The
@@ -108,6 +109,28 @@ describe("The Weekly on this device", () => {
     );
     // The climbs wait on last week's fit, a second fit that comes after the board.
     await waitFor(() => expect(week.textContent).toContain("Biggest climbs: Does #4 → #1 (up 3)"));
+  });
+});
+
+describe("The Weekly's game ahead on this device", () => {
+  it("says when the game of the week starts, worked out from the pool", async () => {
+    // Aces and Does, a week apart in the standings and both rated, meet on Saturday the 26th.
+    const start = "2026-09-26T15:00:00.000Z";
+    const ahead = {
+      id: "g7",
+      ageGroupId: "ag_10u_2027",
+      teamAId: "S-ACE",
+      teamBId: "S-DOE",
+      date: "2026-09-26",
+      startTs: start,
+    };
+    renderTeamRankings({ ...pool(), games: [...pool().games, ahead] });
+    const week = await screen.findByRole("region", { name: /^The Weekly/ });
+    await waitFor(() =>
+      expect(week.textContent).toMatch(
+        new RegExp(`Game of the week: Sat, Sep 26 · ${formatStartTime(start)} · (Aces|Does) `)
+      )
+    );
   });
 });
 

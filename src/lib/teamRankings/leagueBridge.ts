@@ -263,26 +263,72 @@ export type LeagueTeamLink = {
 };
 
 /**
- * What a league team's pick names in `teams` now. Where it was kept with a GameChanger id and the
- * club under its id no longer carries that id, the pool has given the id to another club (Start
- * again mints every id afresh) or folded the club away: the pick is the one club carrying the id,
- * where exactly one does, and otherwise `moved`, used for no club at all. A pick kept with no
- * GameChanger id, or of a club absent and carried on by none, reads as it always has.
+ * A club as something kept on this device or in a season remembers it: its id, and GameChanger ids
+ * it carried then (`keptGcIds`, a League pick's one), where it had any. A club's id is the pool's
+ * own and can come to name another club (Start again mints every one afresh); GameChanger's is
+ * never another team's.
+ */
+export type RememberedClub = { id: string; gc?: readonly string[] };
+
+/** Whether a store's `gc`, read back, is GameChanger ids as one is written: a list of text. */
+export const isGcIds = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((one) => typeof one === "string" && one !== "");
+
+/**
+ * What a reader knows of the clubs: each by its id, with the GameChanger teams it carries, and the
+ * clubs carrying a GameChanger id. The whole roster where the device holds the pool
+ * (`clubLookupOf`), or only the clubs it holds cards of, which is enough to tell its own.
+ */
+export type ClubLookup = {
+  byId: { get: (id: string) => { gcTeams?: readonly { teamId: string }[] } | undefined };
+  carriersOf: (gcTeamId: string) => readonly string[];
+};
+
+/**
+ * What a remembered club names now: its id while that names a club carrying any of the GameChanger
+ * ids kept beside it, so a link unlinked since, one of several, leaves it itself; else the one club
+ * carrying them, whatever its id, which a club folded into another is, since a fold carries the
+ * folded club's GameChanger teams on (`mergeScoutTeams`), and a club pulled again after Start again
+ * is; else, where the id names a club carrying none of them and no one club carries them, `moved`:
+ * the id is another club's now, and the store shows its club as gone rather than read that one as
+ * it. One kept with no GameChanger id, or of a club absent and carried on by none, reads as it
+ * always has. The one rule every store's reader and League's picks share.
+ */
+export const readClub = (
+  club: RememberedClub,
+  lookup: ClubLookup
+): { id: string } | { moved: string } => {
+  const { id, gc } = club;
+  if (!gc?.length) return { id };
+  const kept = new Set(gc);
+  const held = lookup.byId.get(id);
+  if (held?.gcTeams?.some((link) => kept.has(link.teamId))) return { id };
+  const [now, ...others] = new Set(gc.flatMap((one) => lookup.carriersOf(one)));
+  if (now !== undefined && others.length === 0) return { id: now };
+  return held ? { moved: id } : { id };
+};
+
+/**
+ * What a league team's pick names in `teams` now (`readClub`). Where it was kept with a GameChanger
+ * id and the club under its id no longer carries that id, the pool has given the id to another
+ * club (Start again mints every id afresh) or folded the club away: the pick is the one club
+ * carrying the id, where exactly one does, and otherwise `moved`, used for no club at all. A pick
+ * kept with no GameChanger id, or of a club absent and carried on by none, reads as it always has.
  */
 export const readPick = (
   team: LeagueTeamLink,
-  byId: ReadonlyMap<string, ScoutTeam>,
+  byId: ClubLookup["byId"],
   carriersOf: (gcTeamId: string) => readonly string[]
 ): { pick?: string; moved?: string } => {
   const pick = team.scoutTeamId;
+  if (!pick || pick === NO_SCOUT_TEAM) return pick ? { pick } : {};
   const gc = team.scoutGcTeamId;
-  if (!pick || pick === NO_SCOUT_TEAM || !gc) return pick ? { pick } : {};
-  const club = byId.get(pick);
-  if (club?.gcTeams?.some((link) => link.teamId === gc)) return { pick };
-  const now = carriersOf(gc);
-  if (now.length === 1 && now[0] !== undefined) return { pick: now[0] };
-  return club ? { moved: pick } : { pick };
+  const read = readClub({ id: pick, ...(gc ? { gc: [gc] } : {}) }, { byId, carriersOf });
+  return "moved" in read ? { moved: read.moved } : { pick: read.id };
 };
+
+/** A club as a lookup reads it: its id and the GameChanger teams it carries. */
+type CarrierClub = { id: string; gcTeams?: readonly { teamId: string }[] };
 
 /**
  * The clubs of `teams` carrying a GameChanger id, which `readPick` follows a moved pick by: every
@@ -290,7 +336,7 @@ export const readPick = (
  * reads follow none, and the links of a nationwide roster are walked for each season read.
  */
 export const gcCarriersOf = (
-  teams: readonly ScoutTeam[]
+  teams: readonly CarrierClub[]
 ): ((gcTeamId: string) => readonly string[]) => {
   let byGcId: Map<string, string[]> | undefined;
   return (gcTeamId) => {
@@ -307,6 +353,47 @@ export const gcCarriersOf = (
     }
     return byGcId.get(gcTeamId) ?? [];
   };
+};
+
+const lookups = new WeakMap<readonly CarrierClub[], ClubLookup>();
+
+/**
+ * `teams` as `readClub` reads them, by id and by GameChanger id, each worked out the first time it
+ * is asked and kept for the rest: one lookup for one roster array, however many stores read it, and
+ * a new one exactly when the roster is a new array.
+ */
+export const clubLookupOf = (teams: readonly CarrierClub[]): ClubLookup => {
+  const held = lookups.get(teams);
+  if (held) return held;
+  let byId: Map<string, CarrierClub> | undefined;
+  const lookup: ClubLookup = {
+    byId: { get: (id) => (byId ??= new Map(teams.map((team) => [team.id, team]))).get(id) },
+    carriersOf: gcCarriersOf(teams),
+  };
+  lookups.set(teams, lookup);
+  return lookup;
+};
+
+/**
+ * Old picks, kept before the GameChanger id was, given the id of the club picked where that club
+ * carries exactly one: a club with several could be any of them, and the season's own team cannot
+ * be told without the season's pages, so it waits for a person to pick it again. `teams` itself
+ * where none takes one, and every team it leaves as it was, so a save writes only those it changed.
+ * Laid on the season's next save of its own (`SeasonStore.amendEdits`), never one made for it, and
+ * only in a browser no member has signed in to, whose pool is the one its seasons' picks name.
+ */
+export const stampPicks = (teams: TeamBase[], lookup: ClubLookup): TeamBase[] => {
+  let changed = false;
+  const stamped = teams.map((team) => {
+    const pick = team.scoutTeamId;
+    if (!pick || pick === NO_SCOUT_TEAM || team.scoutGcTeamId) return team;
+    const ids = new Set((lookup.byId.get(pick)?.gcTeams ?? []).map((link) => link.teamId));
+    const [only] = ids;
+    if (ids.size !== 1 || only === undefined) return team;
+    changed = true;
+    return { ...team, scoutGcTeamId: only };
+  });
+  return changed ? stamped : teams;
 };
 
 /**

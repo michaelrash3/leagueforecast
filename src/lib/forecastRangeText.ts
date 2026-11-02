@@ -1,8 +1,8 @@
-import type { RunSpan } from "./forecastRange";
+import type { RunSpan } from "./gameForecast";
 
 /*
- * A forecast's range in words (2.10), apart from the numbers (`forecastRange.ts`) so that only the
- * views that show it carry it: the engine that works it out is in the page's first download.
+ * A forecast's range in words (2.10), apart from the numbers (`gameForecast.ts`) so that only the
+ * views that show it carry it: the forecast that works it out is in the page's first download.
  */
 
 /**

@@ -645,7 +645,15 @@ and none is taken while the board is being refitted to the latest games. On the 
 which draws the board this account kept before the network's, none is taken until the network has
 vouched for the board on screen (`checked`): decided on the kept one, the line said nothing of an
 overnight climb, kept the old places as seen that day and told the climb a visit late. Offline the
-network never vouches, so the line waits for a visit that reaches it. Most visits have
+network never vouches, so the line waits for a visit that reaches it. A look keeps a
+few GameChanger ids the club carries beside its id, the page's own team first (`keptGcIds`),
+and is read by them (`readMyTeamLook`, on `readClub`): one kept for another club the club's id
+named once is none of its own, a first visit's, as is one kept with ids where the club now
+carries none, and one kept under an id the club no longer has, a
+club folded into it or itself before Team Rankings started again, is its own, the newest of
+them. This device's copy reads the club's ids off its pool, and the cloud's board off the
+club's card, which the line now waits for as it waits for the board. A look kept before, with
+no id, is read as it always was. Most visits have
 nothing new, so the line's own file is fetched only when there is: with it in the tab, opening
 Team Rankings measured 167.1 KB gzipped against 165.4 KB before, and 166.2 KB without. Nothing is
 read from or written to the cloud. League Standings' Dashboard has the same idea as a card of its
@@ -711,7 +719,14 @@ odds are each club's record and rating on the board, and, where the report's clu
 is ranked here, its projected margin and chance against each one (Us by, Our
 chance), from the same preview a matchup row's What if reads, so the table reads as
 the weekend from our bench and not only as odds. Fields are saved in this browser
-by name, per age group.
+by name, per age group, each club with a few GameChanger ids it carries on the page
+(`SavedField.gc`), and read by them on this device's copy (`readClub`): a club folded
+into another is that club, and one whose id is another club's now is not ranked
+here, never played as that club, and keeps its id when the field is saved again,
+so a club pulled back later is found by it. A field saved before, with no ids, is
+read as it always was. The cloud's board names its clubs by id alone, with no
+GameChanger ids on its rows, so it saves its fields with none (keeping those of a
+field it opens) and reads them as kept.
 
 The projection is the rating difference, capped at 14 runs, put through a
 logistic curve; no home-field term, because at this level which side is "home" is
@@ -858,6 +873,26 @@ id from then on. Two teams of a season whose picks are of two clubs later folded
 into one both name the one club, the folded pick followed into it, and so clash
 (**Clash**, `link-shared`): the fold says the two are one club, and which team is
 it is for a person to say.
+
+A pick made before the id was kept takes it at its season's next save of its own,
+in a browser no member has signed in to, whose seasons and pool are its own, where
+the club picked carries exactly one GameChanger id (`stampPicks`): a club with
+several could be any of them, and waits to be picked again. It is laid over the
+page's own edits (`SeasonStore.amendEdits`), a score typed, a team renamed, a game
+moved, so the save the edit makes anyway carries it, and none is ever made for it
+alone: not as the season opens, not as a change made elsewhere arrives. League
+layout 2 already holds the field, so no device of an older build drops it again.
+A member's device gives none, signed in or not: its seasons are the cloud's
+documents, which an edit made signed out or offline still reaches at the device's
+next meeting with them, and its pool, if it kept one, is not the cloud's, so an id
+read off it could send the server's bridge (`readPick`, over the cloud's pool) to a
+club other than the one the cloud's id names. So the old picks of the seasons in
+the cloud keep none until a person picks the team again, which keeps the id the
+picker offers. The nightly counts how many are still without one, and how many name
+a club carrying exactly one ("The nightly refresh on GitHub"): what a stamp worked
+out by the server, over the cloud's own pool, would give them.
+The rule a pick is read by (`readPick`) is the one every club this device remembers
+is read by (`readClub`, "Clubs this device remembers").
 
 A pick is by id, so a club the league reaches only through picks can be renamed on
 Team Rankings and keeps the league's games. A club any season reaches by its name
@@ -4451,17 +4486,45 @@ every number the forecast reads off a team, averaged over the league by the game
 behind each, and the league's average rating where its teams carry one, so a
 strong team wins more of its owed games than a weak one does. Nothing is booked
 onto that side and no table ranks it, and the title odds take the bracket's kept
-scores as played only once the owed games are played too, since until then
-nobody's seed is settled. In the league above, the Aces went from 100% to 99%, the
+scores as played only once the owed games are played too, or a kept score ends them
+(below), since until then nobody's seed is settled. In the league above, the Aces went from 100% to 99%, the
 Bears from 99%+ to 77%, the Comets from under 1% to 20% and the Ducks to 5%. A
 league with no games per team set, or whose schedule has them all, is searched and
 simulated exactly as before, to the digit.
 
-Waiting for the owed games has a cost where games per team counts one that will
+The Forecast's projected standings play them too, since 1 November 2026
+(`projectStandings`): after the scheduled games, each owed game goes to the favourite against
+the same average side, the owing team's side booked at the model's score, so the Projected
+Record and the Run Diff beside it come to games per team. The Range walks them as well
+(`useSeedRanges`): each owed game is one more result that can go either way, every scenario
+projected against the one average side the season as it stands gives, with the season's owed
+games less the one it settles. Both read the schedule alone before, so in the league above the
+Aces, 3-0 with nine owed, were projected to finish 3-0 beside Gold odds that played all nine;
+they are projected 12-0 now, the Bears 2-10, the Comets 1-11 and the Ducks 0-12, and a team
+whose games left were all owed read its projection at both ends of its Range. The projection and
+the walk count the owed games toward the games they wait for (250 and 60), as the exact search
+does. A league owing none is projected and walked exactly as before, to the digit.
+
+Waiting for the owed games had a cost where games per team counts one that will
 never be played, a rainout taken off the schedule and not made up, say: the title
-odds draw the bracket afresh even once it is played and the Dashboard names its
-champion. Data Quality's finding on the setting says so, and once the setting
-leaves no game owed, the kept scores are read again.
+odds drew the bracket afresh even once it was played and the Dashboard named its
+champion. Since 1 November 2026 a kept bracket score ends the owed games
+(`bracketBegun`, `regularSeasonSettings`): the bracket is played once the regular
+season is over, so once any game of it, Gold or Silver, has a final score in, games
+per team owes nothing more beyond the schedule. Every number that counted the owed
+games reads the season as scheduled then: the status column, the magic and
+elimination numbers, the needed results and the paths, the Gold odds and their trend,
+the projection and its Range, the season timeline, the recap, the playoff machine, and
+the title odds, which read the bracket's kept scores as played. In the league above
+with its final kept, the Bears beating the Aces 5 to 2, the Aces and the Bears read
+Clinched at 100% where they read 99% and 77%, the Comets and the Ducks Out at 0% where
+they read 20% and 5%, the projection is the round robin as it stands, the Aces 3-0
+where they were projected 12-0, and the Bears hold the title at 100%. A score still
+being typed, not marked final, keeps nothing, and the trend's points before the last
+are read without the owed games too, as they would be had the setting matched the
+schedule. Data Quality's finding on the setting says what holds the numbers back until
+then, and goes once the bracket begins; the setting itself, as Settings shows it and a
+backup or a shared link keeps it, is the league's and does not change.
 
 ## Playoff machine
 
@@ -4562,10 +4625,32 @@ by that model's rule (a phone's line says **Toss-up**), or **Pending data** whil
 nothing to forecast from. The list used to show the prediction engine's own chance, a logistic
 over its margin held to 8–92%, beside it: one game could be 43% on the Our team card and the
 other side's pick at 54% in the list, and in a close game the two could back different sides.
-The engine's chance is now shown nowhere, and the card gives the engine's projected margin
-beside the pick only where the two lean the same way. What the panel explains is that margin,
-which the engine gives as data with every forecast (`LeaguePrediction.explanation`), as the sum
-of its parts in runs, which add up to it exactly:
+The engine's chance is now shown nowhere.
+
+Nor, since 1 November 2026, is anything else of the engine's on the card: the margin beside the
+pick, the **Expected Score**, both **Range** lines (below) and the **Model Read** are the per-game
+model's too (`forecastGame`), so a card is one forecast. They were the engine's: its margin, its
+expected score (the league's scoring rate either side of that margin, to a tenth), ranges around
+those, and its line "Aces holds the stronger opponent-adjusted rating", beside a chance from the
+other model. In the Dashboard's own test league that card read Aces by 3.5, expected 6.4 to 2.9,
+beside a 65% from a model that had them 8 to 3. The margin is now the projected score's, in whole
+runs as the score is, given beside the pick only where the score leans the same way: a 52% can
+sit beside a level score, which names no winner by anything. The Model Read says what that score
+is made of, as the per-game model makes it (`modelRead.ts`): the margin this league's own games
+give on their own (runs scored and allowed, and form), the ratings' margin, and how far the
+projection goes from the first to the second, more the more rated games the thinner-rated side
+has ("This league's games alone (runs scored and allowed, and form) make it Aces by 7.8; the
+ratings, Aces by 3.1. The projection counts the ratings 60%."). With either side on fewer than
+two league games the model reads the ratings alone against an even game, and says so, naming the
+side. Before the league has a final the score is the model's placeholder, 7 runs a side, so the
+card says **Needs scores**, as it did; a margin read off Team Rankings results alone is still
+given, with its range.
+
+What the panel explains is the engine's margin, the gap between the two ratings that the per-game
+model counts beside the league's games, with the head-to-head nudge and the cap: the **rating
+margin**, as the panel calls it now that the card's margin is the per-game model's. The engine
+gives it as data with every forecast (`LeaguePrediction.explanation`), as the sum of its parts in
+runs, which add up to it exactly:
 
 - **Results**: each side's average margin in the games its rating was fitted from (league
   and Team Rankings, each counted up to `FORECAST_RUN_CAP`), shrunk toward average by the
@@ -4594,8 +4679,8 @@ from, which reads runs scored and allowed beside the rating (`forecastExplanatio
 reason given for its pick where no part of the margin leans that way.
 
 The panel leads with the strongest reason for each side (a part of the margin where there is
-one), then the margin as its parts ("Aces by 2.3 runs, from results +3.1, opponents faced
-−1.2, head-to-head +0.4"), with every factor on request. **What could change it** names a
+one), then the rating margin as its parts ("Rating margin: Aces by 2.3 runs, from results +3.1,
+opponents faced −1.2, head-to-head +0.4"), with every factor on request. **What could change it** names a
 side with fewer than three games behind its rating, a newest result more than three weeks
 before the game, Team Rankings results from a club linked by a name more than one club
 carries, a rating and raw scoring that point different ways, and the margin and the chance
@@ -4612,30 +4697,45 @@ fetched the first time one is opened.
 ### How far one game can stray
 
 Under each card's projected winner is the **range** of margins eight games in ten like it end
-within, and under the expected score each side's runs (2.10, `forecastRange.ts`): "Range:
-Bears by 6 to Aces by 13" and "Range: Aces 0–13, Bears 0–9" for Aces by 3.5, expected 6.4 to
-2.9. It is 9 runs either side of the projected margin at player pitch and 10 at machine pitch,
-and 6.5 and 8 runs either side of each expected score (never below none), in whole runs worked
-out from the margin and score the card shows. It says how much a single game varies, not how
-sure the model is, so it is the same width however many games are behind the ratings.
+within, and under the expected score each side's runs (2.10): "Range: Bears by 6 to Aces by 15"
+and "Range: Aces 3–15, Bears 0–9" for Aces 8 to 3 at 65%. They are the Gold odds' own draws of
+the game, worked out rather than sampled (`drawnMarginSpan`): the tenth and the ninetieth of the
+margins `drawMargin` draws, which is a tie at the league's own share of them, the away side
+winning at its chance, and the margin from a normal curve around the projected one, 8.0 runs wide
+at kid pitch and 6.7 at machine and coach pitch, held to the winner's side of level and rounded to
+whole runs. Each side's runs are the projected total split by the margins at those two ends, the
+loser never below none, as every simulated game is booked (`drawnRuns`), so a side's range is the
+two scores its side of the margin range leaves it. The range follows the chance as well as the
+score: Aces 8 to 3 at 65% is less than the curve alone gives a five-run favourite (73%), so the
+Bears win more often than the curve's 27%, and the range reaches further their way. It says how
+much a single game varies, not how sure the model is, so it is about as wide however many games
+are behind the ratings. A game read from either side is the same range turned round: where one
+side's wins are exactly a tenth of the draws, the low end is the home side's one-run win and the
+high end the away side's.
 
-The widths are measured, not read off the curve the win chance comes from. On 1,006
-pseudo-leagues from the 29 Sep 2026 pool (each state's pulled clubs on a 2027 page with
-twenty or more, their games with one another up to a mid-September cut the season so far,
-their other results what the bridge would hand over, and every later game between them
-scored), 81.0% of 89,998 player-pitch games ended inside the margin range and 81.9% of 7,492
-machine-pitch games; 79% and 78% where either side had played two games or fewer, 85% and 88%
-where both had played six or more. That curve would have put the band at 10.3 and 8.7 runs,
-holding 85% of player-pitch games but only 73% of machine-pitch ones. Both sides scored inside
-their score ranges in 79.5% and 79.7% of games: 85% where sides average four to six runs, 74%
-where they average eight or more.
+Until 1 November 2026 the range was measured rather than drawn, around the prediction engine's
+margin and expected score: 9 runs either side of the margin at player pitch and 10 at machine
+pitch, and 6.5 and 8 either side of each expected score. On 1,006 pseudo-leagues from the 29 Sep
+2026 pool (each state's pulled clubs on a 2027 page with twenty or more, their games with one
+another up to a mid-September cut the season so far, their other results what the bridge would
+hand over, and every later game between them scored), 81.0% of 89,998 player-pitch games ended
+inside that margin range and 81.9% of 7,492 machine-pitch games, and both sides scored inside
+their score ranges in 79.5% and 79.7%. The curve the Gold odds draw on would have put the
+engine's margin band at 10.3 and 8.7 runs either side, holding 85% of player-pitch games but only
+73% of machine-pitch ones. That curve is the card's now, the owner's ruling of 1 November 2026 that
+the card follow the model the Gold odds play by, and nothing has been measured of it around the
+per-game model's margin. Each side's runs are narrower than the measured ones were, about half
+the margin's band either side of the score, since the Gold odds keep a game's projected total and
+split it: in that measure both sides scored within 6.5 runs of the engine's expected score in four
+games in five, and a band half as wide can be expected to hold fewer.
 
 On the Forecast tab, the seed odds grid has a **Likely** column: the seeds a team finishes in
 once the best and worst tenth of simulated seasons are left out, so at least eight simulated
 seasons in ten (`seedRange.ts`). It is not the Projected Standings' **Range**, which is the
 best and worst seed one remaining result can move the projection to. That walk is a season's
-projection for each way each remaining game can go, so it waits until 60 or fewer games
-remain (`useSeedRanges`); until then the column, the phone rows and the Bubble Watch show a
+projection for each way each remaining game can go, the games owed beyond the schedule among
+them ([Postseason format](#postseason-format)), so it waits until 60 or fewer games remain,
+owed ones counted (`useSeedRanges`); until then the column, the phone rows and the Bubble Watch show a
 dash and the caption says the range is paused, rather than every team's projection at both
 ends, which would read as a seed nothing left to play can move.
 
@@ -4710,7 +4810,8 @@ timed ones (the game-time helpers in `date.ts`). Newest-first lists put a day's 
 Since 1 November 2026 the start is shown too, in the reader's own time, wherever a game is listed
 with its day: the My Team card's next game ("Next: Sat, Oct 31 · 9:30 AM") and the two games its
 weekend line names ("Sat 9:30 AM"), Scouting's Next up, a club's panel and the Games tab
-(`dayAndTime`, as League Standings' Schedule says it). A game with no start says its day alone.
+(`dayAndTime`, as League Standings' Schedule says it), and The Weekly's game of the week (README,
+"The Weekly"). A game with no start says its day alone.
 Until then the start ordered the lists and was not shown, so a tournament Saturday's five games
 were in order with nothing to say which was at 9:30 and which at 7:00, and the panel and the Games
 tab printed the day as stored ("2026-10-31"). The lists a phone reads carry it to the minute: a club card's game as `t`,
@@ -4727,7 +4828,9 @@ it, whether one game's copy is in the pool or both. A club's own copy filed agai
 start the same way. Both came in untimed, so a league doubleheader was listed second game first
 and the later game named as next. No rating reads a start. The Weekly's streaks do, reading a
 club's games in playing order, but the seeded fixture's whole boards with every league game timed,
-the Weekly's included, are its boards with none, to the digit (`leagueStartsBoards.test.ts`).
+the Weekly's included, are its boards with none, to the digit (`leagueStartsBoards.test.ts`). Its
+game of the week carries its game's start to be said, and none of the fixture's is a league game;
+given starts of their own, each board's week is the one it published before, start aside.
 
 League Standings keeps each game's start too (`Matchup.startTs`, data schema 9): from a start's
 draft (Team Rankings clubs or a GameChanger organization), on a game Fill adds, and on every game
@@ -5107,6 +5210,75 @@ subscription and sending to it, which the app does not have.
 - One-time migration from older `league_*` keys
 - CSV import/export with BOM/formula guard handling
 
+### Clubs this device remembers
+
+A club's id is the pool's own (`S-RIVE`, `S-RIVE2`), and a fold or Team Rankings
+started again can leave it naming another club; GameChanger's is never another
+team's. So wherever this device remembers a club, it keeps up to three GameChanger
+ids the club carried beside the club's id, the club's team on the page first, as a
+League pick keeps the season's own (`keptGcIds`, `KEPT_GC_IDS`, `gcIdsForSeason`),
+and reads the club by one rule, the League pick's (`readClub`, which `readPick`
+calls with the pick's one id): the club id while it names a club carrying any of
+them; else the one club carrying them now, which a club folded into another is,
+since a fold carries the folded club's GameChanger teams on (`mergeScoutTeams`),
+and a club pulled again after a start is; else, where the id names a club carrying
+none of them and no one club carries them, the club is gone, shown as a gone club
+is, by the name it was kept with and with no place, under an id no club has
+(`GONE_CLUB`), so the club now under its id is never read as it. Something kept
+with no GameChanger id, before this was kept, reads as it always did.
+
+A few, not one, because an Unlink takes a link off a club still on the board, and
+the one a store would keep alone is the page's newest, the likeliest to be a wrong
+link undone: kept by it alone, the club read as gone after the Unlink (its watch
+card "Not on this board", a saved field's club not ranked, League's place lost, My
+Team's look started over; the review of 1 November 2026). Kept by three, the club
+is itself while it carries any of them, and a wrong link that moves on to the club
+it belongs to is not followed there. What is left: a club whose every kept team is
+unlinked carries none of them, as a club its id was minted to after Start again
+does, and reads as gone.
+
+- **Watched clubs** (`lf_watch_v1`, `watchList.ts`): a club folded into another is
+  watched as that club, two folded into one are one, and one whose id is another's
+  now is named and not on the board while that club's own Watch is off; Stop takes
+  off a club as it is shown. The five a page are the clubs the card shows: two
+  folded into one count once, and the later of them goes as the next club is
+  watched. 22 bytes an entry with one id and 15 for each id more, 52 at most.
+- **My Team's look** (`lf_my_team_look_v1_<club>`, `myTeamLook.ts`): another club's
+  look kept under the club's id is none of its own, and one kept under an id it no
+  longer has is its own. 22 to 52 bytes a look, twelve looks at most. My Team
+  itself is the page's mark in the pool, which a fold moves to the club that stays.
+- **Saved tournament fields** (`lf_tournament_fields_v1`, `tournamentFields.ts`): a
+  club folded into another is that club, and one whose id is another's now is not
+  ranked here and keeps its ids when saved again. Read again each time the roster
+  is, a fold in another tab while this one stays on Scouting among them, and so is
+  the field open on screen, by the ids each of its clubs carried, its name, pools
+  and bracket left as they were. A club of the open field whose last GameChanger
+  link another tab took off drops out of it as not ranked here, as it would on a
+  fresh open of the saved field (a club is kept by its ids, `KEPT_GC_IDS`). 8 bytes a field, and 17 a club with one id, 15 for
+  each id more, 3 for a club with none.
+- **A League team's club's place** (`lf_league_club_ranks_v1`, `leagueClubRanks.ts`):
+  read on League Standings where this device holds the pool (`useScoutBridge`'s
+  `clubs`), followed where its club moved, so Scout opens the club the place was of,
+  and none where its id is another club's now, as a club that left the board has
+  none. 22 to 52 bytes a team.
+- **League picks** (`TeamBase.scoutGcTeamId`) are read the same way in the forecast,
+  Fill and the bridge, and an old one takes its id at its season's next save in a
+  browser no member has signed in to, and in the cloud's seasons only when a person
+  picks the team again ("How the two modes connect"): 31 bytes a pick.
+
+This device's copy reads them all off its pool. The cloud's board carries no
+GameChanger ids on its rows, and reading cards or the Find a team list to find them
+would be reads made for this alone, so a member's device reads them off what it
+already holds, its own club's card: a watched club folded into the page's own club
+is watched as it, the look is read by the card's ids, and everything else reads as
+kept until a device holding the pool reads it. Nothing new is read or written in the
+cloud: the device stores never leave the device, and a pick's id rides a save made
+anyway.
+
+No address or saved link names a club. `?team=` names a League Standings team, a
+share link leaves the pick out, and League's Scout button hands Team Rankings its
+club in memory, never in the URL (`scoutRequest.ts`), from the place read above.
+
 ### Where the Team Rankings pool lives
 
 League Standings stays in `localStorage`. The Team Rankings pool outgrew it once
@@ -5459,7 +5631,14 @@ merged, and whatever a merge had to replace is kept.
   entered on one device keeps the game another deleted, and a game its teams.
   Where both devices changed one
   record differently, the device that changed League Standings last wins it.
-  Two seasons that share only an id (every browser's first season is
+  A GameChanger id laid beside a team's pick of the same club, and nothing else
+  of the team changed (an old pick stamped, "How the two modes connect", or the
+  club picked again), is no change of which club the team is, and is weighed as
+  none (`addedGcId`): another device's rename, new pick or deletion of the team
+  is taken, uncounted, and the id goes back on the team while it is still of the
+  club the id was laid beside. Weighed as a change, a stamp laid over a score's
+  save beat a rename or a new pick made elsewhere, and brought back a team
+  deleted there. Two seasons that share only an id (every browser's first season is
   `default`) are kept apart: this device's takes a new one, and everything the
   device keeps of it beside the season, as [Data + persistence](#data--persistence)
   lists it, goes with it to the new id, leaving nothing under the old one, which
@@ -6387,6 +6566,26 @@ leaves out the clubs taken off. The report's lists of the clubs holding the most
 games are never asked for, and a count that fails says so on its own line and
 leaves the night's colour alone.
 
+Once the views are out, it says how the clubs are known (`clubCensus.ts`): how many
+clubs the pool holds, how many carry one GameChanger id, how many several (squads and
+seasons folded together), and how many none, the clubs known only by name and the
+bracket slots apart; then the League Standings picks of a club, how many keep a
+GameChanger id beside them (`TeamBase.scoutGcTeamId`) and how many do not, and of
+those, how many name a club carrying exactly one. No device gives these seasons' old
+picks one (a browser no member has signed in to stamps only its own, "How the two
+modes connect"), so that is what a stamp worked out by the server over the cloud's
+pool would give, and the rest wait for a person to pick the team again. A club's id
+is the pool's own, and Start again mints every one afresh, where GameChanger's is
+never another team's, so these say how much of what is remembered of clubs can be
+followed by it. It reads nothing of its own: the pool is the store's, which the
+views were built from, and the seasons are the documents the run's own reads
+already brought back (`tapLeagueDocs`), so it costs no read; of those it keeps only
+each team's pick and the id beside it, taken as each read comes back, rather than
+holding the documents through filing, saving and publishing. Counts only, as every
+line of the log is. What devices keep of clubs
+(a watch list, saved fields, a look at My Team, a League team's club's place) never
+leaves them and is not counted.
+
 The memory the run holds is said after each step as the next begins
 (`stageMemory`, `memoryUse.ts`): after loading the copy, asking GameChanger,
 filing, tidying and sweeping, saving, publishing the views and, on the night it
@@ -7021,7 +7220,15 @@ feature ideas that day, and says more of the week than the moves (`theWeekly.ts`
   matchup (`previewMatchup`), least likely first. A tie, a game that does not count, a club
   with no row and two clubs nothing compares are none, and a game both schedules list is one;
 - the game of the week ahead: of the games still to play in the next seven days between two
-  clubs of the board's top 50, the one whose odds are nearest even, the higher pair on a tie;
+  clubs of the board's top 50, the one whose odds are nearest even, the higher pair on a tie.
+  Since 1 November 2026 it says its start beside its day, in the reader's own time ("Sat, Oct 31
+  · 9:30 AM", `dayAndTime`, as the rest of Team Rankings says one), and a game with no start its
+  day alone. The week carries the start on the game (`WeeklyGame.start`), in whole
+  minutes since 1970 as a club card's `t` and a Games list's `times` do, and a start plays no part
+  in which game is picked. A build from before it reads the game's other fields by name and passes
+  over the start, so it raised neither the boards' shape nor their rules: it goes on each published
+  board with the boards' next rebuild or the night's, which builds every board again for a new
+  day, rather than with a republish after the deploy that would read the whole cloud copy;
 - the winning streaks still running, five wins or more, the three longest: each club's games
   of the board's half that count, in playing order as its form line reads them (`byGameTime`, a
   game with no start after the day's timed ones; its own sort put that game first, and a day's
@@ -10014,10 +10221,11 @@ footnote or a failed panel reads the same on every League view.
   and Fill scores with nothing ticked says "Tick a game above to fill it." where its button
   read "Fill 0 games", or with nothing that can be ticked (every row one it cannot tell apart,
   and no game to add) says nothing at all. Scouting asks "How would this team fare?" whole above its box on
-  every screen, where a wide one split it around the box. The service worker's word that the
-  app is stored for use offline, once on a first visit, is "Ready to use offline." at the top
-  of the screen for three seconds (`place: "top"` on the toast), where "App shell cached for
-  offline use." sat above the tab bar over the My Team card. League's start screen opens on
+  every screen, where a wide one split it around the box. Nothing is said when the service
+  worker has stored the app for use offline on a first visit (the owner's decision of the same
+  day): "App shell cached for offline use." sat above the tab bar over the My Team card, and
+  then, from #508, "Ready to use offline." at the top of the screen over the header. The banner
+  that says a device is offline stays (`AppOfflineReady.test.tsx`). League's start screen opens on
   "Start your season" in place of "a guided flow" and "a visual setup lane", and calls the
   sample season "Made-up teams and scores", where "Safe sandbox mode" was not so: loaded over
   a season, it replaces it, with an undo.

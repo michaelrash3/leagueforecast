@@ -99,6 +99,24 @@ describe("what Team Rankings has for a league season", () => {
     expect(result.current.wideOptions().map((club) => club.id)).toEqual(["c1"]);
   });
 
+  it("hands out the device's own clubs, read again after a save, to follow a club by", () => {
+    saveScoutTeams([club("c1")]);
+    const { result } = setup();
+    const before = result.current.clubs;
+    expect(before?.carriersOf("gc-c1")).toEqual(["c1"]);
+    saveScoutTeams([club("c2", { gcTeams: [{ teamId: "gc-c1", name: "c1", ageGroupId: "ag" }] })]);
+    act(() => result.current.noteChange());
+    expect(result.current.clubs).not.toBe(before);
+    expect(result.current.clubs?.carriersOf("gc-c1")).toEqual(["c2"]);
+  });
+
+  it("hands out none on a member's device, whose clubs are the server's", () => {
+    saveScoutTeams([club("c1")]);
+    const asker = (async () => null) as unknown as LeagueAsker;
+    const { result } = setup({ asker });
+    expect(result.current.clubs).toBeNull();
+  });
+
   it("offers only clubs a pick could land on", () => {
     saveScoutTeams([
       club("linked"),

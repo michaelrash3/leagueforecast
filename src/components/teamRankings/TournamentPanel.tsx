@@ -5,12 +5,15 @@ import {
   deleteField,
   readSavedFields,
   saveField,
+  shownField,
   type SavedField,
 } from "../../lib/tournamentFields";
+import { shownClubId } from "../../lib/teamRankings/rememberedClub";
 import { TeamSearchSelect, type TeamSearchOption } from "../TeamSearchSelect";
 import { formatRating } from "./RankingList";
 import { card, tapArea } from "../../styles/tokens";
 import { nextWeekendOpponents } from "../../lib/nextWeekend";
+import type { ClubLookup } from "../../lib/teamRankings/leagueBridge";
 
 type TournamentPanelProps = {
   ageGroupId: string;
@@ -19,6 +22,13 @@ type TournamentPanelProps = {
   reportForId: string;
   upcomingRows: UpcomingMatchup[];
   placeOf: (teamId: string) => string | undefined;
+  /**
+   * What the page knows of its clubs' GameChanger ids: the clubs a saved field and the field on
+   * screen are read by (`shownField`, `shownClubId`), each new lookup read afresh, and the ids a
+   * club is saved with on this page (`keptGcIds`), undefined where it has none. Left out, a field
+   * is read as kept and a club is saved with the ids the field it came from kept, if any.
+   */
+  clubs?: { lookup: ClubLookup; gcOf: (teamId: string) => readonly string[] | undefined };
 };
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
@@ -40,6 +50,7 @@ export function TournamentPanel({
   reportForId,
   upcomingRows,
   placeOf,
+  clubs,
 }: TournamentPanelProps) {
   const nameId = useId();
   const poolsId = useId();
@@ -49,8 +60,52 @@ export function TournamentPanel({
   const [fieldIds, setFieldIds] = useState<string[]>([]);
   const [pools, setPools] = useState(1);
   const [advance, setAdvance] = useState(4);
-  // Keyed by age group where it is rendered, so these are always this age group's.
-  const [savedFields, setSavedFields] = useState<SavedField[]>(() => readSavedFields(ageGroupId));
+  const lookup = clubs?.lookup ?? null;
+  /*
+   * The saved fields as this browser keeps them, and as the lookup on hand reads them. Keyed by age
+   * group where it is rendered, so these are always this age group's. Read by the lookup of the
+   * first render alone, a club another tab folded while this one stayed on Scouting
+   * (`onPoolChangedElsewhere`) was still named by its old id, which no club has now, and the field
+   * opened played the weekend without it.
+   */
+  const [keptFields, setKeptFields] = useState<SavedField[]>(() => readSavedFields(ageGroupId));
+  const savedFields = useMemo(
+    () => keptFields.map((field) => shownField(field, lookup)),
+    [keptFields, lookup]
+  );
+  // The GameChanger ids the field opened kept, by the id each club is shown under, so saving it
+  // again keeps them where the page cannot say (a club shown gone, or a page that holds no pool).
+  const [openedGc, setOpenedGc] = useState<ReadonlyMap<string, readonly string[]>>(() => new Map());
+  const gcOf = (teamId: string): string[] => [
+    ...(clubs?.gcOf(teamId) ?? openedGc.get(teamId) ?? []),
+  ];
+  /*
+   * The field on screen read again by each new lookup, as the saved ones are: each club by the
+   * GameChanger ids it carried on the roster it was last read by (`gcOf` of those clubs, or the ids
+   * kept for it), so a club folded into another is that club, two that are one now are one, and a
+   * club shown gone stays gone, its id one no club has. Set while drawing rather than in an effect,
+   * so the field is never played on the new roster under the old ids; and the field is a new list
+   * only when a club in it moved, so the name, pools and bracket are left as the coach set them.
+   */
+  const [readBy, setReadBy] = useState(clubs);
+  if (readBy !== clubs) {
+    setReadBy(clubs);
+    if (readBy?.lookup !== lookup) {
+      const shownIds: string[] = [];
+      const kept = new Map<string, readonly string[]>();
+      fieldIds.forEach((id) => {
+        const carried = readBy?.gcOf(id) ?? openedGc.get(id) ?? [];
+        const shown = shownClubId({ id, gc: carried }, lookup);
+        if (shownIds.includes(shown)) return;
+        shownIds.push(shown);
+        if (carried.length > 0) kept.set(shown, carried);
+      });
+      setOpenedGc(kept);
+      if (shownIds.length !== fieldIds.length || shownIds.some((id, at) => id !== fieldIds[at])) {
+        setFieldIds(shownIds);
+      }
+    }
+  }
 
   const rowById = useMemo(() => new Map(rankings.map((row) => [row.teamId, row])), [rankings]);
   const options = useMemo(
@@ -113,12 +168,13 @@ export function TournamentPanel({
           className={SMALL_BUTTON}
           disabled={!name.trim() || fieldIds.length === 0}
           onClick={() =>
-            setSavedFields(
+            setKeptFields(
               saveField(ageGroupId, {
                 name: name.trim(),
                 teamIds: fieldIds,
                 pools,
                 advance,
+                ...(fieldIds.some((id) => gcOf(id).length > 0) ? { gc: fieldIds.map(gcOf) } : {}),
               })
             )
           }
@@ -138,6 +194,14 @@ export function TournamentPanel({
                 if (!field) return;
                 setName(field.name);
                 setFieldIds(field.teamIds);
+                setOpenedGc(
+                  new Map(
+                    field.teamIds.flatMap((id, at): [string, string[]][] => {
+                      const kept = field.gc?.[at];
+                      return kept?.length ? [[id, kept]] : [];
+                    })
+                  )
+                );
                 setPools(field.pools);
                 setAdvance(field.advance);
               }}
@@ -156,7 +220,7 @@ export function TournamentPanel({
           <button
             type="button"
             className={SMALL_BUTTON}
-            onClick={() => setSavedFields(deleteField(ageGroupId, name.trim()))}
+            onClick={() => setKeptFields(deleteField(ageGroupId, name.trim()))}
           >
             Delete saved
           </button>

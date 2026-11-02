@@ -4,6 +4,7 @@ import type { Movement } from "./movement";
 import { isRouteAgeLevel, isRouteYear, type RankingsRoute } from "./rankingsRoute";
 import type { ScoutRankingRow, SeasonSegment } from "./teamRankings";
 import { topShare } from "./standing";
+import { isGcIds, readClub, type ClubLookup } from "./teamRankings/leagueBridge";
 
 /**
  * The Team Rankings page a board was read off: its age level and squad year, and the half when the
@@ -33,6 +34,12 @@ export const clubRankPage = (
  */
 export type LeagueClubRank = {
   clubId: string;
+  /**
+   * GameChanger ids the club carried on the page (`keptGcIds`): its id here is the pool's own, and
+   * a fold or Team Rankings started again can leave it naming another club, so the place is read by
+   * these where League Standings holds the pool (`leagueClubRankFor`).
+   */
+  gc?: string[];
   /** The board it was read off, as its page names it: "9U 2027", with the half when there is one. */
   board: string;
   rank: number;
@@ -83,6 +90,7 @@ const coerceRank = (raw: unknown): LeagueClubRank | null => {
       : undefined;
   return {
     clubId: row.clubId,
+    ...(isGcIds(row.gc) && row.gc.length > 0 ? { gc: row.gc } : {}),
     board: row.board,
     rank: row.rank,
     of: row.of,
@@ -196,11 +204,23 @@ export const scoutRoute = (rank: LeagueClubRank): RankingsRoute => ({
   section: "scouting",
 });
 
-/** Where one league team's club stood when its board was last up, if it ever was. */
+/**
+ * Where one league team's club stood when its board was last up, if it ever was, its club read by
+ * the GameChanger ids kept with it where the pool is at hand (`readClub`): followed where it moved,
+ * so Scout opens the club the place was of, and none where its id is another club's now, as a club
+ * that left the board has none. A place kept with no id, or read with no pool, is as it was kept.
+ */
 export const leagueClubRankFor = (
   seasonId: string,
-  leagueTeamId: string
-): LeagueClubRank | undefined => readLeagueClubRanks()[seasonId]?.[leagueTeamId];
+  leagueTeamId: string,
+  clubs: ClubLookup | null = null
+): LeagueClubRank | undefined => {
+  const rank = readLeagueClubRanks()[seasonId]?.[leagueTeamId];
+  if (!rank?.gc?.length || !clubs) return rank;
+  const read = readClub({ id: rank.clubId, gc: rank.gc }, clubs);
+  if ("moved" in read) return undefined;
+  return read.id === rank.clubId ? rank : { ...rank, clubId: read.id };
+};
 
 /**
  * Replaces one season's places with the ones just read. Every team of it at once, so a team whose
@@ -233,14 +253,18 @@ export const leagueClubRanksFrom = (
   lastWeek: Readonly<Record<string, number>> | null,
   board: string,
   at: string,
-  page: ClubRankPage = {}
+  page: ClubRankPage = {},
+  /** The GameChanger ids each club carries on the page (`keptGcIds`), where the writer holds them. */
+  gcOf: (clubId: string) => readonly string[] | undefined = () => undefined
 ): Record<string, LeagueClubRank> => {
   const out: Record<string, LeagueClubRank> = {};
   clubByLeagueTeam.forEach((clubId, leagueTeamId) => {
     const glance = myTeamGlance(rankings, clubId, stateOf, [], lastWeek);
     if (!glance) return;
+    const gc = gcOf(clubId);
     out[leagueTeamId] = {
       clubId,
+      ...(gc?.length ? { gc: [...gc] } : {}),
       board,
       rank: glance.nationalRank,
       of: glance.nationalOf,

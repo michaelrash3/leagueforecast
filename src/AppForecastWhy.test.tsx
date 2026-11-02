@@ -65,7 +65,7 @@ describe("the Dashboard's predictions", () => {
     await user.click(why);
     expect(why).toHaveAttribute("aria-expanded", "true");
     expect(await within(card).findByText("For Aces:")).toBeInTheDocument();
-    expect(within(card).getByText(/^Projected margin: Aces by/)).toBeInTheDocument();
+    expect(within(card).getByText(/^Rating margin: Aces by/)).toBeInTheDocument();
     expect(within(card).getByText("Confidence:")).toBeInTheDocument();
 
     // The per-game model behind the Schedule's odds is read beside the rating's.
