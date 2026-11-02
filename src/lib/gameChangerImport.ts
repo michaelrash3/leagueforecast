@@ -7109,6 +7109,40 @@ export const ONE_NAMESAKE_TIDY_RULES: TidyRules = {
 type TimedNamedRow = NamedRow & { start: string | undefined };
 
 /**
+ * Why `inStateNamesakes` or `oneNamesake` read no club for a row, for a measurement that asks
+ * (`refileStandIns`' `explain`): the rule is off; the row has no date or level, or its namer no
+ * state; no pulled club of the name answers, or several do; the one that does is named like a slot,
+ * its name's words are too common to read where a state says nothing, the row is dated before its
+ * season, the two clubs are not neighbours by their own schedules, a level typed into the name is
+ * far from every level it is listed at, or one of its own rows that day starts within the hour
+ * against another club.
+ */
+export type NamesakeRefusal =
+  | "off"
+  | "noDate"
+  | "noLevel"
+  | "noState"
+  | "none"
+  | "several"
+  | "slotName"
+  | "commonWord"
+  | "beforeSeason"
+  | "notNeighbours"
+  | "typedLevel"
+  | "clash";
+
+/**
+ * Why `refileStandIns` left one stand-in row where it was: the two rules' reasons, the in-state
+ * rule's first (absent where the day check or a sole name had already picked the club), or that the
+ * club they read is one the owner said the name is not.
+ */
+export type RefileRefusal = {
+  inState?: NamesakeRefusal;
+  namesake?: NamesakeRefusal;
+  refused?: true;
+};
+
+/**
  * The pulled clubs each pulled club has played in a game its own schedules hold: a row of its own,
  * folded in or on record (`ownRowDays`). A row another club's schedule filed against it by name is
  * not its own word, so it never makes two clubs neighbours (`areOwnNeighbours`).
@@ -7193,12 +7227,22 @@ export const inStateNamesakes = (
   poolKeyOf: (ageGroupId: string) => string,
   rule: InStateRule | null,
   pulledNow: () => PulledNames = pulledNamesOf(state, poolKeyOf)
-): ((row: TimedNamedRow) => ScoutTeam | undefined) => {
-  if (!rule) return () => undefined;
+): ((row: TimedNamedRow, why?: (reason: NamesakeRefusal) => void) => ScoutTeam | undefined) => {
+  if (!rule)
+    return (_row, why) => {
+      why?.("off");
+      return undefined;
+    };
   const clashes = ownClashes(state);
   let opponents: Map<string, Set<string>> | undefined;
-  return ({ pool, key, level, namer, date, start }) => {
-    if (date === undefined || level === undefined || !namer?.state) return undefined;
+  return ({ pool, key, level, namer, date, start }, why) => {
+    const no = (reason: NamesakeRefusal) => {
+      why?.(reason);
+      return undefined;
+    };
+    if (date === undefined) return no("noDate");
+    if (level === undefined) return no("noLevel");
+    if (!namer?.state) return no("noState");
     const pulled = pulledNow();
     const inState = (at: number) =>
       (pulled.clubs.get(`${pool}\u0000${key}\u0000${at}`) ?? []).filter(
@@ -7208,18 +7252,19 @@ export const inStateNamesakes = (
     if (found.length === 0 && rule.nearLevel) {
       found = [...new Set([...inState(level - 1), ...inState(level + 1)])];
     }
-    if (found.length !== 1) return undefined;
+    if (found.length === 0) return no("none");
+    if (found.length > 1) return no("several");
     const club = found[0]!;
-    if (isPlaceholderName(club.name) || namesNobody(club.name)) return undefined;
-    if (!holdsRareWord(key, pulled, rule.rareAmong)) return undefined;
-    if (!inItsSeason(pulled, club.id, pool, date)) return undefined;
+    if (isPlaceholderName(club.name) || namesNobody(club.name)) return no("slotName");
+    if (!holdsRareWord(key, pulled, rule.rareAmong)) return no("commonWord");
+    if (!inItsSeason(pulled, club.id, pool, date)) return no("beforeSeason");
     if (
       rule.vouched &&
       !areOwnNeighbours((opponents ??= ownOpponentsOf(state)), namer.id, club.id)
     ) {
-      return undefined;
+      return no("notNeighbours");
     }
-    return clashes(club.id, date, start, namer.id) ? undefined : club;
+    return clashes(club.id, date, start, namer.id) ? no("clash") : club;
   };
 };
 
@@ -7464,8 +7509,12 @@ export const oneNamesake = (
   poolKeyOf: (ageGroupId: string) => string,
   rule: NamesakeRule | null | undefined,
   pulledNow: () => PulledNames = pulledNamesOf(state, poolKeyOf)
-): ((row: NamesakeRow) => ScoutTeam | undefined) => {
-  if (!rule) return () => undefined;
+): ((row: NamesakeRow, why?: (reason: NamesakeRefusal) => void) => ScoutTeam | undefined) => {
+  if (!rule)
+    return (_row, why) => {
+      why?.("off");
+      return undefined;
+    };
   const clashes = ownClashes(state);
   let met: Map<string, Set<string>> | undefined;
   /** As the resettle reads a name filed far from its namer (`unvouched`), so the two agree. */
@@ -7477,8 +7526,13 @@ export const oneNamesake = (
     const ours = met.get(namerId);
     return [...theirs].some((other) => other !== clubId && ours?.has(other));
   };
-  return ({ pool, key, looseKey, level, namer, date, start, typed }) => {
-    if (date === undefined || level === undefined) return undefined;
+  return ({ pool, key, looseKey, level, namer, date, start, typed }, why) => {
+    const no = (reason: NamesakeRefusal) => {
+      why?.(reason);
+      return undefined;
+    };
+    if (date === undefined) return no("noDate");
+    if (level === undefined) return no("noLevel");
     const pulled = pulledNow();
     // Near the namer, or far from it where the two clubs' own schedules meet: a Kentucky club
     // plays Michigan's all the time (the owner, 27 October 2026), and no border joins them.
@@ -7497,9 +7551,10 @@ export const oneNamesake = (
       for (let gap = 1; gap <= rule.levelsApart; gap += 1) levels.push(level - gap, level + gap);
       found = at(pulled.clubs, key, levels);
     }
-    if (found.length !== 1) return undefined;
+    if (found.length === 0) return no("none");
+    if (found.length > 1) return no("several");
     const club = found[0]!;
-    if (isPlaceholderName(club.name) || namesNobody(club.name)) return undefined;
+    if (isPlaceholderName(club.name) || namesNobody(club.name)) return no("slotName");
     // Where either club's state is unknown, or off the map of borders, nothing says the two are
     // near, and the one club of the name in the pool is the only one: a common name a club of no
     // known state wrote went onto the one club of it pulled at that level, in another country. So the name
@@ -7508,18 +7563,18 @@ export const oneNamesake = (
       !(onBorderMap(namer?.state) && onBorderMap(club.state)) &&
       !holdsRareWord(key, pulled, NAMESAKE_RARE_AMONG)
     ) {
-      return undefined;
+      return no("commonWord");
     }
-    if (!inItsSeason(pulled, club.id, pool, date)) return undefined;
+    if (!inItsSeason(pulled, club.id, pool, date)) return no("beforeSeason");
     const listed = pulled.listed.get(club.id);
     if (
       typed !== undefined &&
       listed?.size &&
       ![...listed].some((at) => Math.abs(at - typed) <= 1)
     ) {
-      return undefined;
+      return no("typedLevel");
     }
-    return clashes(club.id, date, start, namer?.id ?? "") ? undefined : club;
+    return clashes(club.id, date, start, namer?.id ?? "") ? no("clash") : club;
   };
 };
 
@@ -8061,7 +8116,12 @@ export const refileStandIns = (
   /** The names the owner has said are not a club (`notThisTeam.ts`), never refiled onto it. */
   refused: NotThisTeam = NO_REFUSALS,
   /** The rules still being measured (`TidyRules`): a name read as its one club in the namer's state. */
-  rules: TidyRules = SHIPPED_TIDY_RULES
+  rules: TidyRules = SHIPPED_TIDY_RULES,
+  /**
+   * Told of each stand-in row a pulled club's schedule wrote that is left where it was, and why,
+   * for a measurement (`scripts/modelSweep.ts`, `--why-unjoined`); the tidy passes none.
+   */
+  explain?: (game: ScoutGame, why: RefileRefusal) => void
 ): { state: GcImportState; refiled: number } => {
   const poolKeyOf = buildPoolKeyOf(state.ageGroups);
   const levelOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
@@ -8190,10 +8250,19 @@ export const refileStandIns = (
     // resettle leaves where this files it (`inStateNamesakes`); or the one of it in the namer's
     // region (`oneNamesake`), which it leaves too, unless the owner has said the club's own name is
     // not the club on this schedule, which the resettle reads off the club once it is filed.
-    const inStateClub = vouched ? pick : puller.state ? oneInState(row) : undefined;
+    const why: RefileRefusal = {};
+    const inStateClub = vouched
+      ? pick
+      : puller.state
+        ? oneInState(row, (reason) => (why.inState = reason))
+        : undefined;
+    if (!vouched && !puller.state) why.inState = "noState";
     const namesakeClub = inStateClub
       ? undefined
-      : theNamesake({ ...row, looseKey: looseNameKey(standIn.name), typed });
+      : theNamesake(
+          { ...row, looseKey: looseNameKey(standIn.name), typed },
+          (reason) => (why.namesake = reason)
+        );
     const club = inStateClub ?? namesakeClub;
     if (
       !club ||
@@ -8201,6 +8270,8 @@ export const refileStandIns = (
       refusesName(refused, game.source?.teamId, standIn.name, club) ||
       (namesakeClub !== undefined && refusesName(refused, game.source?.teamId, club.name, club))
     ) {
+      if (club) why.refused = true;
+      explain?.(game, why);
       return game;
     }
     refiled += 1;
