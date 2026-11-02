@@ -1,7 +1,8 @@
 /**
- * Switching between saved seasons, and making, copying or deleting one.
+ * Switching between saved seasons, and making, copying, archiving or deleting one.
  */
 import { Suspense, useId, useState } from "react";
+import { archiveGroups } from "../../lib/seasonArchive";
 import type { SeasonMeta } from "../../lib/storage";
 import { card } from "../../styles/tokens";
 import { ErrorBoundary } from "../ErrorBoundary";
@@ -23,17 +24,23 @@ const glanceView = viewChunk(
 export function SeasonManager({
   seasons,
   activeSeasonId,
+  archived = new Set<string>(),
   onSwitch,
   onCreate,
   onDuplicate,
   onDelete,
+  onArchive,
 }: {
   seasons: SeasonMeta[];
   activeSeasonId: string;
+  /** The seasons archived (`seasonArchive.ts`), listed under Archived after the rest. */
+  archived?: ReadonlySet<string>;
   onSwitch: (id: string) => void;
   onCreate: (name: string) => void;
   onDuplicate: (id: string, name: string) => void;
   onDelete: (id: string) => void;
+  /** Archives a season, or brings it back. */
+  onArchive?: (id: string, archived: boolean) => void;
 }) {
   const [newName, setNewName] = useState("");
   const [glanceOpen, setGlanceOpen] = useState(false);
@@ -45,6 +52,64 @@ export function SeasonManager({
     onCreate(newName.trim());
     setNewName("");
   };
+  const groups = archiveGroups(seasons, archived);
+  const row = (season: SeasonMeta, isArchived: boolean) => {
+    const isActive = season.id === activeSeasonId;
+    return (
+      <li
+        key={season.id}
+        className={`flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between ${
+          isActive
+            ? "border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30"
+            : "border-slate-200 dark:border-slate-700"
+        }`}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          {isActive && (
+            <span className="rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-white">
+              Active
+            </span>
+          )}
+          <span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-900 dark:text-slate-100">
+            {season.name}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {!isActive && (
+            <button type="button" className={chip} onClick={() => onSwitch(season.id)}>
+              {isArchived ? "Open" : "Switch"}
+            </button>
+          )}
+          {onArchive && (
+            <button
+              type="button"
+              className={chip}
+              aria-label={`${isArchived ? "Unarchive" : "Archive"} ${season.name}`}
+              onClick={() => onArchive(season.id, !isArchived)}
+            >
+              {isArchived ? "Unarchive" : "Archive"}
+            </button>
+          )}
+          <button
+            type="button"
+            className={chip}
+            onClick={() => onDuplicate(season.id, `${season.name} copy`)}
+          >
+            Duplicate
+          </button>
+          {seasons.length > 1 && (
+            <button
+              type="button"
+              className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 dark:border-red-900/70 dark:text-red-300 dark:hover:bg-red-950/30"
+              onClick={() => onDelete(season.id)}
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      </li>
+    );
+  };
   return (
     <section className={`${card} p-5`} aria-label="Seasons">
       <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
@@ -53,7 +118,8 @@ export function SeasonManager({
       <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
         Run several seasons side by side. Each keeps its own teams, games, scores, and settings —
         switching is instant and nothing is overwritten. Rename the active season with the “Season
-        label” field below.
+        label” field below. Archive a season once it is over: it moves under Archived and is
+        read-only until you unarchive it.
       </p>
 
       <div className="mt-4 flex flex-col gap-2 sm:flex-row">
@@ -77,55 +143,16 @@ export function SeasonManager({
         </button>
       </div>
 
-      <ul className="mt-4 space-y-2">
-        {seasons.map((season) => {
-          const isActive = season.id === activeSeasonId;
-          return (
-            <li
-              key={season.id}
-              className={`flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between ${
-                isActive
-                  ? "border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30"
-                  : "border-slate-200 dark:border-slate-700"
-              }`}
-            >
-              <div className="flex min-w-0 items-center gap-2">
-                {isActive && (
-                  <span className="rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-white">
-                    Active
-                  </span>
-                )}
-                <span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-900 dark:text-slate-100">
-                  {season.name}
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {!isActive && (
-                  <button type="button" className={chip} onClick={() => onSwitch(season.id)}>
-                    Switch
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className={chip}
-                  onClick={() => onDuplicate(season.id, `${season.name} copy`)}
-                >
-                  Duplicate
-                </button>
-                {seasons.length > 1 && (
-                  <button
-                    type="button"
-                    className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 dark:border-red-900/70 dark:text-red-300 dark:hover:bg-red-950/30"
-                    onClick={() => onDelete(season.id)}
-                  >
-                    Delete
-                  </button>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+      <ul className="mt-4 space-y-2">{groups.inUse.map((season) => row(season, false))}</ul>
+
+      {groups.archived.length > 0 && (
+        <section className="mt-4" aria-label="Archived seasons">
+          <h3 className="text-xs font-black uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+            Archived
+          </h3>
+          <ul className="mt-2 space-y-2">{groups.archived.map((season) => row(season, true))}</ul>
+        </section>
+      )}
 
       <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-700">
         <button

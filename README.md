@@ -4956,6 +4956,48 @@ the open season is marked "May be behind: this device's copy as of 12 days ago" 
 `updatedAt`): only the open season is followed live, so another device may have moved the others on.
 Nothing is fetched to catch one up; the glance makes no request, read or write of the cloud.
 
+## Archiving a season
+
+A season the league is done with can be archived (`seasonArchive.ts`, the owner's choices of 2
+November 2026). It is listed apart: under an **Archived** heading at the foot of the season picker
+in the header, and under **Archived** in Settings → Seasons, where each season has Archive or
+Unarchive beside Switch (Open, for an archived one), Duplicate and Delete. Seasons at a glance lists
+it as before. Opened, an archived season is read-only: a line over every tab says so, with an
+Unarchive button, every control that edits the season is off, and the season's store refuses any
+edit from elsewhere (the team drawer, a shared link, a toast's Undo) with the same reason, as it
+does in a tab another has the turn from. Any season can be archived; once one is over (every game
+final and, where there is a postseason, its champion decided), the Dashboard's "Season over" card
+offers **Archive this season** itself, and Unarchive once it is. Its games and scores are as they
+were and still count wherever they did, Team Rankings included. A copy made with Duplicate is in
+use, whatever the season it was copied from.
+
+The mark is the season's own setting, so it is the same on every device (League layout 3, data
+schema 12; an older build still open reads the season read-only until it reloads):
+
+- **The season on screen** has the mark set among its settings and saved with them, and while
+  League is live it goes to the cloud as any setting does, in the open season's next write. The
+  read-only lock is the mark's own, so it alone is taken off for the one edit that brings the season
+  back; any other reason the season may not be edited this moment refuses that too, saying why.
+- **A season that is not open** has the mark written into its settings in this browser, and, while
+  League is live, sent at once in one transaction (`sendArchiveMark`): that one setting, the
+  layout raised where the document's is older, when it was saved and the next write's number. A
+  season not open is otherwise sent only when next opened, which an archived season seldom is.
+  Nothing is written where the cloud already says so, where the cloud has no such season, or where
+  its season under that id was made at another moment. The write is kept as this device's own
+  beside the season's base (`Landed`), as the live store keeps its writes.
+- **The visit's meeting** (`meetSeasons`), which reads every season's document already, carries
+  the cloud's mark down to each season held here that is not open, so a season archived on the
+  phone is listed under Archived on the computer the next time the app opens there. Only the mark:
+  the rest of that season is taken in when it is next opened, as ever. A mark changed here since
+  this device last knew the document (`archivedAsKnown`: the base, then this device's own writes
+  of the mark that had landed by the cloud's version) is kept and sent, so a season archived
+  offline reaches the cloud at the next visit; with nothing known of the document, the cloud's
+  mark is taken, as a first opening takes the cloud's record where both sides hold one.
+
+No read is added: the open season's mark rides in its write, and the meeting reads nothing it did
+not read before. Archiving a season that is not open is one transaction, a read and a write, each
+time it is pressed, and the meeting writes only a mark this device changed and could not send.
+
 ## Data Quality
 
 What in a season's games, teams and settings is wrong or worth a second look, each as a
@@ -8771,7 +8813,7 @@ The document holds the season record by record rather than as one value:
 
 | Field                            | What it holds                                                                  |
 | -------------------------------- | ------------------------------------------------------------------------------ |
-| `schema`                         | The layout's version, 2. A device reads and writes no document of a later one. |
+| `schema`                         | The layout's version, 3. A device reads and writes no document of a later one. |
 | `rev`                            | The write the document is at: 1 when made, one more with every write.          |
 | `name`, `createdAt`, `updatedAt` | As the season's entry in the switcher has them.                                |
 | `teams`, `teamOrder`             | Each team under its id, and the teams' ids in the season's order.              |
@@ -8808,7 +8850,8 @@ one, and fails until it does), and a device reads and writes no document of a
 later layout than its build's: the season is read-only there, saying a newer
 version saved it, until the page reloads. Layout 2 is a game's start
 (`Matchup.startTs`), a set team list (`Settings.teamsLocked`) and the GameChanger
-id kept beside a team's pick (`TeamBase.scoutGcTeamId`), one raise for the three. Both sides of
+id kept beside a team's pick (`TeamBase.scoutGcTeamId`), one raise for the three. Layout 3 is
+a season's archive mark (`Settings.archived`, "Archiving a season" below). Both sides of
 every comparison are stamped with the build's own layout, so until 31 October
 2026 no write carried one and every season stayed at 1, open to the builds that
 drop a start. A season of an earlier layout is raised by the first write a device

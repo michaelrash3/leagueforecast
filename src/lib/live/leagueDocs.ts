@@ -35,10 +35,12 @@ import {
  * from every record it writes. 2: a season says its team list is set (`Settings.teamsLocked`), a
  * game keeps its start (`Matchup.startTs`), which a build of layout 1 still open erased from any
  * game it moved or edited, and a team's pick keeps the GameChanger id of the club it picked
- * (`TeamBase.scoutGcTeamId`). A season already in the cloud is raised by the first write a device
- * of this build sends it (`writesFor`), and only then: no write is made for the raise alone.
+ * (`TeamBase.scoutGcTeamId`). 3: a season says it is archived (`Settings.archived`), which a build
+ * of layout 2 would list as in use and let be edited. A season already in the cloud is raised by the
+ * first write a device of this build sends it (`writesFor`, `sendArchiveMark`), and only then: no
+ * write is made for the raise alone.
  */
-export const LEAGUE_DOC_SCHEMA = 2;
+export const LEAGUE_DOC_SCHEMA = 3;
 
 /** Where the seasons are. */
 export const LEAGUE_COLLECTION = "league";

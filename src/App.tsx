@@ -50,6 +50,7 @@ import {
   LiveLeagueBanner,
   needsAPerson,
 } from "./components/league/LiveLeagueBanner";
+import { ArchivedBanner } from "./components/league/ArchivedBanner";
 import { EditLock, SeasonEditable } from "./components/league/EditLock";
 import { useTabReadOnly } from "./hooks/useTabReadOnly";
 import { saveBackupFile } from "./lib/backupFile";
@@ -62,6 +63,7 @@ import { searchWithTab, tabFromSearch } from "./lib/leagueTab";
 import { ModeSwitchContext } from "./components/modeSwitch";
 import { recordDiagnostic } from "./lib/diagnostics";
 import { seasonFinalOf } from "./lib/seasonFinal";
+import { ARCHIVED_READ_ONLY, archiveGroups, isArchived } from "./lib/seasonArchive";
 import { useClinchScenarios } from "./hooks/useClinchScenarios";
 import { useSeedRanges } from "./hooks/useSeedRanges";
 import { useSeasons } from "./hooks/useSeasons";
@@ -235,6 +237,7 @@ import {
   saveMatchups,
   saveSettings,
   saveTeams,
+  setSeasonArchived,
 } from "./lib/storage";
 import {
   DEFAULT_SETTINGS,
@@ -464,6 +467,7 @@ const LOCAL_SEASONS: LocalSeasons = {
   list: listSeasons,
   read: readSeasonSnapshot,
   add: addSeasons,
+  markArchived: setSeasonArchived,
 };
 
 /** A season's entry in this device's season list. */
@@ -873,6 +877,16 @@ export default function App() {
   // Filled once League kept live is known, below: the season list asks it before a deletion.
   const removeLiveSeason = useRef<(id: string) => Promise<boolean>>(async () => true);
   const beforeSeasonDelete = useCallback((id: string) => removeLiveSeason.current(id), []);
+  // Filled below too, once the reasons the open season may not be edited are known.
+  const archiveOpenRef = useRef<(archived: boolean) => boolean>(() => false);
+  const archiveOpen = useCallback((archived: boolean) => archiveOpenRef.current(archived), []);
+  const archiveLiveSeason = useRef<(id: string, archived: boolean) => Promise<unknown>>(
+    async () => null
+  );
+  const afterArchive = useCallback(
+    (id: string, archived: boolean) => archiveLiveSeason.current(id, archived),
+    []
+  );
   const seasons = useSeasons({
     seasonLabel: settings.seasonLabel,
     loadActiveSeason,
@@ -880,6 +894,8 @@ export default function App() {
     requestConfirmation,
     beforeDelete: beforeSeasonDelete,
     beforeSwitch: writeHeldScores,
+    archiveOpen,
+    afterArchive,
   });
   const activeSeasonId = seasons.activeId;
   /*
@@ -935,8 +951,10 @@ export default function App() {
   });
   // Read-only while another tab of this browser has the turn (`tabTurn.ts`), however League is kept.
   const tabReadOnly = useTabReadOnly();
-  const leagueEditable = editable(liveLeague.state) && !tabReadOnly;
-  const { guardUndo, removeSeason } = liveLeague;
+  // Archived, the open season is read-only until it is brought back (`seasonArchive.ts`).
+  const seasonArchived = isArchived(settings);
+  const leagueEditable = editable(liveLeague.state) && !tabReadOnly && !seasonArchived;
+  const { guardUndo, removeSeason, archiveSeason } = liveLeague;
   const leagueReachable = reachable(liveLeague.state);
   // Kept live this moment, rather than switched on: a visitor, or a member's device offline or
   // still to meet the cloud's seasons, is not.
@@ -946,11 +964,42 @@ export default function App() {
    * command palette, a shared link and a toast's Undo all reach the season from outside them, and
    * each is refused while the season may not be written, with the reason.
    */
-  const editingOff = tabReadOnly ? TAB_READ_ONLY : editingOffBecause(liveLeague.state);
+  const editingOffElse = tabReadOnly ? TAB_READ_ONLY : editingOffBecause(liveLeague.state);
+  const editingOff = editingOffElse ?? (seasonArchived ? ARCHIVED_READ_ONLY : null);
   // Locked as the page is drawn read-only, not a frame after, so no edit lands in between.
   useLayoutEffect(() => {
     seasonStore.lock(editingOff);
   }, [seasonStore, editingOff]);
+  useEffect(() => {
+    /*
+     * The open season's mark is a setting, changed and saved with the others, and sent with them
+     * while League is live. Its own lock is the one thing the mark may be changed through: taken
+     * off for that one edit, and put back, or not, as the page is drawn again. Any other reason the
+     * season may not be edited refuses it, saying why.
+     */
+    archiveOpenRef.current = (archived) => {
+      if (editingOffElse !== null) {
+        showToast(editingOffElse, { tone: "error" });
+        return false;
+      }
+      if (isArchived(seasonStore.get().season.settings) === archived) return true;
+      seasonStore.lock(null);
+      setSettings((current) => ({ ...current, archived }));
+      return true;
+    };
+    archiveLiveSeason.current = (id, archived) => archiveSeason(id, archived);
+  }, [editingOffElse, seasonStore, setSettings, showToast, archiveSeason]);
+  // Every season archived, the open one as its settings on screen say.
+  const archivedSeasons = useMemo(() => {
+    const ids = new Set(seasons.archived);
+    if (seasonArchived) ids.add(activeSeasonId);
+    else ids.delete(activeSeasonId);
+    return ids;
+  }, [seasons.archived, seasonArchived, activeSeasonId]);
+  const seasonGroups = useMemo(
+    () => archiveGroups(seasons.all, archivedSeasons),
+    [seasons.all, archivedSeasons]
+  );
   useEffect(() => {
     // Said once the handler that tried the edit is done: one that goes on to say it did what it
     // set out to ("Loaded demo season.") would otherwise put its word over the refusal.
@@ -3660,11 +3709,20 @@ export default function App() {
                       aria-label="Active season"
                       title="Switch season"
                     >
-                      {seasons.all.map((season) => (
+                      {seasonGroups.inUse.map((season) => (
                         <option key={season.id} value={season.id}>
                           {season.name}
                         </option>
                       ))}
+                      {seasonGroups.archived.length > 0 && (
+                        <optgroup label="Archived">
+                          {seasonGroups.archived.map((season) => (
+                            <option key={season.id} value={season.id}>
+                              {season.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
                     {teams.length > 0 && (
                       <button
@@ -3783,6 +3841,9 @@ export default function App() {
               </Suspense>
             )}
             <LiveLeagueBanner state={liveLeague.state} />
+            {seasonArchived && (
+              <ArchivedBanner onUnarchive={() => seasons.setArchived(activeSeasonId, false)} />
+            )}
             {/* Kept live, a season that may not be written is read-only: every control that edits
               it is off (`EditLock`), and what only reads it stays usable. */}
             <SeasonEditable value={leagueEditable}>
@@ -3857,6 +3918,8 @@ export default function App() {
                         withGold: hasCutLine,
                       }}
                       seasonFinal={seasonFinal}
+                      archived={seasonArchived}
+                      onArchive={(archive) => seasons.setArchived(activeSeasonId, archive)}
                       hasCutLine={hasCutLine}
                       engine={predictionEngine}
                       gameForecast={gameForecast}
@@ -4067,10 +4130,12 @@ export default function App() {
                       <SeasonManager
                         seasons={seasons.all}
                         activeSeasonId={activeSeasonId}
+                        archived={archivedSeasons}
                         onSwitch={seasons.switchTo}
                         onCreate={seasons.create}
                         onDuplicate={seasons.duplicate}
                         onDelete={(id) => void seasons.remove(id)}
+                        onArchive={seasons.setArchived}
                       />
                       {/* Above Settings because it answers the question the "Team Rankings results"
                     setting down there raises: which club is which. */}

@@ -273,5 +273,6 @@ export const coerceSettings = (raw: unknown): Settings => {
     trackErrors: isBoolean(raw.trackErrors) ? raw.trackErrors : DEFAULT_SETTINGS.trackErrors,
     recapGrouping,
     ...(isBoolean(raw.teamsLocked) ? { teamsLocked: raw.teamsLocked } : {}),
+    ...(isBoolean(raw.archived) ? { archived: raw.archived } : {}),
   };
 };

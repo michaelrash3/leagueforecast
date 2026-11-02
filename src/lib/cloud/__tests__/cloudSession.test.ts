@@ -1460,6 +1460,7 @@ describe("League Standings before this device's first meeting (1.6e review)", ()
         list: () => mine.map(({ id, name, createdAt }) => ({ id, name, createdAt })),
         read: (id) => mine.find((each) => each.id === id) ?? null,
         add: () => true,
+        markArchived: () => true,
       },
       bases,
       openId: () => "fall",

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  archivedSeasonIds,
   createSeason,
   deleteSeason,
   duplicateSeason,
@@ -7,6 +8,7 @@ import {
   listSeasons,
   renameSeason,
   setActiveSeason,
+  setSeasonArchived,
   type SeasonMeta,
 } from "../lib/storage";
 import { TAB_READ_ONLY, tabReadOnly } from "../lib/tabTurn";
@@ -42,12 +44,28 @@ export type SeasonsOptions = {
    * a score it holds half a second before saving it, which the switch would otherwise have lost.
    */
   beforeSwitch?: () => void;
+  /**
+   * Archives the open season, or brings it back (`seasonArchive.ts`): its settings are on screen,
+   * so the mark is changed there and saved and sent with them, as any setting is. False when the
+   * season may not be edited this moment, which the caller has said why.
+   */
+  archiveOpen: (archived: boolean) => boolean;
+  /**
+   * Asked once another season's mark is in storage: League kept live sends it to the cloud at once
+   * (`sendArchiveMark`), since a season that is not open is otherwise sent only when next opened.
+   */
+  afterArchive?: (id: string, archived: boolean) => Promise<unknown>;
 };
 
 export type Seasons = {
   /** Every season this browser holds, in the order the index keeps them. */
   all: SeasonMeta[];
   activeId: string;
+  /**
+   * The seasons archived, as storage holds their marks: the open season's as last saved, so the
+   * page reads that one's from its settings on screen.
+   */
+  archived: ReadonlySet<string>;
   /** Re-reads the index and the active season's data. For a restore, which replaces both. */
   reload: () => void;
   /** Re-reads the index alone, for seasons added to it from outside: the open season is as it was. */
@@ -57,6 +75,8 @@ export type Seasons = {
   duplicate: (id: string, name: string) => void;
   /** Asks first; deleting the only season is refused, with a toast saying so. */
   remove: (id: string) => Promise<void>;
+  /** Archives a season, or brings it back, and says so. */
+  setArchived: (id: string, archived: boolean) => void;
 };
 
 /**
@@ -74,17 +94,25 @@ export function useSeasons({
   requestConfirmation,
   beforeDelete,
   beforeSwitch,
+  archiveOpen,
+  afterArchive,
 }: SeasonsOptions): Seasons {
   const [all, setAll] = useState<SeasonMeta[]>(() => listSeasons());
   const [activeId, setActiveId] = useState<string>(() => getActiveSeasonId());
+  const [archived, setArchivedIds] = useState<ReadonlySet<string>>(() => archivedSeasonIds());
 
   const reload = useCallback(() => {
     loadActiveSeason();
     setAll(listSeasons());
     setActiveId(getActiveSeasonId());
+    setArchivedIds(archivedSeasonIds());
   }, [loadActiveSeason]);
 
-  const refresh = useCallback(() => setAll(listSeasons()), []);
+  // Read again with the list: seasons brought down, or archived or brought back elsewhere.
+  const refresh = useCallback(() => {
+    setAll(listSeasons());
+    setArchivedIds(archivedSeasonIds());
+  }, []);
 
   /**
    * Whether this tab is read-only for another tab's turn (`tabTurn.ts`), said so where it is.
@@ -131,6 +159,7 @@ export function useSeasons({
       const meta = duplicateSeason(id, name);
       if (!meta) return;
       setAll(listSeasons());
+      setArchivedIds(archivedSeasonIds());
       showToast(`Duplicated into ${meta.name}.`, { tone: "success" });
     },
     [showToast, refusedHere]
@@ -157,10 +186,41 @@ export function useSeasons({
       // Deleting the season being looked at moves the active one, so its data has to be re-read;
       // deleting any other only shortens the list.
       if (wasActive) reload();
-      else setAll(listSeasons());
+      else refresh();
       showToast(`Deleted ${target.name}.`, { tone: "success" });
     },
-    [reload, requestConfirmation, showToast, beforeDelete, refusedHere]
+    [reload, refresh, requestConfirmation, showToast, beforeDelete, refusedHere]
+  );
+
+  const setArchived = useCallback(
+    (id: string, archive: boolean) => {
+      if (refusedHere()) return;
+      const target = listSeasons().find((season) => season.id === id);
+      if (!target) return;
+      if (id === getActiveSeasonId()) {
+        if (!archiveOpen(archive)) return;
+      } else {
+        if (!setSeasonArchived(id, archive)) {
+          showToast(
+            `${target.name} could not be ${archive ? "archived" : "unarchived"}: storage is full.`,
+            {
+              tone: "error",
+            }
+          );
+          return;
+        }
+        setArchivedIds(archivedSeasonIds());
+        // With no connection it waits, here, for the visit's next meeting to send it.
+        afterArchive?.(id, archive).catch(() => undefined);
+      }
+      showToast(
+        archive
+          ? `Archived ${target.name}. It is read-only until you unarchive it.`
+          : `Unarchived ${target.name}.`,
+        { tone: "success" }
+      );
+    },
+    [archiveOpen, afterArchive, refusedHere, showToast]
   );
 
   // Keeps the index's name for the active season in step with its editable label, so the header
@@ -179,5 +239,16 @@ export function useSeasons({
     }
   }, [seasonLabel, activeId, activeName]);
 
-  return { all, activeId, reload, refresh, switchTo, create, duplicate, remove };
+  return {
+    all,
+    activeId,
+    archived,
+    reload,
+    refresh,
+    switchTo,
+    create,
+    duplicate,
+    remove,
+    setArchived,
+  };
 }
