@@ -108,6 +108,7 @@ import {
   ageGroupYear,
   rankingPoolGroupIds,
   scoutFitRanks,
+  teamNameKey,
   type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
@@ -116,6 +117,7 @@ import { openStores } from "./cloudPool.ts";
 import { poolFixture } from "./poolFixture.ts";
 import { readSweepFile, sweepTidy } from "./sweepTidy.ts";
 import {
+  clubGameLines,
   oneNameLines,
   oneNameRows,
   unjoinedReasonLines,
@@ -581,6 +583,20 @@ const main = async (): Promise<void> => {
       const pool = { ageGroups: source.ageGroups, teams: source.teams, games: source.allGames() };
       const matches = (key: string) => createHash("sha256").update(key).digest("hex") === digest;
       oneNameLines(oneNameRows(pool, year, matches, refused)).forEach((line) => say(line));
+      // Each pulled club of the name, game by game, against the games the boards are built from.
+      const known = deriveAllKnown({
+        ageGroups: source.ageGroups,
+        teams: source.teams,
+        yearGames: source.gamesOfYear(year),
+        readSeason: source.readSeason,
+        autoRemoved: source.autoRemoved,
+      });
+      const board = { games: new Set(known.games.map((game) => game.id)), removed: known.removed };
+      pool.teams
+        .filter((team) => !team.nameOnly && !team.placeholder && matches(teamNameKey(team.name)))
+        .forEach((team) =>
+          clubGameLines(pool, team.id, year, board, source.today).forEach((line) => say(line))
+        );
     }
     unjoinedReasonLines(
       unjoinedReasons(

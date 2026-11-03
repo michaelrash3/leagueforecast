@@ -4,7 +4,9 @@ import {
   type GcImportState,
   type RefileRefusal,
 } from "./gameChangerImport";
+import { isDatedAhead } from "./deletedGames";
 import { NO_REFUSALS, type NotThisTeam } from "./notThisTeam";
+import { countsTowardRating, isImplausibleScore, playsItself } from "./teamRankings/games";
 import { standInReport } from "./standInReport";
 import {
   ageGroupLevel,
@@ -281,3 +283,64 @@ export const oneNameLines = (found: { clubs: NamedClubLine[]; rows: NamedRowLine
       }, named from ${row.namerState ?? "no state"}${row.played ? ", played" : ""}: ${row.why}`
   ),
 ];
+
+/**
+ * One club's games of the squad year, nameless, each with what decides whether it counts and
+ * whether the boards keep it: the owner's River City Raptors held 23 games in the cloud copy on 2
+ * November 2026 while the club's panel counted 16, and nothing said where the other 7 went.
+ * `boardGames` is the ids of the games the boards are built from (`deriveAllKnown`), which leaves
+ * out every game against a club taken off as plainly made up (`removed`).
+ */
+export const clubGameLines = (
+  state: GcImportState,
+  clubId: string,
+  year: number,
+  board: { games: ReadonlySet<string>; removed: ReadonlySet<string> },
+  today: string
+): string[] => {
+  const yearOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupYear(group)]));
+  const levelOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
+  const byId = new Map(state.teams.map((team) => [team.id, team]));
+  const club = byId.get(clubId);
+  const own = new Set((club?.gcTeams ?? []).map((link) => link.teamId));
+  const games = state.games
+    .filter(
+      (game) =>
+        yearOf.get(game.ageGroupId) === year && (game.teamAId === clubId || game.teamBId === clubId)
+    )
+    .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "") || a.id.localeCompare(b.id));
+  const counted = games.filter((game) => countsTowardRating(game, today));
+  const kept = games.filter((game) => board.games.has(game.id));
+  return [
+    `  Its games: ${games.length}; counting toward the rating: ${counted.length}; on the boards: ${kept.length}; counting and on the boards: ${counted.filter((game) => board.games.has(game.id)).length}`,
+    ...games.map((game) => {
+      const mine = game.teamAId === clubId;
+      const other = byId.get(mine ? game.teamBId : game.teamAId);
+      const score = isScoutGamePlayed(game)
+        ? `${mine ? game.teamAScore : game.teamBScore}-${mine ? game.teamBScore : game.teamAScore}`
+        : "unscored";
+      const kind = !other
+        ? "missing"
+        : other.placeholder
+          ? "slot"
+          : other.nameOnly
+            ? "stand-in"
+            : other.gcTeams?.length
+              ? "pulled"
+              : "typed";
+      const flags = [
+        board.games.has(game.id) ? "" : "OFF THE BOARDS",
+        other && board.removed.has(other.id) ? "opponent taken off as made up" : "",
+        countsTowardRating(game, today) ? "counts" : "does not count",
+        game.excluded ? "excluded" : "",
+        game.countedElsewhere ? "counted elsewhere" : "",
+        game.withdrawn ? "withdrawn" : "",
+        isDatedAhead(game, today) ? "dated ahead" : "",
+        isImplausibleScore(game) ? "implausible score" : "",
+        playsItself(game) ? "plays itself" : "",
+        game.source && own.has(game.source.teamId) ? "own row" : "another schedule's row",
+      ].filter(Boolean);
+      return `    ${game.date ?? "no date"} ${levelOf.get(game.ageGroupId) ?? "?"}U ${score} vs ${kind} (${other?.state ?? "no state"}): ${flags.join(", ")}`;
+    }),
+  ];
+};
