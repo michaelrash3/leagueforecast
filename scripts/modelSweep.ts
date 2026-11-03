@@ -106,8 +106,15 @@ import {
 } from "../src/lib/teamRankingsStorage.ts";
 import {
   ageGroupYear,
+  ageGroupLevel,
+  gcCarriersOf,
+  isOffClubId,
+  isScoutGamePlayed,
+  NO_SCOUT_TEAM,
   rankingPoolGroupIds,
+  readPick,
   scoutFitRanks,
+  teamNameKey,
   type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
@@ -116,6 +123,7 @@ import { openStores } from "./cloudPool.ts";
 import { poolFixture } from "./poolFixture.ts";
 import { readSweepFile, sweepTidy } from "./sweepTidy.ts";
 import {
+  clubGameLines,
   oneNameLines,
   oneNameRows,
   unjoinedReasonLines,
@@ -581,6 +589,88 @@ const main = async (): Promise<void> => {
       const pool = { ageGroups: source.ageGroups, teams: source.teams, games: source.allGames() };
       const matches = (key: string) => createHash("sha256").update(key).digest("hex") === digest;
       oneNameLines(oneNameRows(pool, year, matches, refused)).forEach((line) => say(line));
+      // Each pulled club of the name, game by game, against the games the boards are built from.
+      const known = deriveAllKnown({
+        ageGroups: source.ageGroups,
+        teams: source.teams,
+        yearGames: source.gamesOfYear(year),
+        readSeason: source.readSeason,
+        autoRemoved: source.autoRemoved,
+      });
+      const board = { games: new Set(known.games.map((game) => game.id)), removed: known.removed };
+      pool.teams
+        .filter((team) => !team.nameOnly && !team.placeholder && matches(teamNameKey(team.name)))
+        .forEach((team) =>
+          clubGameLines(pool, team.id, year, board, source.today).forEach((line) => say(line))
+        );
+      // Each League Standings team of the name, nameless: how its link reads and where it went.
+      const pulledOfName = new Set(
+        pool.teams
+          .filter((team) => team.gcTeams?.length && matches(teamNameKey(team.name)))
+          .map((team) => team.id)
+      );
+      const byId = new Map(known.teams.map((team) => [team.id, team]));
+      const carriers = gcCarriersOf(pool.teams);
+      const lookup = new Map(pool.teams.map((team) => [team.id, team]));
+      source.ageGroups.forEach((group) => {
+        group.seasonIds.forEach((seasonId, at) => {
+          const season = source.readSeason(seasonId);
+          season.teams
+            .filter((team) => matches(teamNameKey(team.name)))
+            .forEach((team) => {
+              const pick = team.scoutTeamId;
+              const read = readPick(team, lookup, carriers);
+              const onto = known.leagueClubs.get(group.id)?.get(seasonId)?.get(team.id);
+              const ontoClub = onto === undefined ? undefined : byId.get(onto);
+              const games = known.derivedGames.filter(
+                (game) => game.teamAId === onto || game.teamBId === onto
+              );
+              say(
+                `  League team of the name, on the ${ageGroupLevel(group) ?? "?"}U ${
+                  ageGroupYear(group) ?? "?"
+                } page, season ${at + 1} of ${group.seasonIds.length}: pick ${
+                  pick === undefined
+                    ? "none"
+                    : pick === NO_SCOUT_TEAM
+                      ? "NOT IN TEAM RANKINGS"
+                      : pulledOfName.has(pick)
+                        ? "the pulled club"
+                        : lookup.has(pick)
+                          ? "another club"
+                          : "an id no club holds"
+                }; its GameChanger id ${
+                  team.scoutGcTeamId === undefined
+                    ? "none kept"
+                    : [...pulledOfName].some((id) =>
+                          lookup
+                            .get(id)
+                            ?.gcTeams?.some((link) => link.teamId === team.scoutGcTeamId)
+                        )
+                      ? "the pulled club's"
+                      : "another's or none's"
+                }; read as ${
+                  read.moved !== undefined
+                    ? "MOVED"
+                    : read.pick === undefined
+                      ? "no pick"
+                      : pulledOfName.has(read.pick)
+                        ? "the pulled club"
+                        : "another club"
+                }; carried onto ${
+                  onto === undefined
+                    ? "nothing"
+                    : pulledOfName.has(onto)
+                      ? "the pulled club"
+                      : isOffClubId(onto)
+                        ? "A CLUB OF ITS OWN (not in Team Rankings)"
+                        : ontoClub?.gcTeams?.length
+                          ? "another pulled club"
+                          : "A CLUB MADE FOR IT"
+                }; ${games.length} league games, ${games.filter((game) => isScoutGamePlayed(game)).length} scored`
+              );
+            });
+        });
+      });
     }
     unjoinedReasonLines(
       unjoinedReasons(

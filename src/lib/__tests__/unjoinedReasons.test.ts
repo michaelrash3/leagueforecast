@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { tidyPool, type GcImportState } from "../gameChangerImport";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 import {
+  clubGameLines,
   oneNameLines,
   oneNameRows,
   unjoinedReasonLines,
@@ -117,6 +118,26 @@ describe("one name's clubs and rows, nameless", () => {
       "  stand-in, no state, listed at nothing; 1 games, first own day none; 0 link(s), last pulled never",
       "Rows pulled clubs' schedules filed against a stand-in of the name: 1",
       "  2026-09-01 on the 10U page, named from KY, played: beforeSeason | beforeSeason",
+    ]);
+  });
+});
+
+describe("one club's games, nameless", () => {
+  it("says which games count and which the boards leave out, with the opponent taken off", () => {
+    const bombers = pulled("BOMB", "Bluegrass Bombers", "KY");
+    const fake = pulled("FAKE", "Made Up Nine", "KY");
+    const kept = row(bombers, namer.id, "2026-09-20");
+    const gone = row(bombers, fake.id, "2026-09-27", { teamAScore: 11, teamBScore: 5 });
+    const state: GcImportState = {
+      ageGroups: groups,
+      teams: [namer, bombers, fake],
+      games: [kept, gone],
+    };
+    const board = { games: new Set([kept.id]), removed: new Set([fake.id]) };
+    expect(clubGameLines(state, "BOMB", 2027, board, "2026-11-03")).toEqual([
+      "  Its games: 2; counting toward the rating: 2; on the boards: 1; counting and on the boards: 1",
+      "    2026-09-20 10U 5-3 vs pulled (KY): counts, own row",
+      "    2026-09-27 10U 11-5 vs pulled (KY): OFF THE BOARDS, opponent taken off as made up, counts, own row",
     ]);
   });
 });
