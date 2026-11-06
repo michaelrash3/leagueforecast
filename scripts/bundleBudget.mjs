@@ -275,6 +275,23 @@ const TEAM_RANKINGS_ONLY = [
   "src/lib/ratingRecency.ts",
   "src/lib/teamNameRules.ts",
   "src/lib/gameChangerImport.ts",
+  // The modules the import and the tidy were split into (`gameChangerImport/`), each as only Team
+  // Rankings runs as the file they came from; the file itself now only names what they export. Its
+  // `types.ts` holds types alone, which leave nothing in the build to look for.
+  "src/lib/gameChangerImport/ages.ts",
+  "src/lib/gameChangerImport/claims.ts",
+  "src/lib/gameChangerImport/filing.ts",
+  "src/lib/gameChangerImport/folds.ts",
+  "src/lib/gameChangerImport/halves.ts",
+  "src/lib/gameChangerImport/importer.ts",
+  "src/lib/gameChangerImport/namesakes.ts",
+  "src/lib/gameChangerImport/pairings.ts",
+  "src/lib/gameChangerImport/poolIndex.ts",
+  "src/lib/gameChangerImport/rows.ts",
+  "src/lib/gameChangerImport/slots.ts",
+  "src/lib/gameChangerImport/standIns.ts",
+  "src/lib/gameChangerImport/sweeps.ts",
+  "src/lib/gameChangerImport/tidy.ts",
 ];
 
 const gzipped = new Map();
