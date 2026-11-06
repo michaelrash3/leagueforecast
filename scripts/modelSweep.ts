@@ -22,7 +22,8 @@
  * digest, and each row filed against a stand-in of it, nameless (`oneNameRows`).
  *
  * Options: --year=2027 (the squad year), --today=DAY (the board's day; the members' day by
- * default), --top=25 (the stand-ins named, most games first), --public (numbers only),
+ * default), --cuts=DAY,DAY with --score-from=DAY (the boards' days and the day scoring starts, the
+ * ones every read has used by default), --top=25 (the stand-ins named, most games first), --public (numbers only),
  * --seal=FILE with --seal-to-key=PEM (the named lines, sealed to that public key), and
  * --open=FILE --with-key=PEM (unseal one with the private key).
  *
@@ -148,6 +149,31 @@ const flag = (name: string): string | undefined => {
   return found.includes("=") ? found.slice(found.indexOf("=") + 1) : "";
 };
 const has = (name: string) => flag(name) !== undefined;
+
+/**
+ * The days the sweep fits its boards on and scores the games from: the ones every read has used
+ * (`MODEL_CUTS`, `MODEL_SCORE_FROM`), or others named (`--cuts=DAY,DAY --score-from=DAY`) to read
+ * the boards later in a season, where clubs stand on more games than in September. Each must be a
+ * day, and the scoring day after every cut, or the sweep stops before reading anything.
+ */
+const sweepCuts = (() => {
+  const named = flag("cuts");
+  const from = flag("score-from");
+  if (!named && !from) return { cuts: MODEL_CUTS, scoreFrom: MODEL_SCORE_FROM };
+  const cuts = (named ?? "").split(",").filter(Boolean);
+  const day = /^\d{4}-\d{2}-\d{2}$/;
+  if (cuts.length === 0 || !from || !cuts.every((cut) => day.test(cut)) || !day.test(from)) {
+    console.log(
+      "Name the cuts and the scoring day together, as days: --cuts=DAY,DAY --score-from=DAY."
+    );
+    process.exit(2);
+  }
+  if (cuts.some((cut) => cut >= from)) {
+    console.log("The scoring day must come after every cut.");
+    process.exit(2);
+  }
+  return { cuts, scoreFrom: from };
+})();
 
 /** Whatever was read, laid out the same way: what follows cannot tell the sources apart. */
 type Source = {
@@ -792,8 +818,8 @@ const main = async (): Promise<void> => {
       teams: pool.teams,
       games: pool.games,
       year,
-      cuts: MODEL_CUTS,
-      scoreFrom: MODEL_SCORE_FROM,
+      cuts: sweepCuts.cuts,
+      scoreFrom: sweepCuts.scoreFrom,
       today: source.today,
       now: () => performance.now(),
     });
