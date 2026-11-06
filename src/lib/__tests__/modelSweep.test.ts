@@ -267,6 +267,163 @@ describe("the research sweep of the shipped model", () => {
     expect(withIt.calibration).toEqual(without.calibration);
   });
 
+  it("reads every setting it read before the uncertainty settings, to the digit", () => {
+    // Snapshotted on this autumn before a matchup could read the fit's own ratings or widen with
+    // the two clubs' errors: what each setting said then, it says still.
+    const before: Array<[string, number, number, number]> = [
+      ["shipped", 0.46241948674893774, 0.14863800042381828, 14.338066623403552],
+      ["ridge-0.75", 0.4562101380167666, 0.14674938243216992, 14.349836506488595],
+      ["ridge-1.125", 0.45935948073250754, 0.14769767581457152, 14.325294614672012],
+      ["ridge-2.25", 0.46831020897294945, 0.1504947334548658, 14.449416899309874],
+      ["ridge-3", 0.473951938070658, 0.152321311327631, 14.643760599607816],
+      ["cap-8", 0.47752561636129387, 0.15232868747867953, 14.739174100090514],
+      ["cap-10", 0.4665946382837112, 0.1493933981104443, 14.262490847475783],
+      ["cap-14", 0.4608923992709079, 0.14847708339682988, 14.562694005147714],
+      ["cap-16", 0.4614235901217123, 0.14897055790674846, 14.723825918672196],
+      ["floor-0.02", 0.4622593730747873, 0.1486158010173229, 14.338066623403552],
+      ["floor-0.05", 0.4622593730747873, 0.1486158010173229, 14.338066623403552],
+      ["floor-0.12", 0.46427080798622405, 0.14898831762365747, 14.338066623403552],
+      ["spread-0.95", 0.457133100326638, 0.1471632951073544, 14.338066623403552],
+      ["spread-1.05", 0.4676351111540156, 0.15017832740904502, 14.338066623403552],
+      ["spread-1.1", 0.4728465224788286, 0.15177718178783234, 14.338066623403552],
+      ["spread-1.15", 0.4779605764045595, 0.1534073109078795, 14.338066623403552],
+      ["spread-1.2", 0.48293464231538896, 0.15505024692420374, 14.338066623403552],
+      ["spread-1.3", 0.4924340184480712, 0.15833135143277183, 14.338066623403552],
+    ];
+    for (const [key, logLoss, brier, squared] of before) {
+      const reading = sweep.variants.find((variant) => variant.key === key)!;
+      expect([key, reading.logLoss, reading.brier, reading.squared]).toEqual([
+        key,
+        logLoss,
+        brier,
+        squared,
+      ]);
+    }
+    expect(sweep.games).toBe(204);
+    expect(sweep.decided).toBe(198);
+    expect(sweep.calibration.map(({ games, said, won }) => [games, said, won])).toEqual([
+      [19, 0.5207122576686494, 0.8421052631578947],
+      [28, 0.5766439916845914, 0.6071428571428571],
+      [18, 0.6253034990956898, 0.5],
+      [34, 0.6753987733215596, 0.5588235294117647],
+      [23, 0.7253934582683942, 0.9565217391304348],
+      [19, 0.768664657377895, 1],
+      [30, 0.8224639446505839, 1],
+      [17, 0.8690263016530558, 1],
+      [10, 0.9084951026866447, 1],
+      [0, Number.NaN, Number.NaN],
+    ]);
+  });
+
+  it("widens a matchup's curve by the variance it is handed, and by nothing at none", () => {
+    expect(chanceAt(5, 0, 10, undefined, 1, 0)).toBe(predictMatchup(5, 0, 10).winProbA);
+    // The width is sqrt(width² + variance): 4.345 runs at 10U, so a variance of 4 makes it 4.79.
+    const width = Math.sqrt(4.345 ** 2 + 4);
+    expect(chanceAt(5, 0, 10, undefined, 1, 4)).toBeCloseTo(1 / (1 + Math.exp(-5 / width)), 12);
+    expect(chanceAt(5, 0, 10, undefined, 1, 4)).toBeLessThan(chanceAt(5, 0, 10));
+    expect(chanceAt(0, 5, 10, undefined, 1, 4)).toBeGreaterThan(chanceAt(0, 5, 10));
+    // Widening reads the chance only: the margin's error is the shipped one's to the digit.
+    const of = (key: string) => sweep.variants.find((variant) => variant.key === key)!;
+    expect(of("widen-0.4").vsShipped?.squared?.by).toBe(0);
+    expect(of("widen-0.4").logLoss).not.toBe(of("shipped").logLoss);
+  });
+
+  it("slices the same decided games for every setting, each game in one band of each slice", () => {
+    expect(sweep.slices.map(({ key }) => key)).toEqual(MODEL_VARIANTS.map(({ key }) => key));
+    const counts = (slices: (typeof sweep.slices)[number]) =>
+      [slices.horizon, slices.thinnest, slices.apart].map((bands) =>
+        bands.map(({ games }) => games)
+      );
+    for (const slices of sweep.slices) {
+      for (const bands of counts(slices)) {
+        expect(bands.reduce((sum, games) => sum + games, 0)).toBe(sweep.decided);
+      }
+      expect(counts(slices)).toEqual(counts(sweep.slices[0]!));
+    }
+    // Scored from 23 September to 10 October on fits of 1, 8 and 15 September: the 15th's first
+    // games are 8 days on, the 1st's last 39 days on, and nothing is 49 days on.
+    expect(sweep.slices[0]!.horizon.map(({ games }) => games > 0)).toEqual([
+      true,
+      true,
+      true,
+      false,
+    ]);
+    // A widened curve says less for every favourite, in every band of days.
+    const widened = sweep.slices.find(({ key }) => key === "widen-1.6")!;
+    sweep.slices[0]!.horizon.forEach((band, at) => {
+      if (band.games > 0) expect(widened.horizon[at]!.said).toBeLessThan(band.said);
+    });
+  });
+
+  it("reads the fit's own ratings for a matchup on `point`, which gives a thin club its discount back", () => {
+    // Eight clubs of one strength play each other twice in August; a ninth plays two of them and
+    // wins both by a run. Its rating stands on two games, so the board discounts it well below the
+    // others'. From October it plays each of the eight: the shipped matchup reads it on the
+    // discounted rating and `point` on the fit's own, so `point` gives it a better chance in
+    // every game, and the margin each states differs by the discount.
+    const even: ScoutTeam[] = Array.from({ length: 9 }, (_, at) => ({
+      id: `E-${at}`,
+      name: `Even ${at}`,
+    }));
+    const august: ScoutGame[] = [];
+    for (let round = 0; round < 2; round += 1) {
+      for (let a = 0; a < 8; a += 1) {
+        for (let b = a + 1; b < 8; b += 1) {
+          august.push({
+            id: `e${round}-${a}-${b}`,
+            ageGroupId: PAGE,
+            teamAId: `E-${a}`,
+            teamBId: `E-${b}`,
+            teamAScore: 5 + ((a + b + round) % 3),
+            teamBScore: 5 + ((a * b + round) % 3),
+            date: `2026-08-${String(1 + ((a + b + round * 7) % 28)).padStart(2, "0")}`,
+          });
+        }
+      }
+    }
+    const thin: ScoutGame[] = [0, 1].map((b) => ({
+      id: `thin-${b}`,
+      ageGroupId: PAGE,
+      teamAId: "E-8",
+      teamBId: `E-${b}`,
+      teamAScore: 6,
+      teamBScore: 5,
+      date: `2026-08-2${b}`,
+    }));
+    const october: ScoutGame[] = Array.from({ length: 8 }, (_, b) => ({
+      id: `oct-${b}`,
+      ageGroupId: PAGE,
+      teamAId: "E-8",
+      teamBId: `E-${b}`,
+      teamAScore: 4 + (b % 3),
+      teamBScore: 5,
+      date: `2026-10-${String(1 + b).padStart(2, "0")}`,
+    }));
+    const of = (keys: string[]) =>
+      runModelSweep({
+        ageGroups: groups,
+        teams: even,
+        games: [...august, ...thin, ...october],
+        year: 2027,
+        today: "2026-10-31",
+        cuts: ["2026-09-01"],
+        variants: MODEL_VARIANTS.filter(({ key }) => keys.includes(key)),
+      });
+    const both = of(["shipped", "point"]);
+    // Eight scored, three of them drawn, so five decided.
+    expect(both.games).toBe(8);
+    expect(both.decided).toBe(5);
+    const [shipped, point] = both.slices;
+    // Every decided game is the thin club, as the thinner side, against a club of fourteen games:
+    // none is in the band of two even errors, and all five sit in one band apart.
+    expect(shipped!.apart.map(({ games }) => games)).toEqual([0, 5, 0, 0]);
+    expect(point!.apart.map(({ games }) => games)).toEqual([0, 5, 0, 0]);
+    expect(point!.apart[1]!.said).toBeGreaterThan(shipped!.apart[1]!.said);
+    // The same games and the same wins: only what was said moved.
+    expect(point!.apart[1]!.won).toBe(shipped!.apart[1]!.won);
+    expect(both.variants[1]!.vsShipped?.squared?.by).not.toBe(0);
+  });
+
   it("bands the favourite's chance and how often it won, every decided game in one band", () => {
     expect(sweep.calibration).toHaveLength(10);
     expect(sweep.calibration.reduce((sum, band) => sum + band.games, 0)).toBe(sweep.decided / 1);

@@ -4387,6 +4387,26 @@ reads each against it game by game, with a standard error that reads a club's ga
   tenths wider than `matchupOddsSpread`: the first run found the boards 1.5 to 2.6 points too sure
   of the favourite from 60% to 85%, which a curve about a tenth wider would close. Like the floor,
   it leaves the fit alone.
+- the matchup read from the fit's own ratings rather than the shown ones (`ratings: "point"`, a
+  row's `pointRating`), on the shipped curve and a tenth and a twentieth either way. A shown rating
+  is the fit's own less one standard error about the year's centre (`EVIDENCE_STANDARD_ERRORS`),
+  which was measured for which club a table puts first; read into a matchup, it takes the thinner
+  club's whole discount off its side of the margin, about a run between a club of four games and
+  one of forty.
+- the curve widened matchup by matchup by the two ratings' own errors (`uncertainty`): its width
+  read as `sqrt(width² + k × (errorA² + errorB²))`, each error the club's `ratingSpread` over its
+  weighed games, with k at 0.2, 0.4, 0.8 and 1.6. A logistic chance over a margin that is itself
+  uncertain works out to about k = π/8, so 0.4 is the plain reading. The shipped curve widens every
+  matchup alike, a thin pair's and a proven pair's, so the widening is also read on a curve a
+  twentieth and a tenth narrower, and with the fit's own ratings.
+
+Beside the five-point calibration bands, every setting is read in three slices of the same decided
+games, each band holding the same games for every setting (`VariantSlices`): the favourite by days
+from the cut to the game, since a board is rebuilt every night and what a member reads is mostly a
+game days away, where the sweep scores games from eight days to two months on; the favourite by the
+weighed games behind the thinner club; and the thinner club by how far apart the two ratings'
+errors are, where a thinner club that wins more often than it is given is one the matchup
+under-rates.
 
 The same run counts the squad year's stand-ins (`src/lib/standInReport.ts`): the games with a
 club known only by name or a bracket slot on a side, played and all, and of the clubs known only

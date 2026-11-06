@@ -10,6 +10,7 @@ import {
   matchupOddsSpread,
   RATING_CAP,
   ratedMargin,
+  ratingSpread,
   scoutFitRanks,
   scoutRatingGames,
   type AgeGroup,
@@ -50,6 +51,24 @@ export type ModelVariant = {
    * curve about a tenth wider would close. Like the floor, it leaves the fit alone.
    */
   spread?: number;
+  /**
+   * Which ratings the matchup is read from. "shown", as shipped and when left out: the ratings a
+   * board shows, the fit's own less one standard error about the year's centre
+   * (`ScoutYearFit.confident`), which is what ranks a thin record behind a proven one. "point": the
+   * fit's own best guess (`pointRating` on a row). The discount was measured for which club a
+   * table puts first, not for a chance: read into a matchup, it takes a thin club's whole discount
+   * off its side of the margin, about a run between a four-game club and a forty-game one.
+   */
+  ratings?: "shown" | "point";
+  /**
+   * How much the two ratings' own uncertainty widens this matchup's curve: its width read as
+   * `sqrt(width² + k × (errorA² + errorB²))`, each error the club's `ratingSpread` over its weighed
+   * games, as the discount reads it. A logistic chance taken over a margin that is itself uncertain
+   * by a variance v works out to about the same curve as wide as `sqrt(width² + πv/8)`, so k about
+   * 0.4 is the plain reading; the shipped curve widens every matchup alike instead, a thin pair's
+   * and a proven pair's. Left out, nothing is widened. Like the floor, it leaves the fit alone.
+   */
+  uncertainty?: number;
 };
 
 /** The shipped model first, then each setting moved on its own either way. */
@@ -80,6 +99,61 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
   { key: "spread-1.15", why: "three twentieths wider", spread: 1.15 },
   { key: "spread-1.2", why: "a fifth wider", spread: 1.2 },
   { key: "spread-1.3", why: "three tenths wider", spread: 1.3 },
+  {
+    key: "point",
+    why: "the matchup read from the fit's own ratings, not the shown",
+    ratings: "point",
+  },
+  {
+    key: "point-0.9",
+    why: "from them, on a curve a tenth narrower",
+    ratings: "point",
+    spread: 0.9,
+  },
+  { key: "point-0.95", why: "a twentieth narrower", ratings: "point", spread: 0.95 },
+  { key: "point-1.05", why: "a twentieth wider", ratings: "point", spread: 1.05 },
+  { key: "point-1.1", why: "a tenth wider", ratings: "point", spread: 1.1 },
+  {
+    key: "widen-0.2",
+    why: "the curve widened by a fifth of the two ratings' variance, matchup by matchup",
+    uncertainty: 0.2,
+  },
+  { key: "widen-0.4", why: "by 0.4 of it, about π/8", uncertainty: 0.4 },
+  { key: "widen-0.8", why: "by 0.8 of it", uncertainty: 0.8 },
+  { key: "widen-1.6", why: "by 1.6 of it", uncertainty: 1.6 },
+  {
+    key: "widen-0.4-0.95",
+    why: "by 0.4 of it, about a curve a twentieth narrower",
+    uncertainty: 0.4,
+    spread: 0.95,
+  },
+  {
+    key: "widen-0.4-0.9",
+    why: "by 0.4 of it, about a tenth narrower",
+    uncertainty: 0.4,
+    spread: 0.9,
+  },
+  {
+    key: "point-widen-0.4",
+    why: "the fit's own ratings, the curve widened by 0.4 of their variance",
+    ratings: "point",
+    uncertainty: 0.4,
+  },
+  { key: "point-widen-0.8", why: "by 0.8 of it", ratings: "point", uncertainty: 0.8 },
+  {
+    key: "point-widen-0.4-0.95",
+    why: "by 0.4 of it, about a curve a twentieth narrower",
+    ratings: "point",
+    uncertainty: 0.4,
+    spread: 0.95,
+  },
+  {
+    key: "point-widen-0.8-0.95",
+    why: "by 0.8 of it, about a twentieth narrower",
+    ratings: "point",
+    uncertainty: 0.8,
+    spread: 0.95,
+  },
 ];
 
 /** The cut days the sweeps of this pool have read, and the day later games are scored from. */
@@ -90,20 +164,27 @@ const clamp = (value: number, low: number, high: number) => Math.min(high, Math.
 
 /**
  * The first club's chance against the second, as `predictMatchup` reads it, held to `floor` either
- * way rather than `MATCHUP_PROBABILITY_FLOOR`, on a curve `spread` times as wide: the same at the
- * shipped floor and a spread of one, to the digit.
+ * way rather than `MATCHUP_PROBABILITY_FLOOR`, on a curve `spread` times as wide, and wider again by
+ * `variance` (runs², `ModelVariant.uncertainty`): the same at the shipped floor, a spread of one and
+ * no variance, to the digit.
  */
 export const chanceAt = (
   ratingA: number,
   ratingB: number,
   ageLevel: number | undefined,
   floor = MATCHUP_PROBABILITY_FLOOR,
-  spread = 1
+  spread = 1,
+  variance = 0
 ): number => {
   const margin = clamp(ratingA - ratingB, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP);
-  const width = matchupOddsSpread(ageLevel) * spread;
+  const base = matchupOddsSpread(ageLevel) * spread;
+  const width = variance > 0 ? Math.sqrt(base * base + variance) : base;
   return clamp(1 / (1 + Math.exp(-margin / width)), floor, 1 - floor);
 };
+
+/** How far a club's rating on a fit could be off, in runs: what the shown rating's discount reads. */
+const ratingErrorOn = (fit: ScoutYearFit, id: string) =>
+  ratingSpread(fit.effective.get(id) ?? 0, fit.adjusted.residualScale);
 
 /**
  * Whether one board lists both sides of a game on a fit, as `rowsOfYearFit` cuts a board from a fit: neither
@@ -130,15 +211,22 @@ const boardPlacer = (fit: ScoutYearFit) => {
  * Only for two clubs one board lists (`boardPlacer`): no other matchup is ever stated, and the sweep
  * leaves those games out rather than score a forecast nobody was shown.
  */
-const predicted = (fit: ScoutYearFit, game: ScoutGame, floor?: number, spread?: number) => {
-  const shown = (id: string) =>
-    fit.confident(fit.adjusted.ratings.get(id) ?? 0, fit.effective.get(id) ?? 0);
-  const a = shown(game.teamAId);
-  const b = shown(game.teamBId);
+const predicted = (fit: ScoutYearFit, game: ScoutGame, variant: ModelVariant) => {
+  const own = (id: string) => fit.adjusted.ratings.get(id) ?? 0;
+  const read =
+    variant.ratings === "point"
+      ? own
+      : (id: string) => fit.confident(own(id), fit.effective.get(id) ?? 0);
+  const a = read(game.teamAId);
+  const b = read(game.teamBId);
   const level = fit.homeLevels.get(game.teamAId) ?? fit.homeLevels.get(game.teamBId);
+  const variance = variant.uncertainty
+    ? variant.uncertainty *
+      (ratingErrorOn(fit, game.teamAId) ** 2 + ratingErrorOn(fit, game.teamBId) ** 2)
+    : 0;
   return {
     margin: clamp(a - b, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP),
-    win: chanceAt(a, b, level, floor, spread),
+    win: chanceAt(a, b, level, variant.floor, variant.spread, variance),
   };
 };
 
@@ -150,6 +238,54 @@ export type CalibrationBand = {
   /** The mean chance it gave the favourite, and the share of these games the favourite won. */
   said: number;
   won: number;
+};
+
+/**
+ * One band of a slice of the decided games, read from one side: the mean chance that side was
+ * given and how often it won. A side said more than it won is a side the model was too sure of.
+ */
+export type SliceBand = { label: string; games: number; said: number; won: number };
+
+/**
+ * Where a setting's chances go wrong, in three cuts of the same decided games, a band holding the
+ * same games for every setting (read off the shipped fit, never the setting's own):
+ * - `horizon`, from the favourite's side, by days from the cut to the game. The boards are rebuilt
+ *   every night, so the forecast a member reads is mostly for a game days away, while the sweep
+ *   scores games from eight days to two months after its cuts, over which a rating drifts.
+ * - `thinnest`, from the favourite's side, by the weighed games (`effectiveGames`) behind the
+ *   thinner of the two clubs.
+ * - `apart`, from the thinner club's side, by how far apart the two ratings' errors are: a thinner
+ *   club that wins more often than it is given is one the matchup under-rates.
+ */
+export type VariantSlices = {
+  key: string;
+  horizon: SliceBand[];
+  thinnest: SliceBand[];
+  apart: SliceBand[];
+};
+
+type Band = { label: string; below: number };
+export const HORIZON_BANDS: readonly Band[] = [
+  { label: "under 21 days", below: 21 },
+  { label: "21-34", below: 35 },
+  { label: "35-48", below: 49 },
+  { label: "49+", below: Number.POSITIVE_INFINITY },
+];
+export const THINNEST_BANDS: readonly Band[] = [
+  { label: "under 4 games", below: 4 },
+  { label: "4-8", below: 8 },
+  { label: "8-16", below: 16 },
+  { label: "16+", below: Number.POSITIVE_INFINITY },
+];
+export const APART_BANDS: readonly Band[] = [
+  { label: "under 0.25 runs", below: 0.25 },
+  { label: "0.25-0.5", below: 0.5 },
+  { label: "0.5-1", below: 1 },
+  { label: "1+", below: Number.POSITIVE_INFINITY },
+];
+const bandOf = (bands: readonly Band[], value: number) => {
+  const at = bands.findIndex(({ below }) => value < below);
+  return at < 0 ? bands.length - 1 : at;
 };
 
 export type VariantReading = {
@@ -196,6 +332,8 @@ export type ModelSweep = {
   variants: VariantReading[];
   /** The shipped model's chance for the favourite, in bands of five points, and how often it won. */
   calibration: CalibrationBand[];
+  /** Every setting's chances against what happened, in the same slices of the decided games. */
+  slices: VariantSlices[];
 };
 
 export type ModelSweepInput = {
@@ -235,6 +373,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
     decided: 0,
     variants: [],
     calibration: [],
+    slices: [],
   };
   if (!page) return empty;
   const fromAt = dayInstant(input.scoreFrom ?? MODEL_SCORE_FROM);
@@ -256,6 +395,12 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
     brier: [] as number[],
     seconds: 0,
   }));
+  // Per variant, per slice and band: the games, the chances said to the side read, and its wins.
+  const tallies = variants.map(() =>
+    [HORIZON_BANDS, THINNEST_BANDS, APART_BANDS].map((bands) =>
+      bands.map(() => ({ games: 0, said: 0, won: 0 }))
+    )
+  );
   const sides: number[] = [];
   const decidedSides: number[] = [];
   const shippedChances: Array<{ win: number; won: boolean }> = [];
@@ -303,20 +448,61 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
       crossAge: placed.filter(({ on }) => on === "apart").length,
       standIns: placed.filter(({ on }) => on === "standIn").length,
     });
+    // Each game's place in the slices, off the shipped fit, so a band holds the same games for all.
+    const cutAt = dayInstant(cut);
+    const placesInSlices = scored.map(({ game, day }) => {
+      const errorA = ratingErrorOn(shipped, game.teamAId);
+      const errorB = ratingErrorOn(shipped, game.teamBId);
+      return {
+        horizon: bandOf(HORIZON_BANDS, (day - cutAt) / 86_400_000),
+        thinnest: bandOf(
+          THINNEST_BANDS,
+          Math.min(
+            shipped.effective.get(game.teamAId) ?? 0,
+            shipped.effective.get(game.teamBId) ?? 0
+          )
+        ),
+        apart: bandOf(APART_BANDS, Math.abs(errorA - errorB)),
+        thinnerIsA: errorA >= errorB,
+      };
+    });
     variants.forEach((variant, at) => {
       const fit = fitOf(variant, at);
       const pile = piles[at]!;
-      for (const { game } of scored) {
+      const [byHorizon, byThinnest, byApart] = tallies[at]!;
+      scored.forEach(({ game }, index) => {
         const margin = clamp(ratedMargin(game) ?? 0, -RATING_CAP, RATING_CAP);
-        const guess = predicted(fit, game, variant.floor, variant.spread);
+        const guess = predicted(fit, game, variant);
         pile.squared.push((guess.margin - margin) ** 2);
-        if (margin === 0) continue;
+        if (margin === 0) return;
         const won = margin > 0;
         const chance = clamp(won ? guess.win : 1 - guess.win, 1e-9, 1);
         pile.logLoss.push(-Math.log(chance));
         pile.brier.push((guess.win - (won ? 1 : 0)) ** 2);
         if (at === 0) shippedChances.push({ win: guess.win, won });
-      }
+        const place = placesInSlices[index]!;
+        const favouriteIsA = guess.win >= 0.5;
+        const favourite = {
+          said: favouriteIsA ? guess.win : 1 - guess.win,
+          won: favouriteIsA === won ? 1 : 0,
+        };
+        const tally = (
+          band: { games: number; said: number; won: number },
+          said: number,
+          wins: number
+        ) => {
+          band.games += 1;
+          band.said += said;
+          band.won += wins;
+        };
+        tally(byHorizon![place.horizon]!, favourite.said, favourite.won);
+        tally(byThinnest![place.thinnest]!, favourite.said, favourite.won);
+        tally(
+          byApart![place.apart]!,
+          place.thinnerIsA ? guess.win : 1 - guess.win,
+          place.thinnerIsA === won ? 1 : 0
+        );
+      });
     });
   }
 
@@ -376,6 +562,29 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
     });
   }
 
+  const bandsOf = (
+    bands: readonly Band[],
+    counted: ReadonlyArray<{ games: number; said: number; won: number }>
+  ): SliceBand[] =>
+    bands.map(({ label }, at) => {
+      const { games, said, won } = counted[at]!;
+      return {
+        label,
+        games,
+        said: games > 0 ? said / games : Number.NaN,
+        won: games > 0 ? won / games : Number.NaN,
+      };
+    });
+  const slices: VariantSlices[] = variants.map((variant, at) => {
+    const [byHorizon, byThinnest, byApart] = tallies[at]!;
+    return {
+      key: variant.key,
+      horizon: bandsOf(HORIZON_BANDS, byHorizon!),
+      thinnest: bandsOf(THINNEST_BANDS, byThinnest!),
+      apart: bandsOf(APART_BANDS, byApart!),
+    };
+  });
+
   return {
     year,
     cuts: cutReadings,
@@ -385,5 +594,6 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
     decided: shippedPile.logLoss.length,
     variants: readings,
     calibration,
+    slices,
   };
 };
