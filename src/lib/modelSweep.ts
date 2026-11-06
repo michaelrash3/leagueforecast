@@ -105,15 +105,6 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
     ratings: "point",
   },
   {
-    key: "point-0.9",
-    why: "from them, on a curve a tenth narrower",
-    ratings: "point",
-    spread: 0.9,
-  },
-  { key: "point-0.95", why: "a twentieth narrower", ratings: "point", spread: 0.95 },
-  { key: "point-1.05", why: "a twentieth wider", ratings: "point", spread: 1.05 },
-  { key: "point-1.1", why: "a tenth wider", ratings: "point", spread: 1.1 },
-  {
     key: "widen-0.2",
     why: "the curve widened by a fifth of the two ratings' variance, matchup by matchup",
     uncertainty: 0.2,
@@ -133,27 +124,22 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
     uncertainty: 0.4,
     spread: 0.9,
   },
-  {
-    key: "point-widen-0.4",
-    why: "the fit's own ratings, the curve widened by 0.4 of their variance",
-    ratings: "point",
-    uncertainty: 0.4,
-  },
-  { key: "point-widen-0.8", why: "by 0.8 of it", ratings: "point", uncertainty: 0.8 },
-  {
-    key: "point-widen-0.4-0.95",
-    why: "by 0.4 of it, about a curve a twentieth narrower",
-    ratings: "point",
-    uncertainty: 0.4,
-    spread: 0.95,
-  },
-  {
-    key: "point-widen-0.8-0.95",
-    why: "by 0.8 of it, about a twentieth narrower",
-    ratings: "point",
-    uncertainty: 0.8,
-    spread: 0.95,
-  },
+  /*
+   * The first read of the cloud copy with these (6 November 2026) found the shipped curve too sure
+   * of the favourite where the thinner club stood on under four weighed games and not sure enough
+   * where it stood on more: 1.0 point too sure, then 1.7 and 6.1 not sure enough. A curve that
+   * closes both is much narrower about a proven pair and widens fast as the evidence thins, so
+   * the base is narrowed by a fifth to two fifths and the widening read at one to over three times
+   * the two ratings' variance.
+   */
+  ...[0.6, 0.7, 0.8].flatMap((base) =>
+    [1, 1.6, 2.4, 3.2].map((k): ModelVariant => ({
+      key: `widen-${k}-${base}`,
+      why: `by ${k} of it, about a curve ${base} as wide`,
+      uncertainty: k,
+      spread: base,
+    }))
+  ),
 ];
 
 /** The cut days the sweeps of this pool have read, and the day later games are scored from. */
@@ -242,9 +228,18 @@ export type CalibrationBand = {
 
 /**
  * One band of a slice of the decided games, read from one side: the mean chance that side was
- * given and how often it won. A side said more than it won is a side the model was too sure of.
+ * given and how often it won (a side said more than it won is a side the model was too sure of),
+ * and the band's log loss, lower than the shipped model's on the same games by `vsShipped`, with a
+ * standard error that reads a club's games together (`pairedImprovement`); null for the shipped.
  */
-export type SliceBand = { label: string; games: number; said: number; won: number };
+export type SliceBand = {
+  label: string;
+  games: number;
+  said: number;
+  won: number;
+  logLoss: number;
+  vsShipped: PairedReading | null;
+};
 
 /**
  * Where a setting's chances go wrong, in three cuts of the same decided games, a band holding the
@@ -272,10 +267,10 @@ export const HORIZON_BANDS: readonly Band[] = [
   { label: "49+", below: Number.POSITIVE_INFINITY },
 ];
 export const THINNEST_BANDS: readonly Band[] = [
-  { label: "under 4 games", below: 4 },
+  { label: "under 2 games", below: 2 },
+  { label: "2-4", below: 4 },
   { label: "4-8", below: 8 },
-  { label: "8-16", below: 16 },
-  { label: "16+", below: Number.POSITIVE_INFINITY },
+  { label: "8+", below: Number.POSITIVE_INFINITY },
 ];
 export const APART_BANDS: readonly Band[] = [
   { label: "under 0.25 runs", below: 0.25 },
@@ -403,6 +398,8 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
   );
   const sides: number[] = [];
   const decidedSides: number[] = [];
+  // Each decided game's band in each slice, in the order every setting's log losses are pushed.
+  const decidedBands: Array<readonly [number, number, number]> = [];
   const shippedChances: Array<{ win: number; won: boolean }> = [];
   const cutReadings: ModelSweep["cuts"] = [];
   // Each distinct fit once a cut: the floors share the shipped fit.
@@ -479,8 +476,11 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
         const chance = clamp(won ? guess.win : 1 - guess.win, 1e-9, 1);
         pile.logLoss.push(-Math.log(chance));
         pile.brier.push((guess.win - (won ? 1 : 0)) ** 2);
-        if (at === 0) shippedChances.push({ win: guess.win, won });
         const place = placesInSlices[index]!;
+        if (at === 0) {
+          shippedChances.push({ win: guess.win, won });
+          decidedBands.push([place.horizon, place.thinnest, place.apart]);
+        }
         const favouriteIsA = guess.win >= 0.5;
         const favourite = {
           said: favouriteIsA ? guess.win : 1 - guess.win,
@@ -562,27 +562,48 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
     });
   }
 
-  const bandsOf = (
-    bands: readonly Band[],
-    counted: ReadonlyArray<{ games: number; said: number; won: number }>
-  ): SliceBand[] =>
-    bands.map(({ label }, at) => {
-      const { games, said, won } = counted[at]!;
-      return {
-        label,
-        games,
-        said: games > 0 ? said / games : Number.NaN,
-        won: games > 0 ? won / games : Number.NaN,
-      };
+  // The decided games of each band of each slice, by their place among every setting's log losses.
+  const families = [HORIZON_BANDS, THINNEST_BANDS, APART_BANDS] as const;
+  const inBand = families.map((bands, family) =>
+    bands.map((_, band) => {
+      const games: number[] = [];
+      decidedBands.forEach((place, at) => {
+        if (place[family] === band) games.push(at);
+      });
+      return Uint32Array.from(games);
+    })
+  );
+  const bandReading = (pile: number[], games: Uint32Array, own: boolean) => {
+    const errors = Float32Array.from(games, (at) => pile[at]!);
+    const logLoss = mean(errors);
+    if (own) return { logLoss, vsShipped: null };
+    const bandSides = new Uint32Array(games.length * 2);
+    games.forEach((at, index) => {
+      bandSides[index * 2] = decidedArray[at * 2]!;
+      bandSides[index * 2 + 1] = decidedArray[at * 2 + 1]!;
     });
+    const vsShipped = pairedImprovement(
+      { errors },
+      { errors: Float32Array.from(games, (at) => shippedPile.logLoss[at]!), sides: bandSides },
+      false
+    );
+    return { logLoss, vsShipped };
+  };
   const slices: VariantSlices[] = variants.map((variant, at) => {
-    const [byHorizon, byThinnest, byApart] = tallies[at]!;
-    return {
-      key: variant.key,
-      horizon: bandsOf(HORIZON_BANDS, byHorizon!),
-      thinnest: bandsOf(THINNEST_BANDS, byThinnest!),
-      apart: bandsOf(APART_BANDS, byApart!),
-    };
+    const counted = tallies[at]!;
+    const [horizon, thinnest, apart] = families.map((bands, family) =>
+      bands.map(({ label }, band): SliceBand => {
+        const { games, said, won } = counted[family]![band]!;
+        return {
+          label,
+          games,
+          said: games > 0 ? said / games : Number.NaN,
+          won: games > 0 ? won / games : Number.NaN,
+          ...bandReading(piles[at]!.logLoss, inBand[family]![band]!, at === 0),
+        };
+      })
+    );
+    return { key: variant.key, horizon: horizon!, thinnest: thinnest!, apart: apart! };
   });
 
   return {

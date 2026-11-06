@@ -348,10 +348,41 @@ describe("the research sweep of the shipped model", () => {
       true,
       false,
     ]);
-    // A widened curve says less for every favourite, in every band of days.
+    // Each band's log loss beside the shipped model's on the same games: none for the shipped
+    // itself, and for every other setting one paired reading of exactly the band's games.
+    for (const bands of [sweep.slices[0]!.horizon, sweep.slices[0]!.thinnest]) {
+      for (const band of bands) expect(band.vsShipped).toBeNull();
+    }
+    for (const slices of sweep.slices.slice(1)) {
+      for (const band of [...slices.horizon, ...slices.thinnest, ...slices.apart]) {
+        if (band.games < 2) continue;
+        expect(band.vsShipped?.samples).toBe(band.games);
+      }
+    }
+    // A setting that reads the very chances the shipped one does is level with it in every band.
+    const twice = runModelSweep({
+      ageGroups: groups,
+      teams,
+      games,
+      year: 2027,
+      today: "2026-10-31",
+      variants: [
+        MODEL_VARIANTS[0]!,
+        { key: "again", why: "the shipped floor, named", floor: 0.08 },
+      ],
+    });
+    const [once, again] = twice.slices;
+    again!.horizon.forEach((band, at) => {
+      expect(band.logLoss).toBe(once!.horizon[at]!.logLoss);
+      if (band.games > 1) expect(band.vsShipped?.by).toBe(0);
+    });
+    // A widened curve says less for every favourite, in every band of days, and so scores
+    // otherwise than the shipped curve on each band's games.
     const widened = sweep.slices.find(({ key }) => key === "widen-1.6")!;
     sweep.slices[0]!.horizon.forEach((band, at) => {
-      if (band.games > 0) expect(widened.horizon[at]!.said).toBeLessThan(band.said);
+      if (band.games === 0) return;
+      expect(widened.horizon[at]!.said).toBeLessThan(band.said);
+      expect(widened.horizon[at]!.vsShipped?.by).not.toBe(0);
     });
   });
 

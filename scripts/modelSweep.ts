@@ -443,6 +443,13 @@ const describeSlices = (sweep: ModelSweep, keyWidth: number) => {
     const by = (band.said - band.won) * 100;
     return `${by >= 0 ? "+" : ""}${by.toFixed(1)}`.padStart(16);
   };
+  const versus = ({ vsShipped }: SliceBand) => {
+    if (!vsShipped) return "-".padStart(16);
+    const z = vsShipped.standardError > 0 ? vsShipped.by / vsShipped.standardError : 0;
+    return `${vsShipped.by >= 0 ? "+" : ""}${vsShipped.by.toFixed(4)} (${z.toFixed(1)})`.padStart(
+      16
+    );
+  };
   const table = (heading: string, of: (slices: (typeof rows)[number]) => SliceBand[]) => {
     say(`\n  ${heading}`);
     say(
@@ -462,6 +469,15 @@ const describeSlices = (sweep: ModelSweep, keyWidth: number) => {
     );
     for (const slices of rows) {
       say(`    ${slices.key.padEnd(keyWidth)}${of(slices).map(cell).join("")}`);
+    }
+    say(`    log loss lower than shipped's in the band, + better, z by club:`);
+    say(
+      `    ${"shipped's".padEnd(keyWidth)}${of(first)
+        .map(({ games, logLoss }) => (games > 0 ? fixed(logLoss) : "-").padStart(16))
+        .join("")}`
+    );
+    for (const slices of rows.slice(1)) {
+      say(`    ${slices.key.padEnd(keyWidth)}${of(slices).map(versus).join("")}`);
     }
   };
   say(
