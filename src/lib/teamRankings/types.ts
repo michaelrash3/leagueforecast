@@ -447,6 +447,13 @@ export type ScoutRankingRow = {
    */
   pointRating: number;
   /**
+   * How far the fit's rating of this club could be off, in runs (`ratingSpread` over its weighed
+   * games): what the shown rating's discount reads, and what widens a matchup's odds curve about a
+   * club that has proved little (`matchupOddsWidth`). Left out on a row of a board built before rows
+   * carried it, whose matchups read the single curve of their age.
+   */
+  ratingError?: number;
+  /**
    * Where the fit started this club, in runs: the level its ridge's virtual games were played at
    * (`startingLevel`), below average by as much as its league keeps to itself. It is in
    * `pointRating` already; it is here because a device rebuilding that rating from the club's

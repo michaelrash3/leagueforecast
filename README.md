@@ -743,8 +743,18 @@ curve move together: cap 12 on the old curve read worse than cap 8 on it. On 27
 October 2026 the model sweep (**The model, measured**) scored the boards on the
 cloud copy's later games and found that curve, 3.75 runs at 8U and 0.10 more a
 year, 1.7 to 3.3 points too sure from 60% to 90%; a tenth wider forecast the
-same games better (log loss 0.0008 lower, z 4.6), so it is 4.125 at 8U and 0.11
-more a year now.
+same games better (log loss 0.0008 lower, z 4.6), so it became 4.125 at 8U and
+0.11 more a year. On 6 November 2026 the sweep read the boards of September and of
+October beside each other and found one curve for every matchup could not be right
+about both: too sure about two clubs that had played little, and not sure enough
+about two that had proved what they are, which by October was most of them
+(favourites given 72.4% won 75.9%). So a matchup's curve is now as wide as its two
+clubs' evidence (`matchupOddsWidth`): 0.6 of that spread about two clubs known
+exactly, widened by 1.6 of the two ratings' variance, each club's error carried on
+its row (`ratingError`). On October's boards it forecast the later games better
+(log loss 0.0025 lower, z 8.0; 0.0029 on the games under three weeks ahead) and was
+level on September's (0.0002, z 1.0). A row of a board built before rows carried
+an error reads the single curve, until the boards are next built.
 
 **What if?** Under each fixture is the question the projection cannot answer: not
 who is favoured on Saturday, but where Saturday leaves you. A rating here is not a
@@ -3812,7 +3822,9 @@ A rating estimates how many runs a team beats an average opponent by, adjusted
 for opponent strength, capped at ±12 so one blowout cannot run away with a season.
 Only completed games count; scheduled ones exist so a future opponent can be
 logged early. A matchup's win probabilities (`predictMatchup`) are clamped to
-8–92% — youth baseball has no locks.
+8–92% — youth baseball has no locks — and read on a curve as wide as the two
+clubs' evidence (`matchupOddsWidth`): narrower about two clubs that have proved what
+they are, wider about two that have not.
 
 Until teams share opponents, directly or through a chain, a rating is close to a
 plain run differential.
@@ -4383,22 +4395,20 @@ reads each against it game by game, with a standard error that reads a club's ga
   The floor is swept rather than the margin a chance is read to (`MATCHUP_MARGIN_CAP`, 14 runs):
   the floor binds first, at about 9.6 runs at 10U and 11.6 at 18U, so no cap past it moves a
   chance. A floor leaves the fit alone, so its margin error is the shipped one's to the digit.
-- the odds curve a twentieth narrower, and a twentieth, a tenth, three twentieths, a fifth and three
-  tenths wider than `matchupOddsSpread`: the first run found the boards 1.5 to 2.6 points too sure
-  of the favourite from 60% to 85%, which a curve about a tenth wider would close. Like the floor,
-  it leaves the fit alone.
+- the single curve of a matchup's age that every matchup read until 6 November 2026 (`single`),
+  and a twentieth either way. The first run found the boards on it 1.5 to 2.6 points too sure of
+  the favourite from 60% to 85%, which a curve about a tenth wider closed. Like the floor, it leaves
+  the fit alone.
 - the matchup read from the fit's own ratings rather than the shown ones (`ratings: "point"`, a
-  row's `pointRating`), on the shipped curve and a tenth and a twentieth either way. A shown rating
+  row's `pointRating`). A shown rating
   is the fit's own less one standard error about the year's centre (`EVIDENCE_STANDARD_ERRORS`),
   which was measured for which club a table puts first; read into a matchup, it takes the thinner
   club's whole discount off its side of the margin, about a run between a club of four games and
   one of forty.
-- the curve widened matchup by matchup by the two ratings' own errors (`uncertainty`): its width
-  read as `sqrt(width² + k × (errorA² + errorB²))`, each error the club's `ratingSpread` over its
-  weighed games, with k at 0.2, 0.4, 0.8 and 1.6. A logistic chance over a margin that is itself
-  uncertain works out to about k = π/8, so 0.4 is the plain reading. The shipped curve widens every
-  matchup alike, a thin pair's and a proven pair's, so the widening is also read on a curve a
-  twentieth and a tenth narrower, and with the fit's own ratings.
+- the curve as shipped (`matchupOddsWidth`) with its two settings moved: its width read as
+  `sqrt((share × spread)² + weight × (errorA² + errorB²))`, each error the club's `ratingSpread`
+  over its weighed games, the share 0.5, 0.6 and 0.7 of the age's spread and the weight 1, 1.6 and
+  2.4 (`share`, `weight`).
 
 Beside the five-point calibration bands, every setting is read in three slices of the same decided
 games, each band holding the same games for every setting (`VariantSlices`): the favourite by days
@@ -4433,6 +4443,28 @@ year's 391,391 games, 33.4% have a stand-in on a side (28.7% of the played). Of 
 only by name: 7,540 have one pulled club of the name on their page in a state of the clubs naming
 them, 3,208 one in another state, 4,327 several, 1,151 one or several spelled near it, 6,826 a
 namesake only on another page, and 35,437, holding 70,254 games, nothing of the name at all.
+
+What it found on the cloud copy of 6 November 2026, in three reads (GitHub runs 42302454163,
+42303697357 and 42304469188), the first two on the boards of 1, 8 and 15 September (143,306
+decided games), the third on those of 1, 8 and 15 October scored from 23 October (99,945):
+
+- The single curve was calibrated overall on September's boards (52.5% said, 52.5% won at 50-55,
+  up to 87.2% and 87.5% at 85-90) but not in its parts: 1.5 points too sure of the favourite where
+  the thinner club stood on under two weighed games, and 1.7 and 6.1 points not sure enough at
+  four to eight and eight or more. On October's boards, two months of games on, it was not sure
+  enough almost throughout (72.4% said, 75.9% won at 70-75; 87.2% and 91.9% at 85-90), 2.9 points
+  on the games under three weeks ahead; a curve a twentieth narrower was clearly better there (log
+  loss 0.0011 lower, z 10.9) and clearly worse on September's (z -4.1).
+- Reading the matchup from the fit's own ratings rather than the shown ones was clearly worse on
+  both (log loss 0.0009 and 0.0012 higher, z -4.2 and -4.7). Where the two errors are a run or more
+  apart the thinner club won 38.0%, the shown ratings gave it 38.6% and the fit's own 44.1%: the
+  discount is right for a chance too.
+- Widening each matchup by its two errors, on a curve narrower about a proven pair, fitted both.
+  Of twelve settings, 0.6 of the spread and 1.6 of the two errors' variance did best over the two:
+  level on September's boards (0.0002, z 1.0; 0.0009 on the games under three weeks ahead, z 3.2),
+  0.0025 better on October's (z 8.0; 0.0029 on the games under three weeks ahead, z 8.3), every
+  band of the thinner club's evidence on October's within a point. It is the curve the boards read
+  now (`matchupOddsWidth`), and the single curve is the setting `single` beside it.
 
 ## Postseason format
 

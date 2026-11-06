@@ -110,14 +110,23 @@ const steady = (boards: PageBoard[]) =>
     pageId,
     half,
     rows: rows
-      .map(({ rank: _rank, sosRank: _sosRank, overallRank: _overall, ...row }) => ({
-        ...row,
-        rating: toMillionth(row.rating),
-        pointRating: toMillionth(row.pointRating),
-        ...(row.levelPrior === undefined ? {} : { levelPrior: toMillionth(row.levelPrior) }),
-        rawMargin: toMillionth(row.rawMargin),
-        strengthOfSchedule: toMillionth(row.strengthOfSchedule),
-      }))
+      .map(
+        ({
+          rank: _rank,
+          sosRank: _sosRank,
+          overallRank: _overall,
+          // Added to the rows after these were pinned; it moves nothing else (`ratingError`).
+          ratingError: _ratingError,
+          ...row
+        }) => ({
+          ...row,
+          rating: toMillionth(row.rating),
+          pointRating: toMillionth(row.pointRating),
+          ...(row.levelPrior === undefined ? {} : { levelPrior: toMillionth(row.levelPrior) }),
+          rawMargin: toMillionth(row.rawMargin),
+          strengthOfSchedule: toMillionth(row.strengthOfSchedule),
+        })
+      )
       .sort((a, b) => (a.teamId < b.teamId ? -1 : a.teamId > b.teamId ? 1 : 0)),
   }));
 
@@ -171,7 +180,9 @@ describe("League Standings starts on the boards", () => {
     // 28 boards with a week, naming 22 streaks and 9 games ahead between them.
     const weeks = steadyWeeks(withStarts);
     expect(weeks.flatMap(({ weekly }) => weekly?.streaks ?? [])).toHaveLength(22);
-    expect(fingerprint(weeks)).toBe("23a5731b");
+    // The weeks' odds read the curve as wide as the two clubs' evidence since 6 November 2026
+    // (`matchupOddsWidth`, board rules 11); read on the single curve they are 23a5731b, as before.
+    expect(fingerprint(weeks)).toBe("53e8d84e");
   });
 
   it("publish each board's week as a member's device reads it back, its game ahead's start too", () => {
@@ -213,7 +224,10 @@ describe("League Standings starts on the boards", () => {
     /*
      * Less the starts, the weeks published are the ones published before the start was carried,
      * fingerprint 52c07ee1 taken on the code before it, from this fixture without the starts given
-     * here; and since a start plays no part in the pick, the same games with these starts too.
+     * here; and since a start plays no part in the pick, the same games with these starts too. Since
+     * 6 November 2026 the weeks' odds read the curve as wide as the two clubs' evidence
+     * (`matchupOddsWidth`, board rules 11), so 52c07ee1, and 9ba760b3 with the starts, are what they
+     * read on the single curve.
      */
     const steadyOf = (weeks: typeof published) =>
       weeks.map(({ key, weekly }) => ({ key, weekly: steadyWeek(weekly) }));
@@ -222,7 +236,7 @@ describe("League Standings starts on the boards", () => {
       const { start: _start, ...game } = weekly.ahead;
       return { key, weekly: { ...weekly, ahead: game } };
     });
-    expect(fingerprint(steadyOf(unstarted))).toBe("52c07ee1");
-    expect(fingerprint(steadyOf(published))).toBe("9ba760b3");
+    expect(fingerprint(steadyOf(unstarted))).toBe("4268dd44");
+    expect(fingerprint(steadyOf(published))).toBe("ab64f6f2");
   });
 });

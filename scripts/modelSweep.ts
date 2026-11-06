@@ -412,11 +412,11 @@ const describeSweep = (sweep: ModelSweep) => {
     return;
   }
   say(
-    "  cut         rated games before   scored after   decided   left out: across ages, stand-ins"
+    "  cut         rated games before   scored after   decided   left out: across ages, stand-ins   residual scale"
   );
   for (const cut of sweep.cuts) {
     say(
-      `  ${cut.cut}  ${String(cut.trained).padStart(19)}  ${String(cut.scored).padStart(13)}  ${String(cut.decided).padStart(8)}  ${String(cut.crossAge).padStart(10)}  ${String(cut.standIns).padStart(9)}`
+      `  ${cut.cut}  ${String(cut.trained).padStart(19)}  ${String(cut.scored).padStart(13)}  ${String(cut.decided).padStart(8)}  ${String(cut.crossAge).padStart(10)}  ${String(cut.standIns).padStart(9)}   ${cut.residualScale.toFixed(3).padStart(14)}`
     );
   }
   say(
@@ -450,7 +450,7 @@ const describeSweep = (sweep: ModelSweep) => {
 
 /**
  * Where the chances go wrong, for the shipped model and every setting that reads a matchup's
- * ratings or their errors differently (`ModelVariant.ratings`, `.uncertainty`): in each band of
+ * ratings or its curve differently (`ModelVariant.ratings`, `.share`, `.weight`): in each band of
  * each slice (`VariantSlices`), the chance said to the side read less how often it won, in points,
  * so + is too sure of that side. Every setting's band holds the same games.
  */
@@ -458,7 +458,10 @@ const describeSlices = (sweep: ModelSweep, keyWidth: number) => {
   const shown = new Set(
     MODEL_VARIANTS.filter(
       (variant, at) =>
-        at === 0 || variant.ratings !== undefined || variant.uncertainty !== undefined
+        at === 0 ||
+        variant.ratings !== undefined ||
+        variant.share !== undefined ||
+        variant.weight !== undefined
     ).map(({ key }) => key)
   );
   const rows = sweep.slices.filter(({ key }) => shown.has(key));

@@ -52,7 +52,7 @@ jobs:
         run: npm run model:sweep -- --cloud $MODE --seal="$RUNNER_TEMP/model-sweep.sealed.json" --seal-to-key=scripts/researchSeal.pub.pem
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          MODE: ${{ github.ref == 'refs/heads/rash/hornsby' && '--stand-in-rules' || github.ref == 'refs/heads/rash/epic-allen-o09hob' && '--cuts=2026-10-01,2026-10-08,2026-10-15 --score-from=2026-10-23' || '' }}
+          MODE: ${{ github.ref == 'refs/heads/rash/hornsby' && '--stand-in-rules' || '' }}
           # The members' day, which the board of the day is read on, as the nightly reads it.
           TZ: America/New_York
           LANG: en_US.UTF-8

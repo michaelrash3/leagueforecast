@@ -807,16 +807,19 @@ describe("buildScoutingReport", () => {
       game("E", "F", 6, 2),
     ];
     const rows = buildTeamRankings("ag1", teams, games);
-    const report = buildScoutingReport("B", rows, teams, { pickedIds: ["D", "E"] });
-    expect(
-      [...report.national, ...report.picked].map((preview) => [
+    const previewsOf = (from: typeof rows) => {
+      const report = buildScoutingReport("B", from, teams, { pickedIds: ["D", "E"] });
+      return [...report.national, ...report.picked].map((preview) => [
         preview.opponentId,
         preview.projectedMargin.toFixed(12),
         preview.winProb.toFixed(12),
         preview.tier,
         preview.unconnected,
-      ])
-    ).toEqual([
+      ]);
+    };
+    // The rows with their errors taken off read the single curve of the age, as a board built
+    // before rows carried them is read: the digits from before the curve read the clubs' evidence.
+    expect(previewsOf(rows.map(({ ratingError: _error, ...row }) => row))).toEqual([
       ["A", "-5.333333333333", "0.237160667551", "Underdog", false],
       ["E", "-2.556341630501", "0.363550418229", "Underdog", true],
       ["D", "-0.889343482595", "0.451448999298", "Toss-up", false],
@@ -824,6 +827,18 @@ describe("buildScoutingReport", () => {
       ["F", "-0.270627344787", "0.485183564459", "Toss-up", true],
       ["E", "-2.556341630501", "0.363550418229", "Underdog", true],
       ["D", "-0.889343482595", "0.451448999298", "Toss-up", false],
+    ]);
+    // On a curve as wide as the two clubs' evidence (`matchupOddsWidth`, 6 November 2026), every
+    // chance moves and no margin or tier: this pool of five games reads its noise small, so its
+    // errors are read on the floor's scale (`RATING_ERROR_SCALE_FLOOR`), about as sure as before.
+    expect(previewsOf(rows)).toEqual([
+      ["A", "-5.333333333333", "0.235956830832", "Underdog", false],
+      ["E", "-2.556341630501", "0.370839876705", "Underdog", true],
+      ["D", "-0.889343482595", "0.453426251529", "Toss-up", false],
+      ["C", "-0.289999688435", "0.483632893782", "Toss-up", false],
+      ["F", "-0.270627344787", "0.486013169843", "Toss-up", true],
+      ["E", "-2.556341630501", "0.370839876705", "Underdog", true],
+      ["D", "-0.889343482595", "0.453426251529", "Toss-up", false],
     ]);
   });
 
