@@ -1,16 +1,17 @@
 import type { PullJob } from "./pullJobs";
 
 /**
- * The lines `scripts/pullStatus.ts` prints of the pulls in the cloud (README, "Pulls in the cloud:
- * seeing where each one is"): each job as its document says, the queue its legs wait in and the
- * tasks waiting there, and what `startPull` and `runPull` logged. It runs where the log is public,
- * so a job's id is cut to its first six characters, which is enough to tell the jobs of a day
- * apart and too little to address one, and any address not a Google service account's is taken
- * out of whatever Google says: a refusal can name the account it refused. Nothing about a team
- * is printed either: a structured line loses its `teamId`, `url` and `bodyPreview` fields at any
- * depth, and any text loses a GameChanger address and anything shaped like a team's id. The import
- * job used to log a sample team per failure reason, with the address it asked and the start of
- * the body that came back, and lines it logged then can still be in the window this reads.
+ * The lines `scripts/pullStatus.ts` prints of the pulls in the cloud (docs/data/cloud-pulls.md,
+ * "Pulls in the cloud: seeing where each one is"): each job as its document says, the queue its
+ * legs wait in and the tasks waiting there, and what `startPull` and `runPull` logged. It runs
+ * where the log is public, so a job's id is cut to its first six characters, which is enough to
+ * tell the jobs of a day apart and too little to address one, and any address not a Google service
+ * account's is taken out of whatever Google says: a refusal can name the account it refused.
+ * Nothing about a team is printed either: a structured line loses its `teamId`, `url` and
+ * `bodyPreview` fields at any depth, and any text loses a GameChanger address and anything shaped
+ * like a team's id. The import job used to log a sample team per failure reason, with the address
+ * it asked and the start of the body that came back, and lines it logged then can still be in the
+ * window this reads.
  */
 
 /** A pull's id anywhere in a text, cut short; addresses not of a service account, taken out. */

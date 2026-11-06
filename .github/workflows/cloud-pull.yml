@@ -1,9 +1,9 @@
-# Pulls in the cloud on GitHub (README, "Pulls on GitHub"): a leg of a pull a device sent, Refresh
-# now's or a pasted list's, a staged import carried on, or the boards published once a pull has
-# ended, each run by one of GitHub's servers where the functions would otherwise start a Google
-# machine for it (`githubDispatch.ts`). Started by the functions with the token the deploy hands
-# them (`PULL_DISPATCH_TOKEN`), and by a run of this workflow for the next leg or the boards with
-# its own; not on a schedule, and not by hand but to try it.
+# Pulls in the cloud on GitHub (docs/data/cloud-pulls.md, "Pulls on GitHub"): a leg of a pull a
+# device sent, Refresh now's or a pasted list's, a staged import carried on, or the boards published
+# once a pull has ended, each run by one of GitHub's servers where the functions would otherwise
+# start a Google machine for it (`githubDispatch.ts`). Started by the functions with the token the
+# deploy hands them (`PULL_DISPATCH_TOKEN`), and by a run of this workflow for the next leg or the
+# boards with its own; not on a schedule, and not by hand but to try it.
 #
 # The pull's id is masked before anything prints it, and the run prints the cloud's own words,
 # counts and timings, as the functions' logs do: this repository is public, and so are its Actions

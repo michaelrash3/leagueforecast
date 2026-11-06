@@ -467,7 +467,7 @@ export const NEVER_STARTED_MS = 60 * 60 * 1000;
 
 /** What a job never reached by a leg in `NEVER_STARTED_MS` ends with, for the person who sent it. */
 export const NEVER_STARTED =
-  'The cloud had this pull queued for an hour and never started it, so it was ended. Send it again; if it happens again, the cloud\'s pull account needs its one-time setup run again (README, "Pulls in the cloud: the one-time setup").';
+  'The cloud had this pull queued for an hour and never started it, so it was ended. Send it again; if it happens again, the cloud\'s pull account needs its one-time setup run again (docs/data/cloud-pulls.md, "Pulls in the cloud: the one-time setup").';
 
 /**
  * Whether the part of a list before `jobId` is done, found by following the list from its first

@@ -30,10 +30,11 @@ import { DEFAULT_SETTINGS, type GameLog, type Matchup, type Team } from "../type
 /*
  * What League Standings and Team Rankings work out from one small pool, to the digit, pinned before
  * the code that works it out was split between League's first download and Team Rankings' own
- * chunks (README "Performance notes"). The split moved code and nothing else, so every number here
- * holds through it: the bridge that hands League the pool's results, the forecast that reads them,
- * a page's board, a matchup's odds, the ages read off names, the names' keys and the tidy's stamp.
- * Each is read through the module it was always imported from, which re-exports what moved.
+ * chunks (docs/performance.md "Performance notes"). The split moved code and nothing else, so every
+ * number here holds through it: the bridge that hands League the pool's results, the forecast that
+ * reads them, a page's board, a matchup's odds, the ages read off names, the names' keys and the
+ * tidy's stamp. Each is read through the module it was always imported from, which re-exports what
+ * moved.
  */
 
 const groups: AgeGroup[] = [

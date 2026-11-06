@@ -1,6 +1,6 @@
 /**
- * What the nightly reads beside its refresh for two of its alarms (`runAlarms.ts`, README "When a
- * run fails"), as the step before the alarm step:
+ * What the nightly reads beside its refresh for two of its alarms (`runAlarms.ts`,
+ * docs/data/nightly.md "When a run fails"), as the step before the alarm step:
  *
  *   FIREBASE_SERVICE_ACCOUNT=… PULL_DISPATCH_TOKEN=… npm run upkeep
  *

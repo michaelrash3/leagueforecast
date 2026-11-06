@@ -12,12 +12,13 @@ import type { CloudPullResult, CloudPullStage } from "./cloudRunner";
 import { memoryWords, type MemoryUse } from "./memoryUse";
 
 /*
- * What the nightly says of its pull beyond its first line (`scripts/nightly.ts`, README "The
- * nightly refresh on GitHub"): what the tidy changed, step by step, what the sweep deleted under
- * the owner's 40-run rule, took off the boards and put back, how much of the squad year leans on
- * a stand-in once they are done, and the memory after each step. Counts only, a line at a time:
- * the repository's Actions logs are public, so no club's name or id is said, and the run hands
- * over nothing that holds one (`CloudPullResult.tidy` is the tidy's counts without its pool).
+ * What the nightly says of its pull beyond its first line (`scripts/nightly.ts`,
+ * docs/data/nightly.md "The nightly refresh on GitHub"): what the tidy changed, step by step, what
+ * the sweep deleted under the owner's 40-run rule, took off the boards and put back, how much of
+ * the squad year leans on a stand-in once they are done, and the memory after each step. Counts
+ * only, a line at a time: the repository's Actions logs are public, so no club's name or id is
+ * said, and the run hands over nothing that holds one (`CloudPullResult.tidy` is the tidy's counts
+ * without its pool).
  */
 
 /** What the tidy changed, a line a step in the tidy's own words (`describeTidy`), and its passes. */
@@ -71,9 +72,10 @@ export const standInLines = (report: StandInReport): string[] => [
 /**
  * The stand-ins of the squad year being played on the members' day `today` (`segmentOn`), off the
  * pool the store holds: every game stored for the year, as the stand-in rule's readings counted
- * them when the share was 28.4% of the year and 25.1% of its played games (README, "Placeholders"),
- * not the boards' pool the model sweep's own report reads, which adds League Standings' games and
- * leaves out the clubs taken off. Asked for no lists of names at all.
+ * them when the share was 28.4% of the year and 25.1% of its played games
+ * (docs/team-rankings/placeholders.md, "Placeholders"), not the boards' pool the model sweep's own
+ * report reads, which adds League Standings' games and leaves out the clubs taken off. Asked for no
+ * lists of names at all.
  */
 export const storedStandInLines = (today: string): string[] => {
   const { year } = segmentOn(today);

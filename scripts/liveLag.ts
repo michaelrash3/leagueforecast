@@ -1,9 +1,10 @@
 /**
- * How long a save took to reach the members' boards (README, "Views a server publishes"), read off
- * the log: the trigger's line for each save it queued a rebuild for, and each rebuild's line. A save
- * reached them with the first live run that wrote boards of its copy at its version or later, once
- * it was made (`liveLags`); this prints how many saves there were, how many no live rebuild logged
- * here reached, and the median, 90th percentile and longest wait of the rest.
+ * How long a save took to reach the members' boards (docs/data/views.md, "Views a server
+ * publishes"), read off the log: the trigger's line for each save it queued a rebuild for, and each
+ * rebuild's line. A save reached them with the first live run that wrote boards of its copy at its
+ * version or later, once it was made (`liveLags`); this prints how many saves there were, how many
+ * no live rebuild logged here reached, and the median, 90th percentile and longest wait of the
+ * rest.
  *
  *   gcloud logging read 'jsonPayload.event="save" OR jsonPayload.end="published"' \
  *     --freshness=7d --format=json > rebuilds.json

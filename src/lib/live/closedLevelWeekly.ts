@@ -9,15 +9,15 @@ import type { CopyPublish } from "./publishCopy";
 import { asWorkerSees, ratingPools, type BuildInput } from "./views/board";
 
 /**
- * The weekly re-measure of where a rating starts (README, "Where a rating starts"), as the nightly
- * runs it: on the Monday's run only, after the views are published, on the pool the boards were
- * built from, the Team Rankings pool its store holds and the League Standings seasons the publish
- * read for them (`CopyPublish.readSeason`), so it reads nothing more of the cloud. It re-measures
- * the squad year with the most games in the four weeks before the day, on its pool as the boards
- * fit it (`deriveAllKnown`, `asWorkerSees`), with the very function the Model check runs
- * (`compareClosedLevels`), and keeps the answer for the card (`closedLevelRecord.ts`). Whether the
- * level read is clearly better goes to the alarm step as a word (`closedLevelWord`), which opens an
- * issue saying a change is ready. The held level changes only by a commit.
+ * The weekly re-measure of where a rating starts (docs/team-rankings/ratings.md, "Where a rating
+ * starts"), as the nightly runs it: on the Monday's run only, after the views are published, on the
+ * pool the boards were built from, the Team Rankings pool its store holds and the League Standings
+ * seasons the publish read for them (`CopyPublish.readSeason`), so it reads nothing more of the
+ * cloud. It re-measures the squad year with the most games in the four weeks before the day, on its
+ * pool as the boards fit it (`deriveAllKnown`, `asWorkerSees`), with the very function the Model
+ * check runs (`compareClosedLevels`), and keeps the answer for the card (`closedLevelRecord.ts`).
+ * Whether the level read is clearly better goes to the alarm step as a word (`closedLevelWord`),
+ * which opens an issue saying a change is ready. The held level changes only by a commit.
  *
  * Measured on the owner's backup of 11 October 2026, asked the Monday after: the re-measure alone
  * took 20 s and about 1 GB above the loaded pool (2.8 GB peak) in Node 24 on four 2.1 GHz cores,

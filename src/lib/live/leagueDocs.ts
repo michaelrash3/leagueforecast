@@ -12,7 +12,7 @@ import {
 /**
  * A League Standings season as the cloud keeps it for the accounts on the list: one Firestore
  * document per season, `league/{season}`, which every device listens to and writes into directly
- * (README, "League Standings in the cloud").
+ * (docs/data/cloud-league-and-edits.md, "League Standings in the cloud").
  *
  * The document holds the season record by record, so a write sends only the records that changed:
  * a score is `logs.<game>`, a team `teams.<team>`, a setting `settings.<field>`. Two devices

@@ -162,29 +162,29 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
  * The first download came down the same day, 221.2 KB against 251.8 KB on main (221,174 bytes
  * against 251,816), with nothing removed: modules whose few lines League Standings' start reads sat
  * beside a great deal only Team Rankings runs, and the first download carried all of it. Each was
- * split along that line (README "Performance notes"), and the check below holds what is left of
- * them out of the first download by name (`TEAM_RANKINGS_ONLY`). Its line stays at 255.0 KB, the
- * owner's to lower. What left is fetched where it runs: the rating fit, the roster's names and the
- * copies of a game with Team Rankings, whose open went from 60.3 KB to 84.1 KB (60,292 bytes to
- * 84,108), and the GameChanger client's parsers, the pull's tracker and the refresh's schedule with
- * the sections that pull and tidy, Import 67.7 KB against 57.8 (67,690 bytes) and Setup 75.9 KB
- * against 68.9 (75,895). A first visit straight to Team Rankings fetches 305.3 KB, against 312.1 KB
- * with the sections alone on demand and 418.0 KB on main. The Team Rankings line goes to 86.0 KB,
- * 1.9 KB above what it measured, Import's to 74.5 KB and Setup's to 83.5 KB, a tenth above; the
- * other sections and League Standings' views moved by under 0.1 KB.
- * Dashboard to 7.5 KB on 1 Nov 2026 for each prediction card reading as one forecast, 7.3 KB
- * against 6.9 KB on main (7,301 bytes against 6,928): the Model Read in the per-game model's own
- * terms (`modelRead.ts`), which only the Dashboard shows, and the card's margin, expected score and
- * both ranges read off that model's forecast rather than the prediction engine's. The forecast
- * itself, the ranges the Gold odds draw a game within (`forecastGame`, `drawnMarginSpan`), is worked
- * out where the chance beside it already was, in the first download, 222.8 KB against 222.6 KB
- * (222,809 bytes against 222,563), less the engine's measured ranges, which went with it.
- * Team Rankings to 87.0 KB the same day, 86.0 KB against 86.0 KB on main (86,036 bytes against
- * 85,984): the line had 16 bytes left once #510 and #512 had spent its margin, and the simulation
- * Team Rankings' opening shares with League Standings (`sim.ts`) gained the forecast a prediction
- * card reads (`forecastGame`, `drawnMarginSpan`, `drawnRuns`), 52 bytes of it reaching that load.
- * The line goes up by a whole kilobyte, so the next small change to the opening is not held up by
- * bytes alone; it is still about half the 166.5 KB it stood at before the sections loaded on demand.
+ * split along that line (docs/performance.md "Performance notes"), and the check below holds what
+ * is left of them out of the first download by name (`TEAM_RANKINGS_ONLY`). Its line stays at 255.0
+ * KB, the owner's to lower. What left is fetched where it runs: the rating fit, the roster's names
+ * and the copies of a game with Team Rankings, whose open went from 60.3 KB to 84.1 KB (60,292
+ * bytes to 84,108), and the GameChanger client's parsers, the pull's tracker and the refresh's
+ * schedule with the sections that pull and tidy, Import 67.7 KB against 57.8 (67,690 bytes) and
+ * Setup 75.9 KB against 68.9 (75,895). A first visit straight to Team Rankings fetches 305.3 KB,
+ * against 312.1 KB with the sections alone on demand and 418.0 KB on main. The Team Rankings line
+ * goes to 86.0 KB, 1.9 KB above what it measured, Import's to 74.5 KB and Setup's to 83.5 KB, a
+ * tenth above; the other sections and League Standings' views moved by under 0.1 KB. Dashboard to
+ * 7.5 KB on 1 Nov 2026 for each prediction card reading as one forecast, 7.3 KB against 6.9 KB on
+ * main (7,301 bytes against 6,928): the Model Read in the per-game model's own terms
+ * (`modelRead.ts`), which only the Dashboard shows, and the card's margin, expected score and both
+ * ranges read off that model's forecast rather than the prediction engine's. The forecast itself,
+ * the ranges the Gold odds draw a game within (`forecastGame`, `drawnMarginSpan`), is worked out
+ * where the chance beside it already was, in the first download, 222.8 KB against 222.6 KB (222,809
+ * bytes against 222,563), less the engine's measured ranges, which went with it. Team Rankings to
+ * 87.0 KB the same day, 86.0 KB against 86.0 KB on main (86,036 bytes against 85,984): the line had
+ * 16 bytes left once #510 and #512 had spent its margin, and the simulation Team Rankings' opening
+ * shares with League Standings (`sim.ts`) gained the forecast a prediction card reads
+ * (`forecastGame`, `drawnMarginSpan`, `drawnRuns`), 52 bytes of it reaching that load. The line
+ * goes up by a whole kilobyte, so the next small change to the opening is not held up by bytes
+ * alone; it is still about half the 166.5 KB it stood at before the sections loaded on demand.
  */
 const BUDGET = {
   firstDownload: 255_000,
@@ -249,11 +249,11 @@ const SECTIONS = {
  * Modules only Team Rankings runs, which League Standings' first download must not hold. Each of
  * these, or the module it was split from, held what the page reads at start beside what only Team
  * Rankings runs, and the first download carried all of it: the start's part is now a module of its
- * own, and these are what is left (README "Performance notes"). With them are the two modules that
- * left the first download beside them, how much an old result still counts (`ratingRecency.ts`)
- * and the words in a name that say it is no team (`teamNameRules.ts`), and the tidy
- * (`gameChangerImport.ts`), which the first download never held and which is on its own about the
- * room that line has: 35.0 KB (35,046 bytes) against 33.8. A static import of one of them from
+ * own, and these are what is left (docs/performance.md "Performance notes"). With them are the two
+ * modules that left the first download beside them, how much an old result still counts
+ * (`ratingRecency.ts`) and the words in a name that say it is no team (`teamNameRules.ts`), and the
+ * tidy (`gameChangerImport.ts`), which the first download never held and which is on its own about
+ * the room that line has: 35.0 KB (35,046 bytes) against 33.8. A static import of one of them from
  * anything the page loads at start brings the whole module back into the first download, and the
  * first download's own line, which has room, would not say so; this does, by name. Read off the
  * source maps, which list every module a file of the build holds, and each must be in some file of

@@ -1,12 +1,12 @@
 import type { FirestoreRestDocuments } from "./firestoreRest";
 
 /**
- * Pulls in the cloud on GitHub (README, "Pulls on GitHub"): the functions that start a pull, a leg
- * of one, or the boards' publish after one, ask GitHub to run `cloud-pull.yml` instead of starting
- * a Google machine for it. Google bills a pull's eight or sixteen gibibytes by the second, and in
- * October 2026 those machines were what spent the project's free allowance; a GitHub runner for a
- * public repository costs nothing, and has the sixteen gigabytes the nightly already pulls the
- * whole pool in.
+ * Pulls in the cloud on GitHub (docs/data/cloud-pulls.md, "Pulls on GitHub"): the functions that
+ * start a pull, a leg of one, or the boards' publish after one, ask GitHub to run `cloud-pull.yml`
+ * instead of starting a Google machine for it. Google bills a pull's eight or sixteen gibibytes by
+ * the second, and in October 2026 those machines were what spent the project's free allowance; a
+ * GitHub runner for a public repository costs nothing, and has the sixteen gigabytes the nightly
+ * already pulls the whole pool in.
  *
  * Only where a token is set (`PULLS_ON_GITHUB_TOKEN`): the deploy writes one into the functions'
  * environment from the repository's `PULL_DISPATCH_TOKEN` secret, and GitHub's run is handed its

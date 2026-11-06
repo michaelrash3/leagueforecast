@@ -492,10 +492,11 @@ const REFRESH_FAILURES: ReadonlyMap<string, CallFailure> = new Map([
 ]);
 
 /**
- * Asks `startPull` for "Refresh now" (README, "Refresh now in the cloud"): the server works the
- * teams out and makes the job, and answers with its id, or with the id of the refresh already
- * under way, for this device to watch. A job's id is read exactly, since the device reads the job
- * by it; an answer that does not say which job is no answer, and the refresh may have started.
+ * Asks `startPull` for "Refresh now" (docs/data/cloud-pulls.md, "Refresh now in the cloud"): the
+ * server works the teams out and makes the job, and answers with its id, or with the id of the
+ * refresh already under way, for this device to watch. A job's id is read exactly, since the device
+ * reads the job by it; an answer that does not say which job is no answer, and the refresh may have
+ * started.
  */
 export const callStartRefresh = (
   ask: { device: string },

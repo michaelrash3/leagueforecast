@@ -51,11 +51,12 @@ jobs:
           VITE_GC_PROXY_URL=https://proxy.example.invalid/gcTeam npx vite build --outDir "$RUNNER_TEMP/dist-proxy"
           grep -rlq "proxy.example.invalid/gcTeam" --include="*.js" "$RUNNER_TEMP/dist-proxy"
           grep -q "connect-src 'self' https://proxy.example.invalid" "$RUNNER_TEMP/dist-proxy/index.html"
-      # The Firebase project the cloud copy lives in (`FIREBASE_WEB_CONFIG`, README "Your data on
-      # every device") is in the app's own build (`npm run build`, above) and in its page's policy
-      # for Google sign-in, the project read out of the source rather than written here again. And
-      # Firebase stays out of the first download. It is loaded for a browser that signs in, so
-      # neither the entry script nor anything it preloads may carry it.
+      # The Firebase project the cloud copy lives in (`FIREBASE_WEB_CONFIG`,
+      # docs/data/every-device.md "Your data on every device") is in the app's own build (`npm run
+      # build`, above) and in its page's policy for Google sign-in, the project read out of the
+      # source rather than written here again. And Firebase stays out of the first download. It is
+      # loaded for a browser that signs in, so neither the entry script nor anything it preloads may
+      # carry it.
       - name: The Firebase project reaches the page's policy, and Firebase loads only on sign-in
         run: |
           auth=$(node --input-type=module -e 'const { FIREBASE_WEB_CONFIG } = await import("./src/lib/cloud/cloudConfig.ts"); console.log(FIREBASE_WEB_CONFIG.authDomain);')

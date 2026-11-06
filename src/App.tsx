@@ -607,9 +607,10 @@ export default function App() {
     );
   }, [appMode, activeView]);
   /*
-   * The cloud copy of this browser's data (`lib/cloud`, README "Your data on every device"): its
-   * changes are listened for once the app is on screen, and where it stands is the header button.
-   * With no Firebase project to keep a copy in (`cloudConfig`) there is neither, and this is inert.
+   * The cloud copy of this browser's data (`lib/cloud`, docs/data/every-device.md "Your data on
+   * every device"): its changes are listened for once the app is on screen, and where it stands is
+   * the header button. With no Firebase project to keep a copy in (`cloudConfig`) there is neither,
+   * and this is inert.
    */
   useEffect(() => startCloudSession(), []);
   const cloud = useSyncExternalStore(subscribeCloud, cloudStatus);

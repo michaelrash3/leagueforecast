@@ -9,14 +9,14 @@ import { republishViews, type Republish } from "./republish";
 import type { ServerStores } from "./serverStores";
 
 /**
- * The boards published when a pull ends (README, "Boards published when a pull ends"): a pasted
- * list's import, each part of one sent in parts, and "Refresh now" alike. Each ends by saving the
- * copy, and that save asks for a rebuild after it (`onCopyWrite`), which publishes the boards. But
- * the rebuilds stop for the rest of a month whose budget is spent (from 14 October 2026 until
- * November, with 125,954 teams of 2027 imported and nothing on the site), and the catch-up on
- * GitHub that stood in for them (`catchUp.ts`) runs only when GitHub's schedule starts it, which on
- * 16 October was not once in the three and a half hours after it was merged (seven times due), the
- * nightly's own start being four and a half hours late.
+ * The boards published when a pull ends (docs/data/nightly.md, "Boards published when a pull
+ * ends"): a pasted list's import, each part of one sent in parts, and "Refresh now" alike. Each
+ * ends by saving the copy, and that save asks for a rebuild after it (`onCopyWrite`), which
+ * publishes the boards. But the rebuilds stop for the rest of a month whose budget is spent (from
+ * 14 October 2026 until November, with 125,954 teams of 2027 imported and nothing on the site), and
+ * the catch-up on GitHub that stood in for them (`catchUp.ts`) runs only when GitHub's schedule
+ * starts it, which on 16 October was not once in the three and a half hours after it was merged
+ * (seven times due), the nightly's own start being four and a half hours late.
  *
  * So where a pull ends and no rebuild is coming to publish what it saved, the cloud publishes it
  * at once itself: the end of the pull asks (`launchAfterPull`), and where the boards are behind

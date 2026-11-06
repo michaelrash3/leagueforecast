@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // Who may read and write the cloud copy of League Forecast's data: the Google accounts on the
-// owner's list. See README, "Your data on every device"; the tests are
+// owner's list. See docs/data/every-device.md, "Your data on every device"; the tests are
 // src/lib/cloud/__tests__/firestoreRules.test.ts, run with `npm run test:rules`.
 //
 // The list is `members/{address}`, one document per account, named by its address in lower case:
@@ -50,20 +50,20 @@ service cloud.firestore {
     }
 
     // The views a server publishes from the copy for the list to read: `live/meta`, which names
-    // every view, and its pieces, `live/meta/chunks` (README, "Views a server publishes"). Got by
-    // name and never listed, since a device fetches only the pieces the meta names, and a listing
-    // costs a read for every piece. Only the server writes here, as a service account the rules do
-    // not apply to; no browser does, the owner's included.
+    // every view, and its pieces, `live/meta/chunks` (docs/data/views.md, "Views a server
+    // publishes"). Got by name and never listed, since a device fetches only the pieces the meta
+    // names, and a listing costs a read for every piece. Only the server writes here, as a service
+    // account the rules do not apply to; no browser does, the owner's included.
     match /live/{document=**} {
       allow get: if isMember();
     }
 
     // League Standings, one document per season, `league/{season}`, which the list reads and writes
-    // into directly, a record at a time (README, "League Standings in the cloud";
-    // `src/lib/live/leagueDocs.ts`). A season is made whole, with every field a season has, and
-    // keeps them, carrying no other field ever after, so every device reads what every other
-    // writes: every field but `updatedAt` is read by the check below, and a field the rules read
-    // that is not there refuses the write; `rev` is read, and its value set, by the create and
+    // into directly, a record at a time (docs/data/cloud-league-and-edits.md, "League Standings in
+    // the cloud"; `src/lib/live/leagueDocs.ts`). A season is made whole, with every field a season
+    // has, and keeps them, carrying no other field ever after, so every device reads what every
+    // other writes: every field but `updatedAt` is read by the check below, and a field the rules
+    // read that is not there refuses the write; `rev` is read, and its value set, by the create and
     // update rules. Only the owner deletes one, since a season deleted here is gone from every
     // device at once.
     function leagueFields() {

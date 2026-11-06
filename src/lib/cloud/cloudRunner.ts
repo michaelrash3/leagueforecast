@@ -85,12 +85,12 @@ import { hashValue } from "./cloudPack";
 import { LEAGUE_PART } from "./cloudPlan";
 
 /**
- * A GameChanger pull run on the cloud copy rather than in a browser (README, "Pulls in the cloud"):
- * the nightly refresh, and a pasted list sent from a device. It reads the copy's Team Rankings into
- * the app's own pool store held in memory, as a device taking in a copy does, asks GameChanger for
- * the teams, files every answer through the same importer, tidy and end-of-run lists a pull in the
- * browser uses (`withListed`, `persistPool`, `settleRunLists`), and saves back to the copy the
- * values that changed and nothing else.
+ * A GameChanger pull run on the cloud copy rather than in a browser (docs/data/cloud-pulls.md,
+ * "Pulls in the cloud"): the nightly refresh, and a pasted list sent from a device. It reads the
+ * copy's Team Rankings into the app's own pool store held in memory, as a device taking in a copy
+ * does, asks GameChanger for the teams, files every answer through the same importer, tidy and
+ * end-of-run lists a pull in the browser uses (`withListed`, `persistPool`, `settleRunLists`), and
+ * saves back to the copy the values that changed and nothing else.
  *
  * The answers are asked for once. Where another device saved while they were being fetched, the
  * copy is read again and the same answers filed onto it, so a device's change made in the meantime

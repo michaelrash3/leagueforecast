@@ -427,8 +427,8 @@ function Body({
 }
 
 /**
- * The cloud copy's panel: where it stands, and what can be done about it. See README, "Your data
- * on every device".
+ * The cloud copy's panel: where it stands, and what can be done about it. See
+ * docs/data/every-device.md, "Your data on every device".
  */
 export function CloudPanel({
   status,

@@ -31,7 +31,7 @@ import type { LeagueRemote, LeagueStore } from "./leagueStore";
 /**
  * The open League Standings season kept live with its document in the cloud: every change made on
  * this device written there, and every change made on another device laid over the season on
- * screen as it arrives (README, "League Standings in the cloud").
+ * screen as it arrives (docs/data/cloud-league-and-edits.md, "League Standings in the cloud").
  *
  * - **Writes** go 700 ms after the last change, or as soon as the page lets go of the field being
  *   typed in (`settle`), in one transaction each: the document as it then stands, with what changed

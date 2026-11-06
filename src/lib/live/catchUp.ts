@@ -8,11 +8,11 @@ import { BOARD_FAMILY, BOARD_RULES, BOARD_SHAPE } from "./views/boardShape";
 import { coerceLiveMeta, LIVE_SCHEMA, needsRepublish } from "./viewStore";
 
 /**
- * The boards caught up with the cloud copy between nights (README, "Boards caught up on GitHub"):
- * whether the published boards are behind the copy, and whether anything is writing the copy, or
- * publishing them itself, that a publish now would run beside. `scripts/catchUp.ts` runs it every
- * half hour on GitHub and, where the boards are behind and nothing is, publishes them as the
- * republish after a deploy does (`republishViews`); it is kept here so its rules are tested.
+ * The boards caught up with the cloud copy between nights (docs/data/nightly.md, "Boards caught up
+ * on GitHub"): whether the published boards are behind the copy, and whether anything is writing
+ * the copy, or publishing them itself, that a publish now would run beside. `scripts/catchUp.ts`
+ * runs it every half hour on GitHub and, where the boards are behind and nothing is, publishes them
+ * as the republish after a deploy does (`republishViews`); it is kept here so its rules are tested.
  *
  * It is for the time a save's own rebuild does not come: rebuilds switched off, paused, deferred to
  * a later month by their budget (as they were from 14 October to 1 November 2026), or failing.

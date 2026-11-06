@@ -104,7 +104,7 @@ describe("which alarm the Monday re-measure of where a rating starts raises or s
       {
         kind: "closedLevel",
         failing: true,
-        said: 'the starting level for leagues with few outside games clearly better at -1.92 than the -1.6 held: each of the last four weeks scored with the level the other three read, 0.00120 runs a game lower, give or take 0.00040, over 79,981 games. The level changes only by a commit that raises BOARD_RULES (README, "Where a rating starts")',
+        said: 'the starting level for leagues with few outside games clearly better at -1.92 than the -1.6 held: each of the last four weeks scored with the level the other three read, 0.00120 runs a game lower, give or take 0.00040, over 79,981 games. The level changes only by a commit that raises BOARD_RULES (docs/team-rankings/ratings.md, "Where a rating starts")',
       },
     ]);
     expect(nightlyVerdicts({ ...live, closedLevel: "held" })).toContainEqual({
@@ -276,7 +276,7 @@ describe("the one issue an alarm keeps", () => {
       do: "open",
       title: ALARM_TITLES.closedLevel,
       body: expect.stringMatching(
-        /^The weekly re-measure found the starting level for leagues with few outside games clearly better at -1\.92 than the -1\.6 held: .* over 79,981 games\. The level changes only by a commit that raises BOARD_RULES \(README, "Where a rating starts"\)\.\n\nWhen: 2026-10-10 03:52 UTC\nRun: \S+\n\nEach Monday that finds one so again comments here, and the first that does not closes this issue\.$/
+        /^The weekly re-measure found the starting level for leagues with few outside games clearly better at -1\.92 than the -1\.6 held: .* over 79,981 games\. The level changes only by a commit that raises BOARD_RULES \(docs\/team-rankings\/ratings\.md, "Where a rating starts"\)\.\n\nWhen: 2026-10-10 03:52 UTC\nRun: \S+\n\nEach Monday that finds one so again comments here, and the first that does not closes this issue\.$/
       ),
     });
     expect(alarmStep(raised!, [issue(41, ALARM_TITLES.closedLevel)], RUN)).toMatchObject({

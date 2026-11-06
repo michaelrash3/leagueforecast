@@ -2,11 +2,11 @@ import { hashValue } from "../cloud/cloudPack";
 import type { FirestoreRestDocuments } from "../cloud/firestoreRest";
 
 /**
- * The check a save queues for the boards where no rebuild is coming to publish it (README, "Boards
- * published after an edit"): an edit through the edit function, a League Standings score, a pull's
- * save. It runs once the copy and the seasons have been still for `BOARDS_SETTLE_MS`, on the
- * rebuilds' own queue, and where the boards are behind and nothing is at work on them, starts the
- * `boards-publish` job (`afterPull.ts`).
+ * The check a save queues for the boards where no rebuild is coming to publish it
+ * (docs/data/nightly.md, "Boards published after an edit"): an edit through the edit function, a
+ * League Standings score, a pull's save. It runs once the copy and the seasons have been still for
+ * `BOARDS_SETTLE_MS`, on the rebuilds' own queue, and where the boards are behind and nothing is at
+ * work on them, starts the `boards-publish` job (`afterPull.ts`).
  *
  * One is queued for each minute a save falls in, under one name, so a run of edits queues one a
  * minute and not one an edit; each runs the settle after its minute ends, so the check of the last

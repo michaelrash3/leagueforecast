@@ -49,9 +49,10 @@ import {
 } from "../teamRankingsStorage";
 
 /*
- * A club's id freed by a fold or a deletion is never minted again (`retiredIds.ts`; README, "Which
- * club is which, answered once"): the pieces, the store and a backup, each mint. The server's own
- * runs of it are `clubIdsOnce.test.ts`. Placeholder names throughout.
+ * A club's id freed by a fold or a deletion is never minted again (`retiredIds.ts`;
+ * docs/team-rankings/two-modes.md, "Which club is which, answered once"): the pieces, the store and
+ * a backup, each mint. The server's own runs of it are `clubIdsOnce.test.ts`. Placeholder names
+ * throughout.
  */
 
 const backing = new Map<string, string>();

@@ -1511,7 +1511,8 @@ export const dismissCloudNotice = (): void => {
 /**
  * Who may use the copy, for its owner: null for anyone else, and when nobody is signed in. The
  * owner is the account whose own entry on the list says so, made by hand in the Firebase console
- * (README, "Your data on every device"); the rules let nobody else read the list.
+ * (docs/data/every-device.md, "Your data on every device"); the rules let nobody else read the
+ * list.
  */
 export const cloudMembers = async (): Promise<Member[] | null> => {
   // Asked of the session already open, never by opening one: a browser nobody signed in to has no

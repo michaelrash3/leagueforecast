@@ -1,10 +1,11 @@
 /**
- * Where each pull in the cloud is (README, "Pulls in the cloud: seeing where each one is"), read
- * with the Firebase key GitHub keeps for deploys, read only: the pull jobs of the last three days
- * and any not yet over, as their documents say; the Cloud Tasks queues their legs and the rebuilds
- * wait in, with each task waiting there and how its last try was answered; and what `startPull`
- * and `runPull` logged in the last hours, the queue's own lines among them. What a device shows as
- * "waiting to start" or "stopping" is one of these, and this says which, from the cloud's side.
+ * Where each pull in the cloud is (docs/data/cloud-pulls.md, "Pulls in the cloud: seeing where each
+ * one is"), read with the Firebase key GitHub keeps for deploys, read only: the pull jobs of the
+ * last three days and any not yet over, as their documents say; the Cloud Tasks queues their legs
+ * and the rebuilds wait in, with each task waiting there and how its last try was answered; and
+ * what `startPull` and `runPull` logged in the last hours, the queue's own lines among them. What a
+ * device shows as "waiting to start" or "stopping" is one of these, and this says which, from the
+ * cloud's side.
  *
  * It prints states, counts, times and the cloud's own words only, through `pullStatusReport.ts`,
  * which cuts every job's id short, takes out any address but a service account's, and drops a
@@ -130,8 +131,8 @@ if (!keyJson) {
     )) as { queues?: QueueInfo[] };
     if (!queues.queues?.length) console.log("  No queues.");
     // Every queue is said even when its tasks may not be read: the deploy account lists tasks only
-    // with Cloud Tasks Viewer (README, "Seeing where each one is"), and a refusal for one queue is
-    // a refusal for all, so it is said once and not asked again.
+    // with Cloud Tasks Viewer (docs/data/cloud-pulls.md, "Seeing where each one is"), and a refusal
+    // for one queue is a refusal for all, so it is said once and not asked again.
     let refused = false;
     for (const queue of queues.queues ?? []) {
       console.log(`  ${queueLine(queue, nowMs)}`);

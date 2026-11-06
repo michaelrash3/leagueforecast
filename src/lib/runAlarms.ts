@@ -1,12 +1,13 @@
 /**
- * The alarms GitHub's runs raise on this repository (README, "When a run fails"): an issue opened
- * when the nightly refresh fails, when the republish after a deploy fails, when the nightly
- * finds the rebuilds after saves failing in their ledger, and when the Monday nightly's re-measure
- * of where a rating starts finds a level clearly better than the one held, which is a change ready
- * to be made (README, "Where a rating starts"). Each alarm keeps one issue: a run that
- * fails again comments on the one open, and the first run that is fine closes it with a comment.
- * The nightly of 10 October 2026 failed at 03:52 UTC and the owner learned of it from a board
- * nobody looks at; an issue is what GitHub tells the owner of, by email and on the phone.
+ * The alarms GitHub's runs raise on this repository (docs/data/nightly.md, "When a run fails"): an
+ * issue opened when the nightly refresh fails, when the republish after a deploy fails, when the
+ * nightly finds the rebuilds after saves failing in their ledger, and when the Monday nightly's
+ * re-measure of where a rating starts finds a level clearly better than the one held, which is a
+ * change ready to be made (docs/team-rankings/ratings.md, "Where a rating starts"). Each alarm
+ * keeps one issue: a run that fails again comments on the one open, and the first run that is fine
+ * closes it with a comment. The nightly of 10 October 2026 failed at 03:52 UTC and the owner
+ * learned of it from a board nobody looks at; an issue is what GitHub tells the owner of, by email
+ * and on the phone.
  *
  * Every word of an issue is public, as the repository is, so what it says is made here from fixed
  * phrases, the time and the run's link only, never from a log. All of it is pure, so it is tested;
@@ -91,7 +92,7 @@ const closedLevelVerdict = (word: string): Verdict | null => {
   return {
     kind: "closedLevel",
     failing: true,
-    said: `the starting level for leagues with few outside games clearly better at ${level.toFixed(2)} than the ${held} held: each of the last four weeks scored with the level the other three read, ${by.toFixed(5)} runs a game lower, give or take ${standardError.toFixed(5)}, over ${games.toLocaleString("en-US")} games. The level changes only by a commit that raises BOARD_RULES (README, "Where a rating starts")`,
+    said: `the starting level for leagues with few outside games clearly better at ${level.toFixed(2)} than the ${held} held: each of the last four weeks scored with the level the other three read, ${by.toFixed(5)} runs a game lower, give or take ${standardError.toFixed(5)}, over ${games.toLocaleString("en-US")} games. The level changes only by a commit that raises BOARD_RULES (docs/team-rankings/ratings.md, "Where a rating starts")`,
   };
 };
 
