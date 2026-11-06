@@ -64,6 +64,7 @@ import { coerceLivePages } from "../views/boardShape";
 import { NO_REMOVALS, type AutoRemovals } from "../../autoRemoved";
 import type * as Communities from "../../scheduleCommunities";
 import { REPEAT_CASES, REPEAT_TEAMS, type RepeatCase } from "./repeatedPageIds";
+import { BUILDS_EVERY_BOARD } from "./budgets";
 
 /**
  * The boards as the rules before 7 built them, every club starting at average, for the pins of
@@ -295,13 +296,7 @@ const byYear =
       (game) => ageGroupYear(groups.find((group) => group.id === game.ageGroupId)) === year
     );
 
-/*
- * Each test here builds every board of the fixture, most of them with last week's places and the
- * rank lines, which are a fit of a year for each week: 1 to 4 s apiece under coverage on their
- * own (measured), and the gate runs them beside three hundred other files.
- */
-const BUILDS_EVERY_BOARD = { timeout: 20_000 };
-
+// Each test here builds every board of the fixture (`budgets.ts`).
 describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
   it("are the worker's, every page and half, to the last digit", () => {
     const built = expectParity(stored());

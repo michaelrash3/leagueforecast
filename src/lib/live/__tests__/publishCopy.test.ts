@@ -46,6 +46,7 @@ import { clubViews } from "../views/clubs";
 import { gamesViews } from "../views/games";
 import { searchViews } from "../views/search";
 import { memoryLive, type MemoryLive } from "./memoryLive";
+import { BUILDS_EVERY_BOARD } from "./budgets";
 
 /*
  * What the nightly publishes once it has saved the copy (`publishCopyViews`): the boards of the pool
@@ -168,12 +169,8 @@ afterAll(() => {
   resetTeamRankingsStore();
 });
 
-/*
- * Each test here publishes every board of the fixture, with last week's places and the rank lines,
- * which are a fit of a year for each week: 1 to 3.5 s apiece under coverage on their own
- * (measured), and the gate runs them beside three hundred other files.
- */
-describe("publishing the copy's boards", { timeout: 20_000 }, () => {
+// Each test here publishes every board of the fixture (`budgets.ts`).
+describe("publishing the copy's boards", BUILDS_EVERY_BOARD, () => {
   it("leaves published rankings intact when a cached build is interrupted, then completes from its saved steps", async () => {
     const { cloud, manifest } = await copyWith(LEAGUE);
     const live = memoryLive();

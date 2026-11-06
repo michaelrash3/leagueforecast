@@ -22,6 +22,7 @@ import {
   type LiveStore,
   type PublishedView,
 } from "../viewStore";
+import { BUILDS_EVERY_BOARD } from "./budgets";
 import { memoryLive, type MemoryLive } from "./memoryLive";
 
 const T = "2027-04-15T12:00:00.000Z";
@@ -1245,7 +1246,8 @@ describe("whether a deploy publishes the views again", () => {
   });
 });
 
-describe("the boards as views", () => {
+// The one-game edit's test builds every board of the fixture again (`budgets.ts`).
+describe("the boards as views", BUILDS_EVERY_BOARD, () => {
   const fixture = poolFixture({ seed: 7, clubsPerPage: 300 });
   const NOTHING = { teams: [], matchups: [], logs: {} };
   const boardsOf = (games: ScoutGame[]) => {
