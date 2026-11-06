@@ -161,8 +161,9 @@ export const ratingSpread = (
  * noise as small and every club in it as proven, and its matchups would come out surer than any
  * real pool's: the seeded pool of the tests (`poolFixture.ts`) read 1.6 to 1.8 runs at the model
  * sweep's cuts. The nationwide pool's scale was 4.29 runs at `RATING_CAP` 12 on 26 September 2026,
- * and the sweep's fits of the cloud copy read it above the floor at every cut (`modelSweep.ts`), so
- * a real pool's errors are its own and a small pool is read as no surer than a real one.
+ * and the sweep's fits of the cloud copy of 6 November read 4.05, 4.12 and 4.19 at its cuts of 1, 8
+ * and 15 September (Actions run 42308023088), where a club had played least, so a real pool's
+ * errors are its own and a small pool is read as no surer than a real one.
  */
 export const RATING_ERROR_SCALE_FLOOR = 3.5;
 

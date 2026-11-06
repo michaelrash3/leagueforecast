@@ -4444,9 +4444,10 @@ only by name: 7,540 have one pulled club of the name on their page in a state of
 them, 3,208 one in another state, 4,327 several, 1,151 one or several spelled near it, 6,826 a
 namesake only on another page, and 35,437, holding 70,254 games, nothing of the name at all.
 
-What it found on the cloud copy of 6 November 2026, in three reads (GitHub runs 42302454163,
-42303697357 and 42304469188), the first two on the boards of 1, 8 and 15 September (143,306
-decided games), the third on those of 1, 8 and 15 October scored from 23 October (99,945):
+What it found on the cloud copy of 6 November 2026, in four reads (GitHub runs 42302454163,
+42303697357, 42304469188 and 42308023088), the first two and the last on the boards of 1, 8 and 15
+September (143,306 decided games), the third on those of 1, 8 and 15 October scored from 23 October
+(99,945):
 
 - The single curve was calibrated overall on September's boards (52.5% said, 52.5% won at 50-55,
   up to 87.2% and 87.5% at 85-90) but not in its parts: 1.5 points too sure of the favourite where
@@ -4465,6 +4466,11 @@ decided games), the third on those of 1, 8 and 15 October scored from 23 October
   0.0025 better on October's (z 8.0; 0.0029 on the games under three weeks ahead, z 8.3), every
   band of the thinner club's evidence on October's within a point. It is the curve the boards read
   now (`matchupOddsWidth`), and the single curve is the setting `single` beside it.
+- Read again as shipped (the fourth read), the curve scored as the second read had it, log loss
+  0.6151 against the single curve's 0.6153, and the favourite within 0.1 of a point of how often it
+  won on the games under five weeks ahead. The fits' residual scales were 4.05, 4.12 and 4.19 runs,
+  above the 3.5 a row's error is never read under (`RATING_ERROR_SCALE_FLOOR`), so the floor binds
+  only on a pool far smaller than this one.
 
 ## Postseason format
 
