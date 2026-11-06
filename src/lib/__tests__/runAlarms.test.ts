@@ -303,7 +303,7 @@ describe("the one issue an alarm keeps", () => {
 
   it("has a distinct title for each alarm", () => {
     expect(new Set(Object.values(ALARM_TITLES)).size).toBe(Object.keys(ALARM_TITLES).length);
-    expect(Object.keys(ALARM_TITLES)).toHaveLength(10);
+    expect(Object.keys(ALARM_TITLES)).toHaveLength(11);
   });
 });
 
@@ -668,6 +668,58 @@ describe("which alarm the questions left unanswered raise or settle", () => {
       issue: 7,
       body: expect.stringMatching(
         /^The nightly found no day past 20 questions unanswered, so this is closed\./
+      ),
+    });
+  });
+});
+
+/*
+ * The night's peak memory against the most it may use, handed over by the nightly as `fine` or
+ * `near` with the two in megabytes (`memoryWord`): 8,077 MB of a heap Node reads as 13,086 MB on 6
+ * November 2026. A live run's only, as the held save's and the reading's are.
+ */
+describe("which alarm the nightly's memory raises or settles", () => {
+  const live = { outcome: "success", event: "schedule", mode: "live" };
+  const kinds = (verdicts: ReturnType<typeof nightlyVerdicts>) => verdicts.map((one) => one.kind);
+
+  it("raises it for a peak at three quarters or past, and settles it for one under", () => {
+    expect(nightlyVerdicts({ ...live, memory: "near 9900/13086" })).toContainEqual({
+      kind: "memory",
+      failing: true,
+      said: "9,900 MB of the 13,086 MB it may use (76%)",
+    });
+    expect(nightlyVerdicts({ ...live, memory: "fine 8077/13086" })).toContainEqual({
+      kind: "memory",
+      failing: false,
+    });
+  });
+
+  it("leaves it as it is for a dry run, a night that stopped short of its end, or a word it cannot read", () => {
+    const dry = { ...live, event: "workflow_dispatch", mode: "dry-run" };
+    expect(kinds(nightlyVerdicts({ ...dry, memory: "near 9900/13086" }))).not.toContain("memory");
+    expect(kinds(nightlyVerdicts({ ...dry, memory: "fine 8077/13086" }))).not.toContain("memory");
+    for (const memory of ["", "near", "near 9900", "near 9900/0", "worse 1/2", "near x/13086"])
+      expect(kinds(nightlyVerdicts({ ...live, memory }))).not.toContain("memory");
+  });
+
+  it("says it in its own words, from the two numbers alone, and closes in them", () => {
+    const [verdict] = nightlyVerdicts({ ...live, memory: "near 9900/13086" }).filter(
+      (one) => one.kind === "memory"
+    );
+    expect(alarmStep(verdict!, [], RUN)).toMatchObject({
+      do: "open",
+      title: ALARM_TITLES.memory,
+      body: expect.stringMatching(
+        /^The nightly peaked at 9,900 MB of the 13,086 MB it may use \(76%\), past the three quarters that open this issue \(memoryUse\.ts\)\. /
+      ),
+    });
+    expect(
+      alarmStep({ kind: "memory", failing: false }, [issue(7, ALARM_TITLES.memory)], RUN)
+    ).toMatchObject({
+      do: "close",
+      issue: 7,
+      body: expect.stringMatching(
+        /^The nightly peaked under three quarters of the memory it may use, so this is closed\./
       ),
     });
   });

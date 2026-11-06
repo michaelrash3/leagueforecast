@@ -24,7 +24,8 @@ export type AlarmKind =
   | "dispatchToken"
   | "heldSave"
   | "ingest"
-  | "unanswered";
+  | "unanswered"
+  | "memory";
 
 /** The title each alarm's issue is found again by, among the issues the workflows opened. */
 export const ALARM_TITLES: Record<AlarmKind, string> = {
@@ -38,6 +39,7 @@ export const ALARM_TITLES: Record<AlarmKind, string> = {
   heldSave: "The nightly held a save that would have taken too much",
   ingest: "The nightly's answers stopped reading as schedules",
   unanswered: "Questions to the cloud are going unanswered",
+  memory: "The nightly is near the memory it may use",
 };
 
 /**
@@ -126,6 +128,26 @@ const heldVerdict = (word: string): Verdict | null => {
 
 const INGEST = /^(fine|drift) (\d+)\/(\d+)$/;
 
+const MEMORY = /^(fine|near) (\d+)\/(\d+)$/;
+
+/**
+ * The nightly's word on the memory it held (`memoryWord`), as a verdict: `near`, its peak at three
+ * quarters or more of the most it may use, raises the alarm with the two numbers written again in
+ * fixed words; `fine` settles it; anything else, a night that stopped short of its end, leaves it.
+ */
+const memoryVerdict = (word: string): Verdict | null => {
+  const read = MEMORY.exec(word);
+  if (!read) return null;
+  if (read[1] === "fine") return { kind: "memory", failing: false };
+  const [peak, limit] = [Number(read[2]), Number(read[3])];
+  if (!(limit > 0)) return null;
+  return {
+    kind: "memory",
+    failing: true,
+    said: `${peak.toLocaleString("en-US")} MB of the ${limit.toLocaleString("en-US")} MB it may use (${Math.round((100 * peak) / limit)}%)`,
+  };
+};
+
 const UNANSWERED = /^over (\d{4}-\d{2}-\d{2}) (\d+)$/;
 
 /**
@@ -169,7 +191,9 @@ const ingestVerdict = (word: string): Verdict | null => {
  * succeeded: a dry run saves nothing, so its success says nothing of a night that failed saving,
  * as the night of 10 October did. The starting level's from the Monday re-measure
  * (`closedLevel`, `closedLevelVerdict`), and only a live run's, as only a live run keeps the
- * re-measure for the card: a dry run's measures a pool that was never saved.
+ * re-measure for the card: a dry run's measures a pool that was never saved. The memory's from the
+ * night's peak (`memory`, `memoryVerdict`), a live run's only: a dry run saves nothing, so its
+ * peak may fall short of a live night's and would settle an alarm a live night raised.
  */
 export const nightlyVerdicts = ({
   outcome,
@@ -182,6 +206,7 @@ export const nightlyVerdicts = ({
   held = "",
   ingest = "",
   unanswered = "",
+  memory = "",
 }: {
   outcome: string;
   event: string;
@@ -198,6 +223,8 @@ export const nightlyVerdicts = ({
   dispatch?: string;
   /** The questions the cloud left unanswered, as the nightly read the ledger (`unansweredWord`). */
   unanswered?: string;
+  /** The night's peak against the most it may use (`memoryWord`), a live run's only. */
+  memory?: string;
 }): Verdict[] => {
   const live = mode === "live";
   const how = event === "schedule" ? "scheduled" : live ? "by hand, live" : "by hand, dry run";
@@ -217,6 +244,8 @@ export const nightlyVerdicts = ({
   if (save) verdicts.push(save);
   const reading = live ? ingestVerdict(ingest) : null;
   if (reading) verdicts.push(reading);
+  const peak = live ? memoryVerdict(memory) : null;
+  if (peak) verdicts.push(peak);
   // Read whatever the run, dry or live: neither is the refresh's own work.
   if (billing === "off") verdicts.push({ kind: "billing", failing: true, said: "off" });
   else if (billing === "on") verdicts.push({ kind: "billing", failing: false });
@@ -401,6 +430,13 @@ const WORDS: Record<
       `the nightly found that ${said}, past the 20 a day that open this issue: each a question a member's device asked that the server spent compute on and could not answer, as a worker that runs out of memory cannot (editHandle.ts), counted in the edits' ledger. A device asks one again on its own at most three times a day, so this many is a server that cannot answer, not one member's bad minute. The question function's log (poolQuery, its "edit" lines that end "threw") says why`,
     fine: () => "The nightly found no day past 20 questions unanswered",
     closes: "Each nightly that finds a day past 20 again comments here, and the first to find none",
+  },
+  memory: {
+    failed: (said) =>
+      `the nightly peaked at ${said}, past the three quarters that open this issue (memoryUse.ts). It holds the whole pool at once, so its peak grows with the pool, and past the most it may use a night stops with its heap exhausted. Make room before then: the heap nightly.yml gives it (NODE_OPTIONS) where the runner has the memory for it, a runner with more, or less of the pool held at once. Each night's log says what each step held ("Memory after")`,
+    fine: () => "The nightly peaked under three quarters of the memory it may use",
+    closes:
+      "Each live nightly that peaks past three quarters again comments here, and the first under",
   },
   closedLevel: {
     failed: (said) => `the weekly re-measure found ${said}`,

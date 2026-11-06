@@ -51,3 +51,12 @@ declare module "node:crypto" {
 declare module "node:zlib" {
   export function gzipSync(data: string): Uint8Array;
 }
+
+/** What the nightly reads of how much memory it may use (`memoryWord`). */
+declare module "node:v8" {
+  export function getHeapStatistics(): { heap_size_limit: number };
+}
+
+declare module "node:os" {
+  export function totalmem(): number;
+}

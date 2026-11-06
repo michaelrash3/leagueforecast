@@ -7063,6 +7063,20 @@ And one on the cloud's questions, the owner's of 31 October 2026:
   closes it; a ledger not read, or not one this build reads, leaves it as it is, and a day before
   the day before was judged by the nightly after it.
 
+And one on the nightly's memory, since a night that runs out says so only by failing:
+
+- **The nightly is near the memory it may use** (`memoryWord`, `memoryUse.ts`): a live nightly's
+  peak (`maxRSS`, the whole process) reached three quarters of the most it may use, the heap Node
+  was given (`heap_size_limit`) or the runner's memory where that is less. The nightly holds the
+  whole pool at once, so its peak grows with the pool: 7,588.7 MB on 30 October 2026 and 8,077.1
+  MB on 6 November, against a heap set at 12,288 MiB, which Node 24 reads as 13,086.2 MB. Three
+  quarters of that is 9,814.7 MB, about three and a half weeks off at that week's growth, with a
+  quarter still to grow into when the issue opens. It says the peak, the most it may use and the
+  share, handed over as `memory=near` or `fine` with the two in whole megabytes, and what to do:
+  the heap `nightly.yml` sets, a runner with more memory, or less of the pool held at once. The
+  first live nightly under three quarters closes it; a dry run, which saves nothing, and a night
+  that stopped short of its end, which peaked short of a whole night, leave it as it is.
+
 An issue is public, as the repository is, so it says when (UTC, to the minute),
 what failed in a word or two, and the run's link, and nothing from the log. The
 words are fixed in `runAlarms.ts`, which works out what to raise or settle from

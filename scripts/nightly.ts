@@ -30,13 +30,20 @@
  * timings only: this repository is public, and so are its Actions logs.
  */
 import { appendFileSync } from "node:fs";
+import { totalmem } from "node:os";
+import { getHeapStatistics } from "node:v8";
 import type { CloudStore } from "../src/lib/cloud/cloudEngine.ts";
 import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
 import { heldWord, radiusWords } from "../src/lib/cloud/blastRadius.ts";
 import { censusLines, clubCensus, tapLeagueDocs } from "../src/lib/cloud/clubCensus.ts";
 import { heardNothing, runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.ts";
 import { ingestWord, ingestWords } from "../src/lib/cloud/ingestCanary.ts";
-import { memoryUseOf, memoryWords, type MemoryUse } from "../src/lib/cloud/memoryUse.ts";
+import {
+  memoryUseOf,
+  memoryWord,
+  memoryWords,
+  type MemoryUse,
+} from "../src/lib/cloud/memoryUse.ts";
 import {
   stageMemory,
   storedStandInLines,
@@ -398,7 +405,11 @@ const main = async (): Promise<void> => {
   } catch (error) {
     console.log(`  The staged backups were not swept: ${failureWords(error)}`);
   }
-  console.log(`  Memory at the end: ${memoryWords(memoryNow())}.`);
+  const atEnd = memoryNow();
+  console.log(`  Memory at the end: ${memoryWords(atEnd)}.`);
+  // The night's peak against the most it may use, for the alarm of its own (`memoryWord`). Only
+  // a run that reached its end says it: one that stopped short peaked short of the whole night.
+  output("memory", memoryWord(atEnd, getHeapStatistics().heap_size_limit, totalmem()));
   if (
     result.end === "gave-up" ||
     result.end === "copy-kept-changing" ||

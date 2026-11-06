@@ -48,6 +48,7 @@ const verdicts: Verdict[] | null =
         held: env.HELD ?? "",
         ingest: env.INGEST ?? "",
         unanswered: env.UNANSWERED ?? "",
+        memory: env.MEMORY ?? "",
       })
     : which === "republish"
       ? republishVerdicts({ outcome: env.OUTCOME ?? "" })

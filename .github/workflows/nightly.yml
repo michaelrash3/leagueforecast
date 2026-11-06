@@ -123,5 +123,6 @@ jobs:
           HELD: ${{ steps.refresh.outputs.held }}
           INGEST: ${{ steps.refresh.outputs.ingest }}
           UNANSWERED: ${{ steps.refresh.outputs.unanswered }}
+          MEMORY: ${{ steps.refresh.outputs.memory }}
           BILLING: ${{ steps.upkeep.outputs.billing }}
           DISPATCH: ${{ steps.upkeep.outputs.dispatch }}

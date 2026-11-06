@@ -98,13 +98,14 @@ describe("the words the nightly hands its alarm step", () => {
     ...alarm.matchAll(/^ {10}([A-Z_]+): \$\{\{ steps\.refresh\.outputs\.(\w+) \}\}\s*$/gm),
   ].map(([, key, name]) => ({ key: key ?? "", name: name ?? "" }));
 
-  it("hands over the rebuilds' word, the starting level's, the save's, what was read and the questions left unanswered", () => {
+  it("hands over the rebuilds' word, the starting level's, the save's, what was read, the questions left unanswered and the night's peak memory", () => {
     expect(handed).toEqual([
       { key: "REBUILDS", name: "rebuilds" },
       { key: "CLOSED_LEVEL", name: "closedLevel" },
       { key: "HELD", name: "held" },
       { key: "INGEST", name: "ingest" },
       { key: "UNANSWERED", name: "unanswered" },
+      { key: "MEMORY", name: "memory" },
     ]);
   });
 
@@ -114,6 +115,7 @@ describe("the words the nightly hands its alarm step", () => {
     { key: "HELD", name: "held" },
     { key: "INGEST", name: "ingest" },
     { key: "UNANSWERED", name: "unanswered" },
+    { key: "MEMORY", name: "memory" },
   ])("writes $name in the refresh, and reads it as $key in the alarm", ({ key, name }) => {
     expect(handed).toContainEqual({ key, name });
     expect(nightlyScript).toContain(`output("${name}", `);
