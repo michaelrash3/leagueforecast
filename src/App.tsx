@@ -109,7 +109,7 @@ import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standi
 import { recordText } from "./lib/format";
 import { recapToMarkdown, recapToStoryBrief } from "./lib/insights";
 import { AiHealthCheck } from "./components/aiHealthCheck";
-import { eliminationNumberForGold, magicForGold, withOwedGames } from "./lib/magic";
+import { withOwedGames } from "./lib/magic";
 import { buildPredictionEngine } from "./lib/predictionEngine";
 import { buildBracketProjection } from "./lib/bracket";
 import { buildShareUrl } from "./lib/share";
@@ -119,10 +119,7 @@ import {
   PROJECT_STANDINGS_REMAINING_GAME_LIMIT,
   type RecapPool,
 } from "./lib/impactRecap";
-import {
-  EXACT_MAGIC_REMAINING_GAME_LIMIT,
-  EXACT_SCENARIO_REMAINING_GAME_LIMIT,
-} from "./lib/searchLimits";
+import { EXACT_SCENARIO_REMAINING_GAME_LIMIT } from "./lib/searchLimits";
 import { useToday } from "./hooks/useToday";
 import { useNarrowViewport } from "./hooks/useWideViewport";
 import { TabNav } from "./components/TabNav";
@@ -167,18 +164,13 @@ import {
   type TeamBase,
   type TeamWithProjection,
 } from "./lib/types";
-import {
-  buildLeagueAverageStats,
-  buildTeamSplitSummary,
-  buildTeamStatRankings,
-  emptySplitLine,
-} from "./lib/teamStats";
-import { buildTeamTrendSummary } from "./lib/teamTrend";
+import { buildLeagueAverageStats, buildTeamStatRankings } from "./lib/teamStats";
 import { isFinal } from "./lib/util";
 import { linkedTeamIdFromUrl, TEAM_QUERY_PARAM } from "./lib/teamLink";
 import { HeaderStatCard } from "./components/HeaderStatCard";
 import { button as buttonClasses, focusRing, tab } from "./styles/tokens";
 import { useGameEdits } from "./hooks/useGameEdits";
+import { useSelectedTeam } from "./hooks/useSelectedTeam";
 
 type ActiveView = ActiveShareView;
 
@@ -1521,26 +1513,33 @@ export default function App() {
 
   // ---------- Header / selection ----------
 
-  const selectedTeam = selectedTeamId ? (dashboardById.get(selectedTeamId) ?? null) : null;
-  const selectedTeamSplitSummary = useMemo(
-    () =>
-      selectedTeam
-        ? buildTeamSplitSummary(selectedTeam.id, matchups, logs)
-        : {
-            all: emptySplitLine("Overall"),
-            home: emptySplitLine("Home"),
-            away: emptySplitLine("Away"),
-          },
-    [selectedTeam, matchups, logs]
-  );
-  const selectedTeamTrendSummary = useMemo(
-    () =>
-      selectedTeam
-        ? buildTeamTrendSummary(selectedTeam.id, matchups, logs, runsOnly)
-        : buildTeamTrendSummary("", [], {}, runsOnly),
-    [selectedTeam, matchups, logs, runsOnly]
-  );
-  const compareTeam = compareTeamId ? (dashboardById.get(compareTeamId) ?? null) : null;
+  const {
+    compareTeam,
+    selectedTeam,
+    selectedTeamDetail,
+    selectedTeamSplitSummary,
+    selectedTeamTrendSummary,
+  } = useSelectedTeam({
+    bubbleTierForTeam,
+    clinchScenariosForTeam,
+    compareTeamId,
+    currentSosRanks,
+    dashboardById,
+    dashboardRows,
+    formatGoldPct,
+    goldCutoff,
+    logs,
+    matchups,
+    nextTwoSwingGames,
+    remainingGames,
+    runsOnly,
+    scheduleDifficultyForTeam,
+    searchedCount,
+    seasonSettings,
+    seedRangeForTeam,
+    selectedTeamId,
+    titleRaceBadgeForTeam,
+  });
 
   // Our team (`useOurTeam`): the team this browser follows, its card, its club's rank, its Scout.
   const { ourClubRank, ourTeam, pickOurTeam, scoutClub } = useOurTeam({
@@ -1608,60 +1607,6 @@ export default function App() {
     seasonLabel: settings.seasonLabel,
     nameOf,
   });
-
-  const selectedTeamDetail = useMemo(() => {
-    if (!selectedTeam) return null;
-    const swings = nextTwoSwingGames(selectedTeam.id);
-    return {
-      bubble: bubbleTierForTeam(selectedTeam),
-      currentSosRank: currentSosRanks[selectedTeam.id] ?? null,
-      goldPctLabel: formatGoldPct(selectedTeam),
-      range: seedRangeForTeam(selectedTeam.id),
-      sos: scheduleDifficultyForTeam(selectedTeam.id),
-      swings,
-      titleRace: titleRaceBadgeForTeam(selectedTeam),
-      clinchScenarios: clinchScenariosForTeam(selectedTeam.id),
-      magic:
-        searchedCount <= EXACT_MAGIC_REMAINING_GAME_LIMIT
-          ? magicForGold(selectedTeam.id, dashboardRows, remainingGames, goldCutoff, seasonSettings)
-          : {
-              type: "magic" as const,
-              ownWinsNeeded: 0,
-              opponentLossesNeeded: 0,
-              description: `Exact magic number is paused until ${EXACT_MAGIC_REMAINING_GAME_LIMIT} or fewer games remain to keep team modals responsive.`,
-            },
-      elimination:
-        searchedCount <= EXACT_MAGIC_REMAINING_GAME_LIMIT
-          ? eliminationNumberForGold(
-              selectedTeam.id,
-              dashboardRows,
-              remainingGames,
-              goldCutoff,
-              seasonSettings
-            )
-          : {
-              type: "elimination" as const,
-              ownWinsNeeded: 0,
-              opponentLossesNeeded: 0,
-              description: `Exact elimination number is paused until ${EXACT_MAGIC_REMAINING_GAME_LIMIT} or fewer games remain to keep team modals responsive.`,
-            },
-    };
-  }, [
-    selectedTeam,
-    nextTwoSwingGames,
-    bubbleTierForTeam,
-    currentSosRanks,
-    formatGoldPct,
-    seedRangeForTeam,
-    scheduleDifficultyForTeam,
-    titleRaceBadgeForTeam,
-    clinchScenariosForTeam,
-    dashboardRows,
-    searchedCount,
-    remainingGames,
-    goldCutoff,
-    seasonSettings,
-  ]);
 
   const finalCount = completedGames.length;
   const totalGamesCount = matchups.length;
