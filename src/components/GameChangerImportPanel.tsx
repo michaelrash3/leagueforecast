@@ -1,79 +1,28 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import {
-  parseGcOrgList,
-  parseGcTeamList,
-  PASTE_HANDFUL,
-  squadYearsForGcSeason,
-  withListed,
-  type GcTeamListEntry,
-  type GcTeamProfile,
-} from "../lib/gameChangerApi";
-import {
-  BATCH_SIZE,
-  fetchGcTeams,
-  PULL_CONCURRENCY,
-  PULL_MAX_CONCURRENCY,
-} from "../lib/gameChangerClient";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { parseGcTeamList, type GcTeamListEntry } from "../lib/gameChangerApi";
 import type { NamedAges } from "../lib/namedAges";
+import { type DeletedClubs } from "../lib/deletedGames";
 import {
-  mergeOrgMembership,
-  orgAgesByTeam,
-  withOrgAges,
-  type OrgMembership,
-} from "../lib/orgMembership";
-import { isDeletedClub, type DeletedClubs } from "../lib/deletedGames";
-import { handoffLoaded } from "../lib/crawlHandoffStore";
-import { isPoolFilled, subscribePoolFilled } from "../lib/poolFill";
-import { useHeldHandoff } from "../hooks/useCrawlHandoff";
-import {
-  heldSnapshot,
   holdingNow,
-  holdingPages,
   holdingWholePool,
   sectionOf,
   type HeldPool,
   type RunPhase,
-  type SectionMark,
 } from "../lib/pullRun";
-import {
-  beginPull,
-  endPull,
-  forceReleasePool,
-  isPoolBusy,
-  isPullLive,
-  lastPullLog,
-  type PullSession,
-  livePull,
-  livePullTracker,
-  stopLivePull,
-  watchPull,
-} from "../lib/pullSession";
+import { isPoolBusy, isPullLive, watchPull } from "../lib/pullSession";
 import {
   comparePairing,
-  createGcImporter,
-  describeTidy,
   GC_PAIRING_EVIDENCE_LABEL,
-  poolSignature,
-  proposeSeasonPairings,
-  summarizeGcImport,
-  tidyChangedAnything,
   type GcImportOutcome,
   type GcImportState,
   type GcPairingComparison,
   type GcPairingSide,
   type GcSeasonPairing,
-  type PoolTidy,
-  vouchedByImport,
 } from "../lib/gameChangerImport";
 import {
   describePull,
-  isPullComplete,
-  pullView,
   remainingIds,
   retryFailures,
-  retryableIds,
-  settleTeam,
-  settleWithoutAsking,
   startPull,
   type GcPullProgress,
   type GcPullView,
@@ -82,89 +31,41 @@ import {
   describeCadence,
   describeDue,
   describeRotation,
-  dueRefresh,
-  idsPlayingAround,
-  markRefreshed,
   MIN_PULL_GAP_HOURS,
-  type DueRefresh,
-  type RefreshCadence,
   type RefreshLog,
 } from "../lib/gameChangerSchedule";
 import {
-  checkPulledTeam,
-  collectGcImportProblems,
   describeGcProblems,
   gcImportProblemsCsv,
   type GcImportProblem,
 } from "../lib/gameChangerReport";
 import { rosterWatchOf, MIN_REAL_ROSTER } from "../lib/gcRoster";
-import {
-  AGE_UNKNOWN_MAX_TRIES,
-  describeAgeUnknown,
-  withRulesMoved,
-  type AgeUnknownList,
-} from "../lib/ageUnknown";
-import { answerableToday } from "../lib/agelessQueue";
-import { isTooYoungClub, type TooYoungClubs } from "../lib/tooYoungClubs";
-import { forgetRefused, isRefusedClub, type RefusedClubs } from "../lib/refusedClubs";
+import { AGE_UNKNOWN_MAX_TRIES } from "../lib/ageUnknown";
+import { type TooYoungClubs } from "../lib/tooYoungClubs";
+import { forgetRefused, type RefusedClubs } from "../lib/refusedClubs";
 import { usePoolTidy } from "../hooks/usePoolTidy";
 import { TidyProgressView } from "./teamRankings/TidyProgressView";
 import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
-import { downloadCsv, fileDay } from "../lib/download";
+import { downloadCsv } from "../lib/download";
 import {
-  flushPoolWrites,
-  loadAgeGroups,
-  loadAgeUnknown,
-  loadRefreshCadence,
-  loadScoutGames,
-  loadScoutTeams,
-  loadScoutGamesForPages,
-  saveRefreshCadence,
-  loadPullLog,
-  savePullLog,
-  saveTidyStamp,
   type PoolHolding,
-  loadDeletedGames,
-  loadNotThisTeam,
-  loadDroppedClubs,
   loadTooYoungClubs,
   loadRefusedClubs,
   saveRefusedClubs,
-  loadOrgMembership,
-  saveOrgMembership,
-  loadKeptApart,
-  loadRealClubs,
-  loadRetiredIds,
 } from "../lib/teamRankingsStorage";
-import { apartKey } from "../lib/keptApart";
-import { leagueLinkedClubsOf, retiredWithPicks } from "../lib/live/allKnown";
-import { readStoredSeason } from "../lib/storage";
-import { runPoolCommand } from "../lib/live/runPoolCommand";
-import { settleRunLists } from "../lib/pullLists";
-import {
-  createPullTracker,
-  liveSummary,
-  pullSummaryCsv,
-  pullTeamsCsv,
-  type PullEndReason,
-  type PullLiveSummary,
-  type PullRunLog,
-  type PullTracker,
-} from "../lib/pullTracker";
-import {
-  gcLinkSquadYearIn,
-  MIN_AGE_LEVEL,
-  mergeScoutTeams,
-  pulledGcTeamIds,
-  segmentOn,
-} from "../lib/teamRankings";
+import { type PullLiveSummary } from "../lib/pullTracker";
+import { gcLinkSquadYearIn, MIN_AGE_LEVEL, mergeScoutTeams, segmentOn } from "../lib/teamRankings";
 import { todayIsoDay } from "../lib/date";
 import type { MarksChange } from "../lib/removedForYou";
 import { cloudStatus, subscribeCloud } from "../lib/cloud/cloudSession";
 import { pullBlockedBy } from "../lib/cloud/pullGate";
 import type { ToastTone } from "../hooks/useToast";
-import { pullSections } from "../lib/pullSections";
 import { button, card, pill, tapArea } from "../styles/tokens";
+import { useGcRunControls } from "../hooks/useGcRunControls";
+import { useGcPullSchedule } from "../hooks/useGcPullSchedule";
+import { useGcTeamList } from "../hooks/useGcTeamList";
+import { estimatedMinutes, nowIso, SAVE_EVERY_MAX, SAVE_EVERY_MIN } from "../lib/gcPullPacing";
+import { useGcPullRun } from "../hooks/useGcPullRun";
 
 type GameChangerImportPanelProps = {
   /** The pool as it stands. The panel works on a copy and hands whole states back. */
@@ -220,84 +121,6 @@ type GameChangerImportPanelProps = {
   onRefreshLog: (log: RefreshLog) => void;
 };
 
-/**
- * Teams between saves. Each save writes the whole pool, so on a run of several thousand the cost
- * is the pool's size times the number of saves — often enough to dwarf the fetching. What it buys
- * is how much an interrupted run has to redo, and five hundred teams is about a minute of that
- * against fourteen writes of the pool rather than two hundred and eighty. The cursor is only
- * advanced *after* the write, so a crash re-fetches the batch rather than claiming teams it never
- * kept.
- */
-/**
- * Writes the run's record beside the pool. Written asynchronously — the record is read on demand,
- * not from the pool's cache — and a refusal, or a store that throws, is noted in the record itself
- * rather than allowed anywhere near the run.
- */
-const persistLog = (tracker: PullTracker, log: PullRunLog): void => {
-  savePullLog(log).then(
-    (ok) => {
-      if (!ok) tracker.unpersisted();
-    },
-    () => tracker.unpersisted()
-  );
-};
-
-/**
- * How many teams to fetch between saves, given how big the pool already is.
- *
- * Every save writes the *whole* pool — the store keeps it as one value, so there is no such thing
- * as appending a game to it. That is fine at a few thousand teams and ruinous at a hundred
- * thousand: a fixed interval means the number of saves grows with the run while the cost of each
- * one grows with the pool, so the total written grows as the square. Measured on a real pool at 169
- * bytes a row encoded, a nationwide pull saving every five hundred teams writes **fourteen to
- * twenty-six gigabytes to disk** to store a few hundred megabytes, and allocates the encoded pool
- * as garbage each time. It is the reason such a pull slows to a crawl and buries the tab in
- * collection: not the fetching, the saving.
- *
- * So the interval grows with the pool. Twenty-odd saves instead of two hundred and thirty on a
- * nationwide pull, a tenth of the disk and a tenth of the garbage. And it never drops below two
- * thousand teams, because a save costs the whole pool however few teams came with it: a pull of
- * five thousand into a small pool saves twice rather than ten times. What it costs is how much a
- * stop or a crash can undo — two thousand teams at the least, about a minute of fetching, and at
- * the ceiling five thousand, two or three minutes.
- */
-export const SAVE_EVERY_MIN = 2000;
-export const SAVE_EVERY_MAX = 5000;
-export const saveEvery = (games: number): number => {
-  /*
-   * Guarded rather than trusted, because of what the arithmetic does with a number that is not
-   * one: `Math.max(2000, NaN)` is NaN, and the caller's test is `unsaved.length >= interval`, which
-   * is false for NaN every time — so a bad count here would not make the pull save badly, it would
-   * make it never save at all, and lose the lot on the way out.
-   */
-  if (!Number.isFinite(games) || games <= 0) return SAVE_EVERY_MIN;
-  return Math.min(SAVE_EVERY_MAX, Math.max(SAVE_EVERY_MIN, Math.round(games / 100)));
-};
-
-/**
- * Seconds one batch request takes, end to end.
- *
- * A round assumption rather than a measurement, and labelled as one. A batch is ten teams, whose
- * twenty upstream fetches all start in the same tick, so the request costs about what the slowest
- * of them does — a live check of a single team through the proxy came back in roughly 300ms, and a
- * second is a fair allowance for ten of them plus the round trip.
- */
-const SECONDS_PER_BATCH = 1;
-
-/**
- * Roughly how long a run of `fresh` teams will spend making requests.
- *
- * Teams are asked for ten at a time, so the work is `fresh / BATCH_SIZE` requests shared between
- * the workers — not one request per team, and not two. Leaving out the batch size read every team
- * as its own pair of requests and overstated a 52,470-team run by a factor of ten: 219 minutes
- * against a floor nearer 11.
- */
-const estimatedMinutes = (fresh: number): number => {
-  const requests = Math.ceil(fresh / BATCH_SIZE);
-  const seconds = (requests / PULL_CONCURRENCY) * SECONDS_PER_BATCH;
-  return Math.max(1, Math.ceil(seconds / 60));
-};
-
 /** "About 1 minute", "About 12 minutes": the estimate as a person says it, where it said "minute(s)". */
 const aboutMinutes = (fresh: number): string => {
   const minutes = estimatedMinutes(fresh);
@@ -317,23 +140,6 @@ gsUthn4XoIxS
 Team Name,Team ID,Age Group,Season,City,State
 "9u Astros 9U",hH8l9MBjxg7U,9U,Fall 2026,Baileyton,AL`;
 
-const nowIso = () => new Date().toISOString();
-
-/** Claims the pool for a pull starting now, with the tracker that records it (`beginPull`). */
-const newPullSession = () => {
-  const startedAt = nowIso();
-  return beginPull(startedAt, createPullTracker(startedAt));
-};
-
-/**
- * The clock, behind a function.
- *
- * Every timing the tracker keeps is a difference between two of these. Read through a helper
- * rather than called in place because the compiler cannot tell a call made while a run is going
- * from one made during a render, and reads the second as a component that will not settle.
- */
-const msNow = () => Date.now();
-
 /** Hands the whole list over as a file, since a few hundred rows is spreadsheet work. */
 const downloadProblems = (problems: GcImportProblem[]) => {
   downloadCsv("gamechanger-not-imported.csv", gcImportProblemsCsv(problems));
@@ -343,8 +149,6 @@ const downloadProblems = (problems: GcImportProblem[]) => {
 const PROBLEMS_SHOWN = 200;
 /** Pairings drawn before "Show all" is pressed. A cap on the drawing, never on the deciding. */
 const PAIRS_DRAWN = 100;
-/** No row of a paste vouched for, one set for every paste, so the list read waits on a real change. */
-const NONE_VOUCHED: ReadonlySet<string> = new Set<string>();
 
 /**
  * Whether a pairing answers to what was typed in the search box.
@@ -501,343 +305,46 @@ export function GameChangerImportPanel({
   // Split once a paste, apart from what it is held against, so a pool saved while the panel is open
   // reads its rows again without splitting a forty megabyte export again.
   const read = useMemo(() => parseGcTeamList(text), [text]);
-  /**
-   * The rows whose name says they are no team that the import would pull all the same: a club the
-   * owner vouched for (`vouchedByImport`), against the real list and League Standings as the run
-   * hands them to the importer. Left out with the rest, such a club could never be refreshed from a
-   * paste, though the import files it.
-   *
-   * Only a row whose id is on the real list or carried by a club in the pool can be one, since
-   * that is all the import's gate reads; so the League pass, a walk of the pool's games, is run only
-   * when a paste holds such a row, not for every paste with a practice page somewhere in it.
-   */
-  const vouched = useMemo(() => {
-    const named = read.entries.filter((entry) => entry.notATeam);
-    if (named.length === 0) return NONE_VOUCHED;
-    const real = loadRealClubs();
-    const pulled = pulledGcTeamIds(pool.teams);
-    const held = named.filter((entry) => real.has(entry.teamId) || pulled.has(entry.teamId));
-    if (held.length === 0) return NONE_VOUCHED;
-    const isVouched = vouchedByImport(
-      pool,
-      new Set([...real, ...leagueLinkedClubsOf(pool, readStoredSeason)])
-    );
-    const ids = held.filter((entry) => isVouched(entry.teamId)).map((entry) => entry.teamId);
-    return ids.length === 0 ? NONE_VOUCHED : new Set(ids);
-  }, [read, pool]);
-
-  const listRead = useMemo(() => {
-    // Wiffle ball is a different game, so those rows never cost a request. Counted separately from
-    // the too-young ones because they are a different kind of "not for us" and the panel says so.
-    const baseball = read.entries.filter((entry) => !entry.notBaseball);
-    // A high school squad plays its own season against other high school squads, so its results
-    // join nothing ranked here. Dropped on the same terms and for the same reason as the wiffle
-    // rows — before a request is spent — and counted apart, because a reader who pasted a list
-    // full of them deserves to be told which kind of "not for us" ate it.
-    const club = baseball.filter((entry) => !entry.highSchool);
-    // And the third kind of "not for us": GameChanger's own field saying adult or college. Same
-    // terms again — refused before a request, counted apart — because a list of men's-league
-    // teams vanishing silently is indistinguishable from a list that failed to parse.
-    const youth = club.filter((entry) => !entry.notYouth);
-    // And a page whose name says it is no team at all — a practice, a test, an old page marked do
-    // not use — on the same terms, counted apart so the pill can say what it was. Read off the
-    // name on every paste rather than remembered, since a coach can rename the page. A club the
-    // owner vouched for is kept, as the import keeps it, and goes on as any row: on no pill.
-    const teams = youth.filter((entry) => !entry.notATeam || vouched.has(entry.teamId));
-    const oldEnough = teams.filter(
-      (entry) =>
-        !isTooYoungClub(tooYoung, entry.teamId) &&
-        (entry.ageLevel === undefined || entry.ageLevel >= MIN_AGE_LEVEL)
-    );
-    /*
-     * And a club somebody threw out. The importer refuses it whatever list names it, but only once
-     * its profile and games have been fetched, and each refusal was then a row under "Worth a
-     * look". Re-pasting a list is how the rows that never made it in are retried, and on the
-     * seasoned list 20,146 of the 53,385 rows a re-paste sent were clubs already thrown out: 38% of
-     * the requests, spent on answers already given, and the refusals buried the real reasons.
-     */
-    const entries = oldEnough.filter((entry) => !isDeletedClub(droppedClubs, entry.teamId));
-    return {
-      ...read,
-      entries,
-      tooYoung: teams.length - oldEnough.length,
-      thrownOut: oldEnough.length - entries.length,
-      notBaseball: read.entries.length - baseball.length,
-      highSchool: baseball.length - club.length,
-      notYouth: club.length - youth.length,
-      notATeam: youth.length - teams.length,
-      // Counted here rather than again at run time: on a nationwide export this is a forty
-      // megabyte split, and once is enough.
-      lines: text ? text.split(/\r?\n/).length : 0,
-    };
-  }, [read, text, tooYoung, droppedClubs, vouched]);
-
-  /**
-   * The seasons a pull files: the one being played, unless somebody ticks another.
-   *
-   * A season in this app's sense, the baseball year from August to July (`segmentOn`), so 2027 is
-   * Fall 2026 through Summer 2027. A crawl that searched every season of a calendar year hands over
-   * last spring's and summer's squads beside this fall's, and a finished year's team adds nothing
-   * to the tables being read now. Held against the list it was chosen for, so a new list starts
-   * from the season being played again rather than from whatever the last one asked for.
-   */
-  const currentSeasonYear = segmentOn(todayIsoDay()).year;
-  const [seasonChoice, setSeasonChoice] = useState<{ text: string; years: number[] } | null>(null);
-  const seasonYears = useMemo(
-    () =>
-      seasonChoice !== null && seasonChoice.text === text
-        ? seasonChoice.years
-        : [currentSeasonYear],
-    [seasonChoice, text, currentSeasonYear]
-  );
-  const toggleSeasonYear = (year: number) => {
-    const next = seasonYears.includes(year)
-      ? seasonYears.filter((kept) => kept !== year)
-      : [...seasonYears, year].sort((a, b) => b - a);
-    setSeasonChoice({ text, years: next });
-  };
-
-  /**
-   * The list less the rows from seasons nobody asked for.
-   *
-   * Only a row whose Season column says so is dropped here, before a request is spent on it. A row
-   * that does not say is kept and settled when it arrives, by GameChanger's own season: the run
-   * hands the same years to the importer, which refuses the rest (`seasonYears`).
-   */
-  const parsed = useMemo(() => {
-    const wanted = new Set(seasonYears);
-    const bySeason = new Map<number, number>();
-    /** Every year a row could be, so either reading of a winter can be ticked. */
-    const readable = new Set<number>();
-    const entries: GcTeamListEntry[] = [];
-    let noSeason = 0;
-    for (const entry of listRead.entries) {
-      if (!entry.season) {
-        noSeason += 1;
-        entries.push(entry);
-        continue;
-      }
-      /*
-       * A winter's label names either year it straddles (`squadYearsForGcSeason`), so a "Winter
-       * 2027" row is this season's as much as next's until its schedule says which: kept where
-       * either year is ticked and counted under that one, and the import files it by its games.
-       */
-      const readings = squadYearsForGcSeason(entry.season);
-      readings.forEach((reading) => readable.add(reading));
-      const year =
-        readings.find((reading) => wanted.has(reading)) ?? readings[readings.length - 1]!;
-      bySeason.set(year, (bySeason.get(year) ?? 0) + 1);
-      if (wanted.has(year)) entries.push(entry);
-    }
-    /*
-     * And the rows an earlier pull fetched and turned away: for what the team is, or as a season
-     * that is still not asked for. A list with no Season column is where this pays — every paste
-     * of it asked GameChanger again about teams it had already answered for.
-     */
-    const kept = entries.filter((entry) => !isRefusedClub(refused, entry.teamId, seasonYears));
-    const turnedAway = entries
-      .filter((entry) => isRefusedClub(refused, entry.teamId, seasonYears))
-      .map((entry) => entry.teamId);
-    return {
-      ...listRead,
-      entries: kept,
-      turnedAway,
-      otherSeason: listRead.entries.length - entries.length,
-      bySeason,
-      readable,
-      noSeason,
-    };
-  }, [listRead, seasonYears, refused]);
-
-  /**
-   * The years the picker offers: the one being played, the one before, and any the list's rows
-   * could be — both readings of a winter's label, so the one its schedule is dated in can be
-   * ticked whichever that is.
-   */
-  const seasonOptions = useMemo(
-    () =>
-      [...new Set([currentSeasonYear, currentSeasonYear - 1, ...parsed.readable])].sort(
-        (a, b) => b - a
-      ),
-    [currentSeasonYear, parsed.readable]
-  );
-
-  /**
-   * The list less the teams already here.
-   *
-   * A team list grows rather than changes — a few dozen clubs added to an export of several
-   * thousand — so an import is for the ones nobody has pulled yet. Re-fetching the rest would cost
-   * the same minutes the first run did to learn nothing: keeping a schedule current is the weekly
-   * rota's job, and it is a separate thing from adding a club to the pool.
-   */
-  const split = useMemo(() => {
-    const pulled = pulledGcTeamIds(pool.teams);
-    const fresh = parsed.entries.filter((entry) => !pulled.has(entry.teamId));
-    const seen = parsed.entries.length - fresh.length;
-    /*
-     * A handful pasted by hand is a different thing from an export. Somebody who types one team's
-     * id in wants that team pulled now, whether or not it is already here — that is how a schedule
-     * that changed today gets read before the rota comes round — so a short list with nothing new
-     * in it is offered as a refresh rather than refused.
-     */
-    const refresh =
-      fresh.length === 0 && parsed.entries.length > 0 && parsed.entries.length <= PASTE_HANDFUL
-        ? parsed.entries
-        : [];
-    return { fresh, seen, refresh };
-  }, [parsed.entries, pool.teams]);
-
-  /**
-   * The teams GameChanger answered for and nobody could age.
-   *
-   * Held in state rather than read on every render: the run rewrites it at the end, and the rota
-   * below has to see the new one without the panel being closed and reopened.
-   */
-  const [ageless, setAgeless] = useState<AgeUnknownList>(() => loadAgeUnknown());
-  /**
-   * The organizations the user's Organizations file named, with the teams under each, and the age
-   * each such team's organizations agree on. Read when a pull files a team GameChanger left
-   * ageless, and by the rota, which asks straight away about a waiting team a file can now age.
-   */
-  const [membership, setMembership] = useState<OrgMembership>(() => loadOrgMembership());
-  const orgAges = useMemo(() => orgAgesByTeam(membership), [membership]);
-  const asks = useMemo(
-    () =>
-      withRulesMoved(withOrgAges(namedAges, orgAges, membership.savedAt), ageless, answerableToday),
-    [namedAges, orgAges, membership.savedAt, ageless]
-  );
-  const waitingOrgAged = useMemo(
-    () => ageless.filter((entry) => orgAges.has(entry.teamId)).length,
-    [ageless, orgAges]
-  );
-  const linkedTeams = useMemo(
-    () => new Set(membership.orgs.flatMap((org) => org.teamIds)).size,
-    [membership]
-  );
-  /** Whether everything in the file it would keep is kept by the end, already or now. */
-  const readOrgFile = (text: string): boolean => {
-    const { orgs } = parseGcOrgList(text);
-    if (!orgs.some((org) => org.teamIds?.length)) {
-      showToast("That file names no teams under its organizations: it needs the Team IDs column.", {
-        tone: "error",
-      });
-      return false;
-    }
-    const next = mergeOrgMembership(membership, orgs, new Date().toISOString());
-    if (next === membership) {
-      // A file of only tournaments changes nothing too, since the merge leaves each out, but
-      // "already kept" would be untrue of them.
-      showToast(
-        orgs.every((org) => !org.teamIds?.length || org.kind === "tournament")
-          ? "Nothing to keep in that file: its organizations are tournaments, whose names give a bracket's age, not a team's."
-          : "Nothing new in that file: every organization in it is already kept."
-      );
-      return true;
-    }
-    if (!saveOrgMembership(next)) {
-      showToast("Could not keep the organizations: the browser refused the write.", {
-        tone: "error",
-      });
-      return false;
-    }
-    setMembership(next);
-    showToast(`Kept ${next.orgs.length.toLocaleString()} organizations with teams under them.`);
-    return true;
-  };
-  /*
-   * A file chosen by hand and one the crawl handed over (`useHeldHandoff`) go in the same way;
-   * `loaded` is told once one has, which for the crawl's is when the miner marks its rows sent.
-   */
-  const chooseTeamFile = (file: File, loaded?: () => void) => {
-    const reader = new FileReader();
-    reader.onerror = () => showToast("Could not read that file.", { tone: "error" });
-    reader.onload = () => {
-      setLoaded({ name: file.name, size: file.size, text: String(reader.result ?? "") });
-      loaded?.();
-    };
-    reader.readAsText(file);
-  };
-  const chooseOrgFile = (file: File, loaded?: () => void) => {
-    const reader = new FileReader();
-    reader.onerror = () => showToast("Could not read that file.", { tone: "error" });
-    reader.onload = () => {
-      if (readOrgFile(String(reader.result ?? ""))) loaded?.();
-    };
-    reader.readAsText(file);
-  };
-  // The crawl's files, taken only while a list can be chosen, and its organizations only once the
-  // pool they are kept with is read in, as the file inputs would be.
-  const poolReadIn = useSyncExternalStore(subscribePoolFilled, isPoolFilled, () => false);
-  useHeldHandoff("teams", phase.kind === "picking", ({ id, file }) =>
-    chooseTeamFile(file, () => handoffLoaded(id, "teams"))
-  );
-  useHeldHandoff("orgs", phase.kind === "picking" && poolReadIn, ({ id, file }) =>
-    chooseOrgFile(file, () => handoffLoaded(id, "orgs"))
-  );
-  const [cadence, setCadence] = useState<RefreshCadence>(() => loadRefreshCadence());
-  const chooseCadence = useCallback((next: RefreshCadence) => {
-    setCadence(next);
-    saveRefreshCadence(next);
-  }, []);
-
-  /*
-   * One instant for all of it. The gate that decides what is due, the count in the button and the
-   * sentence under it all read a clock now, and three clocks a millisecond apart could disagree
-   * about whether a team was asked seven days ago — which is exactly the kind of thing nobody
-   * would ever reproduce.
-   */
-  /*
-   * The teams with a game within a day of today, which a refresh never holds back however lately
-   * they were pulled (`MIN_PULL_GAP_HOURS`). Off the games, so a walk of the pool once per change
-   * to it rather than once per render.
-   */
-  const playing = useMemo(() => idsPlayingAround(pool.games, todayIsoDay()), [pool.games]);
-  const { due, agelessLine } = useMemo(() => {
-    const now = new Date();
-    return {
-      due: dueRefresh(now, refreshLog, pool.ageGroups, pool.teams, {
-        /*
-         * The season being played and no other. A finished season's pages cannot change, so
-         * walking them every day spent a pool's worth of requests on nothing; what it costs is a
-         * result posted after August 1 for a game in late July, which the pull no longer reads.
-         */
-        seasonYear: segmentOn(todayIsoDay(now)).year,
-        ageless,
-        cadence,
-        namedAges: asks,
-        refused: droppedClubs,
-        playing,
-      }),
-      agelessLine: describeAgeUnknown(ageless, now, asks, droppedClubs),
-    };
-  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, asks, droppedClubs, playing]);
-
-  /*
-   * The same day, with what has already been done today set aside. Only ever used by the button
-   * that asks for it: a person who has just fixed a link, or who knows a tournament finished an
-   * hour ago, is asking about something the day log cannot know, and "come back tomorrow" is the
-   * wrong answer to that.
-   *
-   * Built when asked for rather than alongside `due`, because both walk every team's GameChanger
-   * links, and on the daily cadence that is the whole pool rather than a level or two of it.
-   * Computing it beside the other one paid that walk twice on every change for an answer that is
-   * read only when nothing is due.
-   */
-  const everythingDue = useCallback(() => {
-    const now = new Date();
-    return dueRefresh(now, refreshLog, pool.ageGroups, pool.teams, {
-      // Held to the season being played for the same reason as `due` above.
-      seasonYear: segmentOn(todayIsoDay(now)).year,
-      ageless,
-      cadence,
-      namedAges: asks,
-      refused: droppedClubs,
-      force: true,
-      playing,
-    });
-  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, asks, droppedClubs, playing]);
-  const [showWeek, setShowWeek] = useState(false);
-  const resumable = savedProgress ? remainingIds(savedProgress) : [];
+  const {
+    ageless,
+    asks,
+    currentSeasonYear,
+    membership,
+    orgAges,
+    parsed,
+    seasonOptions,
+    seasonYears,
+    setAgeless,
+    setMembership,
+    split,
+    toggleSeasonYear,
+    waitingOrgAged,
+  } = useGcTeamList({ droppedClubs, namedAges, pool, read, refused, text, tooYoung });
+  const {
+    agelessLine,
+    cadence,
+    chooseCadence,
+    chooseOrgFile,
+    chooseTeamFile,
+    due,
+    everythingDue,
+    linkedTeams,
+    resumable,
+    setShowWeek,
+    showWeek,
+  } = useGcPullSchedule({
+    ageless,
+    asks,
+    droppedClubs,
+    membership,
+    phase,
+    pool,
+    refreshLog,
+    savedProgress,
+    setLoaded,
+    setMembership,
+    showToast,
+  });
 
   /**
    * The GameChanger pages that may not be teams, and which are worth asking about again.
@@ -875,764 +382,48 @@ export function GameChangerImportPanel({
   /** Which section of a sectioned run is going, for the bar to say so. Null when it is one run. */
   const section = sectionOf(phase);
 
-  /** Copies the counts out of the live cursor so React has something it can see change. */
-  const syncStats = () => {
-    if (progressRef.current) setStats(pullView(progressRef.current));
-  };
-
-  const persist = (note?: string): boolean => {
-    /*
-     * The copy and the label come out of one value, so a save cannot be handed one run's pool
-     * under another run's name — which in one direction deletes every page the run is not holding
-     * and in the other writes a pool it was never given. The copy is shallow and per save rather
-     * than per team, which is why the save interval is what it is; see `heldSnapshot`.
-     */
-    const ok = onPersist(heldSnapshot(heldRef.current), heldRef.current.holding);
-    if (!ok) {
-      /*
-       * No cause named here. A save refuses for more than one reason now — the store being full,
-       * and the store declining to take this snapshot as the whole pool — and the caller has
-       * already said which on its way to returning false. Guessing "storage full" over the top of
-       * that would be the wrong one half the time.
-       */
-      showToast(`Could not save the pull.${note ? ` ${note}` : ""}`, { tone: "error" });
-    }
-    return ok;
-  };
-
-  /**
-   * One section of a sectioned run, and where it sits in the sequence.
-   *
-   * What the fold holds is not in here: `heldRef` is seeded before the section starts, and a
-   * section that reached in to seed it would be a second place that decides what a section holds.
-   */
-  type RunPart = {
-    /** Claimed once, by the sequence, and held to the end. */
-    session: PullSession;
-    /** Whether the paste and the estimate have been recorded yet. */
-    first: boolean;
-    /** Whether the tidy, the summary and the review screen fall to this one. */
-    last: boolean;
-    /** What the whole sequence was asked for, which is not what this section was asked for. */
-    asked: number;
-    /**
-     * Which section of how many this is, for the bar.
-     *
-     * Passed in rather than set beside the run, because the phase carries it and only the thing
-     * entering that phase can set both at once. Set separately, the sequence marked the section
-     * while the panel was still on "picking" — where a section mark does not exist — and the run
-     * then entered "pulling" with no section at all.
-     */
-    section: SectionMark;
-  };
-
-  /**
-   * Runs the pull, or one section of it. Each schedule is folded in as it arrives rather than
-   * collected and applied at the end, so stopping — or closing the tab — keeps everything already
-   * fetched.
-   *
-   * `part` is what makes a section a section. Absent, this claims the slot, folds over the whole
-   * pool and finishes the run at the bottom — which is what it always did, and is still what a
-   * run of one section does. Given, the session is the one the sequence holds, the fold is over
-   * whatever `heldRef` was seeded with, and the opening and closing work is done once for the
-   * sequence rather than once per section.
-   */
-  const run = async (
-    ids: string[],
-    progress: GcPullProgress,
-    part?: RunPart
-  ): Promise<PullEndReason> => {
-    /*
-     * Claimed before anything is fetched. A pull survives its panel — closing it hides the run
-     * rather than stopping it — so a reopened panel could otherwise start a second, and the two
-     * would write whole-pool snapshots over each other while the cursor marked the losers settled.
-     *
-     * A section does not claim: the sequence claimed once, before the first, and holds it to the
-     * end. Six claims would be six chances for something else to take the slot in between and
-     * leave half a pool refreshed.
-     */
-    const session = part?.session ?? newPullSession();
-    if (session && part === undefined) {
-      /*
-       * Seeded here rather than at mount: the slot is claimed, so nothing else can write the pool
-       * from now until it is released, and this is the last moment the page's own copy is the
-       * newest there is. A section does not seed — the sequence did, before the first of them.
-       */
-      heldRef.current = holdingNow(heldRef.current, livePoolRef.current);
-    }
-    if (!session) {
-      // What is actually holding it, rather than a guess. A tidy refuses a pull exactly as another
-      // pull does, and saying "a pull is already running" when one is not sends somebody looking
-      // for a run that does not exist.
-      const holder = livePull();
-      showToast(
-        holder?.kind === "tidy"
-          ? "The pool is being tidied. That takes a moment — try again when it finishes."
-          : "A pull is already running. Reopen Import to watch it, or stop it there.",
-        { tone: "error" }
-      );
-      return "stopped";
-    }
-    const last = part?.last ?? true;
-    const controller = session.controller;
-    /*
-     * Released whatever happens from here on. The slot this run holds is what stops a second one
-     * starting, so anything that throws between the claim and the release leaves it held for the
-     * rest of the page's life — and every later run refused, with nothing running to explain it.
-     * `endPull` ignores a session that is no longer the live one, so calling it twice is free.
-     */
-    let released = false;
-    /**
-     * Whether this section is the one that ends the run: the last of them, or whichever one
-     * something stopped. A run that gave up in its third section is still owed a tidy, a summary
-     * and a review screen, and there is no seventh section coming to give it one.
-     *
-     * Out here with `released` so that a throw before the try body cannot leave the `finally`
-     * reading it in its dead zone, where the error it raised would bury the one that got there.
-     */
-    let ending = last;
-    /** Declared out here so the `finally` can take it off again however the run ends. */
-    let onVisibility: (() => void) | null = null;
-    const giveUpSlot = () => {
-      // Not this section's to give up. The sequence releases it once, in its own `finally`, so a
-      // section that throws half way still frees the slot without the next one finding it gone.
-      if (!ending || released) return;
-      released = true;
-      endPull(session);
-    };
-    try {
-      /*
-       * The record of this run, which outlives the panel with the session that holds it.
-       *
-       * Wrapped rather than called directly, everywhere it is used. A tracker that throws inside
-       * `onProgress` would take the whole run down with it — no final flush, no released slot — and
-       * destroying an hour of fetching to record it is exactly backwards. A field it could not write
-       * is a blank cell; nothing more.
-       */
-      const tracker = session.tracker;
-      const track = (write: () => void): void => {
-        try {
-          write();
-        } catch {
-          /* never at the run's expense */
-        }
-      };
-      const runFrom = msNow();
-      /*
-       * What the whole sequence was asked for, which is not what this section was asked for. The
-       * paste and the estimate are facts about the run, so a sectioned run must not record the
-       * last section's numbers as if they were the run's.
-       */
-      const askedInRun = part?.asked ?? ids.length;
-      track(() => {
-        tracker?.beginSegment(session.startedAt, ids);
-        tracker?.config({
-          concurrency: PULL_CONCURRENCY,
-          maxConcurrency: PULL_MAX_CONCURRENCY,
-          batchSize: BATCH_SIZE,
-          saveEvery: saveEvery(heldRef.current.state.games.length),
-        });
-        if (part === undefined || part.first) {
-          tracker?.eta(estimatedMinutes(askedInRun));
-          tracker?.paste({
-            lines: parsed.lines,
-            parsed: parsed.entries.length,
-            skipped: parsed.skipped.length,
-            skippedSamples: parsed.skipped,
-            tooYoung:
-              parsed.tooYoung +
-              parsed.notBaseball +
-              parsed.highSchool +
-              parsed.notYouth +
-              parsed.notATeam +
-              parsed.thrownOut +
-              parsed.otherSeason +
-              parsed.turnedAway.length,
-            alreadyHere: split.seen,
-            asked: askedInRun,
-          });
-        }
-      });
-
-      /*
-       * An hour against an eleven-minute estimate has two explanations that look identical from the
-       * inside — GameChanger was slow, or the tab was in the background and the browser throttled
-       * it. Nothing else recorded can tell them apart, and this is six lines.
-       */
-      let hiddenFrom = document.visibilityState === "hidden" ? msNow() : 0;
-      onVisibility = () => {
-        if (document.visibilityState === "hidden") {
-          hiddenFrom = msNow();
-          return;
-        }
-        if (hiddenFrom === 0) return;
-        const spell = msNow() - hiddenFrom;
-        hiddenFrom = 0;
-        track(() => tracker?.hidden(spell));
-      };
-      document.addEventListener("visibilitychange", onVisibility);
-
-      /*
-       * One fold held open for the whole run. Folding each schedule on its own rebuilt an index of
-       * the pool per team, over a pool growing underneath it — quadratic, and on a few thousand
-       * teams by far the longest part of a pull.
-       */
-      // Rows thrown out for being dated ahead of today stay thrown out; see `deletedGames.ts`.
-      const importer = createGcImporter(heldRef.current.state, {
-        deleted: loadDeletedGames(),
-        droppedClubs: loadDroppedClubs(),
-        tooYoung: loadTooYoungClubs(),
-        // The ages somebody typed on the review card. This is the only call site there is, so
-        // leaving it out did not weaken the feature, it turned it off: the answer was stored, the
-        // row vanished from the card because the queue hides a team once it is named, and the
-        // next pull read an empty map and refused the team for having no age all over again.
-        namedAges,
-        // The names the owner has said are not a club ("Not this team"), never filed onto it.
-        notThisTeam: loadNotThisTeam(),
-        // The clubs the owner vouched for, whose name refuses nothing, as the tidy deletes none of
-        // them: the real list, and every club a League Standings team links.
-        realClubs: new Set([
-          ...loadRealClubs(),
-          ...leagueLinkedClubsOf(heldRef.current.state, readStoredSeason),
-        ]),
-        // The run's own seasons, not the panel's: a resumed run files what it was started for.
-        ...(progress.seasonYears ? { seasonYears: new Set(progress.seasonYears) } : {}),
-        // And the ids the pool let go of, which no club the pull makes is minted as, with those
-        // of the clubs League Standings picks that the pool no longer holds.
-        retired: retiredWithPicks(loadRetiredIds(), readStoredSeason, heldRef.current.state.teams),
-      });
-      progressRef.current = progress;
-      // The summary is the whole run's, so a section adds to what the sections before it found.
-      if (part === undefined || part.first) outcomesRef.current = [];
-      /**
-       * What the list claimed about each id, beside what GameChanger returned for it, so the report
-       * can say which ids do not look like the team that was asked for. Only ids the list described
-       * are kept; a bare pasted id claims nothing to check.
-       */
-      const claimed = new Map(parsed.entries.map((entry) => [entry.teamId, entry]));
-      /**
-       * Only the ids where the two disagree.
-       *
-       * The check is the same one the report runs, moved to the moment the answer arrives instead
-       * of the end of the run. It used to keep every team pulled — a hundred and sixteen thousand
-       * profiles held for hours to report on the few hundred that turn out to be worth reporting —
-       * and the whole point of the map is the disagreements, so the agreements are dropped as soon
-       * as they are known to be agreements.
-       */
-      const pulledRef = new Map<string, { entry: GcTeamListEntry; profile: GcTeamProfile }>();
-      setPhase({ kind: "pulling", session, section: part?.section ?? null });
-      setResult(null);
-      setLive(null);
-      syncStats();
-
-      // Settled but not yet written. The cursor follows the save, never leads it.
-      let unsaved: string[] = [];
-      /** Saves so far, so a row can say which one kept it — and where the saving stopped. */
-      let flushSeq = 0;
-      /** How the run came to an end, settled by whatever ends it and read once at the bottom. */
-      let endReason: PullEndReason = "finished";
-      // Flushes run one at a time and in order; a batch is never overtaken by the next.
-      let flushing: Promise<void> = Promise.resolve();
-
-      /**
-       * Writes what has been folded in, then advances the cursor — in that order, and only if the
-       * write actually reached the store.
-       *
-       * Waiting matters because a save can only be *accepted* synchronously: the pool is written to
-       * IndexedDB behind the caller, so a cursor that trusted the acknowledgement would mark teams
-       * settled that a closed tab then loses, and the resume would skip them for good.
-       */
-      const flush = (): Promise<void> => {
-        if (unsaved.length === 0) return flushing;
-        const batch = unsaved;
-        const failures = new Map(pendingFailures);
-        unsaved = [];
-        pendingFailures.clear();
-
-        flushSeq += 1;
-        const flushNumber = flushSeq;
-
-        flushing = flushing.then(async () => {
-          const from = msNow();
-          /*
-           * A refused save stops the run, rather than being noted and fetched past.
-           *
-           * On localStorage this is the only signal there is: writeValue returns whether the value
-           * actually landed, while flushPoolWrites can only say whether the pool is usable at all,
-           * so a quota refusal reaches here and nowhere else. Carrying on meant hours of fetching
-           * that saved nothing, with the cursor never advancing and the progress bar walking
-           * backwards 500 at a time on every flush.
-           */
-          const sample = (ok: boolean) =>
-            track(() => {
-              tracker?.flushed(
-                {
-                  flush: flushNumber,
-                  second: Math.round((msNow() - runFrom) / 1000),
-                  teams: batch.length,
-                  settled: progressRef.current?.settled.length ?? 0,
-                  poolTeams: heldRef.current.state.teams.length,
-                  poolGames: heldRef.current.state.games.length,
-                  poolPages: heldRef.current.state.ageGroups.length,
-                  ms: msNow() - from,
-                  ok,
-                },
-                batch
-              );
-              // Written beside the pool rather than inside it, so a record that will not fit can
-              // never be the thing that stops the run it is recording.
-              const current = tracker?.log();
-              if (current) {
-                if (tracker) persistLog(tracker, current);
-                setLive(
-                  liveSummary(current, progressRef.current?.settled.length ?? 0, msNow() - runFrom)
-                );
-              }
-            });
-
-          if (!persist("Stopping, so nothing is fetched that cannot be kept.")) {
-            sample(false);
-            endReason = "save-refused";
-            controller.abort();
-            return;
-          }
-          if (!(await flushPoolWrites())) {
-            showToast("Could not save the pull — stopping so nothing is lost.", { tone: "error" });
-            sample(false);
-            endReason = "save-refused";
-            controller.abort();
-            return;
-          }
-          const at = nowIso();
-          batch.forEach((teamId) => {
-            progressRef.current = settleTeam(
-              progressRef.current ?? progress,
-              teamId,
-              at,
-              failures.get(teamId)
-            );
-          });
-          if (progressRef.current) onSaveProgress(progressRef.current);
-          sample(true);
-        });
-        return flushing;
-      };
-
-      const pendingFailures = new Map<
-        string,
-        { reason: GcPullProgress["failures"][number]["reason"]; message: string }
-      >();
-
-      await fetchGcTeams(ids, {
-        concurrency: PULL_CONCURRENCY,
-        maxConcurrency: PULL_MAX_CONCURRENCY,
-        // Merged into the run's config, so the report says what the pool grew to.
-        onConcurrency: (workers) => track(() => tracker?.config({ workers })),
-        signal: controller.signal,
-        onHold: (ms, source) => track(() => tracker?.hold(ms, source)),
-        onBlocked: () => track(() => tracker?.blocked()),
-        onSuppressed: (teamId) => track(() => tracker?.suppressed(teamId)),
-        /*
-         * Turned away by the proxy for not being on the cloud copy's list: possible only when the
-         * browser thought otherwise when the run began (taken off the list meanwhile, say). The
-         * teams it asked for stay unsettled, so a resume once signed in asks for them again.
-         */
-        onMembersOnly: (message) => {
-          endReason = "stopped";
-          showToast(message, { tone: "error" });
-        },
-        onRefused: (refusals) =>
-          track(() => {
-            endReason = "gave-up";
-            tracker?.gaveUp(refusals, Math.round((msNow() - runFrom) / 1000));
-          }),
-        onProgress: ({ teamId, result, attempts, firstFailure }) => {
-          track(() =>
-            tracker?.answered({
-              teamId,
-              result,
-              attempts,
-              ...(firstFailure ? { firstFailure } : {}),
-              ...(claimed.get(teamId)?.ageLevel === undefined
-                ? {}
-                : { listAge: claimed.get(teamId)?.ageLevel }),
-            })
-          );
-          if (result.ok) {
-            const entry = claimed.get(teamId);
-            /*
-             * What the user's own list knows and GameChanger's payload does not, attached here,
-             * where both halves are in hand, so the link the import records carries it and the age
-             * a league names can file a team GameChanger left ageless (`withListed`).
-             */
-            const schedule = withListed(result.schedule, entry, orgAges.get(teamId));
-            const outcome = importer.add(schedule);
-            outcomesRef.current.push(outcome);
-            track(() => tracker?.imported(outcome));
-            heldRef.current = holdingNow(heldRef.current, importer.state);
-            if (entry && checkPulledTeam(entry, result.schedule.profile)) {
-              pulledRef.set(teamId, { entry, profile: result.schedule.profile });
-            }
-          } else {
-            pendingFailures.set(teamId, { reason: result.reason, message: result.message });
-          }
-          unsaved.push(teamId);
-          if (unsaved.length >= saveEvery(heldRef.current.state.games.length)) void flush();
-          // The cursor only advances on a flush, so the bar counts what is settled plus what is
-          // fetched and waiting to be written — otherwise it would sit still between saves.
-          const settled = progressRef.current?.settled.length ?? 0;
-          const total = progressRef.current?.ids.length ?? ids.length;
-          setStats({
-            done: Math.min(settled + unsaved.length, total),
-            total,
-            failed: (progressRef.current?.failures.length ?? 0) + pendingFailures.size,
-            fraction: total === 0 ? 0 : Math.min(settled + unsaved.length, total) / total,
-          });
-        },
-      });
-
-      await flush();
-      if (onVisibility) document.removeEventListener("visibilitychange", onVisibility);
-      track(() => {
-        // A spell that is still running when the pull ends is still time the tab was hidden.
-        if (hiddenFrom !== 0) tracker?.hidden(msNow() - hiddenFrom);
-        tracker?.fetchEnded(nowIso());
-        /*
-         * Stopped is worked out here rather than recorded when the button was pressed, because the
-         * same abort is how a refused save ends a run — and those are very different facts about an
-         * hour that produced nothing.
-         */
-        if (endReason === "finished" && controller.signal.aborted) endReason = "stopped";
-        tracker?.endSegment(nowIso(), endReason);
-      });
-      // A section that finished and is not the last one ends here. Everything below is the run's
-      // ending, and a run of six sections has one.
-      if (!ending && endReason === "finished") return endReason;
-      ending = true;
-      // Given up here rather than at the end: what follows is the tidy and the summary, neither of
-      // which is a reason to refuse a run somebody starts in the meantime.
-      giveUpSlot();
-      // Marked only now: a run that was stopped half way has not refreshed those levels.
-      if (
-        dueLevelsRef.current.length > 0 &&
-        progressRef.current &&
-        isPullComplete(progressRef.current)
-      ) {
-        onRefreshLog(markRefreshed(refreshLog, dueLevelsRef.current, new Date()));
-      }
-      dueLevelsRef.current = [];
-
-      /*
-       * Now that every schedule in this run is in: name the stand-ins from the other side's schedule,
-       * fold the clubs holding several GameChanger ids, and collapse the rows those folds made into
-       * one game. A whole run is the first point at which both halves of each are certainly present.
-       */
-      /*
-       * Back to the whole pool for the ending. A sectioned run has been holding one age page at a
-       * time, so `heldRef` is whatever the last section held — and the tidy names stand-ins from
-       * the other side's schedule, folds clubs holding several ids and collapses the rows those
-       * folds make, none of which it can do without seeing every side. Read back from the store
-       * rather than accumulated across the sections, because accumulating it is the thing the
-       * sections exist not to do: held all at once it is the 332 MB that was running the tab out
-       * of memory, and the fold's index — 253 MB of that — is out of scope by the time this runs.
-       */
-      if (part !== undefined) {
-        heldRef.current = holdingWholePool({
-          ...heldRef.current.state,
-          games: loadScoutGames(),
-        });
-      }
-      // With the sweep for clubs plainly made up after it, in the worker: 2.5 s of walking every
-      // game of the 11 October 2026 pool, measured in Node, which this thread would spend frozen.
-      const outcome = await tidyInWorker(heldRef.current.state, {}, todayIsoDay());
-      /*
-       * Refused only if something else claimed the pool in the moment between this run giving it up
-       * and the tidy asking for it. Nothing is lost by skipping it: the stamp is left alone, so the
-       * pool still reads as untidied and the next time the app opens on it, it is tidied then.
-       */
-      const tidy: PoolTidy | null = outcome ? { ...outcome.tidy, state: outcome.state } : null;
-      if (tidy) {
-        // Stamped before the save lands, so the page does not read the tidied pool as untidied.
-        saveTidyStamp(poolSignature(tidy.state));
-        // Asked of the step list rather than summed here, where three of the eleven counts were
-        // missing and a pass that only deleted teams stamped a pool it did not save.
-        if (tidyChangedAnything(tidy)) {
-          heldRef.current = holdingNow(heldRef.current, tidy.state);
-          if (persist()) await flushPoolWrites();
-        }
-      }
-
-      // The waiting list, the refusals and the too-young, written; this only shows them.
-      const lists = settleRunLists(outcomesRef.current, nowIso());
-      setAgeless(lists.ageless);
-      if (!lists.agelessSaved) {
-        showToast("The list of teams waiting on an age could not be saved — storage is full.", {
-          tone: "error",
-        });
-      }
-      if (lists.refused) setRefused(lists.refused);
-      if (lists.tooYoung) setTooYoung(lists.tooYoung);
-      // Thrown out like a club somebody deleted by hand, which is the page's to do.
-      if (lists.invented.length > 0) onInvented(lists.invented);
-      // Whenever the sweep ran (`marks` null where it changed nothing): a club it marked before, under
-      // a line that only marked, is deleted now (Codex on #469).
-      if (outcome && outcome.marks !== undefined) {
-        const deleted = onSwept?.(
-          outcome.marks,
-          new Set([...loadRealClubs(), ...leagueLinkedClubsOf(outcome.state, readStoredSeason)])
-        );
-        /*
-         * The clubs it deleted are gone from storage and not from this run's working copy, which
-         * the pairings below are offered from and an approved pairing saves whole: left as it was,
-         * pairing any two clubs put the deleted ones and their games back (Codex, #469). Read back
-         * from the store, as the whole pool is read back for the ending above.
-         */
-        if (deleted && deleted.length > 0) {
-          heldRef.current = holdingNow(heldRef.current, {
-            ageGroups: loadAgeGroups(),
-            teams: loadScoutTeams(),
-            games: loadScoutGames(),
-          });
-        }
-      }
-
-      track(() => {
-        // `outcome.tidy` and not `tidy`: the latter carries the whole tidied pool, and writing that
-        // into the record would put a second copy of every game in storage.
-        if (outcome) tracker?.tidied(outcome.tidy);
-        tracker?.finish(nowIso(), endReason);
-        if (tracker) persistLog(tracker, tracker.log());
-      });
-
-      const finished = progressRef.current;
-      setResult({
-        summary: [...summarizeGcImport(outcomesRef.current), ...(tidy ? describeTidy(tidy) : [])],
-        problems: collectGcImportProblems(
-          finished?.failures ?? [],
-          outcomesRef.current,
-          new Map(
-            parsed.entries.flatMap((entry) => (entry.name ? [[entry.teamId, entry.name]] : []))
-          ),
-          pulledRef
-        ),
-        canRetry: finished ? retryableIds(finished).length > 0 : false,
-      });
-      setPairings(
-        proposeSeasonPairings(
-          heldRef.current.state.teams,
-          heldRef.current.state.games,
-          loadKeptApart(),
-          heldRef.current.state.ageGroups
-        )
-      );
-      setApproved(new Set());
-      setOpenPair(null);
-      setPhase({ kind: "review", endReason });
-      syncStats();
-      return endReason;
-    } finally {
-      giveUpSlot();
-      if (onVisibility) document.removeEventListener("visibilitychange", onVisibility);
-    }
-  };
-
-  /**
-   * Runs a pull as a sequence of sections, one age page at a time.
-   *
-   * This is the whole point of the exercise. A fold over the whole pool was measured at 332 MB on
-   * forty thousand teams and two hundred thousand games — 79 MB of pool and 253 MB of the index
-   * the fold builds over it — and that is what has been running the tab out of memory an hour into
-   * a nationwide refresh. One age page of six is 99 MB, and the roster, which every section needs
-   * in full so that an opponent can be matched at all, is only 25 MB of it. The games are the rest
-   * and they scale with how many are held, so holding a sixth of them holds a third of the memory.
-   *
-   * What it costs is written down in `pullSections` and `saveScoutGamesForGroups`: a section
-   * cannot see another page's games while it folds, matching is keyed on the squad year rather
-   * than the page, and so one cross-age tournament fixture can arrive twice during a run. The
-   * end-of-run tidy runs over the whole pool and collapses them, so it is a state the pool passes
-   * through rather than one it is left in.
-   */
-  const runSectioned = async (asked: string[], started: GcPullProgress): Promise<void> => {
-    /*
-     * A club thrown out is settled here, without a request, whichever way it arrived: in a run
-     * saved before it was thrown out, in a rota or roster run's list, or pasted while the panel
-     * held an older list of thrown-out clubs than storage does. Read from storage for that last
-     * reason, as the importer below does.
-     */
-    const dropped = loadDroppedClubs();
-    const thrownOut = asked.filter((teamId) => isDeletedClub(dropped, teamId));
-    const ids =
-      thrownOut.length > 0 ? asked.filter((teamId) => !isDeletedClub(dropped, teamId)) : asked;
-    const progress = settleWithoutAsking(started, thrownOut, nowIso());
-    if (progress !== started) onSaveProgress(progress);
-    const sections = pullSections(ids, pool.teams, pool.ageGroups);
-    /*
-     * One section is the run. Sectioning a single page would hold exactly what an unsectioned run
-     * holds and pay a second fold to arrive there, and — because nothing else is being refreshed
-     * alongside it — it would take the duplicate-fixture trade for nothing in return.
-     */
-    if (sections.length <= 1) {
-      await run(ids, progress);
-      return;
-    }
-
-    /*
-     * Claimed here rather than in `run`, and held across every section. Six claims would be six
-     * moments where a tidy could take the slot between two sections and leave the pool half
-     * refreshed, with the cursor saying the rest was done.
-     */
-    const session = newPullSession();
-    if (!session) {
-      const holder = livePull();
-      showToast(
-        holder?.kind === "tidy"
-          ? "The pool is being tidied. That takes a moment — try again when it finishes."
-          : "A pull is already running. Reopen Import to watch it, or stop it there.",
-        { tone: "error" }
-      );
-      return;
-    }
-
-    // As in `run`: the slot is held from here, so this is the last moment the page's copy is the
-    // newest there is, and every section below carries forward from it.
-    heldRef.current = holdingNow(heldRef.current, livePoolRef.current);
-
-    try {
-      for (const [index, section] of sections.entries()) {
-        /*
-         * What this section folds over: every team, and only this page's games. The teams have to
-         * be whole — an opponent that is not in the roster is a stand-in, and a section that could
-         * not see the rest of the country would invent one for half its schedule — and they are
-         * nearly free. The games are the cost, so they are this page's and nothing else's.
-         */
-        /*
-         * The pool and its label in one move, because they are one fact: a section that owns pages
-         * is authoritative for them and replaces them, and the section of ids nobody has pulled
-         * before owns none — it never read a page, so it cannot say what one ought to contain, and
-         * can only add. `holdingPages` is where that choice lives now.
-         */
-        heldRef.current = holdingPages(
-          {
-            ageGroups: heldRef.current.state.ageGroups,
-            teams: heldRef.current.state.teams,
-            games: loadScoutGamesForPages(section.ageGroupIds),
-          },
-          section.ageGroupIds
-        );
-        // The cursor the sections before it advanced, not the one the run started from: passing
-        // the original back would throw away what they settled and have a resume fetch it again.
-        const reason = await run(section.teamIds, progressRef.current ?? progress, {
-          session,
-          first: index === 0,
-          last: index === sections.length - 1,
-          asked: ids.length,
-          section: { index: index + 1, of: sections.length, label: section.label },
-        });
-        // Stopped, refused or given up. That section did the run's ending on the way out.
-        if (reason !== "finished") break;
-      }
-    } finally {
-      heldRef.current = holdingWholePool(heldRef.current.state);
-      setPhase((current) => (current.kind === "pulling" ? { ...current, section: null } : current));
-      // `endPull` ignores a session that is no longer the live one, so the section that ended the
-      // run having already released it costs nothing; a section that threw is why this is here.
-      endPull(session);
-    }
-  };
-
-  /**
-   * Pulls the under-strength pages again, and nothing else.
-   *
-   * Its own button rather than part of the rota: these are a few hundred pages at most and the
-   * question about them is different from keeping a schedule current. A page whose roster has
-   * grown past nine comes back from this as an ordinary team, and one that has not is asked about
-   * again in another fortnight.
-   */
-  const recheckRosters = () => {
-    if (rosterDue.length === 0) return;
-    const progress = startPull(
-      rosterDue.map((entry) => entry.teamId),
-      nowIso(),
-      null,
-      // Filed only in the season being played, whatever GameChanger now says the page is.
-      [segmentOn(todayIsoDay()).year]
-    );
-    onSaveProgress(progress);
-    // Not a rota run, so nothing is marked refreshed when it finishes.
-    dueLevelsRef.current = [];
-    void runSectioned(remainingIds(progress), progress);
-  };
-
-  /**
-   * The catch-up day's other job: ask again about the teams nobody could age.
-   *
-   * The same route they came in on, because that is the only thing that can answer the question —
-   * GameChanger may have filled its field in, the club may have renamed the squad, or the team may
-   * have played more games against opponents who do name an age. Pulling other clubs cannot help:
-   * the names are read off this team's own schedule. Not a rota run, so nothing is marked
-   * refreshed when it finishes.
-   */
-  const runAgeless = () => {
-    if (due.agelessIds.length === 0) return;
-    /*
-     * Filed only in the season being played, as the rota is. The waiting list is not the pool's
-     * and outlives a year archived or deleted, so a team from that year was asked about again and
-     * filed back onto a page of it. Refused as another season's, it leaves the list too.
-     */
-    const progress = startPull(due.agelessIds, nowIso(), null, [segmentOn(todayIsoDay()).year]);
-    onSaveProgress(progress);
-    dueLevelsRef.current = [];
-    void runSectioned(remainingIds(progress), progress);
-  };
-
-  const runRefresh = (target: DueRefresh) => {
-    if (target.teamIds.length === 0) return;
-    const progress = startPull(target.teamIds, nowIso(), null);
-    onSaveProgress(progress);
-    dueLevelsRef.current = target.ageLevels;
-    void runSectioned(remainingIds(progress), progress);
-  };
-
-  const runDue = () => runRefresh(due);
-  /** Everything the cadence covers, whether or not it has already been done today. */
-  const runEverything = () => runRefresh(everythingDue());
-
-  /*
-   * How many a re-run would cover, worked out only once nothing is due — which is the only time
-   * the button that shows it is on screen. While there is work outstanding this stays zero and
-   * the walk is not paid at all.
-   */
-  const forcedCount = useMemo(
-    () => (due.teamIds.length === 0 ? everythingDue().teamIds.length : 0),
-    [due.teamIds.length, everythingDue]
-  );
-
-  /**
-   * The end-of-run tidy on its own. It also runs by itself whenever the app opens on a pool it has
-   * not tidied, so this is for the person who wants to see it happen now.
-   */
-  const tidyNow = async () => {
-    // From the pool as saved, not the ref: nothing has been pulled since it was handed in.
-    const outcome = await tidyInWorker(pool);
-    if (!outcome) {
-      showToast("Something is already working on the pool — try again when it has finished.", {
-        tone: "error",
-      });
-      return;
-    }
-    const tidy: PoolTidy = { ...outcome.tidy, state: outcome.state };
-    saveTidyStamp(poolSignature(tidy.state));
-    const lines = describeTidy(tidy);
-    if (lines.length === 0) {
-      showToast("Nothing doubled up, nothing to fold.");
-      return;
-    }
-    heldRef.current = holdingNow(heldRef.current, tidy.state);
-    if (persist()) {
-      await flushPoolWrites();
-      showToast(lines.join(" "), { tone: "success" });
-    }
-  };
+  const {
+    forcedCount,
+    persist,
+    recheckRosters,
+    runAgeless,
+    runDue,
+    runEverything,
+    runSectioned,
+    tidyNow,
+  } = useGcPullRun({
+    due,
+    dueLevelsRef,
+    everythingDue,
+    heldRef,
+    livePoolRef,
+    namedAges,
+    onInvented,
+    onPersist,
+    onRefreshLog,
+    onSaveProgress,
+    onSwept,
+    orgAges,
+    outcomesRef,
+    parsed,
+    pool,
+    progressRef,
+    refreshLog,
+    rosterDue,
+    setAgeless,
+    setApproved,
+    setLive,
+    setOpenPair,
+    setPairings,
+    setPhase,
+    setRefused,
+    setResult,
+    setStats,
+    setTooYoung,
+    showToast,
+    split,
+    tidyInWorker,
+  });
 
   const startNew = () => {
     // The button is off with no season ticked; this is for anything else that calls it.
@@ -1663,115 +454,16 @@ export function GameChangerImportPanel({
     void runSectioned(remainingIds(next), next);
   };
 
-  /**
-   * The record storage kept of the last run, read once this panel is open.
-   *
-   * On demand rather than with the pool: a row per team in a nationwide pull is tens of thousands
-   * of rows, and every page was holding them for the sake of the download buttons below. It is
-   * asked for here, when the panel that has those buttons mounts, and nowhere else.
-   */
-  const [storedLog, setStoredLog] = useState<PullRunLog | null>(null);
-  useEffect(() => {
-    let wanted = true;
-    void loadPullLog().then((log) => {
-      if (wanted) setStoredLog(log);
-    });
-    return () => {
-      wanted = false;
-    };
-  }, []);
-
-  /**
-   * The run's own record, live or the last one finished, falling back to what storage kept.
-   *
-   * Three sources because the record has to be downloadable in all three situations: while the run
-   * is going, after it has ended in this panel, and after a reload that lost every component but
-   * not the file.
-   */
-  const runLog = (): PullRunLog | null => livePullTracker()?.log() ?? lastPullLog() ?? storedLog;
-  /*
-   * Read again when the button is pressed rather than used from the render that drew it. A run
-   * still going is writing to this the whole time, and a file built from the copy that happened to
-   * be in hand when the button was drawn would be missing everything since.
-   */
-  const tracked = runLog();
-  const trackedIds = tracked?.ids.length ?? 0;
-
-  const downloadRunSummary = () => {
-    const log = runLog();
-    if (!log) return;
-    downloadCsv(
-      `gamechanger-run-${fileDay()}-summary.csv`,
-      pullSummaryCsv(log, progressRef.current?.settled ?? [])
-    );
-  };
-
-  const downloadRunTeams = () => {
-    const log = runLog();
-    if (!log) return;
-    downloadCsv(
-      `gamechanger-run-${fileDay()}-teams.csv`,
-      pullTeamsCsv(log, progressRef.current?.settled ?? [])
-    );
-  };
-
-  /**
-   * Takes the pool back from whatever holds it.
-   *
-   * Only offered for a tidy: a pull is stopped through its own session so it can shut down
-   * cleanly, but a tidy has no cursor to keep and re-runs by itself the next time the app opens on
-   * a pool it does not recognise — so there is nothing to lose by cutting it short, and a person
-   * who wants to start an hour of fetching should not have to wait on housekeeping.
-   */
-  const releasePool = () => {
-    forceReleasePool();
-    showToast("Stopped tidying. The pool will be tidied again after the pull.", { tone: "info" });
-  };
-
-  const stop = () => {
-    // Through the session, and only through it: the panel used to keep a second copy of the same
-    // controller, which said nothing the session did not and went stale the moment a run ended.
-    stopLivePull();
-    showToast("Stopping after the requests already in flight.", { tone: "info" });
-  };
-
-  const pairKey = (pairing: GcSeasonPairing) => `${pairing.fromTeamId}>${pairing.toTeamId}`;
-  /**
-   * The pairings the search matches, and how many of them are drawn.
-   *
-   * A nationwide pull offers four hundred of these, and the list used to stop at a hundred and say
-   * the rest could be done from each team's own panel — three hundred panels, one at a time, for a
-   * decision that is the same decision every time. Worse, an unpaired squad is not a cosmetic
-   * problem: a club whose fall and spring ids were never joined is two teams with no game between
-   * them, and a rating cannot carry across a winter it cannot see.
-   *
-   * So all of them are reachable. The first hundred are drawn for speed, "Show all" draws the
-   * rest, and the search narrows by name, state or season for when the answer is only wanted for
-   * some of them.
-   */
-  /**
-   * Says the two are two clubs, for good. Recorded against the GameChanger ids, which is what the
-   * next pull brings back unchanged; the same pair is never offered here or on the pool health
-   * card again. See `keptApart.ts`.
-   */
-  const keepApart = (pairing: GcSeasonPairing) => {
-    const run = runPoolCommand({
-      kind: "answers",
-      list: "keptApart",
-      add: [apartKey(pairing.fromGcId, pairing.toGcId)],
-      remove: [],
-    });
-    if (!run.ok) return;
-    const key = pairKey(pairing);
-    setPairings((current) => current.filter((entry) => pairKey(entry) !== key));
-    setApproved((current) => {
-      if (!current.has(key)) return current;
-      const next = new Set(current);
-      next.delete(key);
-      return next;
-    });
-    setOpenPair((current) => (current?.key === key ? null : current));
-  };
+  const {
+    downloadRunSummary,
+    downloadRunTeams,
+    keepApart,
+    pairKey,
+    releasePool,
+    stop,
+    tracked,
+    trackedIds,
+  } = useGcRunControls({ progressRef, setApproved, setOpenPair, setPairings, showToast });
 
   const matching = pairings.filter((pairing) => pairingMatches(pairing, pairSearch));
   const shown = matching.slice(0, pairLimit);
