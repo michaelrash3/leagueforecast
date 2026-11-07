@@ -11,13 +11,9 @@ import {
 import { lastBackupTakenAt } from "../lib/lastBackup";
 import { myTeamGlance } from "../lib/myTeamGlance";
 import { movementOf } from "../lib/rankMovement";
-import { weekMovers } from "../lib/thisWeek";
-import { teamWeek, theWeekly } from "../lib/theWeekly";
-import { recordVsExpected, withSeason } from "../lib/clubForm";
 import { compareClubs } from "../lib/clubCompare";
 import { createAgeGroupId } from "../lib/teamRankings/seasons";
 import { filedByNameOn } from "../lib/notThisTeam";
-import { clubRankPage, leagueClubRanksFrom, writeLeagueClubRanks } from "../lib/leagueClubRanks";
 import { scoutAsked, scoutTaken } from "../lib/scoutRequest";
 import {
   ageGroupChain,
@@ -27,7 +23,6 @@ import {
   EMPTY_SCOUTING_REPORT,
   buildUpcomingSchedule,
   countedInWindow,
-  inSegment,
   rankingPoolGroupIds,
   segmentLabel,
   seasonYearOptions,
@@ -106,7 +101,6 @@ import { card } from "../styles/tokens";
 import { ClubSheet } from "./teamRankings/ClubSheet";
 import { leftClubSheet, markClubSheet } from "../lib/clubSheetHistory";
 import { useWatchList } from "../lib/watchList";
-import { withGcIds } from "../lib/myTeamLook";
 import { clubLookupOf } from "../lib/teamRankings/leagueBridge";
 import { keptGcIds } from "../lib/teamRankings/rememberedClub";
 import { EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/addGameDraft";
@@ -121,7 +115,6 @@ import {
   STATE_TOP,
 } from "./teamRankings/RankingsSection";
 import { todayIsoDay } from "../lib/date";
-import { ratedClubsOf, whatIfDeclines } from "../lib/scoutWhatIf";
 import { RankingsHeader } from "./teamRankings/RankingsHeader";
 import { SECTION_PANEL_ID, sectionTabId } from "./teamRankings/SectionNav";
 import {
@@ -148,6 +141,9 @@ import { usePoolAnswers } from "../hooks/usePoolAnswers";
 import { useFindTeam } from "../hooks/useFindTeam";
 import { usePoolGameEntry } from "../hooks/usePoolGameEntry";
 import { useStartingOver } from "../hooks/useStartingOver";
+import { useWhatIf } from "../hooks/useWhatIf";
+import { useLeagueClubRanks } from "../hooks/useLeagueClubRanks";
+import { useRankingsWeek } from "../hooks/useRankingsWeek";
 
 /**
  * A club's panel, fetched as a club is first opened (`ClubSheet`), as the live board's is: opening
@@ -963,212 +959,46 @@ export function TeamRankingsView({
     [lastWeek]
   );
 
-  /*
-   * The page's week (`theWeekly`): the board's movers since last week's places, and the upsets,
-   * the game ahead and the streaks from the half's games, as a published board carries them.
-   */
-  const thisWeek = useMemo(
-    () => weekMovers(rankings, lastWeek?.ranks ?? null),
-    [rankings, lastWeek]
-  );
-  const weekly = useMemo(
-    () =>
-      rankings.length > 0
-        ? theWeekly(selectedAgeGroupId, rankings, poolGames, today, {
-            year: ageGroupYear(ageGroups.find((group) => group.id === selectedAgeGroupId)),
-            segment: selectedSegment,
-          })
-        : null,
-    [rankings, selectedAgeGroupId, poolGames, today, ageGroups, selectedSegment]
-  );
-  const myWeek = useMemo(
-    () => (myTeamId === undefined ? null : teamWeek(myTeamId, poolGames, rankings, today)),
-    [myTeamId, poolGames, rankings, today]
-  );
-  // Its record against the clubs rated here, beside the one its ratings expected, over the half.
-  const myExpected = useMemo(() => {
-    if (myTeamId === undefined) return undefined;
-    const year = ageGroupYear(ageGroups.find((group) => group.id === selectedAgeGroupId));
-    const byId = new Map(rankings.map((row) => [row.teamId, row]));
-    return recordVsExpected(
-      myTeamId,
-      poolGames.filter((game) => inSegment(game.date, year, selectedSegment)),
-      (teamId) => byId.get(teamId),
-      today
-    );
-  }, [myTeamId, ageGroups, selectedAgeGroupId, rankings, poolGames, selectedSegment, today]);
-
-  /** The team marked as yours, where it stands on this page and what it plays next. */
-  const myTeam = useMemo(() => {
-    if (myTeamId === undefined) return null;
-    const stateById = new Map(rankedTeams.map((team) => [team.id, team.state]));
-    const upcoming =
-      myTeamId === reportForId
-        ? upcomingRows
-        : buildUpcomingSchedule(myTeamId, rankings, poolGames, allKnown.teams, today);
-    const stateOf = (teamId: string) => stateById.get(teamId);
-    const glance = myTeamGlance(rankings, myTeamId, stateOf, upcoming, lastWeek?.ranks ?? null);
-    // With its GameChanger ids, which its look is read by (`myTeamLook.ts`).
-    const club = allKnown.teams.find((team) => team.id === myTeamId);
-    return (
-      glance &&
-      withGcIds(
-        withSeason(glance, rankings, stateOf, upcoming),
-        club,
-        selectedAgeGroupId,
-        ageGroups
-      )
-    );
-  }, [
+  const { myExpected, myTeam, myWeek, thisWeek, weekly } = useRankingsWeek({
+    ageGroups,
+    allKnown,
     lastWeek,
     myTeamId,
-    selectedAgeGroupId,
-    ageGroups,
-    reportForId,
-    upcomingRows,
-    rankings,
-    rankedTeams,
     poolGames,
-    allKnown.teams,
+    rankedTeams,
+    rankings,
+    reportForId,
+    selectedAgeGroupId,
+    selectedSegment,
     today,
-  ]);
+    upcomingRows,
+  });
 
-  /**
-   * Where the clubs of the league seasons this page claims stand on it, written for League
-   * Standings' "Our team" card (`leagueClubRanksFrom`), which cannot fit a board of its own. Only
-   * off a board that is this page's and settled, so a switch between pages never writes one page's
-   * places under another's seasons. A settled board with nobody on it is written too: it takes
-   * away places the card would otherwise go on showing.
-   *
-   * And only off a half the season plays its games in. A fall league's clubs are on the fall
-   * board; the spring one, with none of the league's games on it, took away the places the card
-   * was showing the moment anybody looked at it, as a board opened on the spring in January did.
-   */
-  useEffect(() => {
-    if (rankingsStale) return;
-    const group = ageGroups.find((one) => one.id === selectedAgeGroupId);
-    if (!group || group.seasonIds.length === 0) return;
-    const stateById = new Map(rankedTeams.map((team) => [team.id, team.state]));
-    const board =
-      selectedSegment === undefined || selectedYear === undefined
-        ? group.name
-        : `${group.name} · ${segmentLabel(selectedYear, selectedSegment)}`;
-    const at = new Date().toISOString();
-    const page = clubRankPage(ageGroupLevel(group), ageGroupYear(group), selectedSegment);
-    group.seasonIds.forEach((seasonId) => {
-      const clubs = allKnown.leagueClubs.get(group.id)?.get(seasonId);
-      if (!clubs) return;
-      const halves = allKnown.leagueHalves.get(group.id)?.get(seasonId);
-      if (selectedSegment !== undefined && halves && halves.size > 0) {
-        if (!halves.has(selectedSegment)) return;
-      }
-      writeLeagueClubRanks(
-        seasonId,
-        leagueClubRanksFrom(
-          rankings,
-          clubs,
-          (teamId) => stateById.get(teamId),
-          lastWeek?.ranks ?? null,
-          board,
-          at,
-          page,
-          fieldClubs.gcOf
-        )
-      );
-    });
-  }, [
+  useLeagueClubRanks({
+    ageGroups,
+    allKnown,
+    fieldClubs,
+    lastWeek,
+    rankedTeams,
     rankings,
     rankingsStale,
-    rankedTeams,
-    ageGroups,
     selectedAgeGroupId,
     selectedSegment,
     selectedYear,
-    allKnown.leagueClubs,
-    allKnown.leagueHalves,
-    lastWeek,
-    fieldClubs,
-  ]);
+  });
 
-  /**
-   * The fixture whose what-if is open, if any. One at a time: two would be two tables.
-   *
-   * Remembered against the board it was opened on, and read back as closed whenever that is not
-   * the board on screen. A place in a table means nothing in a different one, so a panel opened
-   * for one club, page or half of the year must not survive into another — and deriving that is
-   * safer than clearing it, because there is no moment where the two disagree.
-   */
-  const [opened, setOpened] = useState<{ gameId: string; board: string } | null>(null);
-  const whatIfBoard = `${reportForId}|${selectedAgeGroupId}|${routeSegment ?? ""}`;
-  const whatIfGameId = opened && opened.board === whatIfBoard ? opened.gameId : null;
-
-  /*
-   * Which of these fixtures can be asked about at all, worked out once for the whole schedule.
-   * The expensive part is choosing the games the fit would read, and that is the same choice for
-   * every row, so asking per row would pay for it once a row instead of once a board.
-   */
-  const asksWhatIf = Boolean(reportForId) && upcomingRows.length > 0;
-  /*
-   * The half of that check that reads the whole year: which clubs the board counts a game for,
-   * which an opponent is checked against. It is the same for every club and every page of a year,
-   * so it follows the pool rather than the page, and a switch between pages no longer pays for it
-   * (about 350 ms on the 18:40 pool). Only worked out while there is a fixture to ask about.
-   */
-  const ratedClubs = useMemo(() => {
-    if (!asksWhatIf) return null;
-    // Any page of the pool names the same pool; the list always holds at least the one on screen.
-    const anyPageOfThePool = (JSON.parse(poolIds) as string[])[0] ?? "";
-    return ratedClubsOf(
-      anyPageOfThePool,
-      allKnown.teams,
-      poolGames,
-      ageGroups,
-      routeSegment,
-      today
-    );
-  }, [asksWhatIf, poolIds, allKnown.teams, poolGames, ageGroups, routeSegment, today]);
-  const poolGameById = useMemo(
-    () => (asksWhatIf ? new Map(poolGames.map((game) => [game.id, game])) : null),
-    [asksWhatIf, poolGames]
-  );
-  const whatIfDeclineMap = useMemo(() => {
-    if (!reportForId || !ratedClubs || !poolGameById) return new Map<string, null>();
-    const fixtures = upcomingRows
-      .map((row) => poolGameById.get(row.gameId))
-      .filter((game): game is (typeof poolGames)[number] => game !== undefined);
-    return whatIfDeclines(
-      fixtures,
-      reportForId,
-      selectedAgeGroupId,
-      allKnown.teams,
-      poolGames,
-      ageGroups,
-      routeSegment,
-      today,
-      ratedClubs
-    );
-  }, [
-    reportForId,
-    ratedClubs,
-    poolGameById,
-    upcomingRows,
-    poolGames,
-    selectedAgeGroupId,
-    allKnown.teams,
+  const { setOpened, whatIfBoard, whatIfDeclineFor, whatIfGameId } = useWhatIf({
     ageGroups,
+    allKnown,
+    askWhatIf,
+    poolGames,
+    poolIds,
+    reportForId,
     routeSegment,
+    selectedAgeGroupId,
     today,
-  ]);
-  const whatIfDeclineFor = useCallback(
-    (gameId: string) => whatIfDeclineMap.get(gameId) ?? null,
-    [whatIfDeclineMap]
-  );
-
-  useEffect(() => {
-    askWhatIf(
-      whatIfGameId && reportForId ? { forTeamId: reportForId, gameId: whatIfGameId, today } : null
-    );
-  }, [askWhatIf, whatIfGameId, reportForId, today]);
+    upcomingRows,
+  });
 
   const selectedGroupName = ageGroups.find((g) => g.id === selectedAgeGroupId)?.name ?? "";
 
