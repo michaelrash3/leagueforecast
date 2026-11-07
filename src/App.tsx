@@ -36,6 +36,7 @@ import { subscribeLeagueMet } from "./lib/preferences";
 import { askLeague, copyAtNow, publishedLeague } from "./lib/live/leagueAsk";
 import { useLiveLeague } from "./hooks/useLiveLeague";
 import { useScoreFill } from "./hooks/useScoreFill";
+import { useLeagueStory } from "./hooks/useLeagueStory";
 import { useSeasonSaves } from "./hooks/useSeasonSaves";
 import { useSeasonOdds } from "./hooks/useSeasonOdds";
 import { useScenarioLinks } from "./hooks/useScenarioLinks";
@@ -87,13 +88,7 @@ import {
   teamDrawerView,
 } from "./components/league/leagueViews";
 import { isPoolUnavailable, onPoolWriteError } from "./lib/teamRankingsStorage";
-import {
-  readOurTeam,
-  readSummaryMode,
-  writeOurTeam,
-  writeSummaryMode,
-  type SummaryMode,
-} from "./lib/preferences";
+import { readOurTeam, writeOurTeam } from "./lib/preferences";
 import { needsLines, ourTeamSummary, rootForLines } from "./lib/ourTeam";
 import { ownGameSwing, rootFor } from "./lib/goldSwing";
 import { leagueClubRankFor, scoutRoute, type LeagueClubRank } from "./lib/leagueClubRanks";
@@ -109,7 +104,6 @@ import { useDarkMode } from "./hooks/useDarkMode";
 import { useConfirmation } from "./hooks/useConfirmation";
 import { useUndoSnapshot, type UndoableSeason } from "./hooks/useUndoSnapshot";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
-import { useLeagueSummary } from "./hooks/useLeagueSummary";
 import { useToast } from "./hooks/useToast";
 import { useUrlSnapshot } from "./hooks/useUrlState";
 import {
@@ -123,7 +117,6 @@ import { builderTeamNames } from "./lib/roundRobin";
 import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standingsViews";
 import { displayName, recordText } from "./lib/format";
 import { recapToMarkdown, recapToStoryBrief } from "./lib/insights";
-import { buildForecastSummaryRequest, buildLeagueSummaryRequest } from "./lib/leagueSummaryClient";
 import { AiHealthCheck } from "./components/aiHealthCheck";
 import { eliminationNumberForGold, magicForGold, neededResults, withOwedGames } from "./lib/magic";
 import { buildPredictionEngine } from "./lib/predictionEngine";
@@ -1848,157 +1841,27 @@ export default function App() {
 
   const finalCount = completedGames.length;
   const totalGamesCount = matchups.length;
-  const weeklyStory = useMemo(() => {
-    if (!lastImpact || lastImpact.recapItems.length === 0) return "";
-    return recapToStoryBrief(settings.seasonLabel, lastImpact.recapItems);
-  }, [lastImpact, settings.seasonLabel]);
 
-  // Gemini rewrite of the same facts. The request is null until there is real
-  // movement to describe, so the endpoint is only called when the story changes.
-  const leagueSummaryRequest = useMemo(() => {
-    if (!lastImpact || lastImpact.recapItems.length === 0) return null;
-    return buildLeagueSummaryRequest({
-      seasonLabel: settings.seasonLabel,
-      cutoff: goldCutoff,
-      hasCutLine,
-      updateTitle: lastImpact.title,
-      finalScores: lastImpact.scores,
-      recapItems: lastImpact.recapItems,
-      standings: dashboardRows.map((team) => ({
-        rank: team.rank,
-        name: team.name,
-        w: team.w,
-        l: team.l,
-        t: team.t,
-        goldPct: team.goldPct,
-        status: statusLabel(team),
-        projectedRank: team.projectedRank,
-        runDiff: team.runDiff,
-      })),
-      powerRatings: predictionEngine.powerRatings.map((row) => ({
-        rank: row.rank,
-        teamName: row.teamName,
-        rating: row.rating,
-        record: row.record,
-        trend: row.trend,
-        recentForm: row.recentForm,
-        sosRank: row.sosRank,
-      })),
-      statMetrics: statRankings.metrics.map((metric) => ({
-        label: metric.label,
-        direction: metric.direction,
-        average: metric.average,
-        entries: metric.entries.map((entry) => ({
-          teamName: entry.teamName,
-          value: entry.value,
-        })),
-      })),
-      season: {
-        finalGames: completedGames.length,
-        totalGames: matchups.length,
-        leaderName: currentLeader ? displayName(currentLeader.name) : undefined,
-        gamesPerTeam: settings.regularSeasonGamesPerTeam,
-      },
-      fallback: weeklyStory,
-    });
-  }, [
-    lastImpact,
-    statusLabel,
-    settings.seasonLabel,
-    settings.regularSeasonGamesPerTeam,
-    goldCutoff,
-    hasCutLine,
-    dashboardRows,
-    predictionEngine,
-    statRankings,
-    completedGames,
-    matchups,
-    currentLeader,
-    weeklyStory,
-  ]);
-
-  /*
-   * Whether the write-ups fetch themselves. Held here so flipping it in Settings takes effect
-   * everywhere at once rather than on the next reload.
-   */
-  const [summaryMode, setSummaryModeState] = useState<SummaryMode>(() => readSummaryMode());
-  const setSummaryMode = useCallback((mode: SummaryMode) => {
-    setSummaryModeState(mode);
-    writeSummaryMode(mode);
-  }, []);
-
-  const aiStory = useLeagueSummary(leagueSummaryRequest, { mode: summaryMode });
-  const storyText = aiStory.status === "ready" ? aiStory.summary : weeklyStory;
-
-  // Forecast write-up: the projected finish, the model's upcoming picks, the
-  // games that swing most, and how accurate the model has actually been. Only
-  // requested while the Forecast view is open, so it costs nothing elsewhere.
-  const forecastSummaryRequest = useMemo(() => {
-    if (activeView !== "model" || modelRows.length === 0) return null;
-    return buildForecastSummaryRequest({
-      seasonLabel: settings.seasonLabel,
-      cutoff: goldCutoff,
-      hasCutLine,
-      projections: modelRows.map((team) => {
-        const range = seedRangeForTeam(team.id);
-        return {
-          name: team.name,
-          projectedRank: team.projectedRank,
-          currentRank: team.rank,
-          projectedRecord: team.projectedRecord,
-          goldPct: team.goldPct,
-          goldMargin: team.goldPctMargin,
-          bestSeed: range.best,
-          worstSeed: range.worst,
-        };
-      }),
-      gameForecasts: gameForecasts.slice(0, 18).map((item) => ({
-        awayName: item.awayName,
-        homeName: item.homeName,
-        favoriteName: item.winnerName,
-        winPct: item.winnerPct,
-        impact: item.impact?.impactLabel,
-        date: item.game.date,
-      })),
-      keyGames: gamesThatMatterMost.slice(0, 10).map((item) => ({
-        label: item.label,
-        reason: item.reason,
-        date: item.date,
-      })),
-      modelAccuracy: {
-        gamesEvaluated: backtestResult.sampleSize,
-        brierScore: backtestResult.brierScore ?? undefined,
-        hitRate:
-          backtestResult.winnerAccuracy === null ? undefined : backtestResult.winnerAccuracy * 100,
-        confidentMissRate:
-          backtestResult.confidentMissRate === null
-            ? undefined
-            : backtestResult.confidentMissRate * 100,
-      },
-      season: {
-        finalGames: completedGames.length,
-        totalGames: matchups.length,
-        leaderName: currentLeader ? displayName(currentLeader.name) : undefined,
-        gamesPerTeam: settings.regularSeasonGamesPerTeam,
-      },
-    });
-  }, [
+  // The recap, its AI rewrite and the Forecast's write-up (`useLeagueStory`).
+  const { aiStory, forecastStory, setSummaryMode, storyText, summaryMode } = useLeagueStory({
     activeView,
-    seedRangeForTeam,
-    modelRows,
+    backtestResult,
+    completedGames,
+    currentLeader,
+    dashboardRows,
     gameForecasts,
     gamesThatMatterMost,
-    backtestResult,
     goldCutoff,
     hasCutLine,
-    settings.seasonLabel,
-    settings.regularSeasonGamesPerTeam,
-    completedGames,
+    lastImpact,
     matchups,
-    currentLeader,
-  ]);
-
-  const forecastStory = useLeagueSummary(forecastSummaryRequest, { mode: summaryMode });
+    modelRows,
+    predictionEngine,
+    seedRangeForTeam,
+    settings,
+    statRankings,
+    statusLabel,
+  });
 
   // ---------- Share + URL snapshot ----------
 
