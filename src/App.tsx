@@ -1,6 +1,5 @@
 import {
   lazy,
-  startTransition,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -20,14 +19,12 @@ import { loadTeamRankingsView } from "./components/teamRankingsChunk";
 import {
   cloudStatus,
   leagueInStep,
-  loadNewer,
   startCloudSession,
   subscribeCloud,
 } from "./lib/cloud/cloudSession";
 import { leagueMetHere, loadCloudState } from "./lib/cloud/cloudState";
 import { editable, reachable } from "./lib/live/leagueSync";
 import {
-  leagueArriving,
   leagueLiveWanted,
   memberSignedIn,
   SEASON_DELETE_OFFLINE,
@@ -36,9 +33,19 @@ import {
 } from "./lib/live/leagueWanted";
 import type { LocalSeasons } from "./lib/live/leagueSeasons";
 import { subscribeLeagueMet } from "./lib/preferences";
-import { askLeague, copyAtNow, placeLeagueSeason, publishedLeague } from "./lib/live/leagueAsk";
+import { askLeague, copyAtNow, publishedLeague } from "./lib/live/leagueAsk";
 import { useLiveLeague } from "./hooks/useLiveLeague";
 import { useScoreFill } from "./hooks/useScoreFill";
+import { useOurTeam } from "./hooks/useOurTeam";
+import { useLeagueStory } from "./hooks/useLeagueStory";
+import { useSeasonSaves } from "./hooks/useSeasonSaves";
+import { useSeasonOdds } from "./hooks/useSeasonOdds";
+import { useScenarioLinks } from "./hooks/useScenarioLinks";
+import { useSharedSnapshot } from "./hooks/useSharedSnapshot";
+import { useSeasonBuilder } from "./hooks/useSeasonBuilder";
+import { useDataQuality } from "./hooks/useDataQuality";
+import { useGameForecasts } from "./hooks/useGameForecasts";
+import { useGoldRace } from "./hooks/useGoldRace";
 import { useSinceLastLook } from "./hooks/useSinceLastLook";
 import { editingOffBecause, LiveLeagueBanner } from "./components/league/LiveLeagueBanner";
 import { ArchivedBanner } from "./components/league/ArchivedBanner";
@@ -47,16 +54,12 @@ import { useTabReadOnly } from "./hooks/useTabReadOnly";
 import { saveBackupFile } from "./lib/backupFile";
 import { onReplacedKept, readReplaced } from "./lib/replacedBackup";
 import type { ReplacedBackupAccess } from "./components/league/ReplacedBackupLine";
-import { beforeTabYields, TAB_READ_ONLY, tabTurn } from "./lib/tabTurn";
-import { mergeHeldScores } from "./lib/heldScores";
-import { rankingsSearch } from "./lib/rankingsRoute";
+import { TAB_READ_ONLY, tabTurn } from "./lib/tabTurn";
 import { searchWithTab, tabFromSearch } from "./lib/leagueTab";
 import { ModeSwitchContext } from "./components/modeSwitch";
 import { recordDiagnostic } from "./lib/diagnostics";
 import { seasonFinalOf } from "./lib/seasonFinal";
 import { ARCHIVED_READ_ONLY, archiveGroups, isArchived } from "./lib/seasonArchive";
-import { useClinchScenarios } from "./hooks/useClinchScenarios";
-import { useSeedRanges } from "./hooks/useSeedRanges";
 import { useSeasons } from "./hooks/useSeasons";
 import { useSeasonFiles, type ImportedSeason } from "./hooks/useSeasonFiles";
 import { useSeasonState, type SeasonState } from "./hooks/useSeasonState";
@@ -84,73 +87,37 @@ import {
   statsView,
   teamDrawerView,
 } from "./components/league/leagueViews";
-import type { PastedSeason } from "./lib/leaguePaste";
 import { isPoolUnavailable, onPoolWriteError } from "./lib/teamRankingsStorage";
-import {
-  readOurTeam,
-  readPutAside,
-  readSummaryMode,
-  writeOurTeam,
-  writePutAside,
-  writeSummaryMode,
-  type SummaryMode,
-} from "./lib/preferences";
-import { needsLines, ourTeamSummary, rootForLines } from "./lib/ourTeam";
-import { ownGameSwing, rootFor } from "./lib/goldSwing";
-import { leagueClubRankFor, scoutRoute, type LeagueClubRank } from "./lib/leagueClubRanks";
-import { askToScout } from "./lib/scoutRequest";
+import { readOurTeam } from "./lib/preferences";
+import { leagueClubRankFor } from "./lib/leagueClubRanks";
 import { OurTeamCard } from "./components/league/OurTeamCard";
-import type { MachineLeft } from "./components/league/PlayoffMachine";
 import type { LiveSeasonData } from "./lib/backup";
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
 import { useCrawlHandoff } from "./hooks/useCrawlHandoff";
 import { crawlImportSearch } from "./lib/crawlHandoff";
 import { useOpeningReleased, usePoolFilled } from "./hooks/useOpeningHold";
-import { poolFilled } from "./lib/poolFill";
 import { useDarkMode } from "./hooks/useDarkMode";
 import { useConfirmation } from "./hooks/useConfirmation";
 import { useUndoSnapshot, type UndoableSeason } from "./hooks/useUndoSnapshot";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
-import { useLeagueSummary } from "./hooks/useLeagueSummary";
 import { useToast } from "./hooks/useToast";
 import { useUrlSnapshot } from "./hooks/useUrlState";
 import {
-  useSimulationBracket,
-  useSimulationOdds,
-  useSimulationTrend,
-} from "./hooks/useSimulationWorker";
-import { clinchingPathsForTeams, goldCutLineSnapshot } from "./lib/clinchingPaths";
-import {
-  byStart,
   formatGameDate,
   normalizeDateInput,
   parseDateValue,
   seasonStartMonth,
   todayIsoDay,
 } from "./lib/date";
-import {
-  builderTeamNames,
-  buildRoundRobin,
-  roundRobinFor,
-  type BuiltSeason,
-  roundRobinCsv,
-  roundRobinFileName,
-} from "./lib/roundRobin";
-import type { StartPage } from "./lib/leagueStart";
-import { nameTaken, teamListLocked, teamsToAdd } from "./lib/teamList";
-import type { TeamListControls } from "./components/league/GamesView";
-import { createAgeGroupId } from "./lib/teamRankings/seasons";
+import { builderTeamNames } from "./lib/roundRobin";
 import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standingsViews";
 import { displayName, recordText } from "./lib/format";
 import { recapToMarkdown, recapToStoryBrief } from "./lib/insights";
-import { buildForecastSummaryRequest, buildLeagueSummaryRequest } from "./lib/leagueSummaryClient";
 import { AiHealthCheck } from "./components/aiHealthCheck";
-import { eliminationNumberForGold, magicForGold, neededResults, withOwedGames } from "./lib/magic";
-import { backtestPredictions } from "./lib/backtest";
+import { eliminationNumberForGold, magicForGold, withOwedGames } from "./lib/magic";
 import { buildPredictionEngine } from "./lib/predictionEngine";
 import { buildBracketProjection } from "./lib/bracket";
-import { scheduleDifficultyForTeam as buildScheduleDifficultyForTeam } from "./lib/scheduleDifficulty";
 import { buildShareUrl } from "./lib/share";
 import { formatProbabilityMargin, wilsonScoreInterval } from "./lib/probability";
 import {
@@ -160,24 +127,13 @@ import {
   PROJECT_STANDINGS_REMAINING_GAME_LIMIT,
   type RecapPool,
 } from "./lib/impactRecap";
-import { buildSeasonTimeline, type SeasonTimelineEntry } from "./lib/seasonTimeline";
-import { rememberLast } from "./lib/rememberLast";
 import {
-  auditLeague,
-  copiesToDelete,
-  isDismissed,
-  repairIsDestructive,
-  repairPreview,
-  type Finding,
-  type FindingRepair,
-  type FindingSeverity,
-  type FindingTarget,
-  seasonDaysFromToday,
-} from "./lib/leagueFindings";
-import { inPlayingOrder } from "./lib/stillToCome";
+  EXACT_MAGIC_REMAINING_GAME_LIMIT,
+  EXACT_SCENARIO_REMAINING_GAME_LIMIT,
+} from "./lib/searchLimits";
 import { useToday } from "./hooks/useToday";
 import { useNarrowViewport } from "./hooks/useWideViewport";
-import { TabNav, type TabNavItem } from "./components/TabNav";
+import { TabNav } from "./components/TabNav";
 import { NAV_ICONS } from "./components/navIcons";
 import { forecastGame } from "./lib/gameForecast";
 import {
@@ -189,15 +145,12 @@ import {
   getMathGoldStatus,
   getRemainingCounts,
   isSeedingLocked,
-  predictGame,
   projectStandings,
   projectedPlaces,
   rankOptionsFromSettings,
   rankTeams,
   regularSeasonSettings,
-  simulationSeed,
 } from "./lib/sim";
-import { buildTrendStates } from "./lib/trend";
 import {
   addSeasons,
   adoptSeasonCreatedAt,
@@ -209,23 +162,15 @@ import {
   loadSettings,
   loadTeams,
   readSeasonSnapshot,
-  saveBracketLogs,
   writeSeasonData,
-  saveLogs,
-  saveMatchups,
-  saveSettings,
-  saveTeams,
   setSeasonArchived,
 } from "./lib/storage";
 import {
   DEFAULT_SETTINGS,
   SIM_ITERATIONS,
-  TREND_ITERATIONS,
-  TREND_STATES,
   type ActiveShareView,
   type GameLog,
   type Matchup,
-  type SwingGame,
   type Team,
   type LastImpact,
   type TeamBase,
@@ -237,57 +182,13 @@ import {
   buildTeamStatRankings,
   emptySplitLine,
 } from "./lib/teamStats";
-import { buildDemoSeason } from "./lib/demoSeason";
 import { buildTeamTrendSummary } from "./lib/teamTrend";
-import { blankLog, clamp, isFinal, swappedLog } from "./lib/util";
-import { linkedTeamIdFromUrl, projectedRunLine, TEAM_QUERY_PARAM } from "./lib/teamLink";
+import { blankLog, isFinal, swappedLog } from "./lib/util";
+import { linkedTeamIdFromUrl, TEAM_QUERY_PARAM } from "./lib/teamLink";
 import { HeaderStatCard } from "./components/HeaderStatCard";
 import { button as buttonClasses, focusRing, tab } from "./styles/tokens";
-import {
-  formatGoldPct as formatGoldPctValue,
-  titleRaceBadgeForTeam as titleRaceBadgeForTeamValue,
-} from "./lib/standingsView";
-import { raceBadgeClasses, raceToneForTeam, raceToneWords } from "./styles/raceTone";
 
 type ActiveView = ActiveShareView;
-
-type ScoreboardPrediction = {
-  spread: string;
-  pickName: string;
-  pickPct: number;
-  scenarioBadges: string[];
-  impactScore: number;
-};
-
-// Keep the synchronous exact solver capped below browser-freezing schedule sizes.
-// The solver branches exponentially over every unfinished game (including ties),
-// so larger schedules should continue showing the paused message until this
-// computation moves off the React render path.
-const EXACT_MAGIC_REMAINING_GAME_LIMIT = 15;
-// One-game seed swing projections are O(remaining games²) because each game
-// needs away-win and home-win season projections. On a freshly imported full
-// schedule this can otherwise block the browser before the confirmation toast
-// and first render complete.
-const EXACT_SCENARIO_REMAINING_GAME_LIMIT = 60;
-// The needed results for the followed team (`neededResults`): one exact search per side of each
-// game left, so asked only once the season is this close to done.
-const NEEDS_REMAINING_GAME_LIMIT = 10;
-// Full-season imports can contain hundreds of open games. Projecting every
-// remaining game synchronously is useful late in the season, but it can block
-// the browser immediately after import or while saving a final. Keep the UI
-// responsive by falling back to current standings until the schedule is small
-// enough for synchronous projection work.
-const SCOREBOARD_PREDICTION_CHUNK_SIZE = 24;
-
-/*
- * The two heaviest calculations one tab alone shows, each remembering its last answer, so going
- * back to its tab on an unchanged season gives it at once (`rememberLast`, 2.2); and what stands in
- * for each while no tab showing it is open.
- */
-const rememberedBacktest = rememberLast(backtestPredictions);
-const rememberedTimeline = rememberLast(buildSeasonTimeline);
-const NO_BACKTEST = backtestPredictions([], [], {}, DEFAULT_SETTINGS);
-const NO_TIMELINE: SeasonTimelineEntry[] = [];
 
 const replaceTeamDataUrl = (teamId: string | null) => {
   if (typeof window === "undefined") return;
@@ -367,11 +268,6 @@ const EmptyState = emptyStateView.View;
 const CloudPanel = lazy(() =>
   import("./components/CloudPanel").then((module) => ({ default: module.CloudPanel }))
 );
-/**
- * Reading a league site's pasted schedule into a season with no games, and its review: fetched
- * only once asked for, since the first download has no room for them (`bundleBudget.mjs`).
- */
-const LeagueSchedulePaste = schedulePasteView.View;
 const StartFromClubs = lazy(() =>
   import("./components/league/StartFromClubs").then((module) => ({
     default: module.StartFromClubs,
@@ -513,9 +409,6 @@ export default function App() {
   }, []);
   const [lastImpact, setLastImpact] = useState<LastImpact | null>(null);
   const [scoreboardTeamFilter, setScoreboardTeamFilter] = useState("ALL");
-  const [scoreboardPredictions, setScoreboardPredictions] = useState<
-    Map<string, ScoreboardPrediction>
-  >(() => new Map());
   const [seasonBuilderText, setSeasonBuilderText] = useState("");
   const {
     state: confirmState,
@@ -706,70 +599,15 @@ export default function App() {
 
   // ---------- Persisted state ----------
 
-  useEffect(() => {
-    recordSaveResult(saveTeams(teams), "teams", "Could not save teams (storage full).");
-  }, [teams, recordSaveResult]);
-
-  useEffect(() => {
-    recordSaveResult(saveMatchups(matchups), "schedule", "Could not save schedule (storage full).");
-  }, [matchups, recordSaveResult]);
-
-  // The scores as last written, by identity: what a flush of the scores held has still to write.
-  const savedLogs = useRef(logs);
-  useEffect(() => {
-    const saveTimer = window.setTimeout(() => {
-      recordSaveResult(saveLogs(logs), "scores", "Could not save scores (storage full).");
-      savedLogs.current = logs;
-    }, 500);
-
-    return () => window.clearTimeout(saveTimer);
-  }, [logs, recordSaveResult]);
-
-  /*
-   * A score still held, written at once: when this tab gives the turn away (`tabTurn.ts`), to a
-   * tab asking with Use here, or, in the moment before this tab's channel code arrived, to a tab
-   * already writing or one opened before it; before another season opens (`beforeSwitch`); and as
-   * the page is hidden or closed, the last moments a browser promises a page. The half second
-   * above would end with the score refused as this tab went read-only, the other tab reading the
-   * season again without it, or with the score not written at all. Read from the store, which
-   * holds a keystroke the page has still to draw (`useSeasonState`).
-   */
-  const writeHeldScores = useCallback((): boolean => {
-    const held = seasonStore.get().season.logs;
-    // Only a score still held: written again, the scores as this tab read them could undo
-    // one the other tab saved since, and would have it read the season again for nothing.
-    if (held === savedLogs.current) return false;
-    // And only the games this tab changed, over what storage holds now (`mergeHeldScores`).
-    const saved = saveLogs(mergeHeldScores(loadLogs(), savedLogs.current, held));
-    recordSaveResult(saved, "scores", "Could not save scores (storage full).");
-    if (saved) savedLogs.current = held;
-    return saved;
-  }, [seasonStore, recordSaveResult]);
-  useEffect(() => {
-    const onHidden = () => {
-      if (document.visibilityState === "hidden") writeHeldScores();
-    };
-    const stopYield = beforeTabYields(writeHeldScores);
-    document.addEventListener("visibilitychange", onHidden);
-    window.addEventListener("pagehide", writeHeldScores);
-    return () => {
-      stopYield();
-      document.removeEventListener("visibilitychange", onHidden);
-      window.removeEventListener("pagehide", writeHeldScores);
-    };
-  }, [writeHeldScores]);
-
-  useEffect(() => {
-    recordSaveResult(
-      saveBracketLogs(bracketLogs),
-      "bracket scores",
-      "Could not save bracket scores (storage full)."
-    );
-  }, [bracketLogs, recordSaveResult]);
-
-  useEffect(() => {
-    recordSaveResult(saveSettings(settings), "settings", "Could not save settings (storage full).");
-  }, [settings, recordSaveResult]);
+  const { writeHeldScores } = useSeasonSaves({
+    bracketLogs,
+    logs,
+    matchups,
+    recordSaveResult,
+    seasonStore,
+    settings,
+    teams,
+  });
 
   /*
    * Settle the add-game selects against the team list they name.
@@ -1230,111 +1068,33 @@ export default function App() {
 
   // ---------- Worker-driven odds + trend ----------
 
-  const oddsSeed = useMemo(
-    () =>
-      simulationSeed(
-        matchups,
-        finalLogs,
-        `odds-${goldCutoff}-${settings.modelAggression}-${settings.winPoints}-${settings.tiePoints}-${settings.tiebreakerOrder.join(",")}`
-      ),
-    [matchups, finalLogs, goldCutoff, settings]
-  );
-
-  const oddsInput = useMemo(
-    () => ({
-      teams: liveTeams,
-      remaining: remainingGames,
-      iterations: SIM_ITERATIONS,
-      seedText: oddsSeed,
-      cutoff: goldCutoff,
-      settings: seasonSettings,
-      // The followed team's odds are also counted by how each game left goes, for its card.
-      ...(hasCutLine && ourTeamId ? { follow: ourTeamId } : {}),
-    }),
-    [liveTeams, remainingGames, oddsSeed, goldCutoff, seasonSettings, hasCutLine, ourTeamId]
-  );
   const {
+    backtestResult,
+    bracketOdds,
     odds,
-    places: oddsPlaces,
-    iterations: oddsIterations,
-    pending: oddsPending,
-    swing: ourSwing,
-  } = useSimulationOdds(oddsInput);
-
-  const trendInput = useMemo(() => {
-    const teamIds = teams.map((t) => t.id);
-    if (!teamIds.length) {
-      return {
-        teamIds: [],
-        states: [],
-        iterations: TREND_ITERATIONS,
-        cutoff: goldCutoff,
-        settings: seasonSettings,
-      };
-    }
-    const built = buildTrendStates(teams, matchups, finalLogs, completedGames, {
-      states: TREND_STATES,
-      goldCutoff,
-      settings: seasonSettings,
-      // The results the Gold % column is rated with, so the line ends where the column is.
-      externalResults,
-      squadYear: scoutBridge.squadYear,
-    });
-    return {
-      teamIds,
-      states: built,
-      iterations: TREND_ITERATIONS,
-      cutoff: goldCutoff,
-      settings: seasonSettings,
-    };
-  }, [
-    teams,
-    matchups,
-    finalLogs,
+    oddsIterations,
+    oddsPending,
+    oddsPlaces,
+    oddsSeed,
+    ourSwing,
+    trendMap,
+  } = useSeasonOdds({
+    activeView,
+    bracketLogs,
     completedGames,
-    goldCutoff,
-    seasonSettings,
     externalResults,
-    scoutBridge.squadYear,
-  ]);
-  const trendMap = useSimulationTrend(trendInput);
-
-  const bracketInput = useMemo(
-    () => ({
-      teams: liveTeams,
-      remaining: remainingGames,
-      iterations: SIM_ITERATIONS,
-      seedText: oddsSeed,
-      cutoff: goldCutoff,
-      settings: seasonSettings,
-      enabled: activeView === "model",
-      bracketLogs,
-    }),
-    [liveTeams, remainingGames, oddsSeed, goldCutoff, seasonSettings, activeView, bracketLogs]
-  );
-  const { bracketOdds } = useSimulationBracket(bracketInput);
-
-  /*
-   * How the model has done on the games played, which the Dashboard and the Forecast show and no
-   * other tab does: worked out only while one of them is open, and remembered, so opening one again
-   * on an unchanged season costs nothing (2.2). It refits the season once per game played, the
-   * heaviest single thing League works out: 62 ms on a twelve-team season with 78 games played,
-   * about a quarter of a second on a phone, which every final on the Schedule used to wait behind.
-   */
-  const backtestShown = activeView === "dashboard" || activeView === "model";
-  // With the Team Rankings results the forecast reads, each game called from those played before
-  // its day: what is scored is the model shipped, not the league's games alone.
-  const backtestOutside = useMemo(
-    () => ({ outside: externalResults, squadYear: scoutBridge.squadYear }),
-    [externalResults, scoutBridge.squadYear]
-  );
-  const backtestResult = useMemo(
-    () =>
-      backtestShown
-        ? rememberedBacktest(teams, matchups, finalLogs, settings, 0.1, backtestOutside)
-        : NO_BACKTEST,
-    [backtestShown, teams, matchups, finalLogs, settings, backtestOutside]
-  );
+    finalLogs,
+    goldCutoff,
+    hasCutLine,
+    liveTeams,
+    matchups,
+    ourTeamId,
+    remainingGames,
+    scoutBridge,
+    seasonSettings,
+    settings,
+    teams,
+  });
 
   // ---------- Dashboard / scenario computations ----------
 
@@ -1445,349 +1205,45 @@ export default function App() {
   // ---------- Scenario helpers ----------
 
   const today = useToday();
-  // The season's dates on one timeline, so a game whose date has passed is known for one.
-  const daysFromToday = useMemo(
-    () =>
-      seasonDaysFromToday(
-        matchups.map((game) => game.date),
-        today
-      ),
-    [matchups, today]
-  );
-
-  const { seedForScenario, seedRangeForTeam } = useSeedRanges({
-    exact: seedWalkEnabled,
-    liveTeams,
-    remainingGames,
-    settings: seasonSettings,
-    projectedById,
-    ranked,
-  });
-
-  const nextTwoSwingGames = useCallback(
-    (teamId: string): SwingGame[] => {
-      // A rained-out game still on its old date comes after the games that will be played first.
-      return inPlayingOrder(
-        remainingGames.filter((game) => game.away === teamId || game.home === teamId),
-        daysFromToday
-      )
-        .slice(0, 2)
-        .map((game) => {
-          const teamIsAway = game.away === teamId;
-          const opponentId = teamIsAway ? game.home : game.away;
-          const opponentName = displayName(teamBaseById.get(opponentId)?.name || opponentId);
-          const prediction = predictGame(game, liveTeams, settings, liveById);
-          const baselineSeed =
-            projectedById.get(teamId)?.rank ??
-            ranked.find((item) => item.id === teamId)?.rank ??
-            99;
-          const winSeed = seedWalkEnabled ? seedForScenario(teamId, game, teamId) : baselineSeed;
-          const lossSeed = seedWalkEnabled
-            ? seedForScenario(teamId, game, opponentId)
-            : baselineSeed;
-          const teamWinPct = teamIsAway ? prediction.awayWinPct : 1 - prediction.awayWinPct;
-          const modelPick = displayName(
-            teamBaseById.get(prediction.winnerId)?.name || prediction.winnerId
-          );
-          return {
-            game,
-            opponentName,
-            teamIsAway,
-            winSeed,
-            lossSeed,
-            modelPick,
-            winPct: teamWinPct,
-          };
-        });
-    },
-    [
-      remainingGames,
-      daysFromToday,
-      teamBaseById,
-      liveTeams,
-      settings,
-      liveById,
-      projectedById,
-      ranked,
-      seedWalkEnabled,
-      seedForScenario,
-    ]
-  );
-
-  const clinchingPaths = useMemo(
-    () =>
-      activeView === "model"
-        ? clinchingPathsForTeams(
-            dashboardRows,
-            remainingGames,
-            goldCutoff,
-            seasonSettings,
-            nextTwoSwingGames,
-            {
-              limit: 8,
-              exactLimit: EXACT_MAGIC_REMAINING_GAME_LIMIT,
-              daysFromToday,
-            }
-          )
-        : [],
-    [
-      activeView,
-      dashboardRows,
-      remainingGames,
-      goldCutoff,
-      seasonSettings,
-      nextTwoSwingGames,
-      daysFromToday,
-    ]
-  );
-
-  const cutLineSnapshot = useMemo(
-    () => goldCutLineSnapshot(dashboardRows, goldCutoff, settings),
-    [dashboardRows, goldCutoff, settings]
-  );
-
-  // The Forecast's timeline, which plays the season through game by game: as heavy as the
-  // backtest, and only the Forecast shows it (2.2).
-  const timelineEntries = useMemo(
-    () =>
-      activeView === "model"
-        ? rememberedTimeline(teams, matchups, finalLogs, seasonSettings, 6)
-        : NO_TIMELINE,
-    [activeView, teams, matchups, finalLogs, seasonSettings]
-  );
-
-  const bubbleTierForTeam = useCallback(
-    (team: TeamWithProjection) => {
-      if (team.goldStatus === "Clinched") return "Locked In";
-      if (team.goldStatus === "Eliminated") return "Eliminated";
-      const currentSeed = team.rank ?? 99;
-      const projectedSeed = team.projectedRank ?? 99;
-      if (currentSeed <= goldCutoff - 2 && projectedSeed <= goldCutoff && team.goldPct >= 80) {
-        return "Likely In";
-      }
-      if (currentSeed <= goldCutoff || projectedSeed <= goldCutoff) return "Bubble In";
-      const cutoffRow = dashboardRows[Math.min(goldCutoff - 1, dashboardRows.length - 1)] ?? team;
-      if (team.goldPct >= 20 || projectedSeed <= goldCutoff + 2 || team.maxPct >= cutoffRow.pct) {
-        return "Bubble Out";
-      }
-      return "Long Shot";
-    },
-    [goldCutoff, dashboardRows]
-  );
-
-  const scheduleDifficultyForTeam = useCallback(
-    (teamId: string) =>
-      buildScheduleDifficultyForTeam(teamId, remainingGames, dashboardRows, matchups, finalLogs),
-    [remainingGames, dashboardRows, matchups, finalLogs]
-  );
-
-  const gameImportance = useCallback(
-    (game: Matchup) => {
-      const away = dashboardById.get(game.away);
-      const home = dashboardById.get(game.home);
-      if (!away || !home) return 0;
-      const seedScore = (team: TeamWithProjection) =>
-        Math.max(0, 8 - Math.abs((team.rank ?? 99) - goldCutoff));
-      const oddsScore = (team: TeamWithProjection) =>
-        Math.max(0, 50 - Math.abs(team.goldPct - 50)) / 10;
-      const projectedScore = (team: TeamWithProjection) =>
-        Math.max(0, 5 - Math.abs((team.projectedRank ?? 99) - goldCutoff));
-      return (
-        seedScore(away) +
-        seedScore(home) +
-        oddsScore(away) +
-        oddsScore(home) +
-        projectedScore(away) +
-        projectedScore(home)
-      );
-    },
-    [dashboardById, goldCutoff]
-  );
-
-  const getGameScenarioImpactMap = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        awaySeedWin: number;
-        awaySeedLoss: number;
-        homeSeedWin: number;
-        homeSeedLoss: number;
-        seedImpact: number;
-        impactLabel: "High" | "Medium" | "Low";
-        awayGoldSwing: number;
-        homeGoldSwing: number;
-        awayName: string;
-        homeName: string;
-      }
-    >();
-    if (!exactScenarioAnalysisEnabled) return map;
-    remainingGames.forEach((game) => {
-      const prediction = predictGame(game, liveTeams, settings, liveById);
-      const away = dashboardById.get(game.away);
-      const home = dashboardById.get(game.home);
-      const awaySeedWin = seedForScenario(game.away, game, game.away);
-      const awaySeedLoss = seedForScenario(game.away, game, game.home);
-      const homeSeedWin = seedForScenario(game.home, game, game.home);
-      const homeSeedLoss = seedForScenario(game.home, game, game.away);
-      const seedImpact = Math.max(
-        Math.abs(awaySeedWin - awaySeedLoss),
-        Math.abs(homeSeedWin - homeSeedLoss)
-      );
-      const impactLabel: "High" | "Medium" | "Low" =
-        seedImpact >= 3 ? "High" : seedImpact >= 1 ? "Medium" : "Low";
-      const awayGoldSwing = clamp(
-        (awaySeedLoss - awaySeedWin) * 8 + (prediction.winnerId === game.away ? 4 : -4),
-        -25,
-        25
-      );
-      const homeGoldSwing = clamp(
-        (homeSeedLoss - homeSeedWin) * 8 + (prediction.winnerId === game.home ? 4 : -4),
-        -25,
-        25
-      );
-      map.set(game.id, {
-        awaySeedWin,
-        awaySeedLoss,
-        homeSeedWin,
-        homeSeedLoss,
-        seedImpact,
-        impactLabel,
-        awayGoldSwing,
-        homeGoldSwing,
-        awayName: displayName(away?.name || game.away),
-        homeName: displayName(home?.name || game.home),
-      });
-    });
-    return map;
-  }, [
-    exactScenarioAnalysisEnabled,
-    remainingGames,
-    liveTeams,
-    settings,
-    liveById,
+  const {
+    bubbleTierForTeam,
+    clinchScenariosForTeam,
+    clinchingPaths,
+    cutLineSnapshot,
+    formatGoldPct,
+    gameStatusClasses,
+    gamesThatMatterMost,
+    getGameScenarioImpactMap,
+    nextTwoSwingGames,
+    scheduleDifficultyForTeam,
+    seedRangeForTeam,
+    statusClass,
+    statusLabel,
+    timelineEntries,
+    titleRaceBadgeForTeam,
+  } = useGoldRace({
+    activeView,
     dashboardById,
-    seedForScenario,
-  ]);
-
-  /**
-   * What one more result would do to the table: who clinches, who goes out, what a game is worth.
-   *
-   * Seven of these, all the same shape — play the game forward, rank what comes out, ask the
-   * clinching maths — and they sat here among everything else App does. Out in a hook they are a
-   * closed question over the season, and they have a test, which they did not before.
-   */
-  const { gameStatusForGame } = useClinchScenarios({
-    liveTeams,
-    settings: seasonSettings,
-    remainingGames,
-    seasonStart,
+    dashboardRows,
+    exactScenarioAnalysisEnabled,
+    finalLogs,
     goldCutoff,
     hasCutLine,
-    dashboardById,
-    scenarioImpact: getGameScenarioImpactMap,
-  });
-
-  const gameStatusClasses = (label: string) => {
-    if (label.startsWith("Title Clinch-")) return "bg-purple-100 text-purple-700";
-    if (label.startsWith("Clinch Game-")) return "bg-emerald-100 text-emerald-700";
-    if (label.startsWith("Clinch Watch-")) return "bg-teal-100 text-teal-700";
-    if (label.startsWith("Clinch Scenario:")) return "bg-emerald-100 text-emerald-700";
-    if (label.startsWith("Elimination Game-")) return "bg-red-100 text-red-700";
-    if (label.startsWith("Elimination Scenario:")) return "bg-red-100 text-red-700";
-    if (label === "High Impact") return "bg-amber-100 text-amber-700";
-    if (label === "Bubble Game" || label === "Seeding Game") return "bg-blue-100 text-blue-700";
-    return "bg-slate-200 text-slate-600";
-  };
-
-  // The Forecast's list alone, and the clinch questions behind each line are not free (2.2).
-  const gamesThatMatterMost = useMemo(() => {
-    if (activeView !== "model") return [];
-    return [...remainingGames]
-      .sort((a, b) => gameImportance(b) - gameImportance(a))
-      .slice(0, 5)
-      .map((game, index) => {
-        const away = dashboardById.get(game.away);
-        const home = dashboardById.get(game.home);
-        const impact = getGameScenarioImpactMap.get(game.id);
-        const status = gameStatusForGame(game);
-        const reason =
-          status === "Low Impact"
-            ? `${impact?.impactLabel ?? "Low"} projected seed impact`
-            : status;
-        return {
-          game,
-          rank: index + 1,
-          label: `${displayName(away?.name || game.away)} vs ${displayName(home?.name || game.home)}`,
-          reason,
-          date: formatGameDate(game.date),
-        };
-      });
-  }, [
-    activeView,
+    liveById,
+    liveTeams,
+    matchups,
+    projectedById,
+    ranked,
+    remainingCounts,
     remainingGames,
-    dashboardById,
-    getGameScenarioImpactMap,
-    gameStatusForGame,
-    gameImportance,
-  ]);
-
-  const clinchScenariosForTeam = useCallback(
-    (teamId: string) => {
-      const team = dashboardById.get(teamId);
-      if (!team) return [];
-      const teamName = displayName(team.name);
-
-      if (team.goldStatus === "Clinched")
-        return [`${teamName} have already clinched a Gold Bracket spot.`];
-      if (team.goldStatus === "Eliminated")
-        return [`${teamName} are eliminated from Gold Bracket contention.`];
-
-      const scenarios = nextTwoSwingGames(teamId)
-        .slice(0, 2)
-        .map((swing) => {
-          const opponentLine = `${swing.teamIsAway ? "at" : "vs"} ${swing.opponentName}`;
-          if (swing.winSeed <= goldCutoff && swing.lossSeed > goldCutoff) {
-            return `${opponentLine}: win projects inside the Gold cut line at #${swing.winSeed}; loss drops outside the Gold cut line at #${swing.lossSeed}.`;
-          }
-          if (swing.winSeed <= goldCutoff && swing.lossSeed <= goldCutoff) {
-            return `${opponentLine}: win improves or protects the Gold Bracket path at #${swing.winSeed}; loss still projects #${swing.lossSeed}.`;
-          }
-          if (swing.winSeed > goldCutoff && swing.lossSeed > goldCutoff) {
-            return `${opponentLine}: win projects #${swing.winSeed}; loss projects #${swing.lossSeed}, so outside help is still needed.`;
-          }
-          return `${opponentLine}: win projects #${swing.winSeed}; loss projects #${swing.lossSeed}.`;
-        });
-
-      if (!scenarios.length) {
-        // None on the schedule, but games owed under games per team are games left all the same.
-        const owed = remainingCounts[teamId] ?? 0;
-        return [
-          owed > 0
-            ? `${teamName} have ${owed} game${owed === 1 ? "" : "s"} left that the schedule does not show yet.`
-            : `${teamName} have no remaining games; Gold Bracket status depends only on outside results.`,
-        ];
-      }
-      return scenarios;
-    },
-    [dashboardById, nextTwoSwingGames, goldCutoff, remainingCounts]
-  );
-
-  const formatGoldPct = useCallback((team: TeamWithProjection) => formatGoldPctValue(team), []);
-
-  // The badge says the row's own tone, so the legend over the table names every badge a row shows.
-  const statusLabel = useCallback(
-    (team: TeamWithProjection) => raceToneWords[raceToneForTeam(team, goldCutoff)],
-    [goldCutoff]
-  );
-
-  const statusClass = (team: TeamWithProjection) =>
-    raceBadgeClasses[raceToneForTeam(team, goldCutoff)];
-
-  const titleRaceBadgeForTeam = useCallback(
-    (team: TeamWithProjection) =>
-      titleRaceBadgeForTeamValue(team, dashboardRows, remainingCounts, settings),
-    [dashboardRows, remainingCounts, settings]
-  );
+    seasonSettings,
+    seasonStart,
+    seedWalkEnabled,
+    settings,
+    teamBaseById,
+    teams,
+    today,
+  });
 
   const latestCompletedDate = completedGames.length
     ? formatGameDate(completedGames[completedGames.length - 1]?.date ?? "")
@@ -1795,167 +1251,22 @@ export default function App() {
 
   // ---------- Game forecasts ----------
 
-  const gameForecasts = useMemo(() => {
-    if (activeView !== "model") return [];
-
-    const regularSeasonForecasts = [...remainingGames].map((game) => {
-      const prediction = predictGame(game, liveTeams, settings, liveById);
-      const winner = teamBaseById.get(prediction.winnerId);
-      const away = teamBaseById.get(game.away);
-      const home = teamBaseById.get(game.home);
-      const winnerPct =
-        prediction.winnerId === game.away ? prediction.awayWinPct : 1 - prediction.awayWinPct;
-      const impact = getGameScenarioImpactMap.get(game.id);
-      return {
-        game,
-        prediction,
-        awayName: displayName(away?.name || game.away),
-        homeName: displayName(home?.name || game.home),
-        winnerName: displayName(winner?.name || prediction.winnerId),
-        winnerPct,
-        impact,
-        sourceLabel: "Regular Season",
-        sortValue: parseDateValue(game.date, seasonStart),
-      };
-    });
-
-    const bracketForecasts = bracketSeedingLocked
-      ? [
-          ...bracketProjection.rounds.flatMap((round) =>
-            round.map((game) => ({ game, bracketLabel: "Gold Bracket" }))
-          ),
-          ...silverBracketProjection.rounds.flatMap((round) =>
-            round.map((game) => ({ game, bracketLabel: "Silver Bracket" }))
-          ),
-        ]
-          .filter(({ game }) => game.matchup && game.prediction && !isFinal(game.log))
-          .map(({ game, bracketLabel }) => {
-            const matchup = game.matchup!;
-            const prediction = game.prediction!;
-            const winner = teamBaseById.get(prediction.winnerId);
-            const away = teamBaseById.get(matchup.away);
-            const home = teamBaseById.get(matchup.home);
-            const winnerPct =
-              prediction.winnerId === matchup.away
-                ? prediction.awayWinPct
-                : 1 - prediction.awayWinPct;
-            return {
-              game: matchup,
-              prediction,
-              awayName: displayName(away?.name || matchup.away),
-              homeName: displayName(home?.name || matchup.home),
-              winnerName: displayName(winner?.name || prediction.winnerId),
-              winnerPct,
-              impact: undefined,
-              sourceLabel: `${bracketLabel} · ${game.roundName}`,
-              sortValue: Number.POSITIVE_INFINITY,
-            };
-          })
-      : [];
-
-    return [...regularSeasonForecasts, ...bracketForecasts].sort(
-      (a, b) => a.sortValue - b.sortValue || a.game.id.localeCompare(b.game.id)
-    );
-  }, [
+  const { gameForecasts, scoreboardGames, scoreboardPredictions } = useGameForecasts({
     activeView,
-    remainingGames,
-    seasonStart,
-    liveTeams,
-    settings,
-    liveById,
-    teamBaseById,
-    getGameScenarioImpactMap,
-    bracketSeedingLocked,
     bracketProjection,
+    bracketSeedingLocked,
+    getGameScenarioImpactMap,
+    liveById,
+    liveTeams,
+    logs,
+    matchups,
+    remainingGames,
+    scoreboardTeamFilter,
+    seasonStart,
+    settings,
     silverBracketProjection,
-  ]);
-
-  const scoreboardGames = useMemo(() => {
-    const dateCompare = (a: Matchup, b: Matchup) => {
-      const aFinal = isFinal(logs[a.id]);
-      const bFinal = isFinal(logs[b.id]);
-      const aNoDate = !(a.date ?? "").trim();
-      const bNoDate = !(b.date ?? "").trim();
-      if (aFinal !== bFinal) return aFinal ? 1 : -1;
-      if (!aFinal && aNoDate !== bNoDate) return aNoDate ? -1 : 1;
-      return (
-        parseDateValue(a.date, seasonStart) - parseDateValue(b.date, seasonStart) ||
-        byStart(a, b) ||
-        a.id.localeCompare(b.id)
-      );
-    };
-    const filtered =
-      scoreboardTeamFilter === "ALL"
-        ? matchups
-        : matchups.filter(
-            (game) => game.away === scoreboardTeamFilter || game.home === scoreboardTeamFilter
-          );
-    return [...filtered].sort(dateCompare);
-  }, [matchups, logs, scoreboardTeamFilter, seasonStart]);
-
-  useEffect(() => {
-    // Clearing first is the point: predictions are filled in incrementally over many chunks, and
-    // without the wipe a stale entry would sit in the map until its game happened to be
-    // recomputed. Deriving it instead would mean carrying a key through every chunk write, which
-    // is more moving parts than the one render this costs.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setScoreboardPredictions(new Map());
-    if (activeView !== "games" || !remainingGames.length) return;
-
-    let cancelled = false;
-    let timer: ReturnType<typeof window.setTimeout> | null = null;
-    let index = 0;
-    const games = [...remainingGames];
-
-    const queueNextChunk = () => {
-      timer = window.setTimeout(() => {
-        if (cancelled) return;
-        const entries: [string, ScoreboardPrediction][] = [];
-        const chunkEnd = Math.min(index + SCOREBOARD_PREDICTION_CHUNK_SIZE, games.length);
-
-        for (; index < chunkEnd; index += 1) {
-          const game = games[index];
-          if (!game) continue;
-          const prediction = predictGame(game, liveTeams, settings, liveById);
-          const winner = teamBaseById.get(prediction.winnerId);
-          const winnerPct =
-            prediction.winnerId === game.away ? prediction.awayWinPct : 1 - prediction.awayWinPct;
-          entries.push([
-            game.id,
-            {
-              spread: projectedRunLine(prediction, liveById),
-              pickName: displayName(winner?.name || prediction.winnerId),
-              pickPct: winnerPct,
-              // Keep Schedule score entry lightweight. Exact clinch/elimination badges are
-              // still computed in the Model view, but doing them for every open game on
-              // each score keystroke makes the scoring workflow feel frozen.
-              scenarioBadges: [],
-              impactScore: 0,
-            },
-          ]);
-        }
-
-        if (entries.length) {
-          startTransition(() => {
-            setScoreboardPredictions((prev) => {
-              if (cancelled) return prev;
-              const next = new Map(prev);
-              entries.forEach(([gameId, prediction]) => next.set(gameId, prediction));
-              return next;
-            });
-          });
-        }
-
-        if (index < games.length) queueNextChunk();
-      }, 0);
-    };
-
-    queueNextChunk();
-    return () => {
-      cancelled = true;
-      if (timer) window.clearTimeout(timer);
-    };
-  }, [activeView, remainingGames, liveTeams, settings, liveById, teamBaseById]);
+    teamBaseById,
+  });
 
   // ---------- Snapshots / undo ----------
 
@@ -2244,487 +1555,77 @@ export default function App() {
     });
   };
 
+  // A phone held upright, where the tab rows become a bar along the bottom (2.4).
+  const narrowScreen = useNarrowViewport();
+
   // ---------- Data quality (2.3) ----------
 
-  /*
-   * Every finding on the season. Read from the scores as they stand, since a game scored and not
-   * marked final is one of the things it looks for, and deferred like them; cheap (one pass over
-   * the games), so it is kept whatever tab is open, for the Dashboard's count.
-   */
-  const findings = useMemo(
-    () =>
-      auditLeague({
-        teams,
-        matchups,
-        logs: deferredLogs,
-        // The regular season's: a setting the schedule never met holds nothing back once the
-        // bracket has begun, so its finding goes then (`regularSeasonSettings`).
-        settings: seasonSettings,
-        links: scoutBridge.rows,
-        today,
-      }),
-    [teams, matchups, deferredLogs, seasonSettings, scoutBridge.rows, today]
-  );
-  /* The findings put aside on this device, held by season as the team followed is. */
-  const [putAsideHeld, setPutAsideHeld] = useState(() => ({
-    season: activeSeasonKey,
-    entries: readPutAside(activeSeasonId),
-  }));
-  if (putAsideHeld.season !== activeSeasonKey) {
-    // Read afresh for each season opened, never kept from a visit before, as the team followed is
-    // below: the id may have been given to another season since, by a deletion or a restore.
-    setPutAsideHeld({ season: activeSeasonKey, entries: readPutAside(activeSeasonId) });
-  }
-  const putAsideEntries =
-    putAsideHeld.season === activeSeasonKey ? putAsideHeld.entries : readPutAside(activeSeasonId);
-  const openFindings = useMemo(
-    () => findings.filter((finding) => !isDismissed(finding, putAsideEntries)),
-    [findings, putAsideEntries]
-  );
-  /*
-   * What the tab row marks (2.4): Data Quality with what needs attention, which also brings it out
-   * of More on a phone. A setting at fault (the cut line, games per team, a link) is one of those
-   * findings, so it is counted there rather than marked twice.
-   */
-  const viewBadges = useMemo((): Partial<Record<ActiveView, TabNavItem<ActiveView>["badge"]>> => {
-    const attention = openFindings.filter((finding) => finding.severity === "attention").length;
-    return {
-      ...(attention
-        ? {
-            quality: {
-              count: attention,
-              describe: `${attention} ${attention === 1 ? "needs" : "need"} attention`,
-              urgent: true,
-            },
-          }
-        : {}),
-    };
-  }, [openFindings]);
-  const narrowScreen = useNarrowViewport();
-  const asideFindings = useMemo(
-    () => findings.filter((finding) => isDismissed(finding, putAsideEntries)),
-    [findings, putAsideEntries]
-  );
-  const setPutAside = useCallback(
-    (entries: Record<string, FindingSeverity>) => {
-      writePutAside(activeSeasonId, entries);
-      setPutAsideHeld({ season: activeSeasonKey, entries });
-    },
-    [activeSeasonId, activeSeasonKey]
-  );
-  const putFindingAside = useCallback(
-    (finding: Finding) =>
-      setPutAside({ ...putAsideEntries, [finding.fingerprint]: finding.severity }),
-    [putAsideEntries, setPutAside]
-  );
-  const bringFindingBack = useCallback(
-    (finding: Finding) =>
-      setPutAside(
-        Object.fromEntries(
-          Object.entries(putAsideEntries).filter(([print]) => print !== finding.fingerprint)
-        )
-      ),
-    [putAsideEntries, setPutAside]
-  );
-
-  /*
-   * The element a finding's link goes to, once its tab has drawn it: a game's card, or a setting
-   * marked `data-setting`. Looked for a frame at a time, since the tab may still be loading.
-   */
-  const [focusAfterOpen, setFocusAfterOpen] = useState<
-    { gameId: string } | { setting: string } | null
-  >(null);
-  useEffect(() => {
-    if (!focusAfterOpen) return;
-    let frames = 0;
-    let frame = 0;
-    const look = () => {
-      const found =
-        "gameId" in focusAfterOpen
-          ? document.getElementById(`game-card-${focusAfterOpen.gameId}`)
-          : document.querySelector<HTMLElement>(`[data-setting="${focusAfterOpen.setting}"]`);
-      if (found) {
-        found.scrollIntoView?.({ block: "center" });
-        const control = found.matches("input, select, button")
-          ? found
-          : found.querySelector<HTMLElement>("input, select, button");
-        (control ?? found).focus({ preventScroll: true });
-        setFocusAfterOpen(null);
-        return;
-      }
-      frames += 1;
-      if (frames < 180) frame = requestAnimationFrame(look);
-      else setFocusAfterOpen(null);
-    };
-    frame = requestAnimationFrame(look);
-    return () => cancelAnimationFrame(frame);
-  }, [focusAfterOpen, activeView]);
-
-  const openFindingTarget = useCallback(
-    (target: FindingTarget) => {
-      if (target.kind === "team") {
-        openTeamData(target.id);
-      } else if (target.kind === "game") {
-        setScoreboardTeamFilter("ALL");
-        setActiveView("games");
-        setFocusAfterOpen({ gameId: target.id });
-      } else {
-        setActiveView("settings");
-        setFocusAfterOpen({ setting: target.id });
-      }
-    },
-    [openTeamData]
-  );
-
-  /*
-   * A finding's repair, made: asked first when it deletes, taken as one undo step, and reported by
-   * what it actually changed, which is worked out again from the season as it is now rather than
-   * as the finding saw it, so a game given anything since is never deleted, nor the last copy of
-   * one (`copiesToDelete`), and one marked final since is not counted.
-   */
-  const repairFinding = async (finding: Finding) => {
-    const repair = finding.repair;
-    if (!repair) return;
-    const lockedBecause = seasonStore.locked();
-    if (lockedBecause) {
-      showToast(lockedBecause, { tone: "error" });
-      return;
-    }
-    const lines = repairPreview(repair, { teams, matchups, logs });
-    if (repairIsDestructive(repair)) {
-      const confirmed = await requestConfirmation({
-        title: lines.length === 1 ? "Delete this game?" : `Delete these ${lines.length} games?`,
-        message: `${lines.join(" ")} An undo snapshot will be saved.`,
-        confirmLabel: lines.length === 1 ? "Delete game" : "Delete games",
-      });
-      if (!confirmed) return;
-    }
-    const now = seasonStore.get().season;
-    const scoredOpen = (id: string) => {
-      const log = now.logs[id];
-      return !isFinal(log) && Boolean(log?.awayRuns.trim()) && Boolean(log?.homeRuns.trim());
-    };
-    const undo = { tone: "undo" as const, actionLabel: "Undo", onAction: restoreUndo };
-    if (repair.kind === "removeGames") {
-      const ids = new Set(copiesToDelete(repair.gameIds, now));
-      if (!ids.size) {
-        showToast("Nothing to delete: those games have changed since.", { tone: "error" });
-        return;
-      }
-      captureUndo(`Deleted ${ids.size === 1 ? "a duplicate game" : `${ids.size} duplicate games`}`);
-      setMatchups((prev) => prev.filter((game) => !ids.has(game.id)));
-      setLogs((prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => !ids.has(id))));
-      showToast(ids.size === 1 ? "Deleted 1 game." : `Deleted ${ids.size} games.`, undo);
-    } else if (repair.kind === "markFinal") {
-      const ids = repair.gameIds.filter(scoredOpen);
-      if (!ids.length) {
-        showToast("Nothing to mark: those games have changed since.", { tone: "error" });
-        return;
-      }
-      captureUndo(`Marked ${ids.length === 1 ? "a game" : `${ids.length} games`} final`);
-      setLogs((prev) =>
-        ids.reduce((next, id) => withFinal(next, id, true, settings.defaultGameInnings), prev)
-      );
-      showToast(
-        ids.length === 1 ? "Marked 1 game final." : `Marked ${ids.length} games final.`,
-        undo
-      );
-    } else {
-      // A setting is all this repair changes, so the step must carry the settings to put it back.
-      captureUndo(`Games per team ${repair.from} to ${repair.to}`, { withSettings: true });
-      setSettings((prev) => ({ ...prev, regularSeasonGamesPerTeam: repair.to }));
-      showToast(`Games per team is now ${repair.to}.`, undo);
-    }
-  };
-  const previewRepair = useCallback(
-    (repair: FindingRepair) => repairPreview(repair, { teams, matchups, logs }),
-    [teams, matchups, logs]
-  );
-
-  const loadDemoSeason = useCallback(async () => {
-    // Reached from the command palette as well as the page: refused before it asks, or takes an
-    // undo step over the one there, while the season may not be written.
-    const lockedBecause = seasonStore.locked();
-    if (lockedBecause) {
-      showToast(lockedBecause, { tone: "error" });
-      return;
-    }
-    // Nothing to overwrite on an empty season, and the first thing a new user
-    // is invited to do should not open with a warning about losing data.
-    if (teams.length > 0 || matchups.length > 0) {
-      const confirmed = await requestConfirmation({
-        title: "Load demo season?",
-        message:
-          "This replaces the current teams, games, and scores with a sample season and saves an undo snapshot.",
-        confirmLabel: "Load demo",
-      });
-      if (!confirmed) return;
-    }
-    const demo = buildDemoSeason();
-    captureUndo("Load demo season", { withSettings: true });
-    setTeams(demo.teams);
-    setMatchups(demo.matchups);
-    setLogs(demo.logs);
-    setBracketLogs({});
-    setSettings(demo.settings);
-    setActiveView("standings");
-    closeTeamData();
-    showToast("Loaded demo season.", {
-      tone: "undo",
-      actionLabel: "Undo",
-      onAction: restoreUndo,
-    });
-  }, [
-    teams,
-    matchups,
-    requestConfirmation,
+  const {
+    asideFindings,
+    bringFindingBack,
+    openFindingTarget,
+    openFindings,
+    previewRepair,
+    putFindingAside,
+    repairFinding,
+    viewBadges,
+  } = useDataQuality({
+    activeSeasonId,
+    activeSeasonKey,
+    activeView,
     captureUndo,
-    closeTeamData,
-    showToast,
+    deferredLogs,
+    logs,
+    matchups,
+    openTeamData,
+    requestConfirmation,
     restoreUndo,
+    scoutBridge,
+    seasonSettings,
     seasonStore,
-    setTeams,
-    setMatchups,
+    setActiveView,
     setLogs,
-    setBracketLogs,
+    setMatchups,
+    setScoreboardTeamFilter,
     setSettings,
-  ]);
+    settings,
+    showToast,
+    teams,
+    today,
+  });
 
   // ---------- Season builder ----------
 
-  /*
-   * The schedule itself, the score sheet and the file name are all in `roundRobin.ts`: none of
-   * them needs a browser, and a round robin's own correctness — every pair exactly once, in a
-   * stable order — is the sort of thing to check by reading it rather than by clicking through it.
-   * What is left here is what only a component can do: ask, adopt, and hand the browser a file.
-   */
-  const builtFromList = () => {
-    const built = buildRoundRobin(builderTeamNames(seasonBuilderText), settings.defaultGameInnings);
-    // The message belongs here rather than in the builder, which has no way to say anything.
-    if (!built) showToast("Enter at least two teams to build a schedule.", { tone: "error" });
-    return built;
-  };
-
-  /*
-   * The team list before the schedule: saved as typed, added to on a later visit, renamed or taken
-   * off while open, then locked; the schedule is made only from a locked list, and the list opens
-   * again only while no game exists (`teamListLocked`). Each is an ordinary season edit, as Add
-   * Game is, so a kept-live season sends it as it sends any other.
-   */
-  const listLocked = teamListLocked(settings, matchups, teams);
-  const refusedEdit = () => {
-    const lockedBecause = seasonStore.locked();
-    if (lockedBecause) showToast(lockedBecause, { tone: "error" });
-    return lockedBecause !== null;
-  };
-  const saveTeamList = (names: string[]): boolean => {
-    if (refusedEdit()) return false;
-    if (listLocked) {
-      showToast("The team list is locked. Unlock it to add teams.", { tone: "error" });
-      return false;
-    }
-    const added = teamsToAdd(teams, names);
-    if (added.length === 0) {
-      showToast(
-        names.length ? "Those teams are already on the list." : "Type a team name to save.",
-        { tone: "error" }
-      );
-      return false;
-    }
-    captureUndo("Add teams");
-    setTeams((prev) => [...prev, ...added]);
-    // A list started here stays open until it is locked.
-    if (settings.teamsLocked !== false) setSettings((prev) => ({ ...prev, teamsLocked: false }));
-    showToast(`Saved ${added.length} team${added.length === 1 ? "" : "s"}.`, {
-      tone: "undo",
-      actionLabel: "Undo",
-      onAction: restoreUndo,
-    });
-    return true;
-  };
-  const teamListControls: TeamListControls = {
-    locked: listLocked,
-    onAdd: saveTeamList,
-    onRename: (teamId, name) => {
-      if (refusedEdit() || listLocked) return false;
-      if (nameTaken(teams, name, teamId)) {
-        showToast(`${name} is already on the list.`, { tone: "error" });
-        return false;
-      }
-      captureUndo("Rename team");
-      setTeams((prev) => prev.map((team) => (team.id === teamId ? { ...team, name } : team)));
-      return true;
-    },
-    onRemove: (teamId) => {
-      if (refusedEdit() || listLocked) return;
-      captureUndo("Remove team");
-      setTeams((prev) => prev.filter((team) => team.id !== teamId));
-      showToast("Team removed.", { tone: "undo", actionLabel: "Undo", onAction: restoreUndo });
-    },
-    onLock: () => {
-      if (refusedEdit()) return;
-      setSettings((prev) => ({ ...prev, teamsLocked: true }));
-      showToast("Team list locked. Make the schedule next.");
-    },
-    onUnlock: () => {
-      void (async () => {
-        if (refusedEdit() || matchups.length > 0) return;
-        const confirmed = await requestConfirmation({
-          title: "Unlock the team list?",
-          message: "Teams can be added, renamed or removed again until the first game is made.",
-          confirmLabel: "Unlock",
-        });
-        if (!confirmed) return;
-        setSettings((prev) => ({ ...prev, teamsLocked: false }));
-      })();
-    },
-    onRoundRobin: () => {
-      if (refusedEdit()) return;
-      const built = roundRobinFor(teams, settings.defaultGameInnings);
-      if (!built) {
-        showToast("A round robin needs two teams at least.", { tone: "error" });
-        return;
-      }
-      captureUndo("Build a round robin");
-      setMatchups(built.matchups);
-      setLogs(built.logs);
-      // As the one-step builder did: every game made is shown, whatever team the Schedule was
-      // filtered to (a filter can outlive the season it was set on), and no older recap stands.
-      setBracketLogs({});
-      setLastImpact(null);
-      closeTeamData();
-      setScoreboardTeamFilter("ALL");
-      showToast(`Made a ${built.matchups.length}-game schedule.`, {
-        tone: "undo",
-        actionLabel: "Undo",
-        onAction: restoreUndo,
-      });
-    },
-  };
-
-  /*
-   * A season started from its clubs on Team Rankings (3.7): the teams, each linked to its club, and
-   * the games kept in the review, as one step to undo like the other ways to start one. Then the
-   * season is put on the page it was started from, as Setup's League seasons card puts one
-   * (`season.assign`): in the cloud for a member, on this device's pool otherwise. Undo takes back
-   * the teams and games; the season stays on its page, where an empty season changes nothing.
-   *
-   * A season started from a GameChanger organization's own schedule (`StartFromGcOrg`) is made the
-   * same way, and placed on the page its teams' age and season name, where both could be read; where
-   * not, it is made without being placed, and Setup's card places it.
-   */
-  const startSeasonFromClubs = async (
-    made: BuiltSeason,
-    page: StartPage | undefined,
-    from: "Team Rankings" | "GameChanger" = "Team Rankings"
-  ) => {
-    const lockedBecause = seasonStore.locked();
-    if (lockedBecause) {
-      showToast(lockedBecause, { tone: "error" });
-      return;
-    }
-    if (teams.length > 0 || matchups.length > 0) {
-      const confirmed = await requestConfirmation({
-        title: `Start this season from ${from}?`,
-        message: `${made.teams.length} teams · ${made.matchups.length} games.\n\nThis replaces current season data and saves an undo snapshot.`,
-        confirmLabel: "Start season",
-      });
-      if (!confirmed) return;
-    }
-    const seasonId = activeSeasonId;
-    captureUndo(
-      from === "Team Rankings"
-        ? "Start season from Team Rankings clubs"
-        : "Start season from a GameChanger organization"
-    );
-    setTeams(made.teams);
-    setMatchups(made.matchups);
-    setLogs(made.logs);
-    setBracketLogs({});
-    setLastImpact(null);
-    closeTeamData();
-    setScoreboardTeamFilter("ALL");
-    setActiveView("standings");
-    const games = `${made.matchups.length} game${made.matchups.length === 1 ? "" : "s"}`;
-    if (!page) {
-      showToast(
-        `Started the season: ${made.teams.length} teams and ${games}. Its age or season could not be read, so put it on its Team Rankings page in Setup.`,
-        { tone: "undo", actionLabel: "Undo", onAction: restoreUndo }
-      );
-      return;
-    }
-    const command = {
-      kind: "season.assign" as const,
-      seasonId,
-      season: { ageLevel: page.ageLevel, year: page.year },
-      pageId: createAgeGroupId(),
-    };
-    const placed = rankingsLive
-      ? await placeLeagueSeason(command)
-      : await Promise.all([import("./lib/live/runPoolCommand"), poolFilled()])
-          .then(([module]) => module.runPoolCommand(command).ok)
-          .catch(() => false);
-    showToast(
-      placed
-        ? `Started the season: ${made.teams.length} teams and ${games}, on ${page.name} in Team Rankings.`
-        : `Started the season: ${made.teams.length} teams and ${games}. It could not be put on ${page.name} in Team Rankings just now; do that in Team Rankings' Setup.`,
-      { tone: "undo", actionLabel: "Undo", onAction: restoreUndo }
-    );
-  };
-
-  /*
-   * A league site's schedule, pasted into a season with no games yet and looked over in its panel.
-   * Refused while the season may not be written, and when it has changed since the panel last drew
-   * it (a game or a team arrived, or another season opened, whose teams are another list), since
-   * what was looked over was the season as it was; the panel says so. Nothing is replaced, so
-   * nothing is asked: the teams, games and scores go in as one change to the season, which is one
-   * save and one step to undo.
-   */
-  const pasteSchedule = (made: PastedSeason): boolean => {
-    const now = seasonStore.get().season;
-    if (seasonStore.locked() || now.teams !== made.base || now.matchups.length) return false;
-    captureUndo("Paste the league's schedule");
-    seasonStore.setSeason({
-      ...now,
-      teams: made.teams,
-      matchups: made.matchups,
-      logs: { ...now.logs, ...made.logs },
-    });
-    // As the other ways to start a season do: a team filter kept from another season would hide
-    // games just added, under a toast saying they were.
-    setLastImpact(null);
-    closeTeamData();
-    setScoreboardTeamFilter("ALL");
-    setActiveView("games");
-    showToast(made.said, { tone: "undo", actionLabel: "Undo", onAction: restoreUndo });
-    return true;
-  };
-  const schedulePaste = (text: string, close: () => void) => (
-    <Suspense fallback={null}>
-      <LeagueSchedulePaste
-        text={text}
-        teams={teams}
-        settings={settings}
-        squadYear={scoutBridge.squadYear}
-        onApply={pasteSchedule}
-        onClose={close}
-      />
-    </Suspense>
-  );
-
-  const downloadRoundRobinCSV = () => {
-    const built = builtFromList();
-    if (!built) return;
-    const blob = new Blob([roundRobinCsv(built, settings)], {
-      type: "text/csv;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = roundRobinFileName(settings.seasonLabel);
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  const {
+    downloadRoundRobinCSV,
+    loadDemoSeason,
+    saveTeamList,
+    schedulePaste,
+    startSeasonFromClubs,
+    teamListControls,
+  } = useSeasonBuilder({
+    activeSeasonId,
+    captureUndo,
+    closeTeamData,
+    matchups,
+    rankingsLive,
+    requestConfirmation,
+    restoreUndo,
+    scoutBridge,
+    seasonBuilderText,
+    seasonStore,
+    setActiveView,
+    setBracketLogs,
+    setLastImpact,
+    setLogs,
+    setMatchups,
+    setScoreboardTeamFilter,
+    setSettings,
+    setTeams,
+    settings,
+    showToast,
+    teams,
+  });
 
   // ---------- Header / selection ----------
 
@@ -2749,90 +1650,26 @@ export default function App() {
   );
   const compareTeam = compareTeamId ? (dashboardById.get(compareTeamId) ?? null) : null;
 
-  const pickOurTeam = useCallback(
-    (teamId: string | null) => {
-      writeOurTeam(activeSeasonId, teamId);
-      setOurTeamPick({ season: activeSeasonKey, teamId });
-    },
-    [activeSeasonId, activeSeasonKey]
-  );
-  /*
-   * Where the followed team's club stands on Team Rankings, as its board last stood there
-   * (`leagueClubRankFor`). Read again whenever the League side is shown, since the Rankings side
-   * is what writes it.
-   */
-  const ourClubRank = useMemo(
-    () =>
-      ourTeamId && appMode === "league"
-        ? leagueClubRankFor(activeSeasonId, ourTeamId, scoutClubs)
-        : undefined,
-    [activeSeasonId, ourTeamId, appMode, scoutClubs]
-  );
-  /*
-   * League Standings' Scout button: Team Rankings' Scouting on the page a team's club was ranked
-   * on, with that club's report open (`scoutRoute`, `askToScout`). The route is written in place,
-   * as switching between the two halves of the app writes it (`useAppMode`), so Back does what it
-   * always has.
-   */
-  const scoutClub = useCallback(
-    (rank: LeagueClubRank) => {
-      askToScout(rank.clubId);
-      const search = rankingsSearch(window.location.search, scoutRoute(rank));
-      window.history.replaceState(
-        null,
-        "",
-        `${window.location.pathname}${search}${window.location.hash}`
-      );
-      setAppMode("rankings");
-    },
-    [setAppMode]
-  );
-  const ourTeam = useMemo(() => {
-    const team = ourTeamId ? dashboardById.get(ourTeamId) : undefined;
-    if (!team) return null;
-    const magic =
-      hasCutLine && searchedCount <= EXACT_MAGIC_REMAINING_GAME_LIMIT
-        ? magicForGold(team.id, dashboardRows, remainingGames, goldCutoff, seasonSettings)
-            .description
-        : undefined;
-    /*
-     * What it cannot do without, exact, late enough that the search is quick: on a full table with
-     * ties worth half a win, ten games left took 245 ms at worst against 1.5 s at fifteen.
-     */
-    const needed =
-      hasCutLine && searchedCount <= NEEDS_REMAINING_GAME_LIMIT
-        ? neededResults(team.id, dashboardRows, remainingGames, goldCutoff, seasonSettings)
-        : null;
-    const needs = needed
-      ? needsLines(team.id, needed, (id) => displayName(dashboardById.get(id)?.name ?? id))
-      : undefined;
-    const swings = nextTwoSwingGames(team.id);
-    // The odds' own seasons, read by how each game went: worked out with the odds, at no extra draw.
-    const swing = ourSwing?.teamId === team.id ? ourSwing : undefined;
-    const nextGame = swings[0]?.game;
-    const nextGold = swing && nextGame ? ownGameSwing(swing, nextGame) : null;
-    const picks = swing ? rootFor(swing, remainingGames) : [];
-    const nameOf = (id: string) => displayName(dashboardById.get(id)?.name ?? id);
-    return ourTeamSummary(team, dashboardRows.length, {
-      hasCutLine,
-      swings,
-      ...(magic ? { magic } : {}),
-      ...(needs ? { needs } : {}),
-      ...(nextGold ? { nextGold } : {}),
-      ...(picks.length ? { rootFor: rootForLines(picks, nameOf) } : {}),
-    });
-  }, [
-    ourTeamId,
+  // Our team (`useOurTeam`): the team this browser follows, its card, its club's rank, its Scout.
+  const { ourClubRank, ourTeam, pickOurTeam, scoutClub } = useOurTeam({
+    activeSeasonId,
+    activeSeasonKey,
+    appMode,
     dashboardById,
     dashboardRows,
-    hasCutLine,
-    searchedCount,
-    remainingGames,
     goldCutoff,
-    seasonSettings,
+    hasCutLine,
     nextTwoSwingGames,
     ourSwing,
-  ]);
+    ourTeamId,
+    remainingGames,
+    scoutClubs,
+    searchedCount,
+    seasonSettings,
+    setAppMode,
+    setOurTeamPick,
+  });
+
   const currentLeader = dashboardRows[0];
   // How the season ended, once it has: the Dashboard says so where the next games would be.
   const seasonFinal = useMemo(
@@ -2936,341 +1773,48 @@ export default function App() {
 
   const finalCount = completedGames.length;
   const totalGamesCount = matchups.length;
-  const weeklyStory = useMemo(() => {
-    if (!lastImpact || lastImpact.recapItems.length === 0) return "";
-    return recapToStoryBrief(settings.seasonLabel, lastImpact.recapItems);
-  }, [lastImpact, settings.seasonLabel]);
 
-  // Gemini rewrite of the same facts. The request is null until there is real
-  // movement to describe, so the endpoint is only called when the story changes.
-  const leagueSummaryRequest = useMemo(() => {
-    if (!lastImpact || lastImpact.recapItems.length === 0) return null;
-    return buildLeagueSummaryRequest({
-      seasonLabel: settings.seasonLabel,
-      cutoff: goldCutoff,
-      hasCutLine,
-      updateTitle: lastImpact.title,
-      finalScores: lastImpact.scores,
-      recapItems: lastImpact.recapItems,
-      standings: dashboardRows.map((team) => ({
-        rank: team.rank,
-        name: team.name,
-        w: team.w,
-        l: team.l,
-        t: team.t,
-        goldPct: team.goldPct,
-        status: statusLabel(team),
-        projectedRank: team.projectedRank,
-        runDiff: team.runDiff,
-      })),
-      powerRatings: predictionEngine.powerRatings.map((row) => ({
-        rank: row.rank,
-        teamName: row.teamName,
-        rating: row.rating,
-        record: row.record,
-        trend: row.trend,
-        recentForm: row.recentForm,
-        sosRank: row.sosRank,
-      })),
-      statMetrics: statRankings.metrics.map((metric) => ({
-        label: metric.label,
-        direction: metric.direction,
-        average: metric.average,
-        entries: metric.entries.map((entry) => ({
-          teamName: entry.teamName,
-          value: entry.value,
-        })),
-      })),
-      season: {
-        finalGames: completedGames.length,
-        totalGames: matchups.length,
-        leaderName: currentLeader ? displayName(currentLeader.name) : undefined,
-        gamesPerTeam: settings.regularSeasonGamesPerTeam,
-      },
-      fallback: weeklyStory,
-    });
-  }, [
-    lastImpact,
-    statusLabel,
-    settings.seasonLabel,
-    settings.regularSeasonGamesPerTeam,
-    goldCutoff,
-    hasCutLine,
-    dashboardRows,
-    predictionEngine,
-    statRankings,
-    completedGames,
-    matchups,
-    currentLeader,
-    weeklyStory,
-  ]);
-
-  /*
-   * Whether the write-ups fetch themselves. Held here so flipping it in Settings takes effect
-   * everywhere at once rather than on the next reload.
-   */
-  const [summaryMode, setSummaryModeState] = useState<SummaryMode>(() => readSummaryMode());
-  const setSummaryMode = useCallback((mode: SummaryMode) => {
-    setSummaryModeState(mode);
-    writeSummaryMode(mode);
-  }, []);
-
-  const aiStory = useLeagueSummary(leagueSummaryRequest, { mode: summaryMode });
-  const storyText = aiStory.status === "ready" ? aiStory.summary : weeklyStory;
-
-  // Forecast write-up: the projected finish, the model's upcoming picks, the
-  // games that swing most, and how accurate the model has actually been. Only
-  // requested while the Forecast view is open, so it costs nothing elsewhere.
-  const forecastSummaryRequest = useMemo(() => {
-    if (activeView !== "model" || modelRows.length === 0) return null;
-    return buildForecastSummaryRequest({
-      seasonLabel: settings.seasonLabel,
-      cutoff: goldCutoff,
-      hasCutLine,
-      projections: modelRows.map((team) => {
-        const range = seedRangeForTeam(team.id);
-        return {
-          name: team.name,
-          projectedRank: team.projectedRank,
-          currentRank: team.rank,
-          projectedRecord: team.projectedRecord,
-          goldPct: team.goldPct,
-          goldMargin: team.goldPctMargin,
-          bestSeed: range.best,
-          worstSeed: range.worst,
-        };
-      }),
-      gameForecasts: gameForecasts.slice(0, 18).map((item) => ({
-        awayName: item.awayName,
-        homeName: item.homeName,
-        favoriteName: item.winnerName,
-        winPct: item.winnerPct,
-        impact: item.impact?.impactLabel,
-        date: item.game.date,
-      })),
-      keyGames: gamesThatMatterMost.slice(0, 10).map((item) => ({
-        label: item.label,
-        reason: item.reason,
-        date: item.date,
-      })),
-      modelAccuracy: {
-        gamesEvaluated: backtestResult.sampleSize,
-        brierScore: backtestResult.brierScore ?? undefined,
-        hitRate:
-          backtestResult.winnerAccuracy === null ? undefined : backtestResult.winnerAccuracy * 100,
-        confidentMissRate:
-          backtestResult.confidentMissRate === null
-            ? undefined
-            : backtestResult.confidentMissRate * 100,
-      },
-      season: {
-        finalGames: completedGames.length,
-        totalGames: matchups.length,
-        leaderName: currentLeader ? displayName(currentLeader.name) : undefined,
-        gamesPerTeam: settings.regularSeasonGamesPerTeam,
-      },
-    });
-  }, [
+  // The recap, its AI rewrite and the Forecast's write-up (`useLeagueStory`).
+  const { aiStory, forecastStory, setSummaryMode, storyText, summaryMode } = useLeagueStory({
     activeView,
-    seedRangeForTeam,
-    modelRows,
+    backtestResult,
+    completedGames,
+    currentLeader,
+    dashboardRows,
     gameForecasts,
     gamesThatMatterMost,
-    backtestResult,
     goldCutoff,
     hasCutLine,
-    settings.seasonLabel,
-    settings.regularSeasonGamesPerTeam,
-    completedGames,
+    lastImpact,
     matchups,
-    currentLeader,
-  ]);
-
-  const forecastStory = useLeagueSummary(forecastSummaryRequest, { mode: summaryMode });
+    modelRows,
+    predictionEngine,
+    seedRangeForTeam,
+    settings,
+    statRankings,
+    statusLabel,
+  });
 
   // ---------- Share + URL snapshot ----------
 
-  const sharedHandledRef = useRef(false);
-  /*
-   * The Undo on the toast below is pressed long after this effect has run, so it has to call
-   * whatever `restoreUndo` is at that moment rather than the one that existed when the snapshot
-   * loaded. The ref is read inside the handler for that reason; the effect itself runs once per
-   * snapshot and must not re-run when an unrelated callback is rebuilt.
-   */
-  const restoreUndoRef = useRef(restoreUndo);
-  restoreUndoRef.current = restoreUndo;
-
-  useEffect(() => {
-    // Asked once the season may be written: League kept live opens read-only until the cloud's
-    // version is in, and a link loaded then would be refused, and lost.
-    if (!sharedSnapshot || sharedHandledRef.current || !leagueEditable) return;
-    sharedHandledRef.current = true;
-    requestConfirmation({
-      title: "Load shared season snapshot?",
-      message: `${sharedSnapshot.teams.length} teams · ${sharedSnapshot.matchups.length} games found in this URL.\n\nReplace your current local data? Cancel keeps your data; the URL snapshot will still be cleared.`,
-      confirmLabel: "Load snapshot",
-    }).then((ok) => {
-      const why = ok ? seasonStore.locked() : null;
-      if (why) {
-        // Gone read-only while the question was up: the link is kept, and asked about again
-        // once the season may be written.
-        sharedHandledRef.current = false;
-        showToast(why, { tone: "error" });
-        return;
-      }
-      if (ok) {
-        captureUndo("Load shared snapshot", { withSettings: true });
-        setTeams(sharedSnapshot.teams);
-        setMatchups(sharedSnapshot.matchups);
-        setLogs(sharedSnapshot.logs);
-        // A link carries no bracket, and the one here was scored between the teams just replaced.
-        setBracketLogs({});
-        setSettings(sharedSnapshot.settings);
-        if (sharedUiState.view) setActiveView(sharedUiState.view);
-        if (sharedUiState.teamId) setSelectedTeamId(sharedUiState.teamId);
-        showToast("Loaded shared snapshot and view state.", {
-          tone: "undo",
-          actionLabel: "Undo",
-          onAction: () => restoreUndoRef.current(),
-        });
-      }
-      clearSharedSnapshot();
-    });
-    /*
-     * The callbacks are stable, so listing them changes nothing about when this runs — and
-     * `sharedHandledRef` makes a second run a no-op regardless. The point of listing them is that
-     * the next person to add a closure here gets told, rather than inheriting a comment that was
-     * true when it was written. `leagueEditable` is the one that does change it: the question is
-     * put once the season may be written.
-     */
-  }, [
-    sharedSnapshot,
-    sharedUiState,
-    leagueEditable,
-    seasonStore,
+  useSharedSnapshot({
     captureUndo,
     clearSharedSnapshot,
+    leagueEditable,
     requestConfirmation,
-    showToast,
-    setTeams,
-    setMatchups,
-    setLogs,
+    restoreUndo,
+    seasonStore,
+    setActiveView,
     setBracketLogs,
+    setLogs,
+    setMatchups,
+    setSelectedTeamId,
     setSettings,
-  ]);
-
-  // ---------- Scenario links (2.7) ----------
-
-  /*
-   * A playoff-machine scenario someone shared: shown, and kept on this device for the open season
-   * only once the person says so (`scenarioLink.ts`). It never touches the season. The handling
-   * is fetched only when a link names a scenario, so none of it is in the page's first download.
-   */
-  const [scenarioLink, setScenarioLink] = useState<{ hash: string } | null>(() =>
-    typeof window !== "undefined" && window.location.hash.includes("scenario=")
-      ? { hash: window.location.hash }
-      : null
-  );
-  useEffect(() => {
-    const heard = () => {
-      if (window.location.hash.includes("scenario="))
-        setScenarioLink({ hash: window.location.hash });
-    };
-    window.addEventListener("hashchange", heard);
-    return () => window.removeEventListener("hashchange", heard);
-  }, []);
-  const scenarioLinkTaken = useRef<{ hash: string } | null>(null);
-  const [incomingScenario, setIncomingScenario] = useState<{
-    seasonId: string;
-    id: string;
-  } | null>(null);
-  const incomingScenarioOpened = useCallback(() => setIncomingScenario(null), []);
-  /*
-   * The playoff machine as last left, given back when the Forecast tab is shown again: its picks
-   * last as long as the page does, as the machine says, not only until another tab is looked at.
-   * They are one season's, so a change of season lets them go, as it does on screen, told by
-   * `activeSeasonKey`: by id alone, a season deleted and its id given out again, or restored over,
-   * would hand its picks and its open scenario to the season now under that id.
-   */
-  const [playoffLeft, setPlayoffLeft] = useState<MachineLeft | null>(null);
-  if (playoffLeft && playoffLeft.season !== activeSeasonKey) setPlayoffLeft(null);
-  /*
-   * Whether the season on screen is still to give way to the cloud's: the sign-in still coming, a
-   * member's first meeting with the cloud's seasons, or League kept live waiting for its version.
-   */
-  const leagueComing = leagueArriving({ status: cloud, met: leagueMet, inStep: leagueSettled });
-  const seasonArriving = leagueComing || liveLeague.state.kind === "connecting";
-  const scenarioLinkWaitTold = useRef<{ hash: string } | null>(null);
-  useEffect(() => {
-    // Signed in, with the cloud's newer seasons still to be taken in on a first meeting: they come
-    // when the page is left, left alone a while or asked, which may be minutes. The other waits are
-    // a moment's, and go unsaid.
-    if (
-      !scenarioLink ||
-      scenarioLinkTaken.current === scenarioLink ||
-      scenarioLinkWaitTold.current === scenarioLink ||
-      appMode !== "league" ||
-      cloud.kind !== "saved" ||
-      !leagueComing
-    )
-      return;
-    scenarioLinkWaitTold.current = scenarioLink;
-    showToast("The shared scenario opens once League Standings has the cloud's newer seasons.", {
-      tone: "info",
-      actionLabel: "Load them now",
-      onAction: () => void loadNewer(),
-      durationMs: 12_000,
-    });
-  }, [scenarioLink, appMode, cloud.kind, leagueComing, showToast]);
-  useEffect(() => {
-    // Asked once the open season is the one this device shows, so the link is matched against the
-    // season's own games; until then it stays in the address bar, to be asked about then.
-    if (
-      !scenarioLink ||
-      scenarioLinkTaken.current === scenarioLink ||
-      appMode !== "league" ||
-      seasonArriving
-    )
-      return;
-    scenarioLinkTaken.current = scenarioLink;
-    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
-    const seasonId = activeSeasonId;
-    const seasonName = seasons.all.find((season) => season.id === seasonId)?.name ?? "this season";
-    void import("./lib/scenarioLink")
-      .then((links) =>
-        links.openScenarioLink({
-          hash: scenarioLink.hash,
-          seasonId,
-          seasonName,
-          matchups,
-          logs,
-          nameOf,
-          ask: requestConfirmation,
-          say: (text, tone) => showToast(text, { tone }),
-        })
-      )
-      .then((kept) => {
-        if (!kept) return;
-        setIncomingScenario({ seasonId, id: kept.id });
-        setActiveView("model");
-      })
-      .catch(() =>
-        showToast("The scenario link could not be opened. Reload the page and open it again.", {
-          tone: "error",
-        })
-      );
-  }, [
-    scenarioLink,
-    appMode,
-    seasonArriving,
-    activeSeasonId,
-    seasons.all,
-    matchups,
-    logs,
-    nameOf,
-    requestConfirmation,
+    setTeams,
+    sharedSnapshot,
+    sharedUiState,
     showToast,
-  ]);
+  });
 
   const shareSeason = useCallback(async () => {
     const snapshot = { v: 1 as const, teams, matchups, logs, settings };
@@ -3302,6 +1846,26 @@ export default function App() {
       );
     }
   }, [teams, matchups, logs, settings, activeView, selectedTeamId, showToast]);
+
+  // ---------- Scenario links (2.7) ----------
+
+  const { incomingScenario, incomingScenarioOpened, playoffLeft, setPlayoffLeft } =
+    useScenarioLinks({
+      activeSeasonId,
+      activeSeasonKey,
+      appMode,
+      cloud,
+      leagueMet,
+      leagueSettled,
+      liveLeague,
+      logs,
+      matchups,
+      nameOf,
+      requestConfirmation,
+      seasons,
+      setActiveView,
+      showToast,
+    });
 
   // ---------- Shortcuts ----------
 
