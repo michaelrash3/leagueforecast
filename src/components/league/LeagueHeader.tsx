@@ -33,8 +33,9 @@ export type LeagueHeaderProps = {
 /**
  * The page's header, above both halves of the app: the title row, with the cloud button and the
  * theme toggle beside the title on a phone; the switch between League Standings and Team Rankings;
- * on League Standings, the season picker, share link and update button, and the season's numbers
- * (its leader, games final, the Gold cut line); and the League tab row.
+ * on League Standings, the season picker and share link; on either half, the update button while
+ * a new version waits; and on the Dashboard, the season's numbers (its leader, games final, the
+ * Gold cut line). The League tab row below it is App's.
  *
  * App.tsx drew this inline. It moved here whole and is drawn where it was, with what it reads of
  * App handed in by the names App gives them.

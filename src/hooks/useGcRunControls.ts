@@ -11,12 +11,12 @@ import type { useToast } from "./useToast";
 
 /**
  * Around a GameChanger run: its record, downloadable while it runs or once it is done, read again
- * when the button is pressed so a run still writing is not cut short; the pool taken back from a
- * tidy that holds it; the pairings the search matches and how many are drawn; and two clubs said
- * to be two, for good (`keptApart.ts`).
+ * when the button is pressed so a run still writing is not cut short; the run stopped; the pool
+ * taken back from a tidy that holds it; the key a season pairing goes by (`pairKey`); and two
+ * clubs said to be two, for good (`keptApart.ts`).
  *
  * GameChangerImportPanel.tsx worked these out among its other values. They moved here whole and are
- * called where they were, so their state and memos keep their place among the panel's.
+ * called where they were, so their state and effect keep their place among the panel's.
  */
 export type GcRunControlsInputs = {
   progressRef: RefObject<GcPullProgress | null>;
@@ -39,7 +39,7 @@ export function useGcRunControls({
    * The record storage kept of the last run, read once this panel is open.
    *
    * On demand rather than with the pool: a row per team in a nationwide pull is tens of thousands
-   * of rows, and every page was holding them for the sake of the download buttons below. It is
+   * of rows, and every page was holding them for the sake of the panel's download buttons. It is
    * asked for here, when the panel that has those buttons mounts, and nowhere else.
    */
   const [storedLog, setStoredLog] = useState<PullRunLog | null>(null);
@@ -108,19 +108,6 @@ export function useGcRunControls({
   };
 
   const pairKey = (pairing: GcSeasonPairing) => `${pairing.fromTeamId}>${pairing.toTeamId}`;
-  /**
-   * The pairings the search matches, and how many of them are drawn.
-   *
-   * A nationwide pull offers four hundred of these, and the list used to stop at a hundred and say
-   * the rest could be done from each team's own panel — three hundred panels, one at a time, for a
-   * decision that is the same decision every time. Worse, an unpaired squad is not a cosmetic
-   * problem: a club whose fall and spring ids were never joined is two teams with no game between
-   * them, and a rating cannot carry across a winter it cannot see.
-   *
-   * So all of them are reachable. The first hundred are drawn for speed, "Show all" draws the
-   * rest, and the search narrows by name, state or season for when the answer is only wanted for
-   * some of them.
-   */
   /**
    * Says the two are two clubs, for good. Recorded against the GameChanger ids, which is what the
    * next pull brings back unchanged; the same pair is never offered here or on the pool health

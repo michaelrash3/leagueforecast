@@ -13,8 +13,10 @@ import type { SeedRange } from "./useSeedRanges";
  * schedule strength, Gold % as the table words it, seed range, next two swing games, title race,
  * clinch scenarios and its magic and elimination numbers while those searches are quick.
  *
- * App.tsx worked these out under "Header / selection". They moved here whole and are called where
- * they were, so their memos keep their place among App's.
+ * App.tsx worked these out under "Header / selection". The detail's memo sat further down, after
+ * "Since you last looked"; it reads nothing declared in between, so it moved up beside the team it
+ * details, and then all of them moved here whole. The split's and trend's memos keep their place
+ * among App's; the detail's now runs before Our team's, the season's final and the digest's.
  */
 export type SelectedTeamInputs = {
   bubbleTierForTeam: ReturnType<typeof useGoldRace>["bubbleTierForTeam"];

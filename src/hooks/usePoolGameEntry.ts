@@ -22,8 +22,9 @@ import type { useToast } from "./useToast";
 /**
  * The games Team Rankings takes by hand: one added on the form, once both teams are named and the
  * scores are both given or both left blank; a reviewed batch imported by its clubs' names; a game
- * kept in the log but left out of the rating, or put back; and a game's score corrected. Each is
- * one command to the pool, with the heals of the clubs it names, and one step to undo.
+ * kept in the log but left out of the rating, or put back; and a score entered for a game not yet
+ * played. Each is one command to the pool, with the heals of the clubs it names. Only a batch
+ * imported offers an Undo, on its toast; a game left out is put back with the same control.
  *
  * TeamRankingsView.tsx did all of this among its other handlers. It moved here whole and is called
  * where it was.

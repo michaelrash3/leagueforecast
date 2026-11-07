@@ -43,8 +43,10 @@ import type { useToast } from "./useToast";
 /**
  * Starting over, in its four sizes: the whole pool downloaded as one JSON file, which is how the
  * data comes back; a baseball year's tables frozen and the games behind them deleted; a whole
- * squad year deleted with nothing kept; and Team Rankings emptied. Each asks first, with the
- * counts of what it would take, and the larger ones reload the page so no view holds a copy.
+ * squad year deleted with nothing kept; and everything the app keeps in this browser deleted. The
+ * three that delete ask first, with the counts of what they would take, and the download asks
+ * only when the file will be large. Only the last reloads the page, so no view holds a copy; a
+ * year archived or deleted puts the view back by hand.
  *
  * TeamRankingsView.tsx did this under "Starting over". It moved here whole and is called where it
  * was.

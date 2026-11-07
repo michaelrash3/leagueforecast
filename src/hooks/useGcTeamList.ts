@@ -15,13 +15,16 @@ import { loadAgeUnknown, loadOrgMembership, loadRealClubs } from "../lib/teamRan
 import { isTooYoungClub, type TooYoungClubs } from "../lib/tooYoungClubs";
 
 /** No row of a paste vouched for, one set for every paste, so the list read waits on a real change. */
-export const NONE_VOUCHED: ReadonlySet<string> = new Set<string>();
+const NONE_VOUCHED: ReadonlySet<string> = new Set<string>();
 
 /**
  * The team list as GameChanger's export gave it: pasted, less the levels this app does not rank
  * and the ids earlier pulls turned away or found too young; split once against the pool into the
  * teams new to it, those seen and those to refresh; with the rows whose name says they are no team
- * that an owner vouched for kept; and the seasons the list covers, to choose among.
+ * that an owner vouched for kept; and the seasons the list covers, to choose among. Beside it, the
+ * teams GameChanger answered for that nobody could age, and the Organizations file kept, with the
+ * age each team's organizations agree on, the asks they make, and how many waiting teams a file can
+ * age (`ageless`, `membership`, `orgAges`, `asks`, `waitingOrgAged`).
  *
  * GameChangerImportPanel.tsx worked these out among its other values. They moved here whole and are
  * called where they were, so their state and memos keep their place among the panel's.
@@ -235,7 +238,8 @@ export function useGcTeamList({
    * The teams GameChanger answered for and nobody could age.
    *
    * Held in state rather than read on every render: the run rewrites it at the end, and the rota
-   * below has to see the new one without the panel being closed and reopened.
+   * (`useGcPullSchedule`, called after this) has to see the new one without the panel being closed
+   * and reopened.
    */
   const [ageless, setAgeless] = useState<AgeUnknownList>(() => loadAgeUnknown());
   /**

@@ -35,7 +35,9 @@ import type { useToast } from "./useToast";
  * team on this page; a game of its, or the whole team, taken off this page, with an Undo that also
  * puts back the clubs a tidy took meanwhile; a GameChanger id taken off it; a game that was never
  * its own; the age it plays at, set or taken back; and games dropped. Each is one command to the
- * pool (`runCommand`) and one step to undo.
+ * pool (`runCommand`). A game or the team taken off, a game that was never its own, and an age set
+ * (one club's, or Pool health's suggestions at once) offer an Undo on their toast; the state, the
+ * mark, an id taken off, an age taken back and games dropped do not.
  *
  * TeamRankingsView.tsx did all of this among its other handlers. It moved here whole and is called
  * where it was.
@@ -404,11 +406,6 @@ export function useTeamEdits({
     );
   };
 
-  /**
-   * The "same team as" the pull can only ever propose. Folding is confirmed first because it moves
-   * every game and removes an entry, and a wrong one is tedious to undo by hand.
-   */
-  /** Answers whether the fold happened, so a list offering several can drop just the one. */
   /**
    * Throws out rows that carry a score on a day that has not happened, and remembers them.
    *

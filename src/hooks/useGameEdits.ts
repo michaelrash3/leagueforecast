@@ -9,9 +9,9 @@ import type { useToast } from "./useToast";
 import type { UndoSnapshotControls } from "./useUndoSnapshot";
 
 /**
- * The edits the Schedule makes to a season's games: a game marked final or not, with the recap of
- * what that moved; a score typed; a bracket game's score typed or marked final, or the bracket's
- * scores cleared; a game added once two different teams are chosen; a game deleted, asked first and
+ * The edits League Standings makes to a season's games, from the Schedule and the Forecast's
+ * brackets: a game marked final or not, with the recap of what that moved; a score typed; a bracket
+ * game's score typed or marked final, or the bracket's scores cleared; a game added once two different teams are chosen; a game deleted, asked first and
  * one step to undo; and a game's home and away swapped.
  *
  * App.tsx did these under "Snapshots / undo", among the steps to undo them. They moved here whole

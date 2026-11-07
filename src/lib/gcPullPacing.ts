@@ -10,14 +10,6 @@ import { createPullTracker, type PullRunLog, type PullTracker } from "./pullTrac
 import { savePullLog } from "./teamRankingsStorage";
 
 /**
- * Teams between saves. Each save writes the whole pool, so on a run of several thousand the cost
- * is the pool's size times the number of saves — often enough to dwarf the fetching. What it buys
- * is how much an interrupted run has to redo, and five hundred teams is about a minute of that
- * against fourteen writes of the pool rather than two hundred and eighty. The cursor is only
- * advanced *after* the write, so a crash re-fetches the batch rather than claiming teams it never
- * kept.
- */
-/**
  * Writes the run's record beside the pool. Written asynchronously — the record is read on demand,
  * not from the pool's cache — and a refusal, or a store that throws, is noted in the record itself
  * rather than allowed anywhere near the run.

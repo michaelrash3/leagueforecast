@@ -223,7 +223,9 @@ type TeamRankingsViewProps = {
  * pull, the scouting report and the age-group editor — which made the page long enough that the
  * thing you came for was rarely the thing on screen. Each area now lives in its own file under
  * `teamRankings/` and is reached through `?section=`, while this file keeps the state they all
- * read from and the handlers that write it.
+ * read from and `runCommand`, through which it is written. Most of the handlers that write it are
+ * made in hooks this file calls where their code was (`useTeamEdits`, `usePoolAnswers`,
+ * `useFindTeam`, `usePoolGameEntry`, `useStartingOver`).
  *
  * The season-year picker and the age tabs stay above every section, because they scope all of them
  * alike: a section is a view of one age group in one year, never of the pool at large.

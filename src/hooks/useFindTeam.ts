@@ -100,6 +100,11 @@ export function useFindTeam({
   const withHeals = (heals: PoolCommand[], add: PoolCommand): PoolCommand =>
     heals.length === 0 ? add : { kind: "batch", commands: [...heals, add] };
 
+  /**
+   * The "same team as" the pull can only ever propose. Folding is confirmed first because it moves
+   * every game and removes an entry, and a wrong one is tedious to undo by hand.
+   */
+  /** Answers whether the fold happened, so a list offering several can drop just the one. */
   const mergeInto = async (fromId: string, intoId: string): Promise<boolean> => {
     const from = allKnown.teams.find((team) => team.id === fromId);
     const into = allKnown.teams.find((team) => team.id === intoId);

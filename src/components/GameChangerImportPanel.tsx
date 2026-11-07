@@ -465,6 +465,19 @@ export function GameChangerImportPanel({
     trackedIds,
   } = useGcRunControls({ progressRef, setApproved, setOpenPair, setPairings, showToast });
 
+  /**
+   * The pairings the search matches, and how many of them are drawn.
+   *
+   * A nationwide pull offers four hundred of these, and the list used to stop at a hundred and say
+   * the rest could be done from each team's own panel — three hundred panels, one at a time, for a
+   * decision that is the same decision every time. Worse, an unpaired squad is not a cosmetic
+   * problem: a club whose fall and spring ids were never joined is two teams with no game between
+   * them, and a rating cannot carry across a winter it cannot see.
+   *
+   * So all of them are reachable. The first hundred are drawn for speed, "Show all" draws the
+   * rest, and the search narrows by name, state or season for when the answer is only wanted for
+   * some of them.
+   */
   const matching = pairings.filter((pairing) => pairingMatches(pairing, pairSearch));
   const shown = matching.slice(0, pairLimit);
 

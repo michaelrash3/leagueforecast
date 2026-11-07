@@ -33,7 +33,12 @@ const NO_AGELESS: AgeUnknownList = [];
  * played; a club nobody could age given an age, thrown out, or the answer taken back, one at a
  * time or a whole pass; the rows a rule has settled cleared in one pass; a club that may not be
  * real deleted, ids and all; and the clubs a sweep took off as made up put back or deleted for
- * good, one at a time or a night's at once. Each is one command to the pool and one step to undo.
+ * good, one at a time or a night's at once. Each runs one command on the pool, and the ageless
+ * answers write the waiting list beside it. A club thrown out, a pass cleared, and the sweep's
+ * clubs put back or deleted offer an Undo on their toast, and a cleared pass can still be taken
+ * back once its toast has gone; an answer, an age named or a club thrown out, is taken back from
+ * the card's search; a confirmed score is undone only by deleting the game, and a club deleted off
+ * the list of clubs that may not be real is not undone.
  *
  * TeamRankingsView.tsx did all of this among its other handlers. It moved here whole and is called
  * where it was, so its memos and callbacks keep their place among the view's.

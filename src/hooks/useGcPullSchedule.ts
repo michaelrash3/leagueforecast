@@ -35,7 +35,8 @@ import type { useToast } from "./useToast";
  * What a GameChanger refresh would ask for, and when: the teams due by the cadence chosen and the
  * one instant they are all judged at, the teams with a game within a day that a refresh never holds
  * back, everything due today with what is done set aside, the clubs nobody could age, and the team
- * and organization files chosen by hand or handed over by the crawl.
+ * and organization files chosen by hand or handed over by the crawl. With them, what a stopped
+ * pull still has to fetch (`resumable`), and whether the week ahead is shown (`showWeek`).
  *
  * GameChangerImportPanel.tsx worked these out among its other values. They moved here whole and are
  * called where they were, so their state, memos and effects keep their place among the panel's.
