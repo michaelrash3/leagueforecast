@@ -12,6 +12,17 @@ import {
 import { beforeTabYields } from "../lib/tabTurn";
 import type { GameLog, Matchup, Settings, TeamBase } from "../lib/types";
 
+/** What `useSeasonSaves` reads of App, each by the name App gives it. */
+export type SeasonSavesInputs = {
+  bracketLogs: Record<string, GameLog>;
+  logs: Record<string, GameLog>;
+  matchups: Matchup[];
+  recordSaveResult: (ok: boolean, label: string, errorMessage: string) => void;
+  seasonStore: SeasonStore;
+  settings: Settings;
+  teams: TeamBase[];
+};
+
 /**
  * The open season written to this device's storage as it changes: its teams, schedule, bracket
  * scores and settings at once, and its scores half a second after the last keystroke. A score
@@ -23,16 +34,6 @@ import type { GameLog, Matchup, Settings, TeamBase } from "../lib/types";
  * App.tsx did this under "Persisted state". It moved here whole and is called where it was, so
  * every write runs, and its effects are set up, in the order they were.
  */
-export type SeasonSavesInputs = {
-  bracketLogs: Record<string, GameLog>;
-  logs: Record<string, GameLog>;
-  matchups: Matchup[];
-  recordSaveResult: (ok: boolean, label: string, errorMessage: string) => void;
-  seasonStore: SeasonStore;
-  settings: Settings;
-  teams: TeamBase[];
-};
-
 export function useSeasonSaves({
   bracketLogs,
   logs,

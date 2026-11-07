@@ -36,16 +36,7 @@ import { useSeedRanges } from "./useSeedRanges";
 const rememberedTimeline = rememberLast(buildSeasonTimeline);
 const NO_TIMELINE: SeasonTimelineEntry[] = [];
 
-/**
- * The race for the Gold cut line as League Standings reads it: each team's next two games and the
- * seed either result leaves it at, its clinching paths, how hard what it has left is, the games
- * that matter most and what one result would do to the table, and the words, tiers and badges a
- * row is drawn with.
- *
- * App.tsx worked all of this out among its other sections, under "Scenario helpers". It moved here
- * whole and is called where it was, so its memos, its callbacks and the two hooks it calls keep
- * their place among App's, and every view reads the same values it did.
- */
+/** What `useGoldRace` reads of App, each by the name App gives it. */
 export type GoldRaceInputs = {
   activeView: ActiveShareView;
   dashboardById: Map<string, TeamWithProjection>;
@@ -70,6 +61,16 @@ export type GoldRaceInputs = {
   today: Date;
 };
 
+/**
+ * The race for the Gold cut line as League Standings reads it: each team's next two games and the
+ * seed either result leaves it at, its clinching paths, how hard what it has left is, the games
+ * that matter most and what one result would do to the table, and the words, tiers and badges a
+ * row is drawn with.
+ *
+ * App.tsx worked all of this out among its other sections, under "Scenario helpers". It moved here
+ * whole and is called where it was, so its memos, its callbacks and the two hooks it calls keep
+ * their place among App's, and every view reads the same values it did.
+ */
 export function useGoldRace({
   activeView,
   dashboardById,

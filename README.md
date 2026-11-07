@@ -95,7 +95,7 @@ scripts/
   sweepTidy.ts          # the pool it fits: a backup through the device's tidy, vouched clubs spared
   verify-gc-pull.ts     # the one check that talks to GameChanger for real
 src/
-  App.tsx               # League Standings: state, handlers and every view it renders
+  App.tsx               # League Standings: its state, the hooks below, and every view it renders
   main.tsx
   index.css
   lib/                  # pure modules; almost all the logic lives here
@@ -124,7 +124,10 @@ src/
     gameChanger*.ts        # pulling, importing, reporting and tracking a pull
     apiShared.ts           # handler types, client key and throttle, shared by both functions
     storage.ts  idb.ts  backup.ts  share.ts
-  hooks/                # worker lifecycles, routing, shortcuts, theme, toasts
+  hooks/                # worker lifecycles, routing, shortcuts, theme, toasts; and App's sections,
+                        # one hook each, called where their code was: the odds (useSeasonOdds),
+                        # the race (useGoldRace), game forecasts, Data Quality, the season builder,
+                        # saves, links, the story, our team
   workers/
     sim.worker.ts  rankings.worker.ts  tidy.worker.ts
     rankingsProtocol.ts  tidyProtocol.ts  # what crosses to each worker; pure, so tested

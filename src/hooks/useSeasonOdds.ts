@@ -26,17 +26,7 @@ import { useSimulationBracket, useSimulationOdds, useSimulationTrend } from "./u
 const rememberedBacktest = rememberLast(backtestPredictions);
 const NO_BACKTEST = backtestPredictions([], [], {}, DEFAULT_SETTINGS);
 
-/**
- * The season's odds, as the Dashboard, the Standings and the Forecast read them: every team's
- * Gold % and its spread of places, simulated in the worker from the games left, with how each of
- * those games moves the followed team's; the line of Gold % over the season, played forward from
- * each date; the brackets' odds while the Forecast is open; and how the model has done on the
- * games already played.
- *
- * App.tsx worked these out under "Worker-driven odds + trend". They moved here whole and are
- * called where they were, so the three simulations' workers are started, and their memos run, in
- * the order they were.
- */
+/** What `useSeasonOdds` reads of App, each by the name App gives it. */
 export type SeasonOddsInputs = {
   activeView: ActiveShareView;
   bracketLogs: Record<string, GameLog>;
@@ -55,6 +45,17 @@ export type SeasonOddsInputs = {
   teams: TeamBase[];
 };
 
+/**
+ * The season's odds, as the Dashboard, the Standings and the Forecast read them: every team's
+ * Gold % and its spread of places, simulated in the worker from the games left, with how each of
+ * those games moves the followed team's; the line of Gold % over the season, played forward from
+ * each date; the brackets' odds while the Forecast is open; and how the model has done on the
+ * games already played.
+ *
+ * App.tsx worked these out under "Worker-driven odds + trend". They moved here whole and are
+ * called where they were, so the three simulations' workers are started, and their memos run, in
+ * the order they were.
+ */
 export function useSeasonOdds({
   activeView,
   bracketLogs,

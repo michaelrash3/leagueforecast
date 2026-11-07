@@ -36,17 +36,7 @@ import type { UndoSnapshotControls } from "./useUndoSnapshot";
  */
 const LeagueSchedulePaste = schedulePasteView.View;
 
-/**
- * The ways a League Standings season is started: the demo season; the team list, saved, renamed,
- * locked and made into a round robin, or downloaded as one; a season started from its clubs on
- * Team Rankings or from a GameChanger organization's schedule, and put on its page there; and a
- * league site's schedule, pasted in and looked over in its panel. Each asks first where it would
- * replace anything, and each is one step to undo.
- *
- * App.tsx did all of this under "Season builder". It moved here whole and is called where it was;
- * none of it keeps state or runs an effect, so only the demo season's loader is remembered from
- * one render to the next, as it was.
- */
+/** What `useSeasonBuilder` reads of App, each by the name App gives it. */
 export type SeasonBuilderInputs = {
   activeSeasonId: string;
   captureUndo: UndoSnapshotControls["capture"];
@@ -71,6 +61,17 @@ export type SeasonBuilderInputs = {
   teams: TeamBase[];
 };
 
+/**
+ * The ways a League Standings season is started: the demo season; the team list, saved, renamed,
+ * locked and made into a round robin, or downloaded as one; a season started from its clubs on
+ * Team Rankings or from a GameChanger organization's schedule, and put on its page there; and a
+ * league site's schedule, pasted in and looked over in its panel. Each asks first where it would
+ * replace anything, and each is one step to undo.
+ *
+ * App.tsx did all of this under "Season builder". It moved here whole and is called where it was;
+ * none of it keeps state or runs an effect, so only the demo season's loader is remembered from
+ * one render to the next, as it was.
+ */
 export function useSeasonBuilder({
   activeSeasonId,
   captureUndo,

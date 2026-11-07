@@ -13,15 +13,7 @@ import type { ClubLookup } from "../lib/teamRankings/leagueBridge";
 import type { Matchup, Settings, TeamWithProjection } from "../lib/types";
 import type { useGoldRace } from "./useGoldRace";
 
-/**
- * The team this browser follows, which leads the Dashboard: picking it, for this season only; its
- * card, with its place, its magic number and what it cannot do without while those searches are
- * quick, its next two games and how the next one moves its Gold %, and the results to root for;
- * where its club stands on Team Rankings; and the Scout button that opens that club's report there.
- *
- * App.tsx worked these out under "Header / selection". They moved here whole and are called where
- * they were.
- */
+/** What `useOurTeam` reads of App, each by the name App gives it. */
 export type OurTeamInputs = {
   activeSeasonId: string;
   activeSeasonKey: string;
@@ -41,6 +33,15 @@ export type OurTeamInputs = {
   setOurTeamPick: Dispatch<SetStateAction<{ season: string; teamId: string | null }>>;
 };
 
+/**
+ * The team this browser follows, which leads the Dashboard: picking it, for this season only; its
+ * card, with its place, its magic number and what it cannot do without while those searches are
+ * quick, its next two games and how the next one moves its Gold %, and the results to root for;
+ * where its club stands on Team Rankings; and the Scout button that opens that club's report there.
+ *
+ * App.tsx worked these out under "Header / selection". They moved here whole and are called where
+ * they were.
+ */
 export function useOurTeam({
   activeSeasonId,
   activeSeasonKey,

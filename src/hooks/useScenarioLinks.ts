@@ -17,16 +17,7 @@ import type { LiveLeague } from "./useLiveLeague";
 import type { Seasons } from "./useSeasons";
 import type { useToast } from "./useToast";
 
-/**
- * What the playoff machine is handed from outside it (2.7). A scenario someone shared by link:
- * heard in the address, asked about once the season on screen is the one this device shows, so it
- * is matched against that season's own games, and kept for the season only once the person says
- * so (`scenarioLink.ts`). And the machine as it was last left, given back when the Forecast tab is
- * shown again, for as long as the page is open and the season is the same one.
- *
- * App.tsx did this under "Scenario links". It moved here whole and is called where it was, so its
- * three effects keep their place among App's.
- */
+/** What `useScenarioLinks` reads of App, each by the name App gives it. */
 export type ScenarioLinksInputs = {
   activeSeasonId: string;
   activeSeasonKey: string;
@@ -44,6 +35,16 @@ export type ScenarioLinksInputs = {
   showToast: ReturnType<typeof useToast>["show"];
 };
 
+/**
+ * What the playoff machine is handed from outside it (2.7). A scenario someone shared by link:
+ * heard in the address, asked about once the season on screen is the one this device shows, so it
+ * is matched against that season's own games, and kept for the season only once the person says
+ * so (`scenarioLink.ts`). And the machine as it was last left, given back when the Forecast tab is
+ * shown again, for as long as the page is open and the season is the same one.
+ *
+ * App.tsx did this under "Scenario links". It moved here whole and is called where it was, so its
+ * three effects keep their place among App's.
+ */
 export function useScenarioLinks({
   activeSeasonId,
   activeSeasonKey,

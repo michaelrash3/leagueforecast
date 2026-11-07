@@ -21,17 +21,7 @@ export type ScoreboardPrediction = {
 // can block the browser just after the import, or while a final is being saved.
 const SCOREBOARD_PREDICTION_CHUNK_SIZE = 24;
 
-/**
- * Every game still to play called by the model: the Forecast's list of them, the regular season's
- * in date order and then, once the seeding is locked, the Gold and Silver brackets'; and the
- * Schedule's pick, run line and odds for each open game, worked out a chunk at a time after the
- * tab opens so a full season's schedule never holds up the first frame. The Schedule's own order
- * of its games, with its team filter, is here too.
- *
- * App.tsx worked these out under "Game forecasts". They moved here whole, with the state the
- * Schedule's picks are kept in, which nothing else writes, and are called where they were, so the
- * effect that fills the picks keeps its place among App's.
- */
+/** What `useGameForecasts` reads of App, each by the name App gives it. */
 export type GameForecastsInputs = {
   activeView: ActiveShareView;
   bracketProjection: BracketProjection;
@@ -49,6 +39,17 @@ export type GameForecastsInputs = {
   teamBaseById: Map<string, TeamBase>;
 };
 
+/**
+ * Every game still to play called by the model: the Forecast's list of them, the regular season's
+ * in date order and then, once the seeding is locked, the Gold and Silver brackets'; and the
+ * Schedule's pick, run line and odds for each open game, worked out a chunk at a time after the
+ * tab opens so a full season's schedule never holds up the first frame. The Schedule's own order
+ * of its games, with its team filter, is here too.
+ *
+ * App.tsx worked these out under "Game forecasts". They moved here whole, with the state the
+ * Schedule's picks are kept in, which nothing else writes, and are called where they were, so the
+ * effect that fills the picks keeps its place among App's.
+ */
 export function useGameForecasts({
   activeView,
   bracketProjection,

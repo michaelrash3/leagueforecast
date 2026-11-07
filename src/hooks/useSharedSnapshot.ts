@@ -6,15 +6,7 @@ import type { useConfirmation } from "./useConfirmation";
 import type { useToast } from "./useToast";
 import type { UndoSnapshotControls } from "./useUndoSnapshot";
 
-/**
- * A season shared by link (`share.ts`): asked about once the season here may be written, loaded in
- * place of this one as a single step to undo, with the view and the team the link was made on, and
- * then cleared from the address whatever the answer. A link opened while the season is read-only
- * is kept, and asked about again once it is not.
- *
- * App.tsx did this under "Share + URL snapshot". It moved here whole and is called where it was, so
- * its two effects keep their place among App's.
- */
+/** What `useSharedSnapshot` reads of App, each by the name App gives it. */
 export type SharedSnapshotInputs = {
   captureUndo: UndoSnapshotControls["capture"];
   clearSharedSnapshot: () => void;
@@ -34,6 +26,15 @@ export type SharedSnapshotInputs = {
   showToast: ReturnType<typeof useToast>["show"];
 };
 
+/**
+ * A season shared by link (`share.ts`): asked about once the season here may be written, loaded in
+ * place of this one as a single step to undo, with the view and the team the link was made on, and
+ * then cleared from the address whatever the answer. A link opened while the season is read-only
+ * is kept, and asked about again once it is not.
+ *
+ * App.tsx did this under "Share + URL snapshot". It moved here whole and is called where it was, so
+ * its two effects keep their place among App's.
+ */
 export function useSharedSnapshot({
   captureUndo,
   clearSharedSnapshot,

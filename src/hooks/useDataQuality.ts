@@ -28,15 +28,7 @@ import type { useConfirmation } from "./useConfirmation";
 import type { useToast } from "./useToast";
 import type { UndoSnapshotControls } from "./useUndoSnapshot";
 
-/**
- * Data Quality (2.3): every finding on the season, the ones put aside on this device and the ones
- * still open, the tab row's mark for what needs attention, the link from a finding to the game,
- * team or setting it is about, and a finding's repair, previewed and then made as one undo step.
- *
- * App.tsx worked all of this out under "Data quality". It moved here whole, with the state it
- * keeps (what is put aside, and what a link is still looking for to focus), and is called where it
- * was, so its memos and its one effect keep their place among App's.
- */
+/** What `useDataQuality` reads of App, each by the name App gives it. */
 export type DataQualityInputs = {
   activeSeasonId: string;
   activeSeasonKey: string;
@@ -62,6 +54,15 @@ export type DataQualityInputs = {
   today: Date;
 };
 
+/**
+ * Data Quality (2.3): every finding on the season, the ones put aside on this device and the ones
+ * still open, the tab row's mark for what needs attention, the link from a finding to the game,
+ * team or setting it is about, and a finding's repair, previewed and then made as one undo step.
+ *
+ * App.tsx worked all of this out under "Data quality". It moved here whole, with the state it
+ * keeps (what is put aside, and what a link is still looking for to focus), and is called where it
+ * was, so its memos and its one effect keep their place among App's.
+ */
 export function useDataQuality({
   activeSeasonId,
   activeSeasonKey,

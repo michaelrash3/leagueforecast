@@ -18,15 +18,7 @@ import type { useGoldRace } from "./useGoldRace";
 import { useLeagueSummary } from "./useLeagueSummary";
 import type { SeedRange } from "./useSeedRanges";
 
-/**
- * The League Standings story: the recap of the last change to the season, told from the facts
- * alone; the AI's rewrite of the same facts, asked for only once there is movement to describe;
- * the Forecast's write-up, asked for only while the Forecast is open; and whether the write-ups
- * fetch themselves at all, a setting kept on this device and read everywhere at once.
- *
- * App.tsx worked these out under "Header / selection". They moved here whole and are called where
- * they were, so both write-ups' requests are made in the order they were.
- */
+/** What `useLeagueStory` reads of App, each by the name App gives it. */
 export type LeagueStoryInputs = {
   activeView: ActiveShareView;
   backtestResult: BacktestResult;
@@ -47,6 +39,15 @@ export type LeagueStoryInputs = {
   statusLabel: (team: TeamWithProjection) => string;
 };
 
+/**
+ * The League Standings story: the recap of the last change to the season, told from the facts
+ * alone; the AI's rewrite of the same facts, asked for only once there is movement to describe;
+ * the Forecast's write-up, asked for only while the Forecast is open; and whether the write-ups
+ * fetch themselves at all, a setting kept on this device and read everywhere at once.
+ *
+ * App.tsx worked these out under "Header / selection". They moved here whole and are called where
+ * they were, so both write-ups' requests are made in the order they were.
+ */
 export function useLeagueStory({
   activeView,
   backtestResult,
