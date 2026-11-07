@@ -1,6 +1,5 @@
 import {
   lazy,
-  startTransition,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -39,6 +38,7 @@ import { subscribeLeagueMet } from "./lib/preferences";
 import { askLeague, copyAtNow, placeLeagueSeason, publishedLeague } from "./lib/live/leagueAsk";
 import { useLiveLeague } from "./hooks/useLiveLeague";
 import { useScoreFill } from "./hooks/useScoreFill";
+import { useGameForecasts } from "./hooks/useGameForecasts";
 import { useGoldRace } from "./hooks/useGoldRace";
 import { useSinceLastLook } from "./hooks/useSinceLastLook";
 import { editingOffBecause, LiveLeagueBanner } from "./components/league/LiveLeagueBanner";
@@ -120,7 +120,6 @@ import {
   useSimulationTrend,
 } from "./hooks/useSimulationWorker";
 import {
-  byStart,
   formatGameDate,
   normalizeDateInput,
   parseDateValue,
@@ -188,7 +187,6 @@ import {
   getMathGoldStatus,
   getRemainingCounts,
   isSeedingLocked,
-  predictGame,
   projectStandings,
   projectedPlaces,
   rankOptionsFromSettings,
@@ -238,26 +236,11 @@ import {
 import { buildDemoSeason } from "./lib/demoSeason";
 import { buildTeamTrendSummary } from "./lib/teamTrend";
 import { blankLog, isFinal, swappedLog } from "./lib/util";
-import { linkedTeamIdFromUrl, projectedRunLine, TEAM_QUERY_PARAM } from "./lib/teamLink";
+import { linkedTeamIdFromUrl, TEAM_QUERY_PARAM } from "./lib/teamLink";
 import { HeaderStatCard } from "./components/HeaderStatCard";
 import { button as buttonClasses, focusRing, tab } from "./styles/tokens";
 
 type ActiveView = ActiveShareView;
-
-type ScoreboardPrediction = {
-  spread: string;
-  pickName: string;
-  pickPct: number;
-  scenarioBadges: string[];
-  impactScore: number;
-};
-
-// Full-season imports can contain hundreds of open games. Projecting every
-// remaining game synchronously is useful late in the season, but it can block
-// the browser immediately after import or while saving a final. Keep the UI
-// responsive by falling back to current standings until the schedule is small
-// enough for synchronous projection work.
-const SCOREBOARD_PREDICTION_CHUNK_SIZE = 24;
 
 /*
  * The heavier of the two calculations one tab alone shows, remembering its last answer, so going
@@ -491,9 +474,6 @@ export default function App() {
   }, []);
   const [lastImpact, setLastImpact] = useState<LastImpact | null>(null);
   const [scoreboardTeamFilter, setScoreboardTeamFilter] = useState("ALL");
-  const [scoreboardPredictions, setScoreboardPredictions] = useState<
-    Map<string, ScoreboardPrediction>
-  >(() => new Map());
   const [seasonBuilderText, setSeasonBuilderText] = useState("");
   const {
     state: confirmState,
@@ -1469,167 +1449,22 @@ export default function App() {
 
   // ---------- Game forecasts ----------
 
-  const gameForecasts = useMemo(() => {
-    if (activeView !== "model") return [];
-
-    const regularSeasonForecasts = [...remainingGames].map((game) => {
-      const prediction = predictGame(game, liveTeams, settings, liveById);
-      const winner = teamBaseById.get(prediction.winnerId);
-      const away = teamBaseById.get(game.away);
-      const home = teamBaseById.get(game.home);
-      const winnerPct =
-        prediction.winnerId === game.away ? prediction.awayWinPct : 1 - prediction.awayWinPct;
-      const impact = getGameScenarioImpactMap.get(game.id);
-      return {
-        game,
-        prediction,
-        awayName: displayName(away?.name || game.away),
-        homeName: displayName(home?.name || game.home),
-        winnerName: displayName(winner?.name || prediction.winnerId),
-        winnerPct,
-        impact,
-        sourceLabel: "Regular Season",
-        sortValue: parseDateValue(game.date, seasonStart),
-      };
-    });
-
-    const bracketForecasts = bracketSeedingLocked
-      ? [
-          ...bracketProjection.rounds.flatMap((round) =>
-            round.map((game) => ({ game, bracketLabel: "Gold Bracket" }))
-          ),
-          ...silverBracketProjection.rounds.flatMap((round) =>
-            round.map((game) => ({ game, bracketLabel: "Silver Bracket" }))
-          ),
-        ]
-          .filter(({ game }) => game.matchup && game.prediction && !isFinal(game.log))
-          .map(({ game, bracketLabel }) => {
-            const matchup = game.matchup!;
-            const prediction = game.prediction!;
-            const winner = teamBaseById.get(prediction.winnerId);
-            const away = teamBaseById.get(matchup.away);
-            const home = teamBaseById.get(matchup.home);
-            const winnerPct =
-              prediction.winnerId === matchup.away
-                ? prediction.awayWinPct
-                : 1 - prediction.awayWinPct;
-            return {
-              game: matchup,
-              prediction,
-              awayName: displayName(away?.name || matchup.away),
-              homeName: displayName(home?.name || matchup.home),
-              winnerName: displayName(winner?.name || prediction.winnerId),
-              winnerPct,
-              impact: undefined,
-              sourceLabel: `${bracketLabel} · ${game.roundName}`,
-              sortValue: Number.POSITIVE_INFINITY,
-            };
-          })
-      : [];
-
-    return [...regularSeasonForecasts, ...bracketForecasts].sort(
-      (a, b) => a.sortValue - b.sortValue || a.game.id.localeCompare(b.game.id)
-    );
-  }, [
+  const { gameForecasts, scoreboardGames, scoreboardPredictions } = useGameForecasts({
     activeView,
-    remainingGames,
-    seasonStart,
-    liveTeams,
-    settings,
-    liveById,
-    teamBaseById,
-    getGameScenarioImpactMap,
-    bracketSeedingLocked,
     bracketProjection,
+    bracketSeedingLocked,
+    getGameScenarioImpactMap,
+    liveById,
+    liveTeams,
+    logs,
+    matchups,
+    remainingGames,
+    scoreboardTeamFilter,
+    seasonStart,
+    settings,
     silverBracketProjection,
-  ]);
-
-  const scoreboardGames = useMemo(() => {
-    const dateCompare = (a: Matchup, b: Matchup) => {
-      const aFinal = isFinal(logs[a.id]);
-      const bFinal = isFinal(logs[b.id]);
-      const aNoDate = !(a.date ?? "").trim();
-      const bNoDate = !(b.date ?? "").trim();
-      if (aFinal !== bFinal) return aFinal ? 1 : -1;
-      if (!aFinal && aNoDate !== bNoDate) return aNoDate ? -1 : 1;
-      return (
-        parseDateValue(a.date, seasonStart) - parseDateValue(b.date, seasonStart) ||
-        byStart(a, b) ||
-        a.id.localeCompare(b.id)
-      );
-    };
-    const filtered =
-      scoreboardTeamFilter === "ALL"
-        ? matchups
-        : matchups.filter(
-            (game) => game.away === scoreboardTeamFilter || game.home === scoreboardTeamFilter
-          );
-    return [...filtered].sort(dateCompare);
-  }, [matchups, logs, scoreboardTeamFilter, seasonStart]);
-
-  useEffect(() => {
-    // Clearing first is the point: predictions are filled in incrementally over many chunks, and
-    // without the wipe a stale entry would sit in the map until its game happened to be
-    // recomputed. Deriving it instead would mean carrying a key through every chunk write, which
-    // is more moving parts than the one render this costs.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setScoreboardPredictions(new Map());
-    if (activeView !== "games" || !remainingGames.length) return;
-
-    let cancelled = false;
-    let timer: ReturnType<typeof window.setTimeout> | null = null;
-    let index = 0;
-    const games = [...remainingGames];
-
-    const queueNextChunk = () => {
-      timer = window.setTimeout(() => {
-        if (cancelled) return;
-        const entries: [string, ScoreboardPrediction][] = [];
-        const chunkEnd = Math.min(index + SCOREBOARD_PREDICTION_CHUNK_SIZE, games.length);
-
-        for (; index < chunkEnd; index += 1) {
-          const game = games[index];
-          if (!game) continue;
-          const prediction = predictGame(game, liveTeams, settings, liveById);
-          const winner = teamBaseById.get(prediction.winnerId);
-          const winnerPct =
-            prediction.winnerId === game.away ? prediction.awayWinPct : 1 - prediction.awayWinPct;
-          entries.push([
-            game.id,
-            {
-              spread: projectedRunLine(prediction, liveById),
-              pickName: displayName(winner?.name || prediction.winnerId),
-              pickPct: winnerPct,
-              // Keep Schedule score entry lightweight. Exact clinch/elimination badges are
-              // still computed in the Model view, but doing them for every open game on
-              // each score keystroke makes the scoring workflow feel frozen.
-              scenarioBadges: [],
-              impactScore: 0,
-            },
-          ]);
-        }
-
-        if (entries.length) {
-          startTransition(() => {
-            setScoreboardPredictions((prev) => {
-              if (cancelled) return prev;
-              const next = new Map(prev);
-              entries.forEach(([gameId, prediction]) => next.set(gameId, prediction));
-              return next;
-            });
-          });
-        }
-
-        if (index < games.length) queueNextChunk();
-      }, 0);
-    };
-
-    queueNextChunk();
-    return () => {
-      cancelled = true;
-      if (timer) window.clearTimeout(timer);
-    };
-  }, [activeView, remainingGames, liveTeams, settings, liveById, teamBaseById]);
+    teamBaseById,
+  });
 
   // ---------- Snapshots / undo ----------
 
@@ -2769,10 +2604,13 @@ export default function App() {
    * The Undo on the toast below is pressed long after this effect has run, so it has to call
    * whatever `restoreUndo` is at that moment rather than the one that existed when the snapshot
    * loaded. The ref is read inside the handler for that reason; the effect itself runs once per
-   * snapshot and must not re-run when an unrelated callback is rebuilt.
+   * snapshot and must not re-run when an unrelated callback is rebuilt. It is brought up to date
+   * as each render commits, not during the render, which React does not allow.
    */
   const restoreUndoRef = useRef(restoreUndo);
-  restoreUndoRef.current = restoreUndo;
+  useLayoutEffect(() => {
+    restoreUndoRef.current = restoreUndo;
+  });
 
   useEffect(() => {
     // Asked once the season may be written: League kept live opens read-only until the cloud's
