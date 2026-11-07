@@ -12,7 +12,9 @@ names the document it is in.
 
 ## Commands
 
-The gate CI runs, in this order, and what a change must pass before it is pushed:
+The gate, and what a change must pass before it is pushed. Here the steps run one after another;
+CI runs the same steps as parallel jobs, the unit tests in four slices whose coverage is merged
+and held to the same thresholds (`.github/workflows/ci.yml`):
 
 ```sh
 npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run bundle:check

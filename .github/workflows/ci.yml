@@ -14,8 +14,19 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# The gate runs as parallel jobs, and `build` gives its one answer. As a single job it took 12½
+# minutes on #520 (7 November 2026), eight of them the coverage run, and every other step waited
+# behind it. Now the checks, the site's build with its browser tests, and four slices of the unit
+# tests run side by side, and one job merges the slices' coverage and holds it to the thresholds
+# in vite.config.ts, as the single run did.
+#
+# The slices are chosen, not left to `--shard`: Vitest shards by a hash of each file's path, and
+# that put the two slowest files, the board-parity tests of a minute or more each, in the same
+# shard of four. The live boards' tests are a slice of their own; the rest of the lib project is
+# one more; the components are split in two. Every test file lands in exactly one, and the merge
+# checks that the count of files it got is the count the suite has.
 jobs:
-  build:
+  checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -27,10 +38,83 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
+
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - slice: live
+            select: --project lib src/lib/live/
+          - slice: lib
+            select: --project lib --exclude 'src/lib/live/**'
+          - slice: components-1
+            select: --project components --shard=1/2
+          - slice: components-2
+            select: --project components --shard=2/2
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # Coverage is gathered here and judged once, merged, in `coverage`: a slice covers part of the
+      # code, so its own thresholds are set to nothing and its own summary goes to a file.
+      - name: Unit tests, ${{ matrix.slice }}
+        run: >-
+          npx vitest --run --coverage
+          --coverage.thresholds.statements=0 --coverage.thresholds.branches=0
+          --coverage.thresholds.functions=0 --coverage.thresholds.lines=0
+          --coverage.reporter=json-summary
+          --reporter=default --reporter=blob
+          --outputFile.blob=blob-reports/${{ matrix.slice }}.json
+          ${{ matrix.select }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: blob-${{ matrix.slice }}
+          path: blob-reports/
+          retention-days: 1
+
+  coverage:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: blob-*
+          path: blob-reports
+          merge-multiple: true
       # Coverage rather than a bare run: same tests, same time, and the summary is printed in the
       # log so what the suite misses is visible on every pull request. The thresholds in
       # vite.config.ts are a floor under where the suite already is, so this fails on a real drop.
-      - run: npm run test:coverage
+      - name: The slices' coverage, merged and held to the thresholds
+        run: npx vitest --merge-reports=blob-reports --coverage --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/merged.json"
+      # A slice that matched nothing, or two that matched the same file, would pass every test
+      # it ran. So the merged report must hold each of the suite's test files, and each once.
+      - name: Every test file ran, and once
+        run: |
+          expected=$(npx vitest list --filesOnly | wc -l)
+          ran=$(node -e 'console.log(require(process.argv[1]).testResults.length)' "$RUNNER_TEMP/merged.json")
+          echo "Test files run: $ran of the suite's $expected"
+          test "$ran" -eq "$expected"
+
+  site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
       - run: npm run build
       # What a visit downloads, held to limits: the first download, each League view's own load,
       # Team Rankings and the stylesheet (`scripts/bundleBudget.mjs`). Fails naming what grew.
@@ -81,3 +165,18 @@ jobs:
       # standings, and the backup carries it. The unit suites cover the pieces; this covers the wiring.
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+
+  # The gate's one answer, under the name the single job had. It runs when a part before it failed,
+  # since a job skipped because one it needs failed reads as passed, and says which part it was.
+  build:
+    needs: [checks, tests, coverage, site]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every part of the gate passed
+        run: |
+          echo "checks: ${{ needs.checks.result }}, tests: ${{ needs.tests.result }}, coverage: ${{ needs.coverage.result }}, site: ${{ needs.site.result }}"
+          test "${{ needs.checks.result }}" = success
+          test "${{ needs.tests.result }}" = success
+          test "${{ needs.coverage.result }}" = success
+          test "${{ needs.site.result }}" = success
