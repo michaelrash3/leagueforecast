@@ -36,6 +36,7 @@ import { subscribeLeagueMet } from "./lib/preferences";
 import { askLeague, copyAtNow, publishedLeague } from "./lib/live/leagueAsk";
 import { useLiveLeague } from "./hooks/useLiveLeague";
 import { useScoreFill } from "./hooks/useScoreFill";
+import { useSeasonOdds } from "./hooks/useSeasonOdds";
 import { useScenarioLinks } from "./hooks/useScenarioLinks";
 import { useSharedSnapshot } from "./hooks/useSharedSnapshot";
 import { useSeasonBuilder } from "./hooks/useSeasonBuilder";
@@ -112,11 +113,6 @@ import { useLeagueSummary } from "./hooks/useLeagueSummary";
 import { useToast } from "./hooks/useToast";
 import { useUrlSnapshot } from "./hooks/useUrlState";
 import {
-  useSimulationBracket,
-  useSimulationOdds,
-  useSimulationTrend,
-} from "./hooks/useSimulationWorker";
-import {
   formatGameDate,
   normalizeDateInput,
   parseDateValue,
@@ -130,7 +126,6 @@ import { recapToMarkdown, recapToStoryBrief } from "./lib/insights";
 import { buildForecastSummaryRequest, buildLeagueSummaryRequest } from "./lib/leagueSummaryClient";
 import { AiHealthCheck } from "./components/aiHealthCheck";
 import { eliminationNumberForGold, magicForGold, neededResults, withOwedGames } from "./lib/magic";
-import { backtestPredictions } from "./lib/backtest";
 import { buildPredictionEngine } from "./lib/predictionEngine";
 import { buildBracketProjection } from "./lib/bracket";
 import { buildShareUrl } from "./lib/share";
@@ -142,7 +137,6 @@ import {
   PROJECT_STANDINGS_REMAINING_GAME_LIMIT,
   type RecapPool,
 } from "./lib/impactRecap";
-import { rememberLast } from "./lib/rememberLast";
 import {
   EXACT_MAGIC_REMAINING_GAME_LIMIT,
   EXACT_SCENARIO_REMAINING_GAME_LIMIT,
@@ -167,9 +161,7 @@ import {
   rankOptionsFromSettings,
   rankTeams,
   regularSeasonSettings,
-  simulationSeed,
 } from "./lib/sim";
-import { buildTrendStates } from "./lib/trend";
 import {
   addSeasons,
   adoptSeasonCreatedAt,
@@ -192,8 +184,6 @@ import {
 import {
   DEFAULT_SETTINGS,
   SIM_ITERATIONS,
-  TREND_ITERATIONS,
-  TREND_STATES,
   type ActiveShareView,
   type GameLog,
   type Matchup,
@@ -215,14 +205,6 @@ import { HeaderStatCard } from "./components/HeaderStatCard";
 import { button as buttonClasses, focusRing, tab } from "./styles/tokens";
 
 type ActiveView = ActiveShareView;
-
-/*
- * The heavier of the two calculations one tab alone shows, remembering its last answer, so going
- * back to its tab on an unchanged season gives it at once (`rememberLast`, 2.2); and what stands in
- * for it while no tab showing it is open. The other, the Forecast's timeline, is `useGoldRace`'s.
- */
-const rememberedBacktest = rememberLast(backtestPredictions);
-const NO_BACKTEST = backtestPredictions([], [], {}, DEFAULT_SETTINGS);
 
 const replaceTeamDataUrl = (teamId: string | null) => {
   if (typeof window === "undefined") return;
@@ -1157,111 +1139,33 @@ export default function App() {
 
   // ---------- Worker-driven odds + trend ----------
 
-  const oddsSeed = useMemo(
-    () =>
-      simulationSeed(
-        matchups,
-        finalLogs,
-        `odds-${goldCutoff}-${settings.modelAggression}-${settings.winPoints}-${settings.tiePoints}-${settings.tiebreakerOrder.join(",")}`
-      ),
-    [matchups, finalLogs, goldCutoff, settings]
-  );
-
-  const oddsInput = useMemo(
-    () => ({
-      teams: liveTeams,
-      remaining: remainingGames,
-      iterations: SIM_ITERATIONS,
-      seedText: oddsSeed,
-      cutoff: goldCutoff,
-      settings: seasonSettings,
-      // The followed team's odds are also counted by how each game left goes, for its card.
-      ...(hasCutLine && ourTeamId ? { follow: ourTeamId } : {}),
-    }),
-    [liveTeams, remainingGames, oddsSeed, goldCutoff, seasonSettings, hasCutLine, ourTeamId]
-  );
   const {
+    backtestResult,
+    bracketOdds,
     odds,
-    places: oddsPlaces,
-    iterations: oddsIterations,
-    pending: oddsPending,
-    swing: ourSwing,
-  } = useSimulationOdds(oddsInput);
-
-  const trendInput = useMemo(() => {
-    const teamIds = teams.map((t) => t.id);
-    if (!teamIds.length) {
-      return {
-        teamIds: [],
-        states: [],
-        iterations: TREND_ITERATIONS,
-        cutoff: goldCutoff,
-        settings: seasonSettings,
-      };
-    }
-    const built = buildTrendStates(teams, matchups, finalLogs, completedGames, {
-      states: TREND_STATES,
-      goldCutoff,
-      settings: seasonSettings,
-      // The results the Gold % column is rated with, so the line ends where the column is.
-      externalResults,
-      squadYear: scoutBridge.squadYear,
-    });
-    return {
-      teamIds,
-      states: built,
-      iterations: TREND_ITERATIONS,
-      cutoff: goldCutoff,
-      settings: seasonSettings,
-    };
-  }, [
-    teams,
-    matchups,
-    finalLogs,
+    oddsIterations,
+    oddsPending,
+    oddsPlaces,
+    oddsSeed,
+    ourSwing,
+    trendMap,
+  } = useSeasonOdds({
+    activeView,
+    bracketLogs,
     completedGames,
-    goldCutoff,
-    seasonSettings,
     externalResults,
-    scoutBridge.squadYear,
-  ]);
-  const trendMap = useSimulationTrend(trendInput);
-
-  const bracketInput = useMemo(
-    () => ({
-      teams: liveTeams,
-      remaining: remainingGames,
-      iterations: SIM_ITERATIONS,
-      seedText: oddsSeed,
-      cutoff: goldCutoff,
-      settings: seasonSettings,
-      enabled: activeView === "model",
-      bracketLogs,
-    }),
-    [liveTeams, remainingGames, oddsSeed, goldCutoff, seasonSettings, activeView, bracketLogs]
-  );
-  const { bracketOdds } = useSimulationBracket(bracketInput);
-
-  /*
-   * How the model has done on the games played, which the Dashboard and the Forecast show and no
-   * other tab does: worked out only while one of them is open, and remembered, so opening one again
-   * on an unchanged season costs nothing (2.2). It refits the season once per game played, the
-   * heaviest single thing League works out: 62 ms on a twelve-team season with 78 games played,
-   * about a quarter of a second on a phone, which every final on the Schedule used to wait behind.
-   */
-  const backtestShown = activeView === "dashboard" || activeView === "model";
-  // With the Team Rankings results the forecast reads, each game called from those played before
-  // its day: what is scored is the model shipped, not the league's games alone.
-  const backtestOutside = useMemo(
-    () => ({ outside: externalResults, squadYear: scoutBridge.squadYear }),
-    [externalResults, scoutBridge.squadYear]
-  );
-  const backtestResult = useMemo(
-    () =>
-      backtestShown
-        ? rememberedBacktest(teams, matchups, finalLogs, settings, 0.1, backtestOutside)
-        : NO_BACKTEST,
-    [backtestShown, teams, matchups, finalLogs, settings, backtestOutside]
-  );
+    finalLogs,
+    goldCutoff,
+    hasCutLine,
+    liveTeams,
+    matchups,
+    ourTeamId,
+    remainingGames,
+    scoutBridge,
+    seasonSettings,
+    settings,
+    teams,
+  });
 
   // ---------- Dashboard / scenario computations ----------
 

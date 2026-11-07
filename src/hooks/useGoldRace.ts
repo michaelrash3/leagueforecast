@@ -31,7 +31,7 @@ import { useSeedRanges } from "./useSeedRanges";
 /*
  * The Forecast's timeline remembers its last answer, so going back to the tab on an unchanged
  * season gives it at once (`rememberLast`, 2.2); and stands empty while the tab is not open. The
- * backtest, the other calculation one tab alone shows, does the same in App.tsx.
+ * backtest, the other calculation one tab alone shows, does the same in `useSeasonOdds`.
  */
 const rememberedTimeline = rememberLast(buildSeasonTimeline);
 const NO_TIMELINE: SeasonTimelineEntry[] = [];
