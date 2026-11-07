@@ -1,9 +1,9 @@
 /**
- * A leg of a pull run by one of GitHub's servers (`cloud-pull.yml`, README "Pulls on GitHub"),
- * where the functions ask GitHub for it rather than queueing a Cloud Tasks task (`enqueueLeg`). It
- * is the leg `runPull` runs (`runLeg`), from the same build, with the deploy's Firebase key for
- * Google's default credentials: a staged list runs its importer here too, the deployed
- * `importJob.js` as Cloud Run runs it, rather than asking for another run to start it.
+ * A leg of a pull run by one of GitHub's servers (`cloud-pull.yml`, docs/data/cloud-pulls.md "Pulls
+ * on GitHub"), where the functions ask GitHub for it rather than queueing a Cloud Tasks task
+ * (`enqueueLeg`). It is the leg `runPull` runs (`runLeg`), from the same build, with the deploy's
+ * Firebase key for Google's default credentials: a staged list runs its importer here too, the
+ * deployed `importJob.js` as Cloud Run runs it, rather than asking for another run to start it.
  *
  * A leg is asked for once (`dispatchLegOnce`), and run under the job's execution lease besides, the
  * one a staged import holds (`importLease.ts`): a run started by hand beside it waits for the lease

@@ -1,7 +1,8 @@
 /**
- * The Team Rankings pool as the cloud copy holds it (README, "Your data on every device"), read
- * from outside a browser: from one of GitHub's servers, with the Firebase key GitHub keeps for
- * deploys (`FIREBASE_SERVICE_ACCOUNT`), for a job that pulls on the pool's behalf overnight.
+ * The Team Rankings pool as the cloud copy holds it (docs/data/every-device.md, "Your data on every
+ * device"), read from outside a browser: from one of GitHub's servers, with the Firebase key GitHub
+ * keeps for deploys (`FIREBASE_SERVICE_ACCOUNT`), for a job that pulls on the pool's behalf
+ * overnight.
  *
  * It signs in as that key and reads the copy's manifest and the pool's pieces through Firestore's
  * REST API (`firestoreRestStore`), and lays them into the app's own pool store held in memory, as a

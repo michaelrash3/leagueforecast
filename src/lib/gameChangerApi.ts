@@ -820,8 +820,8 @@ export const ageFromGradYearLabel = (
  *    It is also the one comparison where the name is the measured better witness. Over a pull of
  *    40,760 teams where a pasted list and GameChanger described the same teams, the two disagreed
  *    about the age by one 343 times, and in 267 of those the team's own *name* carried the list's
- *    level — so it is the age field that wanders. The README's "Check the id" table is that
- *    measurement.
+ *    level — so it is the age field that wanders. The "Check the id" table of
+ *    docs/team-rankings/pool-health.md is that measurement.
  * 2. **The age field**, read strictly: the whole value has to be a label, so "9U", "12UA" and
  *    "9U/10U" are levels and "Varsity" is not.
  * 3. **A graduating class in the age field** — "2029" — which is an age once the squad year is known.

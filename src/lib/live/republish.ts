@@ -7,10 +7,10 @@ import { needsRepublish, type LiveStore } from "./viewStore";
 /**
  * The members' views published again from the cloud copy as it stands, once a deploy has left them
  * of an older schema than the build deployed, or there are none, or their boards are of an older
- * shape than the build writes (`republishWanted`; README, "Views a server publishes"). In the first
- * two no device of the new build draws a board, and without this every member was left on the
- * older schema's notice until the next nightly, which GitHub starts hours late; in the third the
- * boards lack what the build adds to them until a save's rebuild or the night.
+ * shape than the build writes (`republishWanted`; docs/data/views.md, "Views a server publishes").
+ * In the first two no device of the new build draws a board, and without this every member was left
+ * on the older schema's notice until the next nightly, which GitHub starts hours late; in the third
+ * the boards lack what the build adds to them until a save's rebuild or the night.
  * `scripts/republish.ts` runs it after a push to main that deployed; it is kept here so its rules
  * are tested. The catch-up between nights (`scripts/catchUp.ts`) runs it too, with what wants
  * publishing its own: boards behind the copy (`catchUp.ts`).

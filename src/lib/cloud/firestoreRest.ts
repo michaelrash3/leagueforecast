@@ -5,10 +5,10 @@ import { UPLOADS, uploadChunksPath, uploadPath, type UploadStore } from "./uploa
 
 /**
  * The cloud copy's documents through Firestore's REST API, for a job that runs outside a browser:
- * the nightly refresh on one of GitHub's servers (README, "The nightly refresh on GitHub"), and a
- * pasted list pulled by a Firebase function (README, "A pasted list, pulled in the cloud"). The
- * browser uses Firebase's own SDK (`firebaseCloud.ts`); this writes the same documents the same
- * way, so either reads what the other saved:
+ * the nightly refresh on one of GitHub's servers (docs/data/nightly.md, "The nightly refresh on
+ * GitHub"), and a pasted list pulled by a Firebase function (docs/data/cloud-pulls.md, "A pasted
+ * list, pulled in the cloud"). The browser uses Firebase's own SDK (`firebaseCloud.ts`); this
+ * writes the same documents the same way, so either reads what the other saved:
  * - `copies/main`: the manifest, its fields as the SDK sets them;
  * - `copies/main/chunks/{upload-n}`: each piece, `{ data: Bytes }`;
  * - `live/meta` and `live/meta/chunks/{upload-n}`: the views published for members to read

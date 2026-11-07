@@ -4,9 +4,9 @@ import { hashJson, packHashed, unpackChunks } from "./cloudPack";
 import type { CloudPullEnd } from "./cloudRunner";
 
 /**
- * A pull a device leaves for the cloud to run (README, "Pulls in the cloud"): a pasted list of
- * GameChanger teams, filed into the cloud copy by a Firebase function while the device that sent
- * it does whatever else it likes, or nothing at all.
+ * A pull a device leaves for the cloud to run (docs/data/cloud-pulls.md, "Pulls in the cloud"): a
+ * pasted list of GameChanger teams, filed into the cloud copy by a Firebase function while the
+ * device that sent it does whatever else it likes, or nothing at all.
  *
  * It lives in a collection of its own, outside the copy, which only servers write (1.6f): the rules
  * let a member make a job and its pieces, read them, and ask a job to stop, and nothing else.
@@ -177,9 +177,9 @@ export type PullJob = {
    */
   refresh?: true;
   /**
-   * "Refresh now" (README, "Refresh now in the cloud"): the day's refresh, made by the server
-   * (`refreshGate.ts`) rather than written by a device, whose teams its first leg works out from
-   * the copy (`refreshNow`) and the legs then walk. Absent from a list.
+   * "Refresh now" (docs/data/cloud-pulls.md, "Refresh now in the cloud"): the day's refresh, made
+   * by the server (`refreshGate.ts`) rather than written by a device, whose teams its first leg
+   * works out from the copy (`refreshNow`) and the legs then walk. Absent from a list.
    */
   rota?: PullJobRota;
   /**

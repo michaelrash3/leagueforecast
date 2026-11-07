@@ -61,10 +61,11 @@ export const coerceOrgMembership = (raw: unknown): OrgMembership => {
  * A tournament is left out, and a tournament kept under an id a file now types that way is dropped:
  * a league names the age of every team in it, but a tournament names the age its brackets ran at,
  * which the teams in them played *up* to, so a tournament's name is no evidence of a team's own age
- * (README, "Two lists"). The older crawl could not tell the two apart and typed every organization
- * "travel", so this rung leaned on names agreeing; the miner's file states the type, and a type
- * that says tournament is taken at its word. The type is used here, not kept: the stored
- * organization is the same `{ orgId, name, teamIds }` either way, so no device reloads for it.
+ * (docs/team-rankings/pulling.md, "Two lists"). The older crawl could not tell the two apart and
+ * typed every organization "travel", so this rung leaned on names agreeing; the miner's file states
+ * the type, and a type that says tournament is taken at its word. The type is used here, not kept:
+ * the stored organization is the same `{ orgId, name, teamIds }` either way, so no device reloads
+ * for it.
  */
 export const mergeOrgMembership = (
   kept: OrgMembership,

@@ -111,8 +111,8 @@ jobs:
 
       # However the check ended, after a merge or on the week's clock: a failure, or a pass that
       # found no score on games already played (drift), opens the alarm's issue or comments on the
-      # one open, and a clean pass closes it (`runAlarms.ts`, README "When a run fails"). Allowed
-      # to fail on its own without changing the run's colour, as the nightly's is.
+      # one open, and a clean pass closes it (`runAlarms.ts`, docs/data/nightly.md "When a run
+      # fails"). Allowed to fail on its own without changing the run's colour, as the nightly's is.
       - name: Raise or settle the alarm
         if: always()
         continue-on-error: true

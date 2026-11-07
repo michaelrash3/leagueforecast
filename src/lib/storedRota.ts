@@ -55,12 +55,12 @@ export type RefreshNow = {
 };
 
 /**
- * What the live Import tab's "Refresh now" pulls at `now` (README, "Refresh now"): the refresh the
- * nightly would run now, while today's levels are still to do; once they are done, those levels
- * again, as the device's own button runs a finished day again (`force`). Either way held to
- * `MIN_PULL_GAP_HOURS`, which `dueRefresh` keeps to when forced too, and without the clubs thrown
- * out, which the pull would skip without asking (`runCloudPull`). The card's count and the list
- * the cloud walks are both this one call, so what the card says is what is pulled.
+ * What the live Import tab's "Refresh now" pulls at `now` (docs/data/cloud-pulls.md, "Refresh
+ * now"): the refresh the nightly would run now, while today's levels are still to do; once they are
+ * done, those levels again, as the device's own button runs a finished day again (`force`). Either
+ * way held to `MIN_PULL_GAP_HOURS`, which `dueRefresh` keeps to when forced too, and without the
+ * clubs thrown out, which the pull would skip without asking (`runCloudPull`). The card's count and
+ * the list the cloud walks are both this one call, so what the card says is what is pulled.
  *
  * `tonight` is the nightly's own answer where the caller has worked it out already.
  */

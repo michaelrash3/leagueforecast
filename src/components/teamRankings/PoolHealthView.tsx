@@ -672,7 +672,7 @@ export function PoolHealthView({
             />
             {/* The share the owner tracks, said with what it counts, since it is not the
                 nightly's: this card counts every year of the pool, and a stand-in on one side
-                only (README, "What a pull left behind, and what to check"). */}
+                only (docs/team-rankings/pool-health.md, "What a pull left behind, and what to check"). */}
             {health.played > 0 && (
               <Row
                 label="Played against a stand-in"

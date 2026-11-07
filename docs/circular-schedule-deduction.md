@@ -2,7 +2,7 @@
 
 Board rules 6 took up to one rating point off a club whose opponents' other games mostly stayed
 inside the club's own circle of opponents. Board rules 7 removed it, on 17 October 2026, for a
-starting level per league of the schedule: README, Ratings, **Where a rating starts**, and
+starting level per league of the schedule: [Ratings](team-rankings/ratings.md), **Where a rating starts**, and
 `src/lib/scheduleCommunities.ts`.
 
 Why it went, measured on the owner's backup of 11 October 2026 (the 2027 year, 222,010 rated

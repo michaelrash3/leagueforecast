@@ -44,11 +44,12 @@ export const describeOffer = ({ teams, heldBack, again }: Offer): string => {
 };
 
 /**
- * "Refresh now" on the live Import tab's nightly card (README, "Refresh now in the cloud"): starts,
- * in the cloud, the refresh the nightly would run now, and says how it is getting on in the lines
- * a pasted list's pull is told in (`PullLines`). Off, saying why, while edits are locked, with
- * nobody signed in, while a refresh or a pull this device is watching is on its way, and with
- * nothing to pull. A refresh another device started is handed back by the cloud and watched here.
+ * "Refresh now" on the live Import tab's nightly card (docs/data/cloud-pulls.md, "Refresh now in
+ * the cloud"): starts, in the cloud, the refresh the nightly would run now, and says how it is
+ * getting on in the lines a pasted list's pull is told in (`PullLines`). Off, saying why, while
+ * edits are locked, with nobody signed in, while a refresh or a pull this device is watching is on
+ * its way, and with nothing to pull. A refresh another device started is handed back by the cloud
+ * and watched here.
  */
 export default function LiveRefreshNow({
   offer,

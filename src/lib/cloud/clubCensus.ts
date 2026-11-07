@@ -5,13 +5,13 @@ import type { ScoutTeam } from "../teamRankings/types";
 import type { TeamBase } from "../types";
 
 /*
- * How the clubs are known, counted by the nightly from what it already holds (README, "The nightly
- * refresh on GitHub"): the clubs on the pool by how many GameChanger ids each carries, and the
- * League Standings picks by whether the GameChanger id of the club picked is kept beside them
- * (`TeamBase.scoutGcTeamId`). A club's id here is the pool's own and Start again mints every one
- * afresh; GameChanger's is never another team's, so these say how much of what is remembered
- * could be followed by it. Counts only, a line at a time: the repository's Actions logs are
- * public, so no club's name or id is said.
+ * How the clubs are known, counted by the nightly from what it already holds (docs/data/nightly.md,
+ * "The nightly refresh on GitHub"): the clubs on the pool by how many GameChanger ids each carries,
+ * and the League Standings picks by whether the GameChanger id of the club picked is kept beside
+ * them (`TeamBase.scoutGcTeamId`). A club's id here is the pool's own and Start again mints every
+ * one afresh; GameChanger's is never another team's, so these say how much of what is remembered
+ * could be followed by it. Counts only, a line at a time: the repository's Actions logs are public,
+ * so no club's name or id is said.
  *
  * It reads nothing of its own. The pool is the one the store holds for the views, and the seasons
  * are the documents the run's own reads already brought (`tapLeagueDocs`). What devices keep of

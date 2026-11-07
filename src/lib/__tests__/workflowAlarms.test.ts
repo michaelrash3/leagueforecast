@@ -8,9 +8,9 @@ import upkeepScript from "../../../scripts/upkeep.ts?raw";
 import verifyGcScript from "../../../scripts/verify-gc-pull.ts?raw";
 
 /*
- * The alarm steps as the workflows run them (`scripts/alarm.ts`, README "When a run fails"). What an
- * alarm says and when is `runAlarms.ts`'s, tested beside it; this holds the YAML to the three
- * things that make it run at all and not do harm: it runs however the job's work ended
+ * The alarm steps as the workflows run them (`scripts/alarm.ts`, docs/data/nightly.md "When a run
+ * fails"). What an alarm says and when is `runAlarms.ts`'s, tested beside it; this holds the YAML
+ * to the three things that make it run at all and not do harm: it runs however the job's work ended
  * (`if: always()`), it reads the outcome of a step that is there, and a failure of its own leaves
  * the run as the work left it (`continue-on-error: true`). Without that last, a night that saved
  * turned red, and GitHub emailed that it failed, whenever `gh` could not reach the issues.
@@ -84,9 +84,9 @@ describe("the alarm step in each workflow", () => {
 });
 
 /*
- * The words the nightly hands the alarm (README, "When a run fails"): each is written by the
- * refresh as a step output (`output("name", …)` in `scripts/nightly.ts`), passed on by the alarm
- * step's env as `KEY: ${{ steps.refresh.outputs.name }}`, and read by `scripts/alarm.ts` as
+ * The words the nightly hands the alarm (docs/data/nightly.md, "When a run fails"): each is written
+ * by the refresh as a step output (`output("name", …)` in `scripts/nightly.ts`), passed on by the
+ * alarm step's env as `KEY: ${{ steps.refresh.outputs.name }}`, and read by `scripts/alarm.ts` as
  * `env.KEY`. On GitHub a step output nobody wrote reads as empty, which leaves an alarm as it is,
  * so a name changed on any one side would have stopped a "better" Monday ever opening its issue,
  * and a "held" one ever closing it, with every test green.
@@ -98,13 +98,14 @@ describe("the words the nightly hands its alarm step", () => {
     ...alarm.matchAll(/^ {10}([A-Z_]+): \$\{\{ steps\.refresh\.outputs\.(\w+) \}\}\s*$/gm),
   ].map(([, key, name]) => ({ key: key ?? "", name: name ?? "" }));
 
-  it("hands over the rebuilds' word, the starting level's, the save's, what was read and the questions left unanswered", () => {
+  it("hands over the rebuilds' word, the starting level's, the save's, what was read, the questions left unanswered and the night's peak memory", () => {
     expect(handed).toEqual([
       { key: "REBUILDS", name: "rebuilds" },
       { key: "CLOSED_LEVEL", name: "closedLevel" },
       { key: "HELD", name: "held" },
       { key: "INGEST", name: "ingest" },
       { key: "UNANSWERED", name: "unanswered" },
+      { key: "MEMORY", name: "memory" },
     ]);
   });
 
@@ -114,6 +115,7 @@ describe("the words the nightly hands its alarm step", () => {
     { key: "HELD", name: "held" },
     { key: "INGEST", name: "ingest" },
     { key: "UNANSWERED", name: "unanswered" },
+    { key: "MEMORY", name: "memory" },
   ])("writes $name in the refresh, and reads it as $key in the alarm", ({ key, name }) => {
     expect(handed).toContainEqual({ key, name });
     expect(nightlyScript).toContain(`output("${name}", `);

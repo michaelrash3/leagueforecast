@@ -1,11 +1,11 @@
 import type { ScoutRankingRow } from "./teamRankings";
 
 /**
- * The "This week" card's movers (README, "This week"): who came into the board's top places since
- * the week before, who fell out of them, and the biggest climbs, from what every published board
- * already carries, its rows and each club's place a week before (`lastWeekOf`). Nothing is fetched
- * for it, so it draws with the board. A club that has left the board altogether is not named, since
- * the board no longer holds its name.
+ * The "This week" card's movers (docs/data/views.md, "This week"): who came into the board's top
+ * places since the week before, who fell out of them, and the biggest climbs, from what every
+ * published board already carries, its rows and each club's place a week before (`lastWeekOf`).
+ * Nothing is fetched for it, so it draws with the board. A club that has left the board altogether
+ * is not named, since the board no longer holds its name.
  */
 export const TOP_PLACES = 25;
 

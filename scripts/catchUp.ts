@@ -1,13 +1,13 @@
 /**
- * The boards caught up with the cloud copy between nights (README, "Boards caught up on GitHub"),
- * run by the catch-up workflow every half hour. It reads the copy's manifest, the published meta
- * and the League Standings seasons, and where the boards are behind the copy (`catchUpDecision`)
- * and nothing is at work that a publish now would run beside (the nightly, a pull or an import
- * writing the copy, a rebuild after a save, a save under ten minutes old), it publishes them as the
- * republish after a deploy does (`republishViews`): the copy laid into memory as a pull lays it,
- * the boards built and published under the copy and version read, and tried again on the copy as it
- * then stands when a save moved it meanwhile. Otherwise it says why in a line and is done, in the
- * time it takes to read those few documents.
+ * The boards caught up with the cloud copy between nights (docs/data/nightly.md, "Boards caught up
+ * on GitHub"), run by the catch-up workflow every half hour. It reads the copy's manifest, the
+ * published meta and the League Standings seasons, and where the boards are behind the copy
+ * (`catchUpDecision`) and nothing is at work that a publish now would run beside (the nightly, a
+ * pull or an import writing the copy, a rebuild after a save, a save under ten minutes old), it
+ * publishes them as the republish after a deploy does (`republishViews`): the copy laid into memory
+ * as a pull lays it, the boards built and published under the copy and version read, and tried
+ * again on the copy as it then stands when a save moved it meanwhile. Otherwise it says why in a
+ * line and is done, in the time it takes to read those few documents.
  *
  * It is for the time a save's own rebuild does not come: rebuilds switched off, paused, deferred to
  * a later month by their budget, or failing. It opens the copy as the republish does, on the same

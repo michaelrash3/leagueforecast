@@ -1,9 +1,10 @@
 /**
- * The `boards-publish` Cloud Run job (`afterPull.ts`; README, "Boards published when a pull ends"):
- * started at the end of a pull whose save no rebuild is coming to publish, it asks again, and where
- * the boards still want it, publishes them from the copy as it stands. One execution, no retries:
- * a publish that fails is the catch-up's and the nightly's to make, and it fails nothing of the
- * pull, which is over. It logs counts, sizes and timings only, as the nightly does.
+ * The `boards-publish` Cloud Run job (`afterPull.ts`; docs/data/nightly.md, "Boards published when
+ * a pull ends"): started at the end of a pull whose save no rebuild is coming to publish, it asks
+ * again, and where the boards still want it, publishes them from the copy as it stands. One
+ * execution, no retries: a publish that fails is the catch-up's and the nightly's to make, and it
+ * fails nothing of the pull, which is over. It logs counts, sizes and timings only, as the nightly
+ * does.
  */
 import { randomUUID } from "node:crypto";
 import process from "node:process";

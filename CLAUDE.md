@@ -6,7 +6,9 @@ ridge-regularised least-squares fit). React 19, Vite, TypeScript strict, Tailwin
 Data lives in the browser (localStorage and IndexedDB) and, signed in, in one Firestore cloud
 copy; Vercel serves the static site and the server side is Firebase functions (`functions/`,
 `server/`).
-`README.md` is the design document; read the section for whatever you touch.
+`README.md` is the map of the design documents in `docs/`, one per area; read the one for whatever
+you touch. Each keeps the headings it had in the README, so a reference to a section by its heading
+names the document it is in.
 
 ## Commands
 

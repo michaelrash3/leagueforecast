@@ -2,29 +2,31 @@
 # Both are tested on every change to them and deployed on merge once the project is connected.
 #
 # The pulls in the cloud (`startPull`, `runPull`) are deployed too once the CLOUD_PULLS variable
-# is `on`, which is the last step of their one-time setup (README, "Pulls in the cloud: the
-# one-time setup"): until then the project has no Cloud Tasks, and no account for them to run as.
-# The rebuilds after saves (`onCopyWrite`, `rebuild`) are the same once the LIVE_REBUILD variable is
-# `on` (README, "Rebuilds after saves: the one-time setup"), and the edit function (`edit`) with
-# them, which runs as their account and asks nothing more of the project.
+# is `on`, which is the last step of their one-time setup (docs/data/cloud-pulls.md, "Pulls in the
+# cloud: the one-time setup"): until then the project has no Cloud Tasks, and no account for them to
+# run as. The rebuilds after saves (`onCopyWrite`, `rebuild`) are the same once the LIVE_REBUILD
+# variable is `on` (docs/data/cloud-league-and-edits.md, "Rebuilds after saves: the one-time
+# setup"), and the edit function (`edit`) with them, which runs as their account and asks nothing
+# more of the project.
 #
 # The GameChanger proxy runs on Firebase because Vercel's Hobby plan bills a function's CPU and
-# invocations, and a nationwide pull spends both; see README, "The GameChanger proxy on Firebase".
-# The rules open the cloud copy of the app's data to the Google accounts on the owner's list and
-# nothing else; see README, "Your data on every device". Until the FIREBASE_PROJECT_ID variable and the
-# FIREBASE_SERVICE_ACCOUNT secret are set the deploy step says so and passes, so this workflow is
-# never red for want of an account.
+# invocations, and a nationwide pull spends both; see docs/deploy.md, "The GameChanger proxy on
+# Firebase". The rules open the cloud copy of the app's data to the Google accounts on the owner's
+# list and nothing else; see docs/data/every-device.md, "Your data on every device". Until the
+# FIREBASE_PROJECT_ID variable and the FIREBASE_SERVICE_ACCOUNT secret are set the deploy step says
+# so and passes, so this workflow is never red for want of an account.
 #
 # A push to main that deploys then publishes the members' views again from the cloud copy wherever
-# this build wants them published (`republishWanted`, `scripts/republish.ts`, README "Views a server
-# publishes"): where none are published (`nothing`); where they are of an older schema than this
-# build writes (`older-schema`); and where they are of this schema but their boards are recorded
-# under an older shape than this build's (`BOARD_SHAPE`), or under none (`older-shape`), so that
-# they draw but lack what this build adds to them; and where they were built under older rules than
-# this build's (`BOARD_RULES`, `older-rules`), since rules raised as a barrier to older publishers
-# bar nothing until boards under them are published. Otherwise a deploy that raises the schema leaves
-# every member on the older schema's notice until the nightly, and one that raises the shape leaves
-# the boards without what it was deployed for until the next rebuild or the nightly.
+# this build wants them published (`republishWanted`, `scripts/republish.ts`, docs/data/views.md
+# "Views a server publishes"): where none are published (`nothing`); where they are of an older
+# schema than this build writes (`older-schema`); and where they are of this schema but their boards
+# are recorded under an older shape than this build's (`BOARD_SHAPE`), or under none
+# (`older-shape`), so that they draw but lack what this build adds to them; and where they were
+# built under older rules than this build's (`BOARD_RULES`, `older-rules`), since rules raised as a
+# barrier to older publishers bar nothing until boards under them are published. Otherwise a deploy
+# that raises the schema leaves every member on the older schema's notice until the nightly, and one
+# that raises the shape leaves the boards without what it was deployed for until the next rebuild or
+# the nightly.
 name: Firebase functions
 
 on:
@@ -123,7 +125,8 @@ jobs:
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           GROQ_MODEL: ${{ vars.GROQ_MODEL }}
           # Where it is set, the pulls and the boards' publish after them run on GitHub
-          # (`cloud-pull.yml`, README "Pulls on GitHub") rather than on Google's machines.
+          # (`cloud-pull.yml`, docs/data/cloud-pulls.md "Pulls on GitHub") rather than on Google's
+          # machines.
           PULLS_ON_GITHUB_TOKEN: ${{ secrets.PULL_DISPATCH_TOKEN }}
           # Read by the deploy's own build too (`functions/build.mjs`), which leaves the pulls and
           # the rebuilds out until each is on.
@@ -133,7 +136,7 @@ jobs:
           GOOGLE_JOBS: ${{ vars.GOOGLE_JOBS }}
         run: |
           if [ -z "$PROJECT" ] || [ -z "$KEY" ]; then
-            echo "::notice::Not deployed: set the FIREBASE_PROJECT_ID variable and the FIREBASE_SERVICE_ACCOUNT secret (README, 'The GameChanger proxy on Firebase')."
+            echo "::notice::Not deployed: set the FIREBASE_PROJECT_ID variable and the FIREBASE_SERVICE_ACCOUNT secret (docs/deploy.md, 'The GameChanger proxy on Firebase')."
             exit 0
           fi
           # With the pulls on, every function built is deployed, and one no longer built is taken
@@ -145,10 +148,10 @@ jobs:
               only="$only,functions:onCopyWrite,functions:onLeagueWrite,functions:rebuild,functions:edit,functions:poolQuery"
             fi
             only="$only,firestore:rules"
-            echo "::notice::Pulls in the cloud not deployed: do their one-time setup, then set the CLOUD_PULLS variable to on (README, 'Pulls in the cloud: the one-time setup')."
+            echo "::notice::Pulls in the cloud not deployed: do their one-time setup, then set the CLOUD_PULLS variable to on (docs/data/cloud-pulls.md, 'Pulls in the cloud: the one-time setup')."
           fi
           if [ "$LIVE_REBUILD" != "on" ]; then
-            echo "::notice::Rebuilds after saves not deployed: do their one-time setup, then set the LIVE_REBUILD variable to on (README, 'Rebuilds after saves: the one-time setup')."
+            echo "::notice::Rebuilds after saves not deployed: do their one-time setup, then set the LIVE_REBUILD variable to on (docs/data/cloud-league-and-edits.md, 'Rebuilds after saves: the one-time setup')."
           fi
           printf '%s' "$KEY" > "$RUNNER_TEMP/deploy-key.json"
           trap 'rm -f "$RUNNER_TEMP/deploy-key.json" "functions/.env.$PROJECT"' EXIT
@@ -165,7 +168,7 @@ jobs:
             gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS" --quiet
             if [ -z "$(printf '%s' "$PULLS_ON_GITHUB_TOKEN" | tr -d '[:space:]')" ]; then
               if [ "$GOOGLE_JOBS" != "on" ]; then
-                echo "::error::Not deployed: the PULL_DISPATCH_TOKEN secret is empty, so the pulls and the rebuilds would run on Google's machines again. Set the secret (README, 'Pulls on GitHub'), or set the GOOGLE_JOBS variable to on to run them on Google."
+                echo "::error::Not deployed: the PULL_DISPATCH_TOKEN secret is empty, so the pulls and the rebuilds would run on Google's machines again. Set the secret (docs/data/cloud-pulls.md, 'Pulls on GitHub'), or set the GOOGLE_JOBS variable to on to run them on Google."
                 exit 1
               fi
               jobs=on
@@ -268,7 +271,7 @@ jobs:
   # does not share the nightly's concurrency group: a run waiting in a group is cancelled by the
   # next to join it, which could lose a night, and the two publishing at once is what the views'
   # store is built for (the meta is replaced only over the version read, and a late publish
-  # replaces nothing newer: README, "Views a server publishes").
+  # replaces nothing newer: docs/data/views.md, "Views a server publishes").
   republish:
     needs: functions
     if: github.event_name == 'push' && needs.functions.outputs.deployed == 'true'
@@ -295,8 +298,8 @@ jobs:
           LANG: en_US.UTF-8
           NODE_OPTIONS: --max-old-space-size=12288
       # A republish that fails opens an issue, or comments on the one open; one that does not closes
-      # it (`scripts/alarm.ts`, README "When a run fails"). Allowed to fail on its own, as the
-      # nightly's is: a deploy and a republish that both succeeded stay green.
+      # it (`scripts/alarm.ts`, docs/data/nightly.md "When a run fails"). Allowed to fail on its
+      # own, as the nightly's is: a deploy and a republish that both succeeded stay green.
       - name: Raise or settle the alarm
         if: always()
         continue-on-error: true

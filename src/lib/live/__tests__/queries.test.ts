@@ -640,7 +640,7 @@ describe("what League Standings asks of Team Rankings, for a device that holds n
           ],
           "kind": "league.bridge",
         },
-        "rules": "1.10",
+        "rules": "1.11",
       }
     `);
   });

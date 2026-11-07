@@ -1,12 +1,12 @@
 import type { FirestoreRestDocuments } from "../cloud/firestoreRest";
 
 /**
- * Who is publishing the boards after a save (README, "Boards published when a pull ends"), kept in
- * one document no client can read or write, so the `boards-publish` job runs once at a time. A
- * launcher (the end of a pull, or a save's check, `afterPull.ts`) claims it as a launch before it
- * starts the job, so two that ask at once start it once; the job takes it over when it starts, and
- * lets it go when it ends. A claim that is never let go (a launch Google refused unanswered, a job
- * killed outright) lapses at its `until`.
+ * Who is publishing the boards after a save (docs/data/nightly.md, "Boards published when a pull
+ * ends"), kept in one document no client can read or write, so the `boards-publish` job runs once
+ * at a time. A launcher (the end of a pull, or a save's check, `afterPull.ts`) claims it as a
+ * launch before it starts the job, so two that ask at once start it once; the job takes it over
+ * when it starts, and lets it go when it ends. A claim that is never let go (a launch Google
+ * refused unanswered, a job killed outright) lapses at its `until`.
  *
  * A launch's claim carries what its launcher asked of the boards (`LaunchAsk`), for the job to ask
  * the same when it asks again (`publishAfterPull`): a save's check, that everything has been still

@@ -64,6 +64,7 @@ import { coerceLivePages } from "../views/boardShape";
 import { NO_REMOVALS, type AutoRemovals } from "../../autoRemoved";
 import type * as Communities from "../../scheduleCommunities";
 import { REPEAT_CASES, REPEAT_TEAMS, type RepeatCase } from "./repeatedPageIds";
+import { BUILDS_EVERY_BOARD } from "./budgets";
 
 /**
  * The boards as the rules before 7 built them, every club starting at average, for the pins of
@@ -252,6 +253,9 @@ const steady = (boards: PageBoard[]) =>
           overallRank: _overallRank,
           // Which clubs are listed last is the order's, as a place is, and the digit pin's to hold.
           listedLast: _listedLast,
+          // A club's error was added to the rows after these were pinned; it reads the fit and
+          // moves nothing else, which the pins holding with it left out say (`ratingError`).
+          ratingError: _ratingError,
           ...row
         }) => ({
           ...row,
@@ -295,13 +299,7 @@ const byYear =
       (game) => ageGroupYear(groups.find((group) => group.id === game.ageGroupId)) === year
     );
 
-/*
- * Each test here builds every board of the fixture, most of them with last week's places and the
- * rank lines, which are a fit of a year for each week: 1 to 4 s apiece under coverage on their
- * own (measured), and the gate runs them beside three hundred other files.
- */
-const BUILDS_EVERY_BOARD = { timeout: 20_000 };
-
+// Each test here builds every board of the fixture (`budgets.ts`).
 describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
   it("are the worker's, every page and half, to the last digit", () => {
     const built = expectParity(stored());
@@ -837,6 +835,9 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
      * both lines, and it holds no game between, so its boards are 8's. 10 lists a club whose web of
      * games falls short of a tenth of the typical club's after the rest (`opponentWeb.ts`): it moves
      * the fixture's order, which the digit pins hold, and no number, so its steady boards are 9's.
+     * 11 reads a matchup's odds on a curve as wide as its two clubs' evidence (`matchupOddsWidth`),
+     * which moves The Weekly's odds on every board and no row: each row gains its club's error
+     * (`ratingError`), which these pins leave out, so its steady boards are 10's.
      */
     const RULES_PINS: Record<number, string> = {
       1: "a2c59173",
@@ -849,6 +850,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
       8: "46996e9c",
       9: "46996e9c",
       10: "46996e9c",
+      11: "46996e9c",
     };
     expect(fingerprint(steady(builtBoards(stored())))).toBe(RULES_PINS[BOARD_RULES]);
     starts.off = true;
@@ -881,7 +883,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
       const boards = builtBoards(stored()).map(({ pageId, half, rows }) => ({
         pageId,
         half,
-        rows: rows.map(({ listedLast: _listedLast, ...row }) => row),
+        rows: rows.map(({ listedLast: _listedLast, ratingError: _ratingError, ...row }) => row),
       }));
       expect(fingerprint(boards)).toBe(digitPin);
     }

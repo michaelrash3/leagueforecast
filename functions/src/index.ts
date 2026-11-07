@@ -160,9 +160,10 @@ export const billingCap = onMessagePublished(
 );
 
 /*
- * Pulls in the cloud (README, "Pulls in the cloud"): a device leaves a pasted list as a job beside
- * the cloud copy (`pullJobs.ts`) and asks `startPull` to run it, and `runPull` pulls it into the
- * copy a leg at a time (`pullJobRunner.ts`), each leg a Cloud Tasks task queueing the next.
+ * Pulls in the cloud (docs/data/cloud-pulls.md, "Pulls in the cloud"): a device leaves a pasted
+ * list as a job beside the cloud copy (`pullJobs.ts`) and asks `startPull` to run it, and `runPull`
+ * pulls it into the copy a leg at a time (`pullJobRunner.ts`), each leg a Cloud Tasks task queueing
+ * the next.
  *
  * Both run as `PULL_RUNNER`: an account that may read and write Firestore, queue a task and send it
  * to a function, and nothing else; the one-time setups that make the accounts, and turn Cloud Tasks
@@ -195,13 +196,13 @@ const startPullCheck = createMemberCheck({ projectId: FIREBASE_WEB_CONFIG.projec
  * copy (`memberCheck.ts`, with the sign-in the call carries); the job's own document is the rest
  * of the check.
  *
- * Or `{ refresh: { device } }`: "Refresh now" from the live Import tab (README, "Refresh now in
- * the cloud"). The server makes the job itself, in New York's day as the nightly's, and its first
- * leg works out the teams as the nightly works them out, so a device names none, nor its own day;
- * it is started through the gate in `ops/refresh` (`startRefresh`), which hands back a refresh
- * already under way rather than starting another, turns a press away while the nightly pulls, and
- * counts the day's legs. Answered with the job's id, for the device to watch it as it watches a
- * list it sent.
+ * Or `{ refresh: { device } }`: "Refresh now" from the live Import tab (docs/data/cloud-pulls.md,
+ * "Refresh now in the cloud"). The server makes the job itself, in New York's day as the nightly's,
+ * and its first leg works out the teams as the nightly works them out, so a device names none, nor
+ * its own day; it is started through the gate in `ops/refresh` (`startRefresh`), which hands back a
+ * refresh already under way rather than starting another, turns a press away while the nightly
+ * pulls, and counts the day's legs. Answered with the job's id, for the device to watch it as it
+ * watches a list it sent.
  */
 export const startPull = !CLOUD_PULLS
   ? undefined
@@ -378,14 +379,16 @@ export const runPull = !CLOUD_PULLS
     );
 
 /*
- * Rebuilds after saves (README, "Views a server publishes"): each write of the copy's manifest asks
- * `onCopyWrite` whether it moved anything a board reads, and it queues a `rebuild` task for the
- * window the save falls in. The task builds every board in a worker that keeps the pool from run to
- * run, and publishes them, metered by the ledger in `ops/rebuild`, whose switch turns it all off.
+ * Rebuilds after saves (docs/data/views.md, "Views a server publishes"): each write of the copy's
+ * manifest asks `onCopyWrite` whether it moved anything a board reads, and it queues a `rebuild`
+ * task for the window the save falls in. The task builds every board in a worker that keeps the
+ * pool from run to run, and publishes them, metered by the ledger in `ops/rebuild`, whose switch
+ * turns it all off.
  *
  * Both run as an account of their own, `live-runner`, which may read and write Firestore, receive
  * the copy's events, queue a task and send it to `rebuild`, and nothing else; the one-time setup
- * that makes it is in the README ("Rebuilds after saves: the one-time setup").
+ * that makes it is in docs/data/cloud-league-and-edits.md ("Rebuilds after saves: the one-time
+ * setup").
  */
 
 /**
@@ -579,11 +582,11 @@ export const rebuild = !LIVE_REBUILD
     );
 
 /*
- * Edits on the server (README, "Team Rankings edits as commands"): a member's device sends a
- * command, and `edit` runs it on the cloud copy in a worker that keeps every part of the pool warm,
- * answering once the save has landed; the save's own rebuild publishes the boards soon after. Built
- * with the rebuilds (LIVE_REBUILD), whose account it runs as and whose ledger meters it; it needs
- * nothing of the project they do not.
+ * Edits on the server (docs/data/cloud-league-and-edits.md, "Team Rankings edits as commands"): a
+ * member's device sends a command, and `edit` runs it on the cloud copy in a worker that keeps
+ * every part of the pool warm, answering once the save has landed; the save's own rebuild publishes
+ * the boards soon after. Built with the rebuilds (LIVE_REBUILD), whose account it runs as and whose
+ * ledger meters it; it needs nothing of the project they do not.
  */
 
 /**

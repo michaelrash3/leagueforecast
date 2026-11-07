@@ -1,9 +1,9 @@
 /**
  * The end of a pull, and a save's check, ask whether the boards want publishing now
- * (`afterPull.ts`; README, "Boards published when a pull ends"), and where they do, start the
- * `boards-publish` job: from the import job (`importJob.ts`) once an import or a part of a list has
- * ended, from `runPull` (`index.ts`) once the last leg of "Refresh now", or of a list of the older
- * kind, has, and from the rebuilds' queue for the check an edit or a League score queues
+ * (`afterPull.ts`; docs/data/nightly.md, "Boards published when a pull ends"), and where they do,
+ * start the `boards-publish` job: from the import job (`importJob.ts`) once an import or a part of
+ * a list has ended, from `runPull` (`index.ts`) once the last leg of "Refresh now", or of a list of
+ * the older kind, has, and from the rebuilds' queue for the check an edit or a League score queues
  * (`boardsCheck.ts`). They only read, but for the lease a launch claims (`publishLease.ts`), and
  * they never throw: whatever stops them is said in the line their caller logs, and the catch-up and
  * the nightly publish the boards later.

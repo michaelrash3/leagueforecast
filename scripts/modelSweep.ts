@@ -22,7 +22,8 @@
  * digest, and each row filed against a stand-in of it, nameless (`oneNameRows`).
  *
  * Options: --year=2027 (the squad year), --today=DAY (the board's day; the members' day by
- * default), --top=25 (the stand-ins named, most games first), --public (numbers only),
+ * default), --cuts=DAY,DAY with --score-from=DAY (the boards' days and the day scoring starts, the
+ * ones every read has used by default), --top=25 (the stand-ins named, most games first), --public (numbers only),
  * --seal=FILE with --seal-to-key=PEM (the named lines, sealed to that public key), and
  * --open=FILE --with-key=PEM (unseal one with the private key).
  *
@@ -73,8 +74,10 @@ import {
 import {
   MODEL_CUTS,
   MODEL_SCORE_FROM,
+  MODEL_VARIANTS,
   runModelSweep,
   type ModelSweep,
+  type SliceBand,
 } from "../src/lib/modelSweep.ts";
 import type { PairedReading } from "../src/lib/scoutBacktest.ts";
 import {
@@ -146,6 +149,31 @@ const flag = (name: string): string | undefined => {
   return found.includes("=") ? found.slice(found.indexOf("=") + 1) : "";
 };
 const has = (name: string) => flag(name) !== undefined;
+
+/**
+ * The days the sweep fits its boards on and scores the games from: the ones every read has used
+ * (`MODEL_CUTS`, `MODEL_SCORE_FROM`), or others named (`--cuts=DAY,DAY --score-from=DAY`) to read
+ * the boards later in a season, where clubs stand on more games than in September. Each must be a
+ * day, and the scoring day after every cut, or the sweep stops before reading anything.
+ */
+const sweepCuts = (() => {
+  const named = flag("cuts");
+  const from = flag("score-from");
+  if (!named && !from) return { cuts: MODEL_CUTS, scoreFrom: MODEL_SCORE_FROM };
+  const cuts = (named ?? "").split(",").filter(Boolean);
+  const day = /^\d{4}-\d{2}-\d{2}$/;
+  if (cuts.length === 0 || !from || !cuts.every((cut) => day.test(cut)) || !day.test(from)) {
+    console.log(
+      "Name the cuts and the scoring day together, as days: --cuts=DAY,DAY --score-from=DAY."
+    );
+    process.exit(2);
+  }
+  if (cuts.some((cut) => cut >= from)) {
+    console.log("The scoring day must come after every cut.");
+    process.exit(2);
+  }
+  return { cuts, scoreFrom: from };
+})();
 
 /** Whatever was read, laid out the same way: what follows cannot tell the sources apart. */
 type Source = {
@@ -384,11 +412,11 @@ const describeSweep = (sweep: ModelSweep) => {
     return;
   }
   say(
-    "  cut         rated games before   scored after   decided   left out: across ages, stand-ins"
+    "  cut         rated games before   scored after   decided   left out: across ages, stand-ins   residual scale"
   );
   for (const cut of sweep.cuts) {
     say(
-      `  ${cut.cut}  ${String(cut.trained).padStart(19)}  ${String(cut.scored).padStart(13)}  ${String(cut.decided).padStart(8)}  ${String(cut.crossAge).padStart(10)}  ${String(cut.standIns).padStart(9)}`
+      `  ${cut.cut}  ${String(cut.trained).padStart(19)}  ${String(cut.scored).padStart(13)}  ${String(cut.decided).padStart(8)}  ${String(cut.crossAge).padStart(10)}  ${String(cut.standIns).padStart(9)}   ${cut.residualScale.toFixed(3).padStart(14)}`
     );
   }
   say(
@@ -396,14 +424,15 @@ const describeSweep = (sweep: ModelSweep) => {
       `${sweep.crossAge} across ages and ${sweep.standIns} with a stand-in left out, ` +
       "since no board states those."
   );
+  const keyWidth = Math.max(12, ...sweep.variants.map(({ key }) => key.length));
   say("\n  Lower is better. Against the shipped model, game by game, + is better, z by club:");
   say(
-    "  setting       log loss  Brier    margin²   log loss vs shipped        Brier vs shipped           margin² vs shipped        fits"
+    `  ${"setting".padEnd(keyWidth)}  log loss  Brier    margin²   log loss vs shipped        Brier vs shipped           margin² vs shipped        fits`
   );
   for (const variant of sweep.variants) {
     const vs = variant.vsShipped;
     say(
-      `  ${variant.key.padEnd(12)}  ${fixed(variant.logLoss).padEnd(8)}  ${fixed(variant.brier).padEnd(7)}  ${fixed(variant.squared, 2).padStart(7)}   ${paired(vs?.logLoss).padEnd(25)}  ${paired(vs?.brier).padEnd(25)}  ${paired(vs?.squared, 3).padEnd(24)}  ${variant.seconds.toFixed(0)} s`
+      `  ${variant.key.padEnd(keyWidth)}  ${fixed(variant.logLoss).padEnd(8)}  ${fixed(variant.brier).padEnd(7)}  ${fixed(variant.squared, 2).padStart(7)}   ${paired(vs?.logLoss).padEnd(25)}  ${paired(vs?.brier).padEnd(25)}  ${paired(vs?.squared, 3).padEnd(24)}  ${variant.seconds.toFixed(0)} s`
     );
   }
   say("\n  What each setting is:");
@@ -416,6 +445,77 @@ const describeSweep = (sweep: ModelSweep) => {
       `    ${(band.from * 100).toFixed(0).padStart(3)}-${(band.to * 100).toFixed(0).padEnd(3)}%   ${String(band.games).padStart(9)}   ${(band.said * 100).toFixed(1).padStart(5)}%  ${(band.won * 100).toFixed(1).padStart(5)}%`
     );
   }
+  describeSlices(sweep, keyWidth);
+};
+
+/**
+ * Where the chances go wrong, for the shipped model and every setting that reads a matchup's
+ * ratings or its curve differently (`ModelVariant.ratings`, `.share`, `.weight`): in each band of
+ * each slice (`VariantSlices`), the chance said to the side read less how often it won, in points,
+ * so + is too sure of that side. Every setting's band holds the same games.
+ */
+const describeSlices = (sweep: ModelSweep, keyWidth: number) => {
+  const shown = new Set(
+    MODEL_VARIANTS.filter(
+      (variant, at) =>
+        at === 0 ||
+        variant.ratings !== undefined ||
+        variant.share !== undefined ||
+        variant.weight !== undefined
+    ).map(({ key }) => key)
+  );
+  const rows = sweep.slices.filter(({ key }) => shown.has(key));
+  const first = rows[0];
+  if (!first) return;
+  const cell = (band: SliceBand) => {
+    if (band.games === 0) return "-".padStart(16);
+    const by = (band.said - band.won) * 100;
+    return `${by >= 0 ? "+" : ""}${by.toFixed(1)}`.padStart(16);
+  };
+  const versus = ({ vsShipped }: SliceBand) => {
+    if (!vsShipped) return "-".padStart(16);
+    const z = vsShipped.standardError > 0 ? vsShipped.by / vsShipped.standardError : 0;
+    return `${vsShipped.by >= 0 ? "+" : ""}${vsShipped.by.toFixed(4)} (${z.toFixed(1)})`.padStart(
+      16
+    );
+  };
+  const table = (heading: string, of: (slices: (typeof rows)[number]) => SliceBand[]) => {
+    say(`\n  ${heading}`);
+    say(
+      `    ${"".padEnd(keyWidth)}${of(first)
+        .map(({ label }) => label.padStart(16))
+        .join("")}`
+    );
+    say(
+      `    ${"games".padEnd(keyWidth)}${of(first)
+        .map(({ games }) => String(games).padStart(16))
+        .join("")}`
+    );
+    say(
+      `    ${"won".padEnd(keyWidth)}${of(first)
+        .map(({ games, won }) => (games > 0 ? `${(won * 100).toFixed(1)}%` : "-").padStart(16))
+        .join("")}`
+    );
+    for (const slices of rows) {
+      say(`    ${slices.key.padEnd(keyWidth)}${of(slices).map(cell).join("")}`);
+    }
+    say(`    log loss lower than shipped's in the band, + better, z by club:`);
+    say(
+      `    ${"shipped's".padEnd(keyWidth)}${of(first)
+        .map(({ games, logLoss }) => (games > 0 ? fixed(logLoss) : "-").padStart(16))
+        .join("")}`
+    );
+    for (const slices of rows.slice(1)) {
+      say(`    ${slices.key.padEnd(keyWidth)}${of(slices).map(versus).join("")}`);
+    }
+  };
+  say(
+    "\n  Where the chances go wrong: the chance said less how often that side won, in points (+ too" +
+      "\n  sure of it), every setting's band holding the same decided games."
+  );
+  table("The favourite, by days from the cut to the game:", ({ horizon }) => horizon);
+  table("The favourite, by the weighed games behind the thinner club:", ({ thinnest }) => thinnest);
+  table("The thinner club, by how far apart the two ratings' errors are:", ({ apart }) => apart);
 };
 
 const describeStandIns = (report: StandInReport) => {
@@ -721,8 +821,8 @@ const main = async (): Promise<void> => {
       teams: pool.teams,
       games: pool.games,
       year,
-      cuts: MODEL_CUTS,
-      scoreFrom: MODEL_SCORE_FROM,
+      cuts: sweepCuts.cuts,
+      scoreFrom: sweepCuts.scoreFrom,
       today: source.today,
       now: () => performance.now(),
     });

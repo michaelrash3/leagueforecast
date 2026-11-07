@@ -5,10 +5,10 @@ import { viewChunk, type ViewChunk } from "../viewChunk";
  * Team Rankings' sections, each loaded on demand, as League Standings' views are (`viewChunk`).
  * Opening Team Rankings used to fetch every section's code, though one section is on screen at a
  * time and the page opens on the rankings: the Import panel, Setup's cards and the tidy they run
- * were most of what the page fetched (README "Performance notes"). Now the rankings, and the state
- * and handlers every section reads, come with the page, and a section's own code when it is first
- * opened, or a little before: when its tab is pointed at or focused, and, once the rankings are
- * drawn and the page has been idle 1.5 s, the section most often opened after them.
+ * were most of what the page fetched (docs/performance.md "Performance notes"). Now the rankings,
+ * and the state and handlers every section reads, come with the page, and a section's own code when
+ * it is first opened, or a little before: when its tab is pointed at or focused, and, once the
+ * rankings are drawn and the page has been idle 1.5 s, the section most often opened after them.
  */
 
 export const gamesSection = viewChunk(

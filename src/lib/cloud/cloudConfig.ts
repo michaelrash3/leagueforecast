@@ -3,7 +3,8 @@
  *
  * None of this is secret. The console hands it to any page that asks, the app's bundle carries it
  * for anyone to read, and what keeps the data private is the Firestore rules (`firestore.rules`),
- * which open the copy to a Google sign-in and nothing else. See README, "Your data on every device".
+ * which open the copy to a Google sign-in and nothing else. See docs/data/every-device.md, "Your
+ * data on every device".
  */
 export type FirebaseWebConfig = {
   apiKey: string;

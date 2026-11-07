@@ -152,8 +152,8 @@ export default function LiveImport({
   const readOrgFile = async (text: string): Promise<boolean> => {
     // Only what the copy keeps: a league or club with a name and a team under it. A tournament is
     // left out — its name is the age its brackets ran at, which the teams in it played up to, not
-    // their own (README, "Two lists"). The copy keeps `{ orgId, name, teamIds }`, no type, so this
-    // only ever leaves one out, which asks the server for nothing new.
+    // their own (docs/team-rankings/pulling.md, "Two lists"). The copy keeps `{ orgId, name,
+    // teamIds }`, no type, so this only ever leaves one out, which asks the server for nothing new.
     const read = parseGcOrgList(text).orgs;
     const orgs: MemberOrg[] = read.flatMap((entry) =>
       entry.kind !== "tournament" && entry.name && entry.teamIds?.length

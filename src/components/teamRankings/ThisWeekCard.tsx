@@ -8,10 +8,11 @@ import { card } from "../../styles/tokens";
 const pct = (chance: number) => `${Math.round(chance * 100)}%`;
 
 /**
- * The Weekly (README, "The Weekly"): the page's week as one card under its own club. The upset of
- * the week and the others beside it, the board's movers (`weekMovers`), the game of the week ahead,
- * the winning streaks still running, and the page's own club's week. Every name opens the club's
- * panel. Drawn with the board, from what the board and its games already hold (`theWeekly`).
+ * The Weekly (docs/data/views.md, "The Weekly"): the page's week as one card under its own club.
+ * The upset of the week and the others beside it, the board's movers (`weekMovers`), the game of
+ * the week ahead, the winning streaks still running, and the page's own club's week. Every name
+ * opens the club's panel. Drawn with the board, from what the board and its games already hold
+ * (`theWeekly`).
  */
 export function ThisWeekCard({
   movers,

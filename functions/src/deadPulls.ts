@@ -1,6 +1,6 @@
 /**
  * Pulls whose worker died without a word, ended by the cloud on its own rounds (`reapSilentPulls`;
- * README, "A pull gone silent"): every ask of `startPull`, the end of every
+ * docs/data/cloud-pulls.md, "A pull gone silent"): every ask of `startPull`, the end of every
  * pull (`importJob.ts`, `runPull`), and every check of the boards a save queues. Never throws: what
  * stopped it is said in the line its caller logs, and the next round tries again.
  */

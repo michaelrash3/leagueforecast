@@ -43,7 +43,7 @@ import { createWorker } from "./createWorker";
  * something like half a minute for the tidy. Off the main thread for that reason; inline where a
  * worker cannot be had, so nothing depends on having one. Inline, their code is fetched first: a
  * page with a worker never runs the tidy or the inspection itself, so Team Rankings does not load
- * them when it opens (README "Performance notes").
+ * them when it opens (docs/performance.md "Performance notes").
  */
 
 /**

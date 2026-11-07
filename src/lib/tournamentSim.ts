@@ -1,5 +1,5 @@
 import { hashSeed, makeRandom } from "./sim";
-import { predictMatchup, type ScoutRankingRow } from "./teamRankings";
+import { matchupErrorsOf, predictMatchup, type ScoutRankingRow } from "./teamRankings";
 
 /** How an event is played: pools of round robin, then a single-elimination bracket for the top. */
 export type TournamentFormat = { pools: number; advance: number };
@@ -89,7 +89,10 @@ export const simulateTournament = (
   const beats = (a: number, b: number): boolean => {
     const x = entries[a]!;
     const y = entries[b]!;
-    return random() < predictMatchup(x.rating, y.rating, x.ageLevel ?? y.ageLevel).winProbA;
+    return (
+      random() <
+      predictMatchup(x.rating, y.rating, x.ageLevel ?? y.ageLevel, matchupErrorsOf(x, y)).winProbA
+    );
   };
   const order = bracketOrder(fitted.advance);
 

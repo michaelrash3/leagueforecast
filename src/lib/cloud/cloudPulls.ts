@@ -17,10 +17,10 @@ import {
 import { hashValue } from "./cloudPack";
 
 /**
- * A pull sent to be run in the cloud, from the device's side (README, "Pulls in the cloud"): the
- * list's pieces and the job written to `pullJobs/`, then `startPull` asked to run it, and how it
- * went heard on this device whether or not the tab stayed open. A member's device holds no pool,
- * so this is how the live page pulls a pasted list and the catch-ups (1.8).
+ * A pull sent to be run in the cloud, from the device's side (docs/data/cloud-pulls.md, "Pulls in
+ * the cloud"): the list's pieces and the job written to `pullJobs/`, then `startPull` asked to run
+ * it, and how it went heard on this device whether or not the tab stayed open. A member's device
+ * holds no pool, so this is how the live page pulls a pasted list and the catch-ups (1.8).
  *
  * The cloud's side is `pullJobRunner.ts`; the documents both read are `pullJobs.ts`. This keeps, on
  * the device only, the pulls it has sent and not yet told the user about, so a tab opened after one
@@ -344,11 +344,11 @@ export const REFRESH_UNANSWERED =
   "No answer came from the cloud, so the refresh may or may not have started. Press again in a minute: one that started is shown, not started twice.";
 
 /**
- * Asks the cloud for "Refresh now" (README, "Refresh now in the cloud") and remembers the job it
- * answers with, a new one or the one already under way, to be watched as a pasted list's is.
- * `teams` is the count the card offered, said until the cloud has worked out its own. A press the
- * cloud did not answer is not remembered, since there is no job to watch: pressing again finds
- * the one it started, if it did.
+ * Asks the cloud for "Refresh now" (docs/data/cloud-pulls.md, "Refresh now in the cloud") and
+ * remembers the job it answers with, a new one or the one already under way, to be watched as a
+ * pasted list's is. `teams` is the count the card offered, said until the cloud has worked out its
+ * own. A press the cloud did not answer is not remembered, since there is no job to watch: pressing
+ * again finds the one it started, if it did.
  */
 export const sendRefresh = async (
   { teams, device, now }: { teams: number; device: string; now: string },

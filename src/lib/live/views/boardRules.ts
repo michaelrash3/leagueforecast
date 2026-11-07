@@ -48,5 +48,10 @@
  * 10: a club whose web of games five games out reaches fewer than a tenth of the typical club's is
  * listed after every club whose web reaches that many (`teamRankings/opponentWeb.ts`), the owner's
  * rule of 26 October 2026; no number moves, only the order and the places.
+ * 11: a matchup's odds read on a curve as wide as its two clubs' evidence (`matchupOddsWidth`),
+ * narrower about a proven pair and as wide or wider about a thin one, where one curve of the age
+ * read every matchup; each row carries its club's error for it (`ratingError`). No rating, row or
+ * order moves; The Weekly's odds on every board do, and with them which game is the week's and
+ * which results were upsets.
  */
-export const BOARD_RULES = 10;
+export const BOARD_RULES = 11;

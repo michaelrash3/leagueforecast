@@ -1,16 +1,16 @@
 /**
- * The nightly refresh (README, "The nightly refresh on GitHub"): the Refresh button pressed on the
- * cloud copy by one of GitHub's servers, set for around midnight Eastern, so every device
- * opens on teams pulled overnight and nobody's tab has to stay open for it.
+ * The nightly refresh (docs/data/nightly.md, "The nightly refresh on GitHub"): the Refresh button
+ * pressed on the cloud copy by one of GitHub's servers, set for around midnight Eastern, so every
+ * device opens on teams pulled overnight and nobody's tab has to stay open for it.
  *
  * It opens the cloud copy with the Firebase key GitHub keeps for deploys (`FIREBASE_SERVICE_ACCOUNT`,
  * `cloudPool.ts`), works out tonight's rota from the copy's own settings as the button does, asks
  * GameChanger for every team due through the proxy's own handler in this process
  * (`handlerFetch.ts`), and files them into the copy (`runCloudPull`), keeping what it replaced as
  * an earlier version any device can bring back. Then it publishes every board of the copy it saved
- * for members to read (`publishCopyViews`, README "Views a server publishes"). The day is the
- * user's: the workflow runs it with `TZ=America/New_York`, and `LANG=en_US.UTF-8` for the order
- * the members' browsers put tied rows in.
+ * for members to read (`publishCopyViews`, docs/data/views.md "Views a server publishes"). The day
+ * is the user's: the workflow runs it with `TZ=America/New_York`, and `LANG=en_US.UTF-8` for the
+ * order the members' browsers put tied rows in.
  *
  *   FIREBASE_SERVICE_ACCOUNT="$(cat key.json)" npm run nightly              a dry run: saves nothing
  *   FIREBASE_SERVICE_ACCOUNT="$(cat key.json)" npm run nightly -- --live --limit 50
@@ -20,23 +20,29 @@
  * the views built from the copy the pull would have saved. Once a week, on the first live run of
  * the week (Monday to Sunday) that finds it not yet made, and on a dry run only on a Monday, once
  * the views are out it then re-measures where a rating starts as of that week's Monday, on the pool
- * it published from, League as the publish read it (`remeasureAfterPublish`, README "Where a
- * rating starts"), says what it found in numbers, keeps it for the Model check card on a live
- * run, and hands the alarm step a word for whether a change is ready. Either way, and however the
- * refresh
- * ended, it ends by saying how the rebuilds after saves have gone (`describeRebuilds`), read from
- * their ledger. `--limit N`
- * pulls only the first N teams due, and leaves the day unlogged. It prints counts, sizes and
- * timings only: this repository is public, and so are its Actions logs.
+ * it published from, League as the publish read it (`remeasureAfterPublish`,
+ * docs/team-rankings/ratings.md "Where a rating starts"), says what it found in numbers, keeps it
+ * for the Model check card on a live run, and hands the alarm step a word for whether a change is
+ * ready. Either way, and however the refresh ended, it ends by saying how the rebuilds after saves
+ * have gone (`describeRebuilds`), read from their ledger. `--limit N` pulls only the first N teams
+ * due, and leaves the day unlogged. It prints counts, sizes and timings only: this repository is
+ * public, and so are its Actions logs.
  */
 import { appendFileSync } from "node:fs";
+import { totalmem } from "node:os";
+import { getHeapStatistics } from "node:v8";
 import type { CloudStore } from "../src/lib/cloud/cloudEngine.ts";
 import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
 import { heldWord, radiusWords } from "../src/lib/cloud/blastRadius.ts";
 import { censusLines, clubCensus, tapLeagueDocs } from "../src/lib/cloud/clubCensus.ts";
 import { heardNothing, runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.ts";
 import { ingestWord, ingestWords } from "../src/lib/cloud/ingestCanary.ts";
-import { memoryUseOf, memoryWords, type MemoryUse } from "../src/lib/cloud/memoryUse.ts";
+import {
+  memoryUseOf,
+  memoryWord,
+  memoryWords,
+  type MemoryUse,
+} from "../src/lib/cloud/memoryUse.ts";
 import {
   stageMemory,
   storedStandInLines,
@@ -223,10 +229,10 @@ const main = async (): Promise<void> => {
     );
   };
 
-  // The nightly's turn at the refresh gate (README, "Refresh now in the cloud"): a live run waits
-  // for a "Refresh now" under way to end, so the two never ask GameChanger about the same teams at
-  // once, and names itself there while it pulls, so a press meanwhile is told the nightly is
-  // pulling. A dry run writes nothing, the gate included, and takes no turn.
+  // The nightly's turn at the refresh gate (docs/data/cloud-pulls.md, "Refresh now in the cloud"):
+  // a live run waits for a "Refresh now" under way to end, so the two never ask GameChanger about
+  // the same teams at once, and names itself there while it pulls, so a press meanwhile is told the
+  // nightly is pulling. A dry run writes nothing, the gate included, and takes no turn.
   let turn: NightlyTurn | null = null;
   if (live) {
     try {
@@ -398,7 +404,11 @@ const main = async (): Promise<void> => {
   } catch (error) {
     console.log(`  The staged backups were not swept: ${failureWords(error)}`);
   }
-  console.log(`  Memory at the end: ${memoryWords(memoryNow())}.`);
+  const atEnd = memoryNow();
+  console.log(`  Memory at the end: ${memoryWords(atEnd)}.`);
+  // The night's peak against the most it may use, for the alarm of its own (`memoryWord`). Only
+  // a run that reached its end says it: one that stopped short peaked short of the whole night.
+  output("memory", memoryWord(atEnd, getHeapStatistics().heap_size_limit, totalmem()));
   if (
     result.end === "gave-up" ||
     result.end === "copy-kept-changing" ||

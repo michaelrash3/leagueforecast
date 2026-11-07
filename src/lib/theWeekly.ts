@@ -11,12 +11,12 @@ import {
 } from "./teamRankings";
 
 /*
- * The Weekly (README, "The Weekly"): a page's week, read off its board and its games. The upsets of
- * the week just played, the game of the week ahead and the longest winning streaks still running,
- * beside the moves the "This week" card names (`weekMovers`), and the week of the page's own club.
- * A device works it out from its pool; a published board carries it (`BoardView.weekly`), worked
- * out where the board is built from the games the build already holds, so a member's Rankings tab
- * reads nothing more than its board.
+ * The Weekly (docs/data/views.md, "The Weekly"): a page's week, read off its board and its games.
+ * The upsets of the week just played, the game of the week ahead and the longest winning streaks
+ * still running, beside the moves the "This week" card names (`weekMovers`), and the week of the
+ * page's own club. A device works it out from its pool; a published board carries it
+ * (`BoardView.weekly`), worked out where the board is built from the games the build already holds,
+ * so a member's Rankings tab reads nothing more than its board.
  */
 
 /** The days a week looks back over, ending yesterday, and forward over, starting today. */

@@ -96,9 +96,9 @@ describe("the same ladder, as a pasted list is read", () => {
    * searched — identical to its own `Found Via Ages` in 59,794 of 59,799 rows — which is exactly
    * the kind of thing a second-hand column can be and a name cannot.
    *
-   * A correctly built list points the same way, less starkly: the README's "Check the id" pull of
-   * 40,760 teams found the two disagreeing by one 343 times, with the name carrying the right
-   * level in 267 of them.
+   * A correctly built list points the same way, less starkly: the "Check the id" pull of
+   * 40,760 teams (docs/team-rankings/pulling.md) found the two disagreeing by one 343 times, with
+   * the name carrying the right level in 267 of them.
    */
   it("prefers the name over the column, where the profile ladder prefers the field", () => {
     expect(viaList("11U", "BattleHawks 10U")).toBe(10);

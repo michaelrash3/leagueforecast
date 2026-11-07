@@ -1,12 +1,12 @@
 /**
- * The members' views published again from the cloud copy as it stands (README, "Views a server
- * publishes"), run by the Firebase workflow once a push to main has deployed. It publishes only when
- * nothing is published, or what is was published under an older schema than this build writes, or
- * its boards are of an older shape than this build's (`republishWanted`): in the first two no device
- * of this build can draw the boards, and without this every member was left on the older schema's
- * notice until the next nightly, which GitHub starts hours late; in the third the boards lack what
- * this build adds to them until then. Any other time it says so and leaves the views to the
- * rebuilds after saves and the night.
+ * The members' views published again from the cloud copy as it stands (docs/data/views.md, "Views a
+ * server publishes"), run by the Firebase workflow once a push to main has deployed. It publishes
+ * only when nothing is published, or what is was published under an older schema than this build
+ * writes, or its boards are of an older shape than this build's (`republishWanted`): in the first
+ * two no device of this build can draw the boards, and without this every member was left on the
+ * older schema's notice until the next nightly, which GitHub starts hours late; in the third the
+ * boards lack what this build adds to them until then. Any other time it says so and leaves the
+ * views to the rebuilds after saves and the night.
  *
  * What it does, and when it has done it, is `republishViews`'s, where it is tested: the copy laid
  * into the app's pool store in memory exactly as a pull lays it (`loadPoolFrom`), refused where a

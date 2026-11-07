@@ -3,11 +3,11 @@ import catchUpWorkflow from "../../../.github/workflows/catch-up.yml?raw";
 import nightlyWorkflow from "../../../.github/workflows/nightly.yml?raw";
 
 /*
- * The catch-up's workflow (`scripts/catchUp.ts`, README "Boards caught up on GitHub") held to what
- * makes it safe to run every half hour: it builds the boards as the nightly does, under the same
- * day, collation, heap and Node; it never shares the nightly's concurrency group, where joining
- * every half hour would cancel a night waiting behind it; it may write nothing on GitHub; and the
- * word it waits on the nightly by comes from a step before it.
+ * The catch-up's workflow (`scripts/catchUp.ts`, docs/data/nightly.md "Boards caught up on GitHub")
+ * held to what makes it safe to run every half hour: it builds the boards as the nightly does,
+ * under the same day, collation, heap and Node; it never shares the nightly's concurrency group,
+ * where joining every half hour would cancel a night waiting behind it; it may write nothing on
+ * GitHub; and the word it waits on the nightly by comes from a step before it.
  *
  * Read as text, a step at a time by its indentation, as `workflowAlarms.test.ts` reads the others:
  * no YAML parser is installed for one test.

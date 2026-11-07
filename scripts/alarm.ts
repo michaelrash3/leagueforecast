@@ -1,6 +1,7 @@
 /**
  * Raises or settles the alarms a run on GitHub keeps as issues on this repository (`runAlarms.ts`,
- * README "When a run fails"), run by the workflows as the run's last step, whatever came before:
+ * docs/data/nightly.md "When a run fails"), run by the workflows as the run's last step, whatever
+ * came before:
  *
  *   npm run alarm -- nightly      after the nightly refresh (OUTCOME, MODE, REBUILDS,
  *                                 CLOSED_LEVEL, HELD, INGEST, UNANSWERED, BILLING and
@@ -48,6 +49,7 @@ const verdicts: Verdict[] | null =
         held: env.HELD ?? "",
         ingest: env.INGEST ?? "",
         unanswered: env.UNANSWERED ?? "",
+        memory: env.MEMORY ?? "",
       })
     : which === "republish"
       ? republishVerdicts({ outcome: env.OUTCOME ?? "" })

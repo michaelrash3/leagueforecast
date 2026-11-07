@@ -6,13 +6,17 @@ import {
   ageGroupYear,
   fitScoutYear,
   MATCHUP_MARGIN_CAP,
+  MATCHUP_ODDS_ERROR_WEIGHT,
+  MATCHUP_ODDS_PROVEN_SHARE,
   MATCHUP_PROBABILITY_FLOOR,
-  matchupOddsSpread,
+  oddsWidthWith,
   RATING_CAP,
   ratedMargin,
+  ratingErrorOf,
   scoutFitRanks,
   scoutRatingGames,
   type AgeGroup,
+  type MatchupErrors,
   type ScoutFitTuning,
   type ScoutGame,
   type ScoutTeam,
@@ -44,12 +48,25 @@ export type ModelVariant = {
    */
   floor?: number;
   /**
-   * The odds curve's width as a multiple of `matchupOddsSpread`, one as shipped: wider reads a
-   * margin's chance nearer evens. Swept because the shipped model's calibration ran 1.5 to 2.6
-   * points sure of the favourite from 60% to 85% on the cloud copy of 27 October 2026, which a
-   * curve about a tenth wider would close. Like the floor, it leaves the fit alone.
+   * How wide the odds curve is about two proven clubs, as a share of `matchupOddsSpread`
+   * (`MATCHUP_ODDS_PROVEN_SHARE` as shipped), and how much the two clubs' errors widen it from
+   * there, as the weight of their variance (`MATCHUP_ODDS_ERROR_WEIGHT`): the curve's width read as
+   * `sqrt((share × spread)² + weight × (errorA² + errorB²))`, each error the club's `ratingSpread`
+   * over its weighed games (`oddsWidthWith`). A share of one and no weight is the single curve of a
+   * matchup's age that every matchup read until 6 November 2026. Like the floor, neither moves the
+   * fit.
    */
-  spread?: number;
+  share?: number;
+  weight?: number;
+  /**
+   * Which ratings the matchup is read from. "shown", as shipped and when left out: the ratings a
+   * board shows, the fit's own less one standard error about the year's centre
+   * (`ScoutYearFit.confident`), which is what ranks a thin record behind a proven one. "point": the
+   * fit's own best guess (`pointRating` on a row). The discount was measured for which club a
+   * table puts first, not for a chance: read into a matchup, it takes a thin club's whole discount
+   * off its side of the margin, about a run between a four-game club and a forty-game one.
+   */
+  ratings?: "shown" | "point";
 };
 
 /** The shipped model first, then each setting moved on its own either way. */
@@ -74,12 +91,36 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
   { key: "floor-0.02", why: "a chance allowed to 98%", floor: 0.02 },
   { key: "floor-0.05", why: "to 95%", floor: 0.05 },
   { key: "floor-0.12", why: "held to 88%", floor: 0.12 },
-  { key: "spread-0.95", why: "the odds curve a twentieth narrower", spread: 0.95 },
-  { key: "spread-1.05", why: "a twentieth wider", spread: 1.05 },
-  { key: "spread-1.1", why: "a tenth wider", spread: 1.1 },
-  { key: "spread-1.15", why: "three twentieths wider", spread: 1.15 },
-  { key: "spread-1.2", why: "a fifth wider", spread: 1.2 },
-  { key: "spread-1.3", why: "three tenths wider", spread: 1.3 },
+  {
+    key: "single",
+    why: "the single curve of a matchup's age, as every matchup read it until 6 November 2026",
+    share: 1,
+    weight: 0,
+  },
+  { key: "single-0.95", why: "the single curve a twentieth narrower", share: 0.95, weight: 0 },
+  { key: "single-1.05", why: "a twentieth wider", share: 1.05, weight: 0 },
+  {
+    key: "point",
+    why: "the matchup read from the fit's own ratings, not the shown",
+    ratings: "point",
+  },
+  /*
+   * About the shipped curve, a share of 0.6 and a weight of 1.6, chosen of twelve on the cloud
+   * copy of 6 November 2026 (`matchupOddsWidth`): a tenth of the spread either way, and a weight
+   * of 1 and 2.4.
+   */
+  ...[0.5, 0.6, 0.7].flatMap((share) =>
+    [1, 1.6, 2.4]
+      .filter(
+        (weight) => share !== MATCHUP_ODDS_PROVEN_SHARE || weight !== MATCHUP_ODDS_ERROR_WEIGHT
+      )
+      .map((weight): ModelVariant => ({
+        key: `curve-${share}-${weight}`,
+        why: `${share} of the spread about a proven pair, ${weight} of the two errors' variance`,
+        share,
+        weight,
+      }))
+  ),
 ];
 
 /** The cut days the sweeps of this pool have read, and the day later games are scored from. */
@@ -90,20 +131,31 @@ const clamp = (value: number, low: number, high: number) => Math.min(high, Math.
 
 /**
  * The first club's chance against the second, as `predictMatchup` reads it, held to `floor` either
- * way rather than `MATCHUP_PROBABILITY_FLOOR`, on a curve `spread` times as wide: the same at the
- * shipped floor and a spread of one, to the digit.
+ * way rather than `MATCHUP_PROBABILITY_FLOOR`, on the curve `share` and `weight` make of the two
+ * clubs' errors (`oddsWidthWith`), the shipped share and weight where left out: the same as
+ * `predictMatchup` at the shipped floor, share and weight, to the digit, and its single curve of
+ * the age where no errors are given.
  */
 export const chanceAt = (
   ratingA: number,
   ratingB: number,
   ageLevel: number | undefined,
   floor = MATCHUP_PROBABILITY_FLOOR,
-  spread = 1
+  curve: { share?: number; weight?: number; errors?: MatchupErrors } = {}
 ): number => {
   const margin = clamp(ratingA - ratingB, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP);
-  const width = matchupOddsSpread(ageLevel) * spread;
+  const width = oddsWidthWith(
+    ageLevel,
+    curve.errors,
+    curve.share ?? MATCHUP_ODDS_PROVEN_SHARE,
+    curve.weight ?? MATCHUP_ODDS_ERROR_WEIGHT
+  );
   return clamp(1 / (1 + Math.exp(-margin / width)), floor, 1 - floor);
 };
+
+/** How far a club's rating on a fit could be off, in runs: what the shown rating's discount reads. */
+const ratingErrorOn = (fit: ScoutYearFit, id: string) =>
+  ratingErrorOf(fit.effective.get(id) ?? 0, fit.adjusted.residualScale);
 
 /**
  * Whether one board lists both sides of a game on a fit, as `rowsOfYearFit` cuts a board from a fit: neither
@@ -130,15 +182,23 @@ const boardPlacer = (fit: ScoutYearFit) => {
  * Only for two clubs one board lists (`boardPlacer`): no other matchup is ever stated, and the sweep
  * leaves those games out rather than score a forecast nobody was shown.
  */
-const predicted = (fit: ScoutYearFit, game: ScoutGame, floor?: number, spread?: number) => {
-  const shown = (id: string) =>
-    fit.confident(fit.adjusted.ratings.get(id) ?? 0, fit.effective.get(id) ?? 0);
-  const a = shown(game.teamAId);
-  const b = shown(game.teamBId);
+const predicted = (fit: ScoutYearFit, game: ScoutGame, variant: ModelVariant) => {
+  const own = (id: string) => fit.adjusted.ratings.get(id) ?? 0;
+  const read =
+    variant.ratings === "point"
+      ? own
+      : (id: string) => fit.confident(own(id), fit.effective.get(id) ?? 0);
+  const a = read(game.teamAId);
+  const b = read(game.teamBId);
   const level = fit.homeLevels.get(game.teamAId) ?? fit.homeLevels.get(game.teamBId);
+  const errors = { a: ratingErrorOn(fit, game.teamAId), b: ratingErrorOn(fit, game.teamBId) };
   return {
     margin: clamp(a - b, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP),
-    win: chanceAt(a, b, level, floor, spread),
+    win: chanceAt(a, b, level, variant.floor, {
+      ...(variant.share === undefined ? {} : { share: variant.share }),
+      ...(variant.weight === undefined ? {} : { weight: variant.weight }),
+      errors,
+    }),
   };
 };
 
@@ -150,6 +210,63 @@ export type CalibrationBand = {
   /** The mean chance it gave the favourite, and the share of these games the favourite won. */
   said: number;
   won: number;
+};
+
+/**
+ * One band of a slice of the decided games, read from one side: the mean chance that side was
+ * given and how often it won (a side said more than it won is a side the model was too sure of),
+ * and the band's log loss, lower than the shipped model's on the same games by `vsShipped`, with a
+ * standard error that reads a club's games together (`pairedImprovement`); null for the shipped.
+ */
+export type SliceBand = {
+  label: string;
+  games: number;
+  said: number;
+  won: number;
+  logLoss: number;
+  vsShipped: PairedReading | null;
+};
+
+/**
+ * Where a setting's chances go wrong, in three cuts of the same decided games, a band holding the
+ * same games for every setting (read off the shipped fit, never the setting's own):
+ * - `horizon`, from the favourite's side, by days from the cut to the game. The boards are rebuilt
+ *   every night, so the forecast a member reads is mostly for a game days away, while the sweep
+ *   scores games from eight days to two months after its cuts, over which a rating drifts.
+ * - `thinnest`, from the favourite's side, by the weighed games (`effectiveGames`) behind the
+ *   thinner of the two clubs.
+ * - `apart`, from the thinner club's side, by how far apart the two ratings' errors are: a thinner
+ *   club that wins more often than it is given is one the matchup under-rates.
+ */
+export type VariantSlices = {
+  key: string;
+  horizon: SliceBand[];
+  thinnest: SliceBand[];
+  apart: SliceBand[];
+};
+
+type Band = { label: string; below: number };
+export const HORIZON_BANDS: readonly Band[] = [
+  { label: "under 21 days", below: 21 },
+  { label: "21-34", below: 35 },
+  { label: "35-48", below: 49 },
+  { label: "49+", below: Number.POSITIVE_INFINITY },
+];
+export const THINNEST_BANDS: readonly Band[] = [
+  { label: "under 2 games", below: 2 },
+  { label: "2-4", below: 4 },
+  { label: "4-8", below: 8 },
+  { label: "8+", below: Number.POSITIVE_INFINITY },
+];
+export const APART_BANDS: readonly Band[] = [
+  { label: "under 0.25 runs", below: 0.25 },
+  { label: "0.25-0.5", below: 0.5 },
+  { label: "0.5-1", below: 1 },
+  { label: "1+", below: Number.POSITIVE_INFINITY },
+];
+const bandOf = (bands: readonly Band[], value: number) => {
+  const at = bands.findIndex(({ below }) => value < below);
+  return at < 0 ? bands.length - 1 : at;
 };
 
 export type VariantReading = {
@@ -182,6 +299,8 @@ export type ModelSweep = {
     decided: number;
     crossAge: number;
     standIns: number;
+    /** The shipped fit's residual scale, in runs, which a row's error reads (`ratingErrorOf`). */
+    residualScale: number;
   }[];
   /** Every scored game, and the decided ones the chances are scored on. */
   games: number;
@@ -196,6 +315,8 @@ export type ModelSweep = {
   variants: VariantReading[];
   /** The shipped model's chance for the favourite, in bands of five points, and how often it won. */
   calibration: CalibrationBand[];
+  /** Every setting's chances against what happened, in the same slices of the decided games. */
+  slices: VariantSlices[];
 };
 
 export type ModelSweepInput = {
@@ -235,6 +356,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
     decided: 0,
     variants: [],
     calibration: [],
+    slices: [],
   };
   if (!page) return empty;
   const fromAt = dayInstant(input.scoreFrom ?? MODEL_SCORE_FROM);
@@ -256,8 +378,16 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
     brier: [] as number[],
     seconds: 0,
   }));
+  // Per variant, per slice and band: the games, the chances said to the side read, and its wins.
+  const tallies = variants.map(() =>
+    [HORIZON_BANDS, THINNEST_BANDS, APART_BANDS].map((bands) =>
+      bands.map(() => ({ games: 0, said: 0, won: 0 }))
+    )
+  );
   const sides: number[] = [];
   const decidedSides: number[] = [];
+  // Each decided game's band in each slice, in the order every setting's log losses are pushed.
+  const decidedBands: Array<readonly [number, number, number]> = [];
   const shippedChances: Array<{ win: number; won: boolean }> = [];
   const cutReadings: ModelSweep["cuts"] = [];
   // Each distinct fit once a cut: the floors share the shipped fit.
@@ -302,21 +432,66 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
       decided,
       crossAge: placed.filter(({ on }) => on === "apart").length,
       standIns: placed.filter(({ on }) => on === "standIn").length,
+      residualScale: shipped.adjusted.residualScale,
+    });
+    // Each game's place in the slices, off the shipped fit, so a band holds the same games for all.
+    const cutAt = dayInstant(cut);
+    const placesInSlices = scored.map(({ game, day }) => {
+      const errorA = ratingErrorOn(shipped, game.teamAId);
+      const errorB = ratingErrorOn(shipped, game.teamBId);
+      return {
+        horizon: bandOf(HORIZON_BANDS, (day - cutAt) / 86_400_000),
+        thinnest: bandOf(
+          THINNEST_BANDS,
+          Math.min(
+            shipped.effective.get(game.teamAId) ?? 0,
+            shipped.effective.get(game.teamBId) ?? 0
+          )
+        ),
+        apart: bandOf(APART_BANDS, Math.abs(errorA - errorB)),
+        thinnerIsA: errorA >= errorB,
+      };
     });
     variants.forEach((variant, at) => {
       const fit = fitOf(variant, at);
       const pile = piles[at]!;
-      for (const { game } of scored) {
+      const [byHorizon, byThinnest, byApart] = tallies[at]!;
+      scored.forEach(({ game }, index) => {
         const margin = clamp(ratedMargin(game) ?? 0, -RATING_CAP, RATING_CAP);
-        const guess = predicted(fit, game, variant.floor, variant.spread);
+        const guess = predicted(fit, game, variant);
         pile.squared.push((guess.margin - margin) ** 2);
-        if (margin === 0) continue;
+        if (margin === 0) return;
         const won = margin > 0;
         const chance = clamp(won ? guess.win : 1 - guess.win, 1e-9, 1);
         pile.logLoss.push(-Math.log(chance));
         pile.brier.push((guess.win - (won ? 1 : 0)) ** 2);
-        if (at === 0) shippedChances.push({ win: guess.win, won });
-      }
+        const place = placesInSlices[index]!;
+        if (at === 0) {
+          shippedChances.push({ win: guess.win, won });
+          decidedBands.push([place.horizon, place.thinnest, place.apart]);
+        }
+        const favouriteIsA = guess.win >= 0.5;
+        const favourite = {
+          said: favouriteIsA ? guess.win : 1 - guess.win,
+          won: favouriteIsA === won ? 1 : 0,
+        };
+        const tally = (
+          band: { games: number; said: number; won: number },
+          said: number,
+          wins: number
+        ) => {
+          band.games += 1;
+          band.said += said;
+          band.won += wins;
+        };
+        tally(byHorizon![place.horizon]!, favourite.said, favourite.won);
+        tally(byThinnest![place.thinnest]!, favourite.said, favourite.won);
+        tally(
+          byApart![place.apart]!,
+          place.thinnerIsA ? guess.win : 1 - guess.win,
+          place.thinnerIsA === won ? 1 : 0
+        );
+      });
     });
   }
 
@@ -376,6 +551,50 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
     });
   }
 
+  // The decided games of each band of each slice, by their place among every setting's log losses.
+  const families = [HORIZON_BANDS, THINNEST_BANDS, APART_BANDS] as const;
+  const inBand = families.map((bands, family) =>
+    bands.map((_, band) => {
+      const games: number[] = [];
+      decidedBands.forEach((place, at) => {
+        if (place[family] === band) games.push(at);
+      });
+      return Uint32Array.from(games);
+    })
+  );
+  const bandReading = (pile: number[], games: Uint32Array, own: boolean) => {
+    const errors = Float32Array.from(games, (at) => pile[at]!);
+    const logLoss = mean(errors);
+    if (own) return { logLoss, vsShipped: null };
+    const bandSides = new Uint32Array(games.length * 2);
+    games.forEach((at, index) => {
+      bandSides[index * 2] = decidedArray[at * 2]!;
+      bandSides[index * 2 + 1] = decidedArray[at * 2 + 1]!;
+    });
+    const vsShipped = pairedImprovement(
+      { errors },
+      { errors: Float32Array.from(games, (at) => shippedPile.logLoss[at]!), sides: bandSides },
+      false
+    );
+    return { logLoss, vsShipped };
+  };
+  const slices: VariantSlices[] = variants.map((variant, at) => {
+    const counted = tallies[at]!;
+    const [horizon, thinnest, apart] = families.map((bands, family) =>
+      bands.map(({ label }, band): SliceBand => {
+        const { games, said, won } = counted[family]![band]!;
+        return {
+          label,
+          games,
+          said: games > 0 ? said / games : Number.NaN,
+          won: games > 0 ? won / games : Number.NaN,
+          ...bandReading(piles[at]!.logLoss, inBand[family]![band]!, at === 0),
+        };
+      })
+    );
+    return { key: variant.key, horizon: horizon!, thinnest: thinnest!, apart: apart! };
+  });
+
   return {
     year,
     cuts: cutReadings,
@@ -385,5 +604,6 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
     decided: shippedPile.logLoss.length,
     variants: readings,
     calibration,
+    slices,
   };
 };

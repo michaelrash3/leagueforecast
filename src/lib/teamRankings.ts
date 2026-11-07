@@ -155,6 +155,27 @@ export const ratingSpread = (
 ): number => residualScale / Math.sqrt(Math.max(0, games) + shrinkage);
 
 /**
+ * The least residual scale a row's error is read on (`ratingErrorOf`), in runs.
+ *
+ * A fit reads its scale off its own residuals, the games it fitted, so a pool of few games reads its
+ * noise as small and every club in it as proven, and its matchups would come out surer than any
+ * real pool's: the seeded pool of the tests (`poolFixture.ts`) read 1.6 to 1.8 runs at the model
+ * sweep's cuts. The nationwide pool's scale was 4.29 runs at `RATING_CAP` 12 on 26 September 2026,
+ * and the sweep's fits of the cloud copy of 6 November read 4.05, 4.12 and 4.19 at its cuts of 1, 8
+ * and 15 September (Actions run 42308023088), where a club had played least, so a real pool's
+ * errors are its own and a small pool is read as no surer than a real one.
+ */
+export const RATING_ERROR_SCALE_FLOOR = 3.5;
+
+/**
+ * How far a club's rating on a fit could be off, in runs, as a row carries it (`ratingError`) and a
+ * matchup's curve widens by it (`matchupOddsWidth`): `ratingSpread` over its weighed games, on the
+ * fit's own scale or `RATING_ERROR_SCALE_FLOOR`, whichever is more.
+ */
+export const ratingErrorOf = (games: number, residualScale: number): number =>
+  ratingSpread(games, Math.max(residualScale, RATING_ERROR_SCALE_FLOOR));
+
+/**
  * The discount one fit applies to its ratings before they are ranked or shown.
  *
  * Built per fit rather than per team, because it needs one thing no team knows on its own: how much
@@ -3015,6 +3036,7 @@ export const buildTeamRankings = (
         rank: 0,
         rating: confident(adjusted.ratings.get(team.id) ?? 0, effective.get(team.id) ?? 0),
         pointRating: adjusted.ratings.get(team.id) ?? 0,
+        ratingError: ratingErrorOf(effective.get(team.id) ?? 0, adjusted.residualScale),
         ...startOf(communities, team.id),
         record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
         wins,
@@ -3420,6 +3442,7 @@ export const rowsOfYearFit = (
         rank: 0,
         rating: confident(adjusted.ratings.get(team.id) ?? 0, effective.get(team.id) ?? 0),
         pointRating: adjusted.ratings.get(team.id) ?? 0,
+        ratingError: ratingErrorOf(effective.get(team.id) ?? 0, adjusted.residualScale),
         ...startOf(fit.communities, team.id),
         record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
         wins,
@@ -3543,16 +3566,91 @@ export const matchupOddsSpread = (ageLevel?: number): number => {
 };
 
 /**
- * The same margin clamp and logistic shape `predictionEngine.ts` uses for League Standings' own
- * matchups, with the spread read at the matchup's age (`matchupOddsSpread`) rather than League's
- * flat 2.8: League rates a season's games under the league's own cap, and this curve is fitted to
- * ratings capped at `RATING_CAP`. Deliberately ignores home-field advantage: Team Rankings games
- * are treated as neutral-site.
+ * How wide the odds curve is about two clubs whose ratings were known exactly, as a share of the
+ * curve's spread at their age (`matchupOddsSpread`), and how much each club's own uncertainty
+ * widens it from there: the width is `sqrt((share × spread)² + weight × (errorA² + errorB²))`, each
+ * error the club's `ratingSpread` over its weighed games, the one the shown rating's discount reads
+ * (`ScoutRankingRow.ratingError`). See `matchupOddsWidth` for what was measured.
  */
-export const predictMatchup = (ratingA: number, ratingB: number, ageLevel?: number) => {
+export const MATCHUP_ODDS_PROVEN_SHARE = 0.6;
+export const MATCHUP_ODDS_ERROR_WEIGHT = 1.6;
+
+/** Each side's `ratingError`, the first club's as `a`. */
+export type MatchupErrors = { a: number; b: number };
+
+/**
+ * The width of one matchup's odds curve: narrower about two clubs that have proved what they are,
+ * as wide as `matchupOddsSpread` or wider about two that have not, and `matchupOddsSpread` itself
+ * where either side's error is not known (a row of a board built before rows carried one).
+ *
+ * One width for every matchup was a compromise between thin records and proven ones, and it could
+ * not be right about both. The model sweep (`scripts/modelSweep.ts`) read the cloud copy on 6
+ * November 2026, its boards as they would have been on 1, 8 and 15 September and on 1, 8 and 15
+ * October. On September's, where a club of the squad year had played little, the single curve was
+ * 1.5 points too sure of the favourite where the thinner club stood on under two weighed games and
+ * 6.1 points not sure enough where it stood on eight or more; on October's, with two more months of
+ * games, it was not sure enough almost throughout (favourites given 72.4% won 75.9%, given 87.2%
+ * won 91.9%), 2.9 points on the games under three weeks ahead. Widening each matchup by its two
+ * errors on a curve narrower about a proven pair fitted both. Of twelve such settings, 0.6 of the
+ * spread and 1.6 of the two errors' variance did best over both months: on October's boards it
+ * lowered the log loss by 0.0025 (z 8.0, a club's games read together, `pairedImprovement`), 0.0029
+ * on the games under three weeks ahead (z 8.3), where the favourite was then 1.1 points short where
+ * the single curve was 2.9; on September's it was level (0.0002, z 1.0) and 0.0009 better on the
+ * games under three weeks ahead (z 3.2). On October's boards every band of the thinner club's
+ * evidence came within a point; on September's the proven pairs' 6.1 points closed to 2.5. It moves
+ * no rating and no margin: the curve reads them, nothing more.
+ *
+ * At 12U, where the single curve is 4.565 runs wide, the width about two clubs each half a run
+ * uncertain is 2.881 runs, each a run 3.271, each two runs 4.506, and each two and a half 5.244.
+ */
+export const matchupOddsWidth = (ageLevel?: number, errors?: MatchupErrors): number =>
+  oddsWidthWith(ageLevel, errors, MATCHUP_ODDS_PROVEN_SHARE, MATCHUP_ODDS_ERROR_WEIGHT);
+
+/**
+ * `matchupOddsWidth` with its two settings named: the share of the age's spread about a proven pair
+ * and the weight of the two errors' variance, which the model sweep moves (`modelSweep.ts`). At a
+ * share of one and no weight it is the single curve of the age, to the digit.
+ */
+export const oddsWidthWith = (
+  ageLevel: number | undefined,
+  errors: MatchupErrors | undefined,
+  share: number,
+  weight: number
+): number => {
+  const spread = matchupOddsSpread(ageLevel);
+  if (!errors || !Number.isFinite(errors.a) || !Number.isFinite(errors.b)) return spread;
+  const proven = share * spread;
+  const variance = weight * (errors.a ** 2 + errors.b ** 2);
+  return variance > 0 ? Math.sqrt(proven * proven + variance) : proven;
+};
+
+/** The two rows' errors, where both carry one: what `matchupOddsWidth` widens a matchup by. */
+export const matchupErrorsOf = (
+  a: Pick<ScoutRankingRow, "ratingError">,
+  b: Pick<ScoutRankingRow, "ratingError">
+): MatchupErrors | undefined =>
+  a.ratingError === undefined || b.ratingError === undefined
+    ? undefined
+    : { a: a.ratingError, b: b.ratingError };
+
+/**
+ * The same margin clamp and logistic shape `predictionEngine.ts` uses for League Standings' own
+ * matchups, on a curve as wide as the matchup's age and its two clubs' evidence make it
+ * (`matchupOddsWidth`) rather than League's flat 2.8: League rates a season's games under the
+ * league's own cap, and this curve is fitted to ratings capped at `RATING_CAP`. Without the two
+ * clubs' errors it reads the single curve of their age (`matchupOddsSpread`), as it did before
+ * rows carried them. Deliberately ignores home-field advantage: Team Rankings games are treated as
+ * neutral-site.
+ */
+export const predictMatchup = (
+  ratingA: number,
+  ratingB: number,
+  ageLevel?: number,
+  errors?: MatchupErrors
+) => {
   const margin = clamp(ratingA - ratingB, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP);
   const winProbA = clamp(
-    1 / (1 + Math.exp(-margin / matchupOddsSpread(ageLevel))),
+    1 / (1 + Math.exp(-margin / matchupOddsWidth(ageLevel, errors))),
     MATCHUP_PROBABILITY_FLOOR,
     1 - MATCHUP_PROBABILITY_FLOOR
   );
@@ -3576,7 +3674,8 @@ export const previewMatchup = (
   const { projectedMargin, winProbA } = predictMatchup(
     forRow.rating,
     opponent.rating,
-    forRow.ageLevel ?? opponent.ageLevel
+    forRow.ageLevel ?? opponent.ageLevel,
+    matchupErrorsOf(forRow, opponent)
   );
   return {
     opponentId: opponent.teamId,
@@ -3742,7 +3841,8 @@ export const buildUpcomingSchedule = (
       const { projectedMargin, winProbA } = predictMatchup(
         forRow.rating,
         opponent.rating,
-        forRow.ageLevel ?? opponent.ageLevel
+        forRow.ageLevel ?? opponent.ageLevel,
+        matchupErrorsOf(forRow, opponent)
       );
       return {
         ...base,
