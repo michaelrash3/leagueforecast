@@ -8,6 +8,9 @@ dist-ssr
 .env.*
 !.env.example
 coverage
+# The unit tests' slices in CI write their reports here (`.github/workflows/ci.yml`).
+blob-reports
+.vitest
 test-results
 playwright-report
 .cache
