@@ -36,6 +36,7 @@ import { subscribeLeagueMet } from "./lib/preferences";
 import { askLeague, copyAtNow, publishedLeague } from "./lib/live/leagueAsk";
 import { useLiveLeague } from "./hooks/useLiveLeague";
 import { useScoreFill } from "./hooks/useScoreFill";
+import { useSeasonSaves } from "./hooks/useSeasonSaves";
 import { useSeasonOdds } from "./hooks/useSeasonOdds";
 import { useScenarioLinks } from "./hooks/useScenarioLinks";
 import { useSharedSnapshot } from "./hooks/useSharedSnapshot";
@@ -51,8 +52,7 @@ import { useTabReadOnly } from "./hooks/useTabReadOnly";
 import { saveBackupFile } from "./lib/backupFile";
 import { onReplacedKept, readReplaced } from "./lib/replacedBackup";
 import type { ReplacedBackupAccess } from "./components/league/ReplacedBackupLine";
-import { beforeTabYields, TAB_READ_ONLY, tabTurn } from "./lib/tabTurn";
-import { mergeHeldScores } from "./lib/heldScores";
+import { TAB_READ_ONLY, tabTurn } from "./lib/tabTurn";
 import { rankingsSearch } from "./lib/rankingsRoute";
 import { searchWithTab, tabFromSearch } from "./lib/leagueTab";
 import { ModeSwitchContext } from "./components/modeSwitch";
@@ -173,12 +173,7 @@ import {
   loadSettings,
   loadTeams,
   readSeasonSnapshot,
-  saveBracketLogs,
   writeSeasonData,
-  saveLogs,
-  saveMatchups,
-  saveSettings,
-  saveTeams,
   setSeasonArchived,
 } from "./lib/storage";
 import {
@@ -615,70 +610,15 @@ export default function App() {
 
   // ---------- Persisted state ----------
 
-  useEffect(() => {
-    recordSaveResult(saveTeams(teams), "teams", "Could not save teams (storage full).");
-  }, [teams, recordSaveResult]);
-
-  useEffect(() => {
-    recordSaveResult(saveMatchups(matchups), "schedule", "Could not save schedule (storage full).");
-  }, [matchups, recordSaveResult]);
-
-  // The scores as last written, by identity: what a flush of the scores held has still to write.
-  const savedLogs = useRef(logs);
-  useEffect(() => {
-    const saveTimer = window.setTimeout(() => {
-      recordSaveResult(saveLogs(logs), "scores", "Could not save scores (storage full).");
-      savedLogs.current = logs;
-    }, 500);
-
-    return () => window.clearTimeout(saveTimer);
-  }, [logs, recordSaveResult]);
-
-  /*
-   * A score still held, written at once: when this tab gives the turn away (`tabTurn.ts`), to a
-   * tab asking with Use here, or, in the moment before this tab's channel code arrived, to a tab
-   * already writing or one opened before it; before another season opens (`beforeSwitch`); and as
-   * the page is hidden or closed, the last moments a browser promises a page. The half second
-   * above would end with the score refused as this tab went read-only, the other tab reading the
-   * season again without it, or with the score not written at all. Read from the store, which
-   * holds a keystroke the page has still to draw (`useSeasonState`).
-   */
-  const writeHeldScores = useCallback((): boolean => {
-    const held = seasonStore.get().season.logs;
-    // Only a score still held: written again, the scores as this tab read them could undo
-    // one the other tab saved since, and would have it read the season again for nothing.
-    if (held === savedLogs.current) return false;
-    // And only the games this tab changed, over what storage holds now (`mergeHeldScores`).
-    const saved = saveLogs(mergeHeldScores(loadLogs(), savedLogs.current, held));
-    recordSaveResult(saved, "scores", "Could not save scores (storage full).");
-    if (saved) savedLogs.current = held;
-    return saved;
-  }, [seasonStore, recordSaveResult]);
-  useEffect(() => {
-    const onHidden = () => {
-      if (document.visibilityState === "hidden") writeHeldScores();
-    };
-    const stopYield = beforeTabYields(writeHeldScores);
-    document.addEventListener("visibilitychange", onHidden);
-    window.addEventListener("pagehide", writeHeldScores);
-    return () => {
-      stopYield();
-      document.removeEventListener("visibilitychange", onHidden);
-      window.removeEventListener("pagehide", writeHeldScores);
-    };
-  }, [writeHeldScores]);
-
-  useEffect(() => {
-    recordSaveResult(
-      saveBracketLogs(bracketLogs),
-      "bracket scores",
-      "Could not save bracket scores (storage full)."
-    );
-  }, [bracketLogs, recordSaveResult]);
-
-  useEffect(() => {
-    recordSaveResult(saveSettings(settings), "settings", "Could not save settings (storage full).");
-  }, [settings, recordSaveResult]);
+  const { writeHeldScores } = useSeasonSaves({
+    bracketLogs,
+    logs,
+    matchups,
+    recordSaveResult,
+    seasonStore,
+    settings,
+    teams,
+  });
 
   /*
    * Settle the add-game selects against the team list they name.
