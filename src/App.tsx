@@ -19,14 +19,12 @@ import { loadTeamRankingsView } from "./components/teamRankingsChunk";
 import {
   cloudStatus,
   leagueInStep,
-  loadNewer,
   startCloudSession,
   subscribeCloud,
 } from "./lib/cloud/cloudSession";
 import { leagueMetHere, loadCloudState } from "./lib/cloud/cloudState";
 import { editable, reachable } from "./lib/live/leagueSync";
 import {
-  leagueArriving,
   leagueLiveWanted,
   memberSignedIn,
   SEASON_DELETE_OFFLINE,
@@ -38,6 +36,7 @@ import { subscribeLeagueMet } from "./lib/preferences";
 import { askLeague, copyAtNow, publishedLeague } from "./lib/live/leagueAsk";
 import { useLiveLeague } from "./hooks/useLiveLeague";
 import { useScoreFill } from "./hooks/useScoreFill";
+import { useScenarioLinks } from "./hooks/useScenarioLinks";
 import { useSharedSnapshot } from "./hooks/useSharedSnapshot";
 import { useSeasonBuilder } from "./hooks/useSeasonBuilder";
 import { useDataQuality } from "./hooks/useDataQuality";
@@ -99,7 +98,6 @@ import { ownGameSwing, rootFor } from "./lib/goldSwing";
 import { leagueClubRankFor, scoutRoute, type LeagueClubRank } from "./lib/leagueClubRanks";
 import { askToScout } from "./lib/scoutRequest";
 import { OurTeamCard } from "./components/league/OurTeamCard";
-import type { MachineLeft } from "./components/league/PlayoffMachine";
 import type { LiveSeasonData } from "./lib/backup";
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
@@ -2179,119 +2177,6 @@ export default function App() {
     showToast,
   });
 
-  // ---------- Scenario links (2.7) ----------
-
-  /*
-   * A playoff-machine scenario someone shared: shown, and kept on this device for the open season
-   * only once the person says so (`scenarioLink.ts`). It never touches the season. The handling
-   * is fetched only when a link names a scenario, so none of it is in the page's first download.
-   */
-  const [scenarioLink, setScenarioLink] = useState<{ hash: string } | null>(() =>
-    typeof window !== "undefined" && window.location.hash.includes("scenario=")
-      ? { hash: window.location.hash }
-      : null
-  );
-  useEffect(() => {
-    const heard = () => {
-      if (window.location.hash.includes("scenario="))
-        setScenarioLink({ hash: window.location.hash });
-    };
-    window.addEventListener("hashchange", heard);
-    return () => window.removeEventListener("hashchange", heard);
-  }, []);
-  const scenarioLinkTaken = useRef<{ hash: string } | null>(null);
-  const [incomingScenario, setIncomingScenario] = useState<{
-    seasonId: string;
-    id: string;
-  } | null>(null);
-  const incomingScenarioOpened = useCallback(() => setIncomingScenario(null), []);
-  /*
-   * The playoff machine as last left, given back when the Forecast tab is shown again: its picks
-   * last as long as the page does, as the machine says, not only until another tab is looked at.
-   * They are one season's, so a change of season lets them go, as it does on screen, told by
-   * `activeSeasonKey`: by id alone, a season deleted and its id given out again, or restored over,
-   * would hand its picks and its open scenario to the season now under that id.
-   */
-  const [playoffLeft, setPlayoffLeft] = useState<MachineLeft | null>(null);
-  if (playoffLeft && playoffLeft.season !== activeSeasonKey) setPlayoffLeft(null);
-  /*
-   * Whether the season on screen is still to give way to the cloud's: the sign-in still coming, a
-   * member's first meeting with the cloud's seasons, or League kept live waiting for its version.
-   */
-  const leagueComing = leagueArriving({ status: cloud, met: leagueMet, inStep: leagueSettled });
-  const seasonArriving = leagueComing || liveLeague.state.kind === "connecting";
-  const scenarioLinkWaitTold = useRef<{ hash: string } | null>(null);
-  useEffect(() => {
-    // Signed in, with the cloud's newer seasons still to be taken in on a first meeting: they come
-    // when the page is left, left alone a while or asked, which may be minutes. The other waits are
-    // a moment's, and go unsaid.
-    if (
-      !scenarioLink ||
-      scenarioLinkTaken.current === scenarioLink ||
-      scenarioLinkWaitTold.current === scenarioLink ||
-      appMode !== "league" ||
-      cloud.kind !== "saved" ||
-      !leagueComing
-    )
-      return;
-    scenarioLinkWaitTold.current = scenarioLink;
-    showToast("The shared scenario opens once League Standings has the cloud's newer seasons.", {
-      tone: "info",
-      actionLabel: "Load them now",
-      onAction: () => void loadNewer(),
-      durationMs: 12_000,
-    });
-  }, [scenarioLink, appMode, cloud.kind, leagueComing, showToast]);
-  useEffect(() => {
-    // Asked once the open season is the one this device shows, so the link is matched against the
-    // season's own games; until then it stays in the address bar, to be asked about then.
-    if (
-      !scenarioLink ||
-      scenarioLinkTaken.current === scenarioLink ||
-      appMode !== "league" ||
-      seasonArriving
-    )
-      return;
-    scenarioLinkTaken.current = scenarioLink;
-    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
-    const seasonId = activeSeasonId;
-    const seasonName = seasons.all.find((season) => season.id === seasonId)?.name ?? "this season";
-    void import("./lib/scenarioLink")
-      .then((links) =>
-        links.openScenarioLink({
-          hash: scenarioLink.hash,
-          seasonId,
-          seasonName,
-          matchups,
-          logs,
-          nameOf,
-          ask: requestConfirmation,
-          say: (text, tone) => showToast(text, { tone }),
-        })
-      )
-      .then((kept) => {
-        if (!kept) return;
-        setIncomingScenario({ seasonId, id: kept.id });
-        setActiveView("model");
-      })
-      .catch(() =>
-        showToast("The scenario link could not be opened. Reload the page and open it again.", {
-          tone: "error",
-        })
-      );
-  }, [
-    scenarioLink,
-    appMode,
-    seasonArriving,
-    activeSeasonId,
-    seasons.all,
-    matchups,
-    logs,
-    nameOf,
-    requestConfirmation,
-    showToast,
-  ]);
-
   const shareSeason = useCallback(async () => {
     const snapshot = { v: 1 as const, teams, matchups, logs, settings };
     try {
@@ -2322,6 +2207,26 @@ export default function App() {
       );
     }
   }, [teams, matchups, logs, settings, activeView, selectedTeamId, showToast]);
+
+  // ---------- Scenario links (2.7) ----------
+
+  const { incomingScenario, incomingScenarioOpened, playoffLeft, setPlayoffLeft } =
+    useScenarioLinks({
+      activeSeasonId,
+      activeSeasonKey,
+      appMode,
+      cloud,
+      leagueMet,
+      leagueSettled,
+      liveLeague,
+      logs,
+      matchups,
+      nameOf,
+      requestConfirmation,
+      seasons,
+      setActiveView,
+      showToast,
+    });
 
   // ---------- Shortcuts ----------
 
