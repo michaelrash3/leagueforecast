@@ -36,6 +36,7 @@ import { subscribeLeagueMet } from "./lib/preferences";
 import { askLeague, copyAtNow, publishedLeague } from "./lib/live/leagueAsk";
 import { useLiveLeague } from "./hooks/useLiveLeague";
 import { useScoreFill } from "./hooks/useScoreFill";
+import { useOurTeam } from "./hooks/useOurTeam";
 import { useLeagueStory } from "./hooks/useLeagueStory";
 import { useSeasonSaves } from "./hooks/useSeasonSaves";
 import { useSeasonOdds } from "./hooks/useSeasonOdds";
@@ -54,7 +55,6 @@ import { saveBackupFile } from "./lib/backupFile";
 import { onReplacedKept, readReplaced } from "./lib/replacedBackup";
 import type { ReplacedBackupAccess } from "./components/league/ReplacedBackupLine";
 import { TAB_READ_ONLY, tabTurn } from "./lib/tabTurn";
-import { rankingsSearch } from "./lib/rankingsRoute";
 import { searchWithTab, tabFromSearch } from "./lib/leagueTab";
 import { ModeSwitchContext } from "./components/modeSwitch";
 import { recordDiagnostic } from "./lib/diagnostics";
@@ -88,11 +88,8 @@ import {
   teamDrawerView,
 } from "./components/league/leagueViews";
 import { isPoolUnavailable, onPoolWriteError } from "./lib/teamRankingsStorage";
-import { readOurTeam, writeOurTeam } from "./lib/preferences";
-import { needsLines, ourTeamSummary, rootForLines } from "./lib/ourTeam";
-import { ownGameSwing, rootFor } from "./lib/goldSwing";
-import { leagueClubRankFor, scoutRoute, type LeagueClubRank } from "./lib/leagueClubRanks";
-import { askToScout } from "./lib/scoutRequest";
+import { readOurTeam } from "./lib/preferences";
+import { leagueClubRankFor } from "./lib/leagueClubRanks";
 import { OurTeamCard } from "./components/league/OurTeamCard";
 import type { LiveSeasonData } from "./lib/backup";
 import { ToastView } from "./components/Toast";
@@ -118,7 +115,7 @@ import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standi
 import { displayName, recordText } from "./lib/format";
 import { recapToMarkdown, recapToStoryBrief } from "./lib/insights";
 import { AiHealthCheck } from "./components/aiHealthCheck";
-import { eliminationNumberForGold, magicForGold, neededResults, withOwedGames } from "./lib/magic";
+import { eliminationNumberForGold, magicForGold, withOwedGames } from "./lib/magic";
 import { buildPredictionEngine } from "./lib/predictionEngine";
 import { buildBracketProjection } from "./lib/bracket";
 import { buildShareUrl } from "./lib/share";
@@ -133,7 +130,6 @@ import {
 import {
   EXACT_MAGIC_REMAINING_GAME_LIMIT,
   EXACT_SCENARIO_REMAINING_GAME_LIMIT,
-  NEEDS_REMAINING_GAME_LIMIT,
 } from "./lib/searchLimits";
 import { useToday } from "./hooks/useToday";
 import { useNarrowViewport } from "./hooks/useWideViewport";
@@ -1654,90 +1650,26 @@ export default function App() {
   );
   const compareTeam = compareTeamId ? (dashboardById.get(compareTeamId) ?? null) : null;
 
-  const pickOurTeam = useCallback(
-    (teamId: string | null) => {
-      writeOurTeam(activeSeasonId, teamId);
-      setOurTeamPick({ season: activeSeasonKey, teamId });
-    },
-    [activeSeasonId, activeSeasonKey]
-  );
-  /*
-   * Where the followed team's club stands on Team Rankings, as its board last stood there
-   * (`leagueClubRankFor`). Read again whenever the League side is shown, since the Rankings side
-   * is what writes it.
-   */
-  const ourClubRank = useMemo(
-    () =>
-      ourTeamId && appMode === "league"
-        ? leagueClubRankFor(activeSeasonId, ourTeamId, scoutClubs)
-        : undefined,
-    [activeSeasonId, ourTeamId, appMode, scoutClubs]
-  );
-  /*
-   * League Standings' Scout button: Team Rankings' Scouting on the page a team's club was ranked
-   * on, with that club's report open (`scoutRoute`, `askToScout`). The route is written in place,
-   * as switching between the two halves of the app writes it (`useAppMode`), so Back does what it
-   * always has.
-   */
-  const scoutClub = useCallback(
-    (rank: LeagueClubRank) => {
-      askToScout(rank.clubId);
-      const search = rankingsSearch(window.location.search, scoutRoute(rank));
-      window.history.replaceState(
-        null,
-        "",
-        `${window.location.pathname}${search}${window.location.hash}`
-      );
-      setAppMode("rankings");
-    },
-    [setAppMode]
-  );
-  const ourTeam = useMemo(() => {
-    const team = ourTeamId ? dashboardById.get(ourTeamId) : undefined;
-    if (!team) return null;
-    const magic =
-      hasCutLine && searchedCount <= EXACT_MAGIC_REMAINING_GAME_LIMIT
-        ? magicForGold(team.id, dashboardRows, remainingGames, goldCutoff, seasonSettings)
-            .description
-        : undefined;
-    /*
-     * What it cannot do without, exact, late enough that the search is quick: on a full table with
-     * ties worth half a win, ten games left took 245 ms at worst against 1.5 s at fifteen.
-     */
-    const needed =
-      hasCutLine && searchedCount <= NEEDS_REMAINING_GAME_LIMIT
-        ? neededResults(team.id, dashboardRows, remainingGames, goldCutoff, seasonSettings)
-        : null;
-    const needs = needed
-      ? needsLines(team.id, needed, (id) => displayName(dashboardById.get(id)?.name ?? id))
-      : undefined;
-    const swings = nextTwoSwingGames(team.id);
-    // The odds' own seasons, read by how each game went: worked out with the odds, at no extra draw.
-    const swing = ourSwing?.teamId === team.id ? ourSwing : undefined;
-    const nextGame = swings[0]?.game;
-    const nextGold = swing && nextGame ? ownGameSwing(swing, nextGame) : null;
-    const picks = swing ? rootFor(swing, remainingGames) : [];
-    const nameOf = (id: string) => displayName(dashboardById.get(id)?.name ?? id);
-    return ourTeamSummary(team, dashboardRows.length, {
-      hasCutLine,
-      swings,
-      ...(magic ? { magic } : {}),
-      ...(needs ? { needs } : {}),
-      ...(nextGold ? { nextGold } : {}),
-      ...(picks.length ? { rootFor: rootForLines(picks, nameOf) } : {}),
-    });
-  }, [
-    ourTeamId,
+  // Our team (`useOurTeam`): the team this browser follows, its card, its club's rank, its Scout.
+  const { ourClubRank, ourTeam, pickOurTeam, scoutClub } = useOurTeam({
+    activeSeasonId,
+    activeSeasonKey,
+    appMode,
     dashboardById,
     dashboardRows,
-    hasCutLine,
-    searchedCount,
-    remainingGames,
     goldCutoff,
-    seasonSettings,
+    hasCutLine,
     nextTwoSwingGames,
     ourSwing,
-  ]);
+    ourTeamId,
+    remainingGames,
+    scoutClubs,
+    searchedCount,
+    seasonSettings,
+    setAppMode,
+    setOurTeamPick,
+  });
+
   const currentLeader = dashboardRows[0];
   // How the season ended, once it has: the Dashboard says so where the next games would be.
   const seasonFinal = useMemo(
