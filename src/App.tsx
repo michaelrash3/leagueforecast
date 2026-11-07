@@ -103,16 +103,10 @@ import { useUndoSnapshot, type UndoableSeason } from "./hooks/useUndoSnapshot";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
 import { useToast } from "./hooks/useToast";
 import { useUrlSnapshot } from "./hooks/useUrlState";
-import {
-  formatGameDate,
-  normalizeDateInput,
-  parseDateValue,
-  seasonStartMonth,
-  todayIsoDay,
-} from "./lib/date";
+import { formatGameDate, parseDateValue, seasonStartMonth, todayIsoDay } from "./lib/date";
 import { builderTeamNames } from "./lib/roundRobin";
 import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standingsViews";
-import { displayName, recordText } from "./lib/format";
+import { recordText } from "./lib/format";
 import { recapToMarkdown, recapToStoryBrief } from "./lib/insights";
 import { AiHealthCheck } from "./components/aiHealthCheck";
 import { eliminationNumberForGold, magicForGold, withOwedGames } from "./lib/magic";
@@ -121,8 +115,6 @@ import { buildBracketProjection } from "./lib/bracket";
 import { buildShareUrl } from "./lib/share";
 import { formatProbabilityMargin, wilsonScoreInterval } from "./lib/probability";
 import {
-  finalToggled,
-  withFinal,
   nameFrom,
   PROJECT_STANDINGS_REMAINING_GAME_LIMIT,
   type RecapPool,
@@ -169,7 +161,6 @@ import {
   DEFAULT_SETTINGS,
   SIM_ITERATIONS,
   type ActiveShareView,
-  type GameLog,
   type Matchup,
   type Team,
   type LastImpact,
@@ -183,10 +174,11 @@ import {
   emptySplitLine,
 } from "./lib/teamStats";
 import { buildTeamTrendSummary } from "./lib/teamTrend";
-import { blankLog, isFinal, swappedLog } from "./lib/util";
+import { isFinal } from "./lib/util";
 import { linkedTeamIdFromUrl, TEAM_QUERY_PARAM } from "./lib/teamLink";
 import { HeaderStatCard } from "./components/HeaderStatCard";
 import { button as buttonClasses, focusRing, tab } from "./styles/tokens";
+import { useGameEdits } from "./hooks/useGameEdits";
 
 type ActiveView = ActiveShareView;
 
@@ -1401,97 +1393,36 @@ export default function App() {
     clearLastImpact,
   });
 
-  const toggleFinal = (gameId: string) => {
-    const { nextLogs, impact } = finalToggled(
-      gameId,
-      logs,
-      settings.defaultGameInnings,
-      recapPool,
-      nameOf
-    );
-    // The final alone, onto the scores as they are by then, which may hold keystrokes this press
-    // came before (`withFinal`).
-    const isFinal = nextLogs[gameId]?.isFinal === true;
-    setLogs((prev) => withFinal(prev, gameId, isFinal, settings.defaultGameInnings));
-    setLastImpact(impact);
-  };
-
-  const updateLog = useCallback(
-    (gameId: string, field: keyof GameLog, value: string | boolean) => {
-      setLogs((prev) => {
-        const current = prev[gameId] || blankLog(String(settings.defaultGameInnings));
-        if (current[field] === value) return prev;
-        return {
-          ...prev,
-          [gameId]: { ...current, [field]: value },
-        };
-      });
-    },
-    [settings.defaultGameInnings, setLogs]
-  );
-
-  const updateBracketLog = useCallback(
-    (gameId: string, field: keyof GameLog, value: string | boolean) => {
-      setBracketLogs((prev) => {
-        const current = prev[gameId] || blankLog();
-        return {
-          ...prev,
-          [gameId]: {
-            ...current,
-            awayK: current.awayK || "0",
-            homeK: current.homeK || "0",
-            [field]: value,
-          },
-        };
-      });
-    },
-    [setBracketLogs]
-  );
-
-  const toggleBracketFinal = useCallback(
-    (gameId: string) => {
-      setBracketLogs((prev) => {
-        const current = prev[gameId] || blankLog();
-        return {
-          ...prev,
-          [gameId]: {
-            ...current,
-            awayK: current.awayK || "0",
-            homeK: current.homeK || "0",
-            isFinal: !current.isFinal,
-          },
-        };
-      });
-    },
-    [setBracketLogs]
-  );
-
-  const clearBracketScores = useCallback(
-    (gameIds: string[], label: string) => {
-      const ids = new Set(gameIds);
-      setBracketLogs((prev) =>
-        Object.fromEntries(Object.entries(prev).filter(([gameId]) => !ids.has(gameId)))
-      );
-      showToast(`${label} scores cleared.`, { tone: "success" });
-    },
-    [showToast, setBracketLogs]
-  );
-
-  const addGameValid = !!newAway && !!newHome && newAway !== newHome;
-
-  const addGame = () => {
-    if (!addGameValid) {
-      showToast("Pick two different teams to add a game.", { tone: "error" });
-      return;
-    }
-    const id = `game_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    setMatchups((prev) => [
-      ...prev,
-      { id, date: normalizeDateInput(newDate), away: newAway, home: newHome },
-    ]);
-    setLogs((prev) => ({ ...prev, [id]: blankLog(String(settings.defaultGameInnings)) }));
-    setNewDate("");
-  };
+  const {
+    addGame,
+    addGameValid,
+    clearBracketScores,
+    removeGame,
+    swapGame,
+    toggleBracketFinal,
+    toggleFinal,
+    updateBracketLog,
+    updateLog,
+  } = useGameEdits({
+    captureUndo,
+    logs,
+    matchups,
+    nameOf,
+    newAway,
+    newDate,
+    newHome,
+    recapPool,
+    requestConfirmation,
+    restoreUndo,
+    setBracketLogs,
+    setLastImpact,
+    setLogs,
+    setMatchups,
+    setNewDate,
+    settings,
+    showToast,
+    teamBaseById,
+  });
 
   // Fill scores (`useScoreFill`): the plan, the panel's state and applying it.
   const {
@@ -1515,45 +1446,6 @@ export default function App() {
     restoreUndo,
     showToast,
   });
-
-  const removeGame = async (gameId: string) => {
-    const confirmed = await requestConfirmation({
-      title: "Delete this game?",
-      message: "This removes the game and its current score data. An undo snapshot will be saved.",
-      confirmLabel: "Delete game",
-    });
-    if (!confirmed) return;
-    const game = matchups.find((m) => m.id === gameId);
-    captureUndo(
-      game
-        ? `Deleted ${displayName(teamBaseById.get(game.away)?.name || game.away)} vs ${displayName(teamBaseById.get(game.home)?.name || game.home)}`
-        : "Deleted game"
-    );
-    setMatchups((prev) => prev.filter((g) => g.id !== gameId));
-    setLogs((prev) => {
-      const next = { ...prev };
-      delete next[gameId];
-      return next;
-    });
-    showToast("Game deleted.", {
-      tone: "undo",
-      actionLabel: "Undo",
-      onAction: restoreUndo,
-    });
-  };
-
-  const swapGame = (gameId: string) => {
-    setMatchups((prev) =>
-      prev.map((game) =>
-        game.id === gameId ? { ...game, away: game.home, home: game.away } : game
-      )
-    );
-    setLogs((prev) => {
-      const log = prev[gameId];
-      if (!log) return prev;
-      return { ...prev, [gameId]: swappedLog(log) };
-    });
-  };
 
   // A phone held upright, where the tab rows become a bar along the bottom (2.4).
   const narrowScreen = useNarrowViewport();
