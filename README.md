@@ -124,10 +124,13 @@ src/
     gameChanger*.ts        # pulling, importing, reporting and tracking a pull
     apiShared.ts           # handler types, client key and throttle, shared by both functions
     storage.ts  idb.ts  backup.ts  share.ts
-  hooks/                # worker lifecycles, routing, shortcuts, theme, toasts; and App's sections,
-                        # one hook each, called where their code was: the odds (useSeasonOdds),
-                        # the race (useGoldRace), game forecasts, Data Quality, the season builder,
-                        # saves, links, the story, our team
+  hooks/                # worker lifecycles, routing, shortcuts, theme, toasts; and the sections of
+                        # three large components, one hook each, called where their code was:
+                        # App's (the odds, the race, game forecasts and edits, Data Quality, the
+                        # season builder, saves, links, the story, our team, the drawer's team),
+                        # Team Rankings' (team edits, pool answers, Find a team, games by hand,
+                        # starting over, the week, the club ranks, What if) and the GameChanger
+                        # panel's (useGc*)
   workers/
     sim.worker.ts  rankings.worker.ts  tidy.worker.ts
     rankingsProtocol.ts  tidyProtocol.ts  # what crosses to each worker; pure, so tested

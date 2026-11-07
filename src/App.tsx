@@ -13,7 +13,7 @@ import {
 } from "react";
 import { registerSW } from "virtual:pwa-register";
 import type { H2HCell } from "./components/charts/HeadToHeadMatrix";
-import { CloudButton, useCloudPanel } from "./components/CloudButton";
+import { useCloudPanel } from "./components/CloudButton";
 import { liveBoardWanted, RankingsOpen } from "./components/RankingsOpen";
 import { loadTeamRankingsView } from "./components/teamRankingsChunk";
 import {
@@ -68,7 +68,6 @@ import { finalScoresKey, leagueFixturesOf, stampPicks } from "./lib/teamRankings
 import { LoadingPanel } from "./components/LoadingPanel";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import {
-  compareDrawerView,
   dashboardView,
   emptyStateView,
   schedulePasteView,
@@ -85,7 +84,6 @@ import {
   settingsView,
   standingsView,
   statsView,
-  teamDrawerView,
 } from "./components/league/leagueViews";
 import { isPoolUnavailable, onPoolWriteError } from "./lib/teamRankingsStorage";
 import { readOurTeam } from "./lib/preferences";
@@ -103,34 +101,23 @@ import { useUndoSnapshot, type UndoableSeason } from "./hooks/useUndoSnapshot";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
 import { useToast } from "./hooks/useToast";
 import { useUrlSnapshot } from "./hooks/useUrlState";
-import {
-  formatGameDate,
-  normalizeDateInput,
-  parseDateValue,
-  seasonStartMonth,
-  todayIsoDay,
-} from "./lib/date";
+import { formatGameDate, parseDateValue, seasonStartMonth, todayIsoDay } from "./lib/date";
 import { builderTeamNames } from "./lib/roundRobin";
 import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standingsViews";
-import { displayName, recordText } from "./lib/format";
+import { recordText } from "./lib/format";
 import { recapToMarkdown, recapToStoryBrief } from "./lib/insights";
 import { AiHealthCheck } from "./components/aiHealthCheck";
-import { eliminationNumberForGold, magicForGold, withOwedGames } from "./lib/magic";
+import { withOwedGames } from "./lib/magic";
 import { buildPredictionEngine } from "./lib/predictionEngine";
 import { buildBracketProjection } from "./lib/bracket";
 import { buildShareUrl } from "./lib/share";
 import { formatProbabilityMargin, wilsonScoreInterval } from "./lib/probability";
 import {
-  finalToggled,
-  withFinal,
   nameFrom,
   PROJECT_STANDINGS_REMAINING_GAME_LIMIT,
   type RecapPool,
 } from "./lib/impactRecap";
-import {
-  EXACT_MAGIC_REMAINING_GAME_LIMIT,
-  EXACT_SCENARIO_REMAINING_GAME_LIMIT,
-} from "./lib/searchLimits";
+import { EXACT_SCENARIO_REMAINING_GAME_LIMIT } from "./lib/searchLimits";
 import { useToday } from "./hooks/useToday";
 import { useNarrowViewport } from "./hooks/useWideViewport";
 import { TabNav } from "./components/TabNav";
@@ -169,24 +156,20 @@ import {
   DEFAULT_SETTINGS,
   SIM_ITERATIONS,
   type ActiveShareView,
-  type GameLog,
   type Matchup,
   type Team,
   type LastImpact,
   type TeamBase,
   type TeamWithProjection,
 } from "./lib/types";
-import {
-  buildLeagueAverageStats,
-  buildTeamSplitSummary,
-  buildTeamStatRankings,
-  emptySplitLine,
-} from "./lib/teamStats";
-import { buildTeamTrendSummary } from "./lib/teamTrend";
-import { blankLog, isFinal, swappedLog } from "./lib/util";
+import { buildLeagueAverageStats, buildTeamStatRankings } from "./lib/teamStats";
+import { isFinal } from "./lib/util";
 import { linkedTeamIdFromUrl, TEAM_QUERY_PARAM } from "./lib/teamLink";
-import { HeaderStatCard } from "./components/HeaderStatCard";
-import { button as buttonClasses, focusRing, tab } from "./styles/tokens";
+import { button as buttonClasses, focusRing } from "./styles/tokens";
+import { useGameEdits } from "./hooks/useGameEdits";
+import { useSelectedTeam } from "./hooks/useSelectedTeam";
+import { LeagueHeader } from "./components/league/LeagueHeader";
+import { TeamDrawers } from "./components/league/TeamDrawers";
 
 type ActiveView = ActiveShareView;
 
@@ -254,8 +237,6 @@ const DataQualityView = qualityView.View;
 const SettingsView = settingsView.View;
 const SeasonManager = seasonManagerView.View;
 const ScoutLinkPanel = scoutLinkView.View;
-const TeamDrawer = teamDrawerView.View;
-const CompareDrawer = compareDrawerView.View;
 const EmptyState = emptyStateView.View;
 
 // ---------- Main app ----------
@@ -1401,97 +1382,36 @@ export default function App() {
     clearLastImpact,
   });
 
-  const toggleFinal = (gameId: string) => {
-    const { nextLogs, impact } = finalToggled(
-      gameId,
-      logs,
-      settings.defaultGameInnings,
-      recapPool,
-      nameOf
-    );
-    // The final alone, onto the scores as they are by then, which may hold keystrokes this press
-    // came before (`withFinal`).
-    const isFinal = nextLogs[gameId]?.isFinal === true;
-    setLogs((prev) => withFinal(prev, gameId, isFinal, settings.defaultGameInnings));
-    setLastImpact(impact);
-  };
-
-  const updateLog = useCallback(
-    (gameId: string, field: keyof GameLog, value: string | boolean) => {
-      setLogs((prev) => {
-        const current = prev[gameId] || blankLog(String(settings.defaultGameInnings));
-        if (current[field] === value) return prev;
-        return {
-          ...prev,
-          [gameId]: { ...current, [field]: value },
-        };
-      });
-    },
-    [settings.defaultGameInnings, setLogs]
-  );
-
-  const updateBracketLog = useCallback(
-    (gameId: string, field: keyof GameLog, value: string | boolean) => {
-      setBracketLogs((prev) => {
-        const current = prev[gameId] || blankLog();
-        return {
-          ...prev,
-          [gameId]: {
-            ...current,
-            awayK: current.awayK || "0",
-            homeK: current.homeK || "0",
-            [field]: value,
-          },
-        };
-      });
-    },
-    [setBracketLogs]
-  );
-
-  const toggleBracketFinal = useCallback(
-    (gameId: string) => {
-      setBracketLogs((prev) => {
-        const current = prev[gameId] || blankLog();
-        return {
-          ...prev,
-          [gameId]: {
-            ...current,
-            awayK: current.awayK || "0",
-            homeK: current.homeK || "0",
-            isFinal: !current.isFinal,
-          },
-        };
-      });
-    },
-    [setBracketLogs]
-  );
-
-  const clearBracketScores = useCallback(
-    (gameIds: string[], label: string) => {
-      const ids = new Set(gameIds);
-      setBracketLogs((prev) =>
-        Object.fromEntries(Object.entries(prev).filter(([gameId]) => !ids.has(gameId)))
-      );
-      showToast(`${label} scores cleared.`, { tone: "success" });
-    },
-    [showToast, setBracketLogs]
-  );
-
-  const addGameValid = !!newAway && !!newHome && newAway !== newHome;
-
-  const addGame = () => {
-    if (!addGameValid) {
-      showToast("Pick two different teams to add a game.", { tone: "error" });
-      return;
-    }
-    const id = `game_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    setMatchups((prev) => [
-      ...prev,
-      { id, date: normalizeDateInput(newDate), away: newAway, home: newHome },
-    ]);
-    setLogs((prev) => ({ ...prev, [id]: blankLog(String(settings.defaultGameInnings)) }));
-    setNewDate("");
-  };
+  const {
+    addGame,
+    addGameValid,
+    clearBracketScores,
+    removeGame,
+    swapGame,
+    toggleBracketFinal,
+    toggleFinal,
+    updateBracketLog,
+    updateLog,
+  } = useGameEdits({
+    captureUndo,
+    logs,
+    matchups,
+    nameOf,
+    newAway,
+    newDate,
+    newHome,
+    recapPool,
+    requestConfirmation,
+    restoreUndo,
+    setBracketLogs,
+    setLastImpact,
+    setLogs,
+    setMatchups,
+    setNewDate,
+    settings,
+    showToast,
+    teamBaseById,
+  });
 
   // Fill scores (`useScoreFill`): the plan, the panel's state and applying it.
   const {
@@ -1515,45 +1435,6 @@ export default function App() {
     restoreUndo,
     showToast,
   });
-
-  const removeGame = async (gameId: string) => {
-    const confirmed = await requestConfirmation({
-      title: "Delete this game?",
-      message: "This removes the game and its current score data. An undo snapshot will be saved.",
-      confirmLabel: "Delete game",
-    });
-    if (!confirmed) return;
-    const game = matchups.find((m) => m.id === gameId);
-    captureUndo(
-      game
-        ? `Deleted ${displayName(teamBaseById.get(game.away)?.name || game.away)} vs ${displayName(teamBaseById.get(game.home)?.name || game.home)}`
-        : "Deleted game"
-    );
-    setMatchups((prev) => prev.filter((g) => g.id !== gameId));
-    setLogs((prev) => {
-      const next = { ...prev };
-      delete next[gameId];
-      return next;
-    });
-    showToast("Game deleted.", {
-      tone: "undo",
-      actionLabel: "Undo",
-      onAction: restoreUndo,
-    });
-  };
-
-  const swapGame = (gameId: string) => {
-    setMatchups((prev) =>
-      prev.map((game) =>
-        game.id === gameId ? { ...game, away: game.home, home: game.away } : game
-      )
-    );
-    setLogs((prev) => {
-      const log = prev[gameId];
-      if (!log) return prev;
-      return { ...prev, [gameId]: swappedLog(log) };
-    });
-  };
 
   // A phone held upright, where the tab rows become a bar along the bottom (2.4).
   const narrowScreen = useNarrowViewport();
@@ -1629,26 +1510,33 @@ export default function App() {
 
   // ---------- Header / selection ----------
 
-  const selectedTeam = selectedTeamId ? (dashboardById.get(selectedTeamId) ?? null) : null;
-  const selectedTeamSplitSummary = useMemo(
-    () =>
-      selectedTeam
-        ? buildTeamSplitSummary(selectedTeam.id, matchups, logs)
-        : {
-            all: emptySplitLine("Overall"),
-            home: emptySplitLine("Home"),
-            away: emptySplitLine("Away"),
-          },
-    [selectedTeam, matchups, logs]
-  );
-  const selectedTeamTrendSummary = useMemo(
-    () =>
-      selectedTeam
-        ? buildTeamTrendSummary(selectedTeam.id, matchups, logs, runsOnly)
-        : buildTeamTrendSummary("", [], {}, runsOnly),
-    [selectedTeam, matchups, logs, runsOnly]
-  );
-  const compareTeam = compareTeamId ? (dashboardById.get(compareTeamId) ?? null) : null;
+  const {
+    compareTeam,
+    selectedTeam,
+    selectedTeamDetail,
+    selectedTeamSplitSummary,
+    selectedTeamTrendSummary,
+  } = useSelectedTeam({
+    bubbleTierForTeam,
+    clinchScenariosForTeam,
+    compareTeamId,
+    currentSosRanks,
+    dashboardById,
+    dashboardRows,
+    formatGoldPct,
+    goldCutoff,
+    logs,
+    matchups,
+    nextTwoSwingGames,
+    remainingGames,
+    runsOnly,
+    scheduleDifficultyForTeam,
+    searchedCount,
+    seasonSettings,
+    seedRangeForTeam,
+    selectedTeamId,
+    titleRaceBadgeForTeam,
+  });
 
   // Our team (`useOurTeam`): the team this browser follows, its card, its club's rank, its Scout.
   const { ourClubRank, ourTeam, pickOurTeam, scoutClub } = useOurTeam({
@@ -1716,60 +1604,6 @@ export default function App() {
     seasonLabel: settings.seasonLabel,
     nameOf,
   });
-
-  const selectedTeamDetail = useMemo(() => {
-    if (!selectedTeam) return null;
-    const swings = nextTwoSwingGames(selectedTeam.id);
-    return {
-      bubble: bubbleTierForTeam(selectedTeam),
-      currentSosRank: currentSosRanks[selectedTeam.id] ?? null,
-      goldPctLabel: formatGoldPct(selectedTeam),
-      range: seedRangeForTeam(selectedTeam.id),
-      sos: scheduleDifficultyForTeam(selectedTeam.id),
-      swings,
-      titleRace: titleRaceBadgeForTeam(selectedTeam),
-      clinchScenarios: clinchScenariosForTeam(selectedTeam.id),
-      magic:
-        searchedCount <= EXACT_MAGIC_REMAINING_GAME_LIMIT
-          ? magicForGold(selectedTeam.id, dashboardRows, remainingGames, goldCutoff, seasonSettings)
-          : {
-              type: "magic" as const,
-              ownWinsNeeded: 0,
-              opponentLossesNeeded: 0,
-              description: `Exact magic number is paused until ${EXACT_MAGIC_REMAINING_GAME_LIMIT} or fewer games remain to keep team modals responsive.`,
-            },
-      elimination:
-        searchedCount <= EXACT_MAGIC_REMAINING_GAME_LIMIT
-          ? eliminationNumberForGold(
-              selectedTeam.id,
-              dashboardRows,
-              remainingGames,
-              goldCutoff,
-              seasonSettings
-            )
-          : {
-              type: "elimination" as const,
-              ownWinsNeeded: 0,
-              opponentLossesNeeded: 0,
-              description: `Exact elimination number is paused until ${EXACT_MAGIC_REMAINING_GAME_LIMIT} or fewer games remain to keep team modals responsive.`,
-            },
-    };
-  }, [
-    selectedTeam,
-    nextTwoSwingGames,
-    bubbleTierForTeam,
-    currentSosRanks,
-    formatGoldPct,
-    seedRangeForTeam,
-    scheduleDifficultyForTeam,
-    titleRaceBadgeForTeam,
-    clinchScenariosForTeam,
-    dashboardRows,
-    searchedCount,
-    remainingGames,
-    goldCutoff,
-    seasonSettings,
-  ]);
 
   const finalCount = completedGames.length;
   const totalGamesCount = matchups.length;
@@ -1960,153 +1794,26 @@ export default function App() {
         </div>
       )}
       <div className="min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
-        <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-          <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 pt-4 sm:px-6 lg:px-8">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-sm font-black text-white dark:bg-white dark:text-slate-950">
-                  LF
-                </div>
-                {/*
-                 * A size smaller on a phone, where the title row also holds the cloud button and the
-                 * theme toggle: at its full size on a 360px screen the title took a second line once
-                 * the cloud button joined the row, 28px more of the first screen.
-                 */}
-                <h1 className="text-xl font-black tracking-[-0.04em] text-slate-950 sm:text-2xl dark:text-white">
-                  League Forecast
-                </h1>
-                {/*
-                 * Below `lg` the theme toggle sits in the title row, the logo's size. At the end of
-                 * the controls it fell to a row of its own on a phone whenever the season's name was
-                 * long, and on Team Rankings always: 54px of the first screen for one button.
-                 */}
-                <div className="ml-auto flex shrink-0 items-center gap-2 lg:hidden">
-                  <CloudButton
-                    status={cloud}
-                    onOpen={cloudPanel.show}
-                    className="inline-flex h-10 w-10 shrink-0"
-                  />
-                  {themeToggle("inline-flex h-10 w-10 shrink-0")}
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <div
-                  role="tablist"
-                  aria-label="App mode"
-                  className="flex w-full items-center gap-1 rounded-lg bg-slate-100 p-1 sm:inline-flex sm:w-auto dark:bg-slate-900"
-                >
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={appMode === "league"}
-                    onClick={() => setAppMode("league")}
-                    className={tab(appMode === "league", "fill")}
-                  >
-                    League Standings
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={appMode === "rankings"}
-                    onClick={() => setAppMode("rankings")}
-                    className={tab(appMode === "rankings", "fill")}
-                  >
-                    Team Rankings
-                  </button>
-                </div>
-                {appMode === "league" && (
-                  <>
-                    <label className="sr-only" htmlFor="season-switcher">
-                      Active season
-                    </label>
-                    <select
-                      id="season-switcher"
-                      value={activeSeasonId}
-                      onChange={(event) => seasons.switchTo(event.target.value)}
-                      className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-                      aria-label="Active season"
-                      title="Switch season"
-                    >
-                      {seasonGroups.inUse.map((season) => (
-                        <option key={season.id} value={season.id}>
-                          {season.name}
-                        </option>
-                      ))}
-                      {seasonGroups.archived.length > 0 && (
-                        <optgroup label="Archived">
-                          {seasonGroups.archived.map((season) => (
-                            <option key={season.id} value={season.id}>
-                              {season.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      )}
-                    </select>
-                    {teams.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={shareSeason}
-                        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-800 shadow-xs hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
-                        aria-label="Copy share URL for this season"
-                      >
-                        Share
-                      </button>
-                    )}
-                  </>
-                )}
-                {updateApp && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void updateApp();
-                    }}
-                    className="inline-flex items-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-xs hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/60"
-                  >
-                    Reload update
-                  </button>
-                )}
-                <CloudButton
-                  status={cloud}
-                  onOpen={cloudPanel.show}
-                  className="hidden h-11 w-11 lg:inline-flex"
-                />
-                {themeToggle("hidden p-3 lg:inline-flex")}
-              </div>
-            </div>
-
-            {/*
-             * The season at a glance belongs on the Dashboard. Above every other view it repeated
-             * what that view already says (Standings opens on the leader and the cut line), and on
-             * a phone it took most of the first screen before the view began.
-             */}
-            {appMode === "league" && activeView === "dashboard" && (
-              <div
-                className={`grid grid-cols-2 gap-3 pb-4 sm:grid-cols-3 ${
-                  teams.length === 0 ? "hidden" : ""
-                }`}
-                aria-label="League pulse summary"
-              >
-                <HeaderStatCard
-                  label="Games analyzed"
-                  value={`${finalCount}/${totalGamesCount}`}
-                  accent="from-emerald-400 via-cyan-400 to-blue-500"
-                />
-                <HeaderStatCard
-                  label="Current leader"
-                  value={currentLeader ? currentLeader.name : "—"}
-                  accent="from-blue-500 via-indigo-500 to-slate-900"
-                />
-                {hasPostseason && (
-                  <HeaderStatCard
-                    label={hasCutLine ? "Gold cutoff" : "Postseason"}
-                    value={hasCutLine ? `Top ${goldCutoff}` : "All teams"}
-                    accent="from-amber-400 via-orange-500 to-red-500"
-                  />
-                )}
-              </div>
-            )}
-          </div>
-        </header>
+        <LeagueHeader
+          activeSeasonId={activeSeasonId}
+          activeView={activeView}
+          appMode={appMode}
+          cloud={cloud}
+          cloudPanel={cloudPanel}
+          currentLeader={currentLeader}
+          finalCount={finalCount}
+          goldCutoff={goldCutoff}
+          hasCutLine={hasCutLine}
+          hasPostseason={hasPostseason}
+          seasonGroups={seasonGroups}
+          seasons={seasons}
+          setAppMode={setAppMode}
+          shareSeason={shareSeason}
+          teams={teams}
+          themeToggle={themeToggle}
+          totalGamesCount={totalGamesCount}
+          updateApp={updateApp}
+        />
 
         {appMode === "league" &&
           (narrowScreen ? (
@@ -2539,96 +2246,27 @@ export default function App() {
           </main>
         )}
 
-        {/* Each drawer is fetched the first time it is opened (2.1, 2.7), so each has a boundary of
-          its own: a download that fails is said over the page, with Close, and is asked for again
-          on Try again or the next opening (though a browser may answer from the failure it keeps
-          for the visit, which only Reload the page clears), rather than reaching the root's
-          boundary, whose Try again would open the panel again from the address and fail again. */}
-        {selectedTeam && (
-          <ErrorBoundary
-            area="The team panel"
-            onReset={teamDrawerView.reset}
-            onClose={closeTeamData}
-          >
-            <Suspense fallback={null}>
-              <TeamDrawer
-                team={selectedTeam}
-                range={
-                  selectedTeamDetail?.range ?? {
-                    best: selectedTeam.rank ?? 99,
-                    worst: selectedTeam.rank ?? 99,
-                    baseline: selectedTeam.rank ?? 99,
-                  }
-                }
-                bubble={selectedTeamDetail?.bubble ?? ""}
-                detailsPending={!selectedTeamDetail}
-                currentSosRank={selectedTeamDetail?.currentSosRank ?? null}
-                sos={selectedTeamDetail?.sos ?? { label: "", rating: 0, opponents: "" }}
-                swings={selectedTeamDetail?.swings ?? []}
-                clinchScenarios={selectedTeamDetail?.clinchScenarios ?? []}
-                titleRace={selectedTeamDetail?.titleRace ?? ""}
-                goldPctLabel={selectedTeamDetail?.goldPctLabel ?? formatGoldPct(selectedTeam)}
-                cutoff={goldCutoff}
-                magicForGold={
-                  selectedTeamDetail?.magic ?? {
-                    type: "magic",
-                    ownWinsNeeded: 0,
-                    opponentLossesNeeded: 0,
-                    description: "",
-                  }
-                }
-                eliminationNumber={
-                  selectedTeamDetail?.elimination ?? {
-                    type: "elimination",
-                    ownWinsNeeded: 0,
-                    opponentLossesNeeded: 0,
-                    description: "",
-                  }
-                }
-                splitSummary={selectedTeamSplitSummary}
-                trendSummary={selectedTeamTrendSummary}
-                leagueAverageStats={leagueAverageStats}
-                pitchMode={settings.pitchMode}
-                trackErrors={settings.trackErrors}
-                runsOnly={runsOnly}
-                hasCutLine={hasCutLine}
-                projectionExplanations={
-                  lastImpact?.projectionExplanations?.find((e) => e.teamId === selectedTeam.id)
-                    ?.items ?? []
-                }
-                onClose={closeTeamData}
-                onRename={
-                  leagueEditable ? (name) => renameLeagueTeam(selectedTeam.id, name) : undefined
-                }
-                onCompare={() => {
-                  const candidate = dashboardRows.find((team) => team.id !== selectedTeam.id);
-                  setCompareTeamId(candidate ? candidate.id : null);
-                }}
-              />
-            </Suspense>
-          </ErrorBoundary>
-        )}
-
-        {selectedTeam && compareTeam && (
-          <ErrorBoundary
-            area="The comparison"
-            onReset={compareDrawerView.reset}
-            onClose={() => setCompareTeamId(null)}
-          >
-            <Suspense fallback={null}>
-              <CompareDrawer
-                left={selectedTeam}
-                right={compareTeam}
-                allTeams={dashboardRows}
-                matchups={matchups}
-                logs={logs}
-                runsOnly={runsOnly}
-                onClose={() => setCompareTeamId(null)}
-                onPickRight={(id) => setCompareTeamId(id)}
-              />
-            </Suspense>
-          </ErrorBoundary>
-        )}
+        <TeamDrawers
+          closeTeamData={closeTeamData}
+          compareTeam={compareTeam}
+          dashboardRows={dashboardRows}
+          formatGoldPct={formatGoldPct}
+          goldCutoff={goldCutoff}
+          hasCutLine={hasCutLine}
+          lastImpact={lastImpact}
+          leagueAverageStats={leagueAverageStats}
+          leagueEditable={leagueEditable}
+          logs={logs}
+          matchups={matchups}
+          renameLeagueTeam={renameLeagueTeam}
+          runsOnly={runsOnly}
+          selectedTeam={selectedTeam}
+          selectedTeamDetail={selectedTeamDetail}
+          selectedTeamSplitSummary={selectedTeamSplitSummary}
+          selectedTeamTrendSummary={selectedTeamTrendSummary}
+          setCompareTeamId={setCompareTeamId}
+          settings={settings}
+        />
 
         {
           /*

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SAVE_EVERY_MAX, SAVE_EVERY_MIN, saveEvery } from "./GameChangerImportPanel";
+import { SAVE_EVERY_MAX, SAVE_EVERY_MIN, saveEvery } from "../lib/gcPullPacing";
 
 /*
  * Every save rewrites the whole pool, because the store keeps it as one value. A fixed interval

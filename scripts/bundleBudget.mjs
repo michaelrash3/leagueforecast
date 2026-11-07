@@ -185,6 +185,11 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
  * (`forecastGame`, `drawnMarginSpan`, `drawnRuns`), 52 bytes of it reaching that load. The line
  * goes up by a whole kilobyte, so the next small change to the opening is not held up by bytes
  * alone; it is still about half the 166.5 KB it stood at before the sections loaded on demand.
+ * Team Rankings to 88.5 KB on 7 Nov 2026 for its view's sections moved into hooks of their own
+ * (`useTeamEdits` and seven more), 87.4 KB against 86.2 KB on main (87,410 bytes against 86,155),
+ * with nothing they do changed: the values each hook takes and hands back are object keys, which
+ * the minifier keeps whole where it had shortened the same names inside one component. By the
+ * whole kilobyte again, for the same reason as before.
  */
 const BUDGET = {
   firstDownload: 255_000,
@@ -201,7 +206,7 @@ const BUDGET = {
     Settings: 13_700,
     "Seasons at a glance": 4_400,
     "Since you last looked": 4_500,
-    "Team Rankings": 87_000,
+    "Team Rankings": 88_500,
   },
   sections: {
     Games: 12_400,
