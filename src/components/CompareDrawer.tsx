@@ -1,7 +1,7 @@
 import { useId, useMemo, useRef } from "react";
 import { useEscape, useFocusTrap } from "../hooks/useFocusTrap";
 import { displayName, recordText } from "../lib/format";
-import type { GameLog, Matchup, TeamWithProjection } from "../lib/types";
+import type { GameLog, Matchup, PitchMode, TeamWithProjection } from "../lib/types";
 import { isFinal, parseNumber } from "../lib/util";
 
 const compareSelectId = "compare-with-select";
@@ -13,11 +13,27 @@ type Props = {
   matchups: Matchup[];
   logs: Record<string, GameLog>;
   /**
-   * True when the league records the final score and nothing else. The hit and
-   * strikeout rows would then compare a season-long 0.0 against a season-long
-   * 0.0, so they are left out rather than shown as a fake dead heat.
+   * True when the league records the final score and nothing else. The rest of
+   * the box score's rows would then compare a season-long 0.0 against a
+   * season-long 0.0, so they are left out rather than shown as a fake dead heat.
    */
   runsOnly: boolean;
+  /**
+   * Whether the league has a cut line, the only format whose Gold Odds tell two
+   * teams apart: where every team makes the bracket every team reads 100%, and
+   * with no postseason every team reads 0%. The row is left out without one, as
+   * the team panel leaves out its Gold %.
+   */
+  hasCutLine: boolean;
+  /**
+   * Kid pitch writes down walks and errors where machine and coach pitch write
+   * down strikeouts (the score form's boxes, `GamesView`), so in kid pitch the
+   * strikeout rows, 0.0 against 0.0, give way to the walk and error rows the
+   * team panel shows.
+   */
+  pitchMode: PitchMode;
+  /** Whether kid-pitch games record errors; without them Errors/Game is 0.0 against 0.0. */
+  trackErrors: boolean;
   onClose: () => void;
   onPickRight: (id: string) => void;
 };
@@ -33,6 +49,9 @@ export function CompareDrawer({
   matchups,
   logs,
   runsOnly,
+  hasCutLine,
+  pitchMode,
+  trackErrors,
   onClose,
   onPickRight,
 }: Props) {
@@ -95,6 +114,46 @@ export function CompareDrawer({
       const leftBetter = higherBetter ? l > r : l < r;
       return leftBetter ? "left" : "right";
     };
+    // The walks a team's own hitters drew, as the team panel's BB/Game reads them, not those its
+    // pitchers gave up; and the errors made in its field, fewer being better.
+    const leftWalks = left.walksReceivedPerGame ?? 0;
+    const rightWalks = right.walksReceivedPerGame ?? 0;
+    const leftErrors = left.errorsPerGame ?? 0;
+    const rightErrors = right.errorsPerGame ?? 0;
+    const pitchModeRows: StatRow[] =
+      pitchMode === "player"
+        ? [
+            {
+              label: "BB/Game",
+              left: fmt(leftWalks),
+              right: fmt(rightWalks),
+              better: compare(leftWalks, rightWalks),
+            },
+            ...(trackErrors
+              ? [
+                  {
+                    label: "Errors/Game",
+                    left: fmt(leftErrors),
+                    right: fmt(rightErrors),
+                    better: compare(leftErrors, rightErrors, false),
+                  },
+                ]
+              : []),
+          ]
+        : [
+            {
+              label: "K/Game (batting)",
+              left: fmt(left.kpg),
+              right: fmt(right.kpg),
+              better: compare(left.kpg, right.kpg, false),
+            },
+            {
+              label: "Opp K/Game",
+              left: fmt(left.oppKpg),
+              right: fmt(right.oppKpg),
+              better: compare(left.oppKpg, right.oppKpg),
+            },
+          ];
     return [
       { label: "Record", left: recordText(left), right: recordText(right) },
       {
@@ -130,25 +189,18 @@ export function CompareDrawer({
               right: fmt(right.hpg),
               better: compare(left.hpg, right.hpg),
             },
-            {
-              label: "K/Game (batting)",
-              left: fmt(left.kpg),
-              right: fmt(right.kpg),
-              better: compare(left.kpg, right.kpg, false),
-            },
-            {
-              label: "Opp K/Game",
-              left: fmt(left.oppKpg),
-              right: fmt(right.oppKpg),
-              better: compare(left.oppKpg, right.oppKpg),
-            },
+            ...pitchModeRows,
           ]),
-      {
-        label: "Gold Odds",
-        left: `${Math.round(left.goldPct)}%`,
-        right: `${Math.round(right.goldPct)}%`,
-        better: compare(left.goldPct, right.goldPct),
-      },
+      ...(hasCutLine
+        ? [
+            {
+              label: "Gold Odds",
+              left: `${Math.round(left.goldPct)}%`,
+              right: `${Math.round(right.goldPct)}%`,
+              better: compare(left.goldPct, right.goldPct),
+            },
+          ]
+        : []),
       {
         label: "Current Seed",
         left: `#${left.rank}`,
@@ -162,7 +214,7 @@ export function CompareDrawer({
         better: compare(left.projectedRank, right.projectedRank, false),
       },
     ];
-  }, [left, right, runsOnly]);
+  }, [left, right, runsOnly, hasCutLine, pitchMode, trackErrors]);
 
   const tone = (which: "left" | "right" | "tie" | undefined, side: "left" | "right") => {
     if (which === "tie" || which === undefined) return "text-slate-700 dark:text-slate-200";

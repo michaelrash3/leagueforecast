@@ -149,6 +149,9 @@ export function TeamDrawers({
               matchups={matchups}
               logs={logs}
               runsOnly={runsOnly}
+              hasCutLine={hasCutLine}
+              pitchMode={settings.pitchMode}
+              trackErrors={settings.trackErrors}
               onClose={() => setCompareTeamId(null)}
               onPickRight={(id) => setCompareTeamId(id)}
             />
