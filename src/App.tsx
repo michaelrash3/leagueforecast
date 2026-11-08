@@ -47,7 +47,11 @@ import { useDataQuality } from "./hooks/useDataQuality";
 import { useGameForecasts } from "./hooks/useGameForecasts";
 import { useGoldRace } from "./hooks/useGoldRace";
 import { useSinceLastLook } from "./hooks/useSinceLastLook";
-import { editingOffBecause, LiveLeagueBanner } from "./components/league/LiveLeagueBanner";
+import {
+  editingOffBecause,
+  LiveLeagueBanner,
+  offlineLine,
+} from "./components/league/LiveLeagueBanner";
 import { ArchivedBanner } from "./components/league/ArchivedBanner";
 import { EditLock, SeasonEditable } from "./components/league/EditLock";
 import { useTabReadOnly } from "./hooks/useTabReadOnly";
@@ -1809,8 +1813,7 @@ export default function App() {
       </a>
       {isOffline && (
         <div className="bg-amber-100 px-4 py-2 text-center text-xs font-bold text-amber-900 dark:bg-amber-900/70 dark:text-amber-100">
-          You are offline. Showing what this device has kept; score edits still save in this
-          browser.
+          {offlineLine(liveLeague.state)}
         </div>
       )}
       <div className="min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">

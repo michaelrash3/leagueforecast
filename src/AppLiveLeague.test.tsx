@@ -190,6 +190,62 @@ describe("League Standings kept live, on the page", () => {
     expect(screen.getByRole("status")).toHaveTextContent(/offline/i);
   });
 
+  /** The browser telling the page the device has lost its connection. */
+  const goOffline = () =>
+    act(() => {
+      window.dispatchEvent(new Event("offline"));
+    });
+  /** The line over the whole page while the device is offline. */
+  const offlineBanner = () => screen.getByText(/^You are offline\./);
+
+  it("tells a device keeping League itself, offline, that its edits still save here", async () => {
+    // Kept on this device alone, a season is written to this browser's storage whatever the
+    // network does; kept live, so is an edit made before the listener hears the connection go,
+    // which is sent once it is back.
+    const view = render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: /schedule/i }));
+    goOffline();
+    expect(await screen.findByLabelText("Aces Runs")).toBeEnabled();
+    expect(offlineBanner()).toHaveTextContent(
+      /^You are offline\. Showing what this device has kept; score edits still save in this browser\.$/
+    );
+    live.state = { kind: "live" };
+    view.rerender(<App />);
+    expect(screen.getByLabelText("Aces Runs")).toBeEnabled();
+    expect(offlineBanner()).toHaveTextContent(/; score edits still save in this browser\.$/);
+  });
+
+  it("tells a member kept live, offline, that editing is off until the connection is back", async () => {
+    // Every control that edits the season is off then, so an edit saved in this browser is one
+    // nobody can make. The same holds while the season waits for the cloud's version of it.
+    live.state = { kind: "offline" };
+    const view = render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: /schedule/i }));
+    goOffline();
+    expect(await screen.findByLabelText("Aces Runs")).toBeDisabled();
+    expect(offlineBanner()).toHaveTextContent(
+      /^You are offline\. Showing what this device has kept; editing is off until the connection is back\.$/
+    );
+    live.state = { kind: "connecting" };
+    view.rerender(<App />);
+    expect(screen.getByLabelText("Aces Runs")).toBeDisabled();
+    expect(offlineBanner()).toHaveTextContent(/; editing is off until the connection is back\.$/);
+  });
+
+  it("promises nothing of editing offline for a season stopped for a reason of its own", async () => {
+    // Deleted on another device, the season stays read-only once the connection is back: the line
+    // over League gives the reason, and the one over the page says only that the device is offline.
+    live.state = { kind: "gone" };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: /schedule/i }));
+    goOffline();
+    expect(await screen.findByLabelText("Aces Runs")).toBeDisabled();
+    expect(offlineBanner()).toHaveTextContent(
+      /^You are offline\. Showing what this device has kept\.$/
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(/deleted on another device/i);
+  });
+
   it("is read-only, with the reason as an alert, for a season it must not write", async () => {
     live.state = { kind: "newer" };
     render(<App />);
