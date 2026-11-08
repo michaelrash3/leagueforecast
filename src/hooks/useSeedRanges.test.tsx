@@ -42,7 +42,7 @@ const SCHEDULE: Matchup[] = [
 
 /**
  * The Bears are the team to ask about: third, and the last two games can still lift them to
- * second. With the walk on they read 2-3; with it off, 3-3.
+ * second. With the walk on they read 2-3; with it off, no range at all.
  */
 const SUBJECT = "bears";
 
@@ -106,7 +106,9 @@ function Probe({
   const winSeed = game ? seedForScenario(teamId, game, teamId) : -1;
   return (
     <>
-      <div data-testid="range">{`${range.best}-${range.worst}-${range.baseline}`}</div>
+      <div data-testid="range">
+        {range ? `${range.best}-${range.worst}-${range.baseline}` : "none"}
+      </div>
       <div data-testid="seed">{String(winSeed)}</div>
     </>
   );
@@ -205,22 +207,29 @@ describe("the scenario caches and the walk being switched off", () => {
    * `exact` is `activeView === "model"` and a games-remaining limit, so it flips without any of
    * the teams, the games or the settings changing — and the caches were keyed on those alone.
    *
-   * With the walk off a range is the team's projection at both ends, and a scenario seed is the 99
-   * that stands for "not worked out". Both were written into the caches anyway. So opening a team
-   * from the standings and then going to the model table served every Range as #n–#n and every
-   * win/loss seed as 99: answers to a question nobody had asked, sitting there waiting.
+   * With the walk off a range was the team's projection at both ends, and a scenario seed is the
+   * 99 that stands for "not worked out". Both were written into the caches anyway. So opening a
+   * team from the standings and then going to the model table served every Range as #n–#n and
+   * every win/loss seed as 99: answers to a question nobody had asked, sitting there waiting.
    */
   it("does not serve a range worked out with the walk off once it is on", () => {
     const { rerender } = render(<Probe logs={ONE_WAY} exact={false} tick={0} />);
     rerender(<Probe logs={ONE_WAY} exact={false} tick={1} />);
     const withoutWalk = rangeText();
-    // Which is the projection at both ends — a finish it says is already settled.
-    const [best, worst] = (withoutWalk ?? "").split("-");
-    expect(best).toBe(worst);
 
     rerender(<Probe logs={ONE_WAY} exact={true} tick={2} />);
 
     expect(rangeText()).not.toBe(withoutWalk);
+  });
+
+  it("gives no range while the walk is off, rather than the projection at both ends", () => {
+    /*
+     * That projection read as a finish nothing left to play could move. The Forecast's table knew
+     * to show a dash for it; the team panel showed it as "#5–#5" and the Forecast's write-up was
+     * told it as a realistic seed range. With no range at all, nobody can show one.
+     */
+    render(<Probe logs={ONE_WAY} exact={false} />);
+    expect(rangeText()).toBe("none");
   });
 
   it("does not serve a scenario seed of 99 from when the walk was off", () => {
@@ -290,7 +299,7 @@ describe("the walk with games owed beyond the schedule", () => {
       <div data-testid="ranges">
         {THREE.map(({ id }) => {
           const range = seedRangeForTeam(id);
-          return `${id} #${range.best}–#${range.worst} (#${range.baseline})`;
+          return range ? `${id} #${range.best}–#${range.worst} (#${range.baseline})` : `${id} none`;
         }).join(", ")}
       </div>
     );

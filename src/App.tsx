@@ -2280,6 +2280,7 @@ export default function App() {
           matchups={matchups}
           renameLeagueTeam={renameLeagueTeam}
           runsOnly={runsOnly}
+          seedWalkEnabled={seedWalkEnabled}
           selectedTeam={selectedTeam}
           selectedTeamDetail={selectedTeamDetail}
           selectedTeamSplitSummary={selectedTeamSplitSummary}

@@ -325,7 +325,12 @@ projection for each way each remaining game can go, the games owed beyond the sc
 them ([Postseason format](#postseason-format)), so it waits until 60 or fewer games remain,
 owed ones counted (`useSeedRanges`); until then the column, the phone rows and the Bubble Watch show a
 dash and the caption says the range is paused, rather than every team's projection at both
-ends, which would read as a seed nothing left to play can move.
+ends, which would read as a seed nothing left to play can move. A team's panel says the same of
+its Range, of the seed a win or a loss leaves in each of its next two games, and of its clinch
+scenarios, which are those seeds in words; and the Forecast's write-up is told no range. Until
+8 November 2026 the panel showed the projection as all three ("#5–#5", "Win: #5 / Loss: #5",
+"win projects #5; loss projects #5") while the table said the range was paused, and the writer
+was told it as each team's realistic seed range.
 
 ## Our team
 

@@ -69,11 +69,11 @@ export function ModelView(props: {
   updateBracketLog: (gameId: string, field: keyof GameLog, value: string | boolean) => void;
   toggleBracketFinal: (gameId: string) => void;
   clearBracketScores: (gameIds: string[], label: string) => void;
-  seedRangeForTeam: (id: string) => { best: number; worst: number; baseline: number };
+  /** The best and worst seed a team can still reach, or null while the walk behind it is paused. */
+  seedRangeForTeam: (id: string) => { best: number; worst: number; baseline: number } | null;
   /**
    * How few games must remain before the scenario walk behind each Range runs (`useSeedRanges`),
-   * or null once it does. Until then a range is the projection at both ends, which would read as
-   * a seed nothing left to play can move, so none is shown and the caption says why.
+   * or null once it does. Until then there is no range to show, and the caption says why.
    */
   seedRangesPausedUntil: number | null;
   gamesThatMatterMost: {
@@ -192,8 +192,8 @@ export function ModelView(props: {
         ? "The written forecast is unavailable. The projected table and game picks below are unaffected."
         : "");
   /** A team's Range as the table, the phone rows and the Bubble Watch show it. */
-  const rangeText = (range: { best: number; worst: number }) =>
-    seedRangesPausedUntil === null ? `#${range.best}–#${range.worst}` : "—";
+  const rangeText = (range: { best: number; worst: number } | null) =>
+    range ? `#${range.best}–#${range.worst}` : "—";
 
   /*
    * One section at a time. The tab drew all fourteen blocks one under another, about 10,700px on a

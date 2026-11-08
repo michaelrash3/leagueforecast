@@ -342,6 +342,7 @@ function TeamNameEditor({ name, onRename }: { name: string; onRename: (name: str
 export function TeamDrawer({
   team,
   range,
+  seedWalkPausedUntil,
   bubble,
   currentSosRank,
   sos,
@@ -366,7 +367,15 @@ export function TeamDrawer({
   onRename,
 }: {
   team: TeamWithProjection;
-  range: { best: number; worst: number; baseline: number };
+  /** The best and worst seed the team can still reach, or null while the walk behind it is paused. */
+  range: { best: number; worst: number; baseline: number } | null;
+  /**
+   * How few games must remain before the scenario walk behind the Range and the swing games' seeds
+   * runs (`useSeedRanges`), or null once it does. Until then each swing game's seeds are the
+   * projection, which reads as a game that cannot move the team, so neither those nor a Range are
+   * shown, and the panel says why, as the Forecast's table does.
+   */
+  seedWalkPausedUntil: number | null;
   bubble: string;
   currentSosRank: number | null;
   sos: { label: string; rating: number; opponents: string };
@@ -472,7 +481,7 @@ export function TeamDrawer({
         <div className="mt-6 grid grid-cols-2 gap-3">
           <DrawerMetric label="Record" value={recordText(team)} />
           {hasCutLine && <DrawerMetric label="Gold %" value={goldPctLabel} />}
-          <DrawerMetric label="Range" value={`#${range.best}–#${range.worst}`} />
+          <DrawerMetric label="Range" value={range ? `#${range.best}–#${range.worst}` : "—"} />
           {hasCutLine && <DrawerMetric label="Bubble" value={bubble} pending={detailsPending} />}
           <DrawerMetric label="Runs/Game" value={team.rsg.toFixed(1)} />
           {/* Everything below runs is only ever entered under the full box score. */}
@@ -526,6 +535,11 @@ export function TeamDrawer({
             <DrawerMetric label="Title Race" value={titleRace} pending={detailsPending} />
           )}
         </div>
+        {seedWalkPausedUntil !== null && (
+          <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+            {`Range is paused until ${seedWalkPausedUntil} or fewer games remain to keep team modals responsive.`}
+          </p>
+        )}
 
         <TeamTrendPanel trend={trendSummary} />
 
@@ -637,16 +651,21 @@ export function TeamDrawer({
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-semibold">
                     <div className="rounded-lg bg-emerald-50 px-3 py-2 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                      Win: #{swing.winSeed}
+                      Win: {seedWalkPausedUntil === null ? `#${swing.winSeed}` : "—"}
                     </div>
                     <div className="rounded-lg bg-red-50 px-3 py-2 text-red-700 dark:bg-red-950/40 dark:text-red-300">
-                      Loss: #{swing.lossSeed}
+                      Loss: {seedWalkPausedUntil === null ? `#${swing.lossSeed}` : "—"}
                     </div>
                   </div>
                 </div>
               ))
             )}
           </div>
+          {seedWalkPausedUntil !== null && swings.length > 0 && (
+            <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+              {`The seed a win or a loss leaves is paused until ${seedWalkPausedUntil} or fewer games remain to keep team modals responsive.`}
+            </p>
+          )}
         </section>
       </aside>
     </div>

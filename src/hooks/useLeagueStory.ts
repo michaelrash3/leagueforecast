@@ -33,7 +33,7 @@ export type LeagueStoryInputs = {
   matchups: Matchup[];
   modelRows: TeamWithProjection[];
   predictionEngine: PredictionEngineResult;
-  seedRangeForTeam: (teamId: string) => SeedRange;
+  seedRangeForTeam: (teamId: string) => SeedRange | null;
   settings: Settings;
   statRankings: StatRankings;
   statusLabel: (team: TeamWithProjection) => string;
@@ -159,6 +159,11 @@ export function useLeagueStory({
       cutoff: goldCutoff,
       hasCutLine,
       projections: modelRows.map((team) => {
+        /*
+         * None while the walk is paused, and then the writer is told none. Told the projection at
+         * both ends as each team's realistic seed range, it had a finish nothing left to play
+         * could move to write about, beside a table that said the range was paused.
+         */
         const range = seedRangeForTeam(team.id);
         return {
           name: team.name,
@@ -167,8 +172,8 @@ export function useLeagueStory({
           projectedRecord: team.projectedRecord,
           goldPct: team.goldPct,
           goldMargin: team.goldPctMargin,
-          bestSeed: range.best,
-          worstSeed: range.worst,
+          bestSeed: range?.best,
+          worstSeed: range?.worst,
         };
       }),
       gameForecasts: gameForecasts.slice(0, 18).map((item) => ({

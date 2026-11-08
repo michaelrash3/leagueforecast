@@ -57,7 +57,7 @@ and how much to trust it given the model's measured accuracy.
 
 | Sent to the model | Why                                                                                                                   |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Projected finish  | Projected rank and record, Gold odds with margin of error, realistic seed range.                                      |
+| Projected finish  | Projected rank and record, Gold odds with margin of error, realistic seed range (none while the Range is paused).     |
 | Game predictions  | Favorite and win probability for each upcoming game, with its impact tier.                                            |
 | Games that matter | The high-leverage games the app flags, and the reason each one matters.                                               |
 | Model accuracy    | Backtested hit rate, Brier score, and upset capture, so the write-up can say how much weight the projection deserves. |
