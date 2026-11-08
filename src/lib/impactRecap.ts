@@ -55,7 +55,6 @@ export const IMPACT_RECAP_REMAINING_GAME_LIMIT = 120;
 export type RankSnapshotEntry = Team & {
   rank: number;
   projectedRank: number;
-  goldPct: number;
   goldStatus: "Clinched" | "In" | "Alive" | "Eliminated";
   maxPoints: number;
   blockersAhead: number;
@@ -88,6 +87,17 @@ export const nameFrom =
   (teamId) =>
     displayName(teamBaseById.get(teamId)?.name || teamId);
 
+/**
+ * The standings the logs make, by place now and projected and by Gold status, but not by Gold %.
+ *
+ * The odds are the worker's. When a final is pressed they are at best the season's as it stood
+ * before the press, and the season after it has none until the worker answers; under date or week
+ * grouping the snapshot without the update's finals is not the season they describe either, since
+ * it reopens the finals entered earlier that day or week. Simulating both snapshots here would run
+ * the Monte Carlo twice on the main thread at every press. So a snapshot carries no Gold %, where it
+ * once carried 0, which the bubble line printed as two teams' odds and between which the recap
+ * could never find a shift.
+ */
 export const buildRankSnapshot = (
   nextLogs: Record<string, GameLog>,
   { teams, matchups, settings, goldCutoff }: RecapPool
@@ -112,7 +122,6 @@ export const buildRankSnapshot = (
     return {
       ...team,
       projectedRank: projectedTeam?.rank ?? team.rank ?? 99,
-      goldPct: 0, // snapshot-only, odds shown live from worker
       ...status,
     };
   });
@@ -271,7 +280,6 @@ export const impactOfFinal = (
     after: after.map((entry) => ({
       id: entry.id,
       rank: entry.rank,
-      goldPct: entry.goldPct,
       goldStatus: entry.goldStatus,
       name: entry.name,
     })),

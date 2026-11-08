@@ -30,6 +30,16 @@ cut-line movement:
 Only derived values are sent — ranks, odds, ratings, per-game averages. Raw game
 logs never leave the browser.
 
+**The standings movement states no Gold %** (8 November 2026). Its lines, from which
+the deterministic story and Copy Recap are written too, are read when a final is
+pressed, off two rankings of the season without the update's finals and with them
+(`buildRankSnapshot`). The Gold odds are the worker's, and it has not answered for
+the season after the press by then. Each ranking carried 0 for every team's odds, so
+the bubble line read "(0%)" for the last team in and the first one out alike, and no
+shift in a team's odds was ever reported, two zeros being equal. The bubble line now
+names the two by place alone and there is no odds-shift line; the model has the odds
+in the standings table sent beside the lines.
+
 ## Forecast Write-up
 
 The Forecast panel explains the projection rather than restating the table: the

@@ -3,8 +3,14 @@ import { displayName, recordText } from "./format";
 import type { GoldStatus, Matchup } from "./types";
 
 export type RecapInput = {
-  before: { id: string; rank: number; goldPct: number; goldStatus: GoldStatus }[];
-  after: { id: string; rank: number; goldPct: number; goldStatus: GoldStatus; name: string }[];
+  /**
+   * `before` and `after` are the standings without the update's finals and with them, by place and
+   * Gold status but not Gold %: they are rankings read when a final is pressed
+   * (`buildRankSnapshot`), and the season after the press has no odds until the worker answers, so
+   * no line states a team's Gold % or a shift in it.
+   */
+  before: { id: string; rank: number; goldStatus: GoldStatus }[];
+  after: { id: string; rank: number; goldStatus: GoldStatus; name: string }[];
   finalsSinceLast: {
     game: Matchup;
     awayScore: number;
@@ -31,7 +37,6 @@ export type RecapItem = {
     | "crossed-cut-up"
     | "crossed-cut-down"
     | "rank-change"
-    | "gold-shift"
     | "dependency-chain"
     | "bubble-watch"
     | "summary";
@@ -57,8 +62,6 @@ const recapImpactScore = (kind: RecapItem["kind"], text: string) => {
       return 66;
     case "rank-change":
       return text.includes("#") ? 58 : 45;
-    case "gold-shift":
-      return 55;
     case "summary":
     default:
       return 40;
@@ -164,11 +167,8 @@ export const weeklyRecap = ({
   if (bubbleTeams.length >= 2 && finalGold && firstOut) {
     items.push({
       kind: "bubble-watch",
-      text: `Bubble watch: ${displayName(finalGold.name)} hold the final Gold slot at #${finalGold.rank} (${Math.round(finalGold.goldPct)}%), with ${displayName(firstOut.name)} first out at #${firstOut.rank} (${Math.round(firstOut.goldPct)}%).`,
-      why: [
-        "The teams nearest the cut line create the clearest league-wide stakes.",
-        "Gold odds show how current standings and remaining dependencies are pulling on the bubble.",
-      ],
+      text: `Bubble watch: ${displayName(finalGold.name)} hold the final Gold slot at #${finalGold.rank}, with ${displayName(firstOut.name)} first out at #${firstOut.rank}.`,
+      why: ["The teams nearest the cut line create the clearest league-wide stakes."],
     });
   }
 
@@ -263,32 +263,7 @@ export const weeklyRecap = ({
       });
     });
 
-  // Pass 3: gold-odds shifts ≥ 5%.
-  const goldShifts: { name: string; delta: number; pct: number }[] = [];
-  after.forEach((team) => {
-    const prev = beforeById.get(team.id);
-    if (!prev) return;
-    const delta = Math.round(team.goldPct - prev.goldPct);
-    if (Math.abs(delta) >= 5) {
-      goldShifts.push({ name: team.name, delta, pct: Math.round(team.goldPct) });
-    }
-  });
-  goldShifts
-    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
-    .slice(0, 4)
-    .forEach((s) => {
-      const direction = s.delta > 0 ? "climbed" : "dropped";
-      items.push({
-        kind: "gold-shift",
-        text: `${displayName(s.name)} Gold odds ${direction} ${s.delta > 0 ? "+" : ""}${s.delta}% (now ${s.pct}%).`,
-        why: [
-          "Simulation odds moved by at least 5 percentage points.",
-          "This reflects both own result and competitor outcomes.",
-        ],
-      });
-    });
-
-  // Pass 4: explicit biggest-mover / faller summary lines (so the impact bar
+  // Pass 3: explicit biggest-mover / faller summary lines (so the impact bar
   // always has at least one "headline" item when ranks shuffled).
   let topMover: { name: string; delta: number } | null = null;
   let topFaller: { name: string; delta: number } | null = null;

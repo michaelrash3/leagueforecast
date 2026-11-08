@@ -5,12 +5,12 @@ describe("weeklyRecap", () => {
   it("flags a clinch and a cut-line cross", () => {
     const items = weeklyRecap({
       before: [
-        { id: "A", rank: 4, goldPct: 55, goldStatus: "In" },
-        { id: "B", rank: 5, goldPct: 40, goldStatus: "Alive" },
+        { id: "A", rank: 4, goldStatus: "In" },
+        { id: "B", rank: 5, goldStatus: "Alive" },
       ],
       after: [
-        { id: "A", rank: 4, goldPct: 85, goldStatus: "Clinched", name: "Aces" },
-        { id: "B", rank: 6, goldPct: 25, goldStatus: "Alive", name: "Bears" },
+        { id: "A", rank: 4, goldStatus: "Clinched", name: "Aces" },
+        { id: "B", rank: 6, goldStatus: "Alive", name: "Bears" },
       ],
       finalsSinceLast: [],
       cutoff: 5,
@@ -23,12 +23,12 @@ describe("weeklyRecap", () => {
   it("summarizes a 1-seed swap in a single sentence", () => {
     const items = weeklyRecap({
       before: [
-        { id: "A", rank: 2, goldPct: 70, goldStatus: "In" },
-        { id: "B", rank: 1, goldPct: 70, goldStatus: "In" },
+        { id: "A", rank: 2, goldStatus: "In" },
+        { id: "B", rank: 1, goldStatus: "In" },
       ],
       after: [
-        { id: "A", rank: 1, goldPct: 70, goldStatus: "In", name: "Aces" },
-        { id: "B", rank: 2, goldPct: 70, goldStatus: "In", name: "Raiders" },
+        { id: "A", rank: 1, goldStatus: "In", name: "Aces" },
+        { id: "B", rank: 2, goldStatus: "In", name: "Raiders" },
       ],
       finalsSinceLast: [
         {
@@ -58,14 +58,14 @@ describe("recapToMarkdown / summarizeStandings", () => {
   it("adds bubble and dependency context to the deterministic league story", () => {
     const items = weeklyRecap({
       before: [
-        { id: "A", rank: 4, goldPct: 60, goldStatus: "In" },
-        { id: "B", rank: 5, goldPct: 45, goldStatus: "In" },
-        { id: "C", rank: 6, goldPct: 35, goldStatus: "Alive" },
+        { id: "A", rank: 4, goldStatus: "In" },
+        { id: "B", rank: 5, goldStatus: "In" },
+        { id: "C", rank: 6, goldStatus: "Alive" },
       ],
       after: [
-        { id: "A", rank: 5, goldPct: 52, goldStatus: "In", name: "Aces" },
-        { id: "B", rank: 4, goldPct: 58, goldStatus: "In", name: "Bears" },
-        { id: "C", rank: 6, goldPct: 31, goldStatus: "Alive", name: "Comets" },
+        { id: "A", rank: 5, goldStatus: "In", name: "Aces" },
+        { id: "B", rank: 4, goldStatus: "In", name: "Bears" },
+        { id: "C", rank: 6, goldStatus: "Alive", name: "Comets" },
       ],
       finalsSinceLast: [
         {
@@ -104,12 +104,12 @@ describe("recapToMarkdown / summarizeStandings", () => {
 
 describe("weeklyRecap without a cut line", () => {
   const before = [
-    { id: "A", rank: 1, goldPct: 90, goldStatus: "In" as const },
-    { id: "B", rank: 2, goldPct: 40, goldStatus: "Alive" as const },
+    { id: "A", rank: 1, goldStatus: "In" as const },
+    { id: "B", rank: 2, goldStatus: "Alive" as const },
   ];
   const after = [
-    { id: "A", rank: 2, goldPct: 60, goldStatus: "Alive" as const, name: "Aces" },
-    { id: "B", rank: 1, goldPct: 95, goldStatus: "Clinched" as const, name: "Bears" },
+    { id: "A", rank: 2, goldStatus: "Alive" as const, name: "Aces" },
+    { id: "B", rank: 1, goldStatus: "Clinched" as const, name: "Bears" },
   ];
 
   it("drops clinching, elimination, cut-line crossings and the bubble", () => {

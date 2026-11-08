@@ -128,6 +128,53 @@ describe("the recap of a game going final", () => {
   });
 });
 
+/*
+ * April 5th's two finals read whole, Aces 7-4 over the Bruins and the Ducks 9-2 over the Cubs:
+ * every line of the recap, in the order the panel lists them, which is the order of their weight.
+ * The League Story's beats are drawn from the same lines, and Copy Recap's bullets and the AI
+ * write-up's facts are these lines.
+ */
+describe("the recap's lines", () => {
+  const twoFinals: Record<string, GameLog> = {
+    g1: scored("7", "4", true),
+    g2: scored("2", "9", true),
+  };
+  const recapOfTwoFinals = () =>
+    impactOfFinal("g2", twoFinals.g2!, twoFinals, pool(), nameOf)?.recapItems ?? [];
+
+  it("are pinned for a day of two finals", () => {
+    expect(recapOfTwoFinals().map((item) => `${item.kind}: ${item.text}`)).toEqual([
+      "eliminated: Bruins were knocked out of Gold Bracket contention.",
+      "crossed-cut-up: Ducks moved above the Gold cut line (#4 → #1).",
+      "crossed-cut-down: Bruins dropped below the Gold cut line (#2 → #3).",
+      "biggest-mover: Biggest mover: Ducks (+3 seeds).",
+      "bubble-watch: Bubble watch: Aces hold the final Gold slot at #2, with Bruins first out at #3.",
+      "dependency-chain: Ripple effect: those results moved the standings for Ducks, Aces, Bruins, Cubs.",
+      "rank-change: Ducks climbed from #4 to #1. they took care of business vs Cubs in an upset; Cubs slipped to #4.",
+      "rank-change: Aces slipped from #1 to #2. they took care of business vs Bruins; Bruins slipped to #3.",
+      "rank-change: Bruins slipped from #2 to #3. they lost to Aces; Aces climbed to #2.",
+      "rank-change: Cubs slipped from #3 to #4. they lost to Ducks in an upset; Ducks climbed to #1.",
+      "summary: 2 games went final: Aces 7–Bruins 4; Cubs 2–Ducks 9.",
+    ]);
+  });
+
+  it("state no Gold %, which neither snapshot has", () => {
+    /*
+     * The snapshots are ranked, not simulated. The Gold odds are the worker's, and when a final is
+     * pressed they are at best the season's as it stood before it; the season after it has none
+     * until the worker answers. Each snapshot carried 0 in their place, so the bubble line gave both
+     * teams "(0%)", the Aces among them at 1-0 with a game to play, and an odds shift between two
+     * zeros could never be reported.
+     */
+    const items = recapOfTwoFinals();
+    expect(items.filter((item) => item.text.includes("%")).map((item) => item.text)).toEqual([]);
+    // The League Story prints a line's context beside it, so the bubble's no longer speaks of odds.
+    expect(items.find((item) => item.kind === "bubble-watch")?.why).toEqual([
+      "The teams nearest the cut line create the clearest league-wide stakes.",
+    ]);
+  });
+});
+
 describe("what changed between two snapshots", () => {
   const snapshotWith = (logs: Record<string, GameLog>) => buildRankSnapshot(logs, pool());
 
