@@ -282,12 +282,12 @@ describe("a season's CSV in the cloud", () => {
     done();
   });
 
-  it("is this device's own pool's sections with the cloud's board turned off", async () => {
+  it("is this device's own pool's sections where Team Rankings is not the cloud's", async () => {
     catching();
     vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
     const read = vi.spyOn(copyBackupLib, "copyBackup");
     const local = vi.spyOn(rankingsBackup, "readTeamRankingsBackup");
-    // A member who turned the board off edits and pulls on this device's pool, kept in step.
+    // Signed in to a copy whose page is this device's own: a copy gone, or a newer build's.
     const { result, calls } = harness({ rankingsLive: false });
     result.current.exportCSV();
     expect(saved).toHaveLength(1);

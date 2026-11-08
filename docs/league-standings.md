@@ -323,7 +323,7 @@ seasons in ten (`seedRange.ts`). It is not the Projected Standings' **Range**, w
 best and worst seed one remaining result can move the projection to. That walk is a season's
 projection for each way each remaining game can go, the games owed beyond the schedule among
 them ([Postseason format](#postseason-format)), so it waits until 60 or fewer games remain,
-owed ones counted (`useSeedRanges`); until then the column, the phone rows and the Bubble Watch show a
+owed ones counted (`useSeedRanges`); until then the column and the phone rows show a
 dash and the caption says the range is paused, rather than every team's projection at both
 ends, which would read as a seed nothing left to play can move. A team's panel says the same of
 its Range, of the seed a win or a loss leaves in each of its next two games, and of its clinch

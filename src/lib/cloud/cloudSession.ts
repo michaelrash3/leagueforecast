@@ -602,10 +602,10 @@ export const leagueInStep = (): boolean =>
 
 /**
  * Whether this browser still keeps the record a settlement began with: not signed out, and not
- * wiped by Delete everything, in this tab or another, while it ran. Asked after this device's
- * values are read and before anything is sent, and again before anything is written here: values
- * read from a wiped store would go to every device as the user's data, and a copy written into a
- * wiped store would bring back what the user just deleted.
+ * wiped by Delete everything, in this tab or another, while it ran. Asked before anything that
+ * arrived is written here: a copy written into a wiped store would bring back what the user just
+ * deleted. Until devices stopped writing the copy (1.6f) it was asked before a send as well, since
+ * values read from a wiped store would have gone to every device as the user's data.
  */
 const stillOurs = (state: DeviceCloudState, account: CloudAccount): boolean => {
   const now = loadCloudState();
@@ -653,13 +653,14 @@ type Merged = {
 };
 
 /**
- * Brings this device and the cloud copy into step in `areas`, as far as `mode` allows writing here.
- * Reads the copy and this device's record afresh; the caller holds the lock.
+ * Brings this device into step with the cloud copy in `areas`, as far as `mode` allows writing
+ * here. Reads the copy and this device's record afresh; the caller holds the lock.
  *
- * In one pass: everything to take is downloaded and checked first; then one commit sends this
- * device's changes and keeps whatever a settlement is about to replace; then what arrived is
- * written here, less any key changed here while it downloaded, which is settled next time. So a
- * value is never overwritten here before the version it replaces is safe in the copy.
+ * In one pass: everything to take is downloaded and checked first, then written here, less any key
+ * changed here while it downloaded, which is settled next time. Nothing is sent: no device writes
+ * the copy (1.6f), so a change made here stays here, marked, and League's reaches the cloud's
+ * documents at the first meeting with them. Until then one commit sent this device's changes, and
+ * kept what the settlement was about to replace, before anything that arrived was written here.
  *
  * Says whether it went as it should: false for a failure worth backing off from, such as a copy
  * with a piece missing, which every look would otherwise download again up to the missing piece.
@@ -759,7 +760,7 @@ const settleLocked = async (
     }
   }
 
-  // Everything to write here, downloaded and checked before anything is sent or written.
+  // Everything to write here, downloaded and checked before anything is written.
   const wanted = new Set(
     execute.filter(([, action]) => needsWriteHere(action)).map(([key]) => key)
   );
@@ -1328,9 +1329,9 @@ export const loadNewer = async (): Promise<void> => {
 
 /**
  * Brings a kept version back: it becomes the copy's current value, from which every device takes
- * it, and what it replaces is kept in its turn. What this browser owes is sent first, so nothing
- * unsaved is replaced. The server makes it current (1.6), for the copy's owner alone, and this
- * device then takes it as it takes any other save.
+ * it, and what it replaces is kept in its turn. This browser looks at the copy first and sends it
+ * nothing, since no device writes the copy (1.6f). The server makes it current (1.6), for the
+ * copy's owner alone, and this device then takes it as it takes any other save.
  */
 export const bringBack = async (group: string): Promise<void> => {
   await withSession(async (current, account) => {
@@ -1405,14 +1406,14 @@ export const restoresInCloud = (): boolean => {
 };
 
 /**
- * Restores Team Rankings from `backup` in the cloud copy (1.6), as the owner alone may: what
- * this browser owes is sent first, so nothing unsaved stands over the restore; the file is staged
- * for the server (`uploads.ts`), as the Team Rankings JSON it would have written; the server
- * writes it into the copy, keeping what it replaced as an earlier version; and this browser takes
- * it as it takes any other save. With `reload`, at once, reloading on it as a Bring back does; else
- * as any newer copy is taken, so a restore made together with League Standings' own (a season
- * backup, a CSV) does not reload the page under the season being written. Says what came of it,
- * for the person who asked.
+ * Restores Team Rankings from `backup` in the cloud copy (1.6), as the owner alone may: this
+ * browser looks at the copy first and sends it nothing, since no device writes the copy (1.6f);
+ * the file is staged for the server (`uploads.ts`), as the Team Rankings JSON it would have
+ * written; the server writes it into the copy, keeping what it replaced as an earlier version;
+ * and this browser takes it as it takes any other save. With `reload`, at once, reloading on it as
+ * a Bring back does; else as any newer copy is taken, so a restore made together with League
+ * Standings' own (a season backup, a CSV) does not reload the page under the season being
+ * written. Says what came of it, for the person who asked.
  *
  * A file with no Team Rankings in it is not sent: emptying the cloud's for every device is what
  * Start again does, kept as an earlier version, and a League Standings backup saying nothing of

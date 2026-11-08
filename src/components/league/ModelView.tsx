@@ -191,7 +191,7 @@ export function ModelView(props: {
       : forecastStoryUnavailableReason
         ? "The written forecast is unavailable. The projected table and game picks below are unaffected."
         : "");
-  /** A team's Range as the table, the phone rows and the Bubble Watch show it. */
+  /** A team's Range as the table and the phone rows show it. */
   const rangeText = (range: { best: number; worst: number } | null) =>
     range ? `#${range.best}–#${range.worst}` : "—";
 
