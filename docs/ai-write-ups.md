@@ -15,6 +15,14 @@ replaced by a Gemini analysis written in a beat-writer voice. **The
 deterministic story is always the fallback**, so the app behaves identically
 without a key.
 
+An update is a game marked final on the Schedule, or the games that Fill scores,
+Data Quality's **Mark them final** or a pasted schedule's scores make final at
+once (`impactOfFinals`). A game is recapped with the other finals of its window,
+the game, its date or its week as the recap grouping in Settings says, and games
+made final together are one update, recapped over all of their windows and titled
+from the first to the last ("Latest Update — 4/4 to 4/11"). Finals that arrive
+from another device, and a reload, bring no recap.
+
 The AI analysis is given everything the manager has entered, not just the
 cut-line movement:
 

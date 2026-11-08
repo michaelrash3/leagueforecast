@@ -3,13 +3,20 @@ import {
   IMPACT_RECAP_REMAINING_GAME_LIMIT,
   buildRankSnapshot,
   finalToggled,
-  impactOfFinal,
+  impactOfFinals,
   nameFrom,
+  recapPoolOf,
   summarizeChanges,
   withFinal,
   type RecapPool,
 } from "../impactRecap";
-import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../types";
+import {
+  DEFAULT_SETTINGS,
+  type GameLog,
+  type Matchup,
+  type RecapGrouping,
+  type TeamBase,
+} from "../types";
 import { blankLog } from "../util";
 
 const teams: TeamBase[] = [
@@ -62,7 +69,7 @@ describe("the recap of a game going final", () => {
     // The caller asks for any id its logs carry, and an orphaned log is a real thing after an
     // import that dropped a row. `null` is also what un-marking a final wants, so the two agree.
     const logs = { ghost: scored("3", "1", true) };
-    expect(impactOfFinal("ghost", logs.ghost, logs, pool(), nameOf)).toBeNull();
+    expect(impactOfFinals(["ghost"], logs, pool(), nameOf)).toBeNull();
   });
 
   it("pauses the detail when too many games are still to play, and says why", () => {
@@ -75,7 +82,7 @@ describe("the recap of a game going final", () => {
       game(`x${i}`, "aces", "bruins")
     );
     const logs: Record<string, GameLog> = { x0: scored("7", "4", true) };
-    const impact = impactOfFinal("x0", logs.x0!, logs, pool({ matchups: many }), nameOf);
+    const impact = impactOfFinals(["x0"], logs, pool({ matchups: many }), nameOf);
     expect(impact?.title).toBe("Latest Update — Aces vs Bruins");
     expect(impact?.scores).toEqual(["Aces 7, Bruins 4"]);
     expect(impact?.messages[0]).toContain("paused until");
@@ -84,7 +91,7 @@ describe("the recap of a game going final", () => {
 
   it("names the teams and the score of the game that just went final", () => {
     const logs: Record<string, GameLog> = { g1: scored("7", "4", true) };
-    const impact = impactOfFinal("g1", logs.g1!, logs, pool(), nameOf);
+    const impact = impactOfFinals(["g1"], logs, pool(), nameOf);
     expect(impact?.scores).toEqual(["Aces 7, Bruins 4"]);
     // Grouped by date, which is the default, so the title is the date rather than the matchup —
     // and the date as a manager writes it, which is what `normalizeDateInput` is for.
@@ -97,12 +104,11 @@ describe("the recap of a game going final", () => {
       g1: scored("7", "4", true),
       g2: scored("2", "9", true),
     };
-    const byDate = impactOfFinal("g1", logs.g1!, logs, pool(), nameOf);
+    const byDate = impactOfFinals(["g1"], logs, pool(), nameOf);
     expect(byDate?.scores).toHaveLength(2);
 
-    const byGame = impactOfFinal(
-      "g1",
-      logs.g1!,
+    const byGame = impactOfFinals(
+      ["g1"],
       logs,
       pool({ settings: { ...DEFAULT_SETTINGS, goldCutoff: 2, recapGrouping: "game" } }),
       nameOf
@@ -121,7 +127,7 @@ describe("the recap of a game going final", () => {
      * used one, and it passed whether the fallback existed or not.
      */
     const logs: Record<string, GameLog> = { g1: scored("1", "1", true) };
-    const impact = impactOfFinal("g1", logs.g1!, logs, pool(), nameOf);
+    const impact = impactOfFinals(["g1"], logs, pool(), nameOf);
     expect(impact?.messages).toEqual([
       "This update was recorded; no standings-impact detail to summarize.",
     ]);
@@ -140,7 +146,7 @@ describe("the recap's lines", () => {
     g2: scored("2", "9", true),
   };
   const recapOfTwoFinals = () =>
-    impactOfFinal("g2", twoFinals.g2!, twoFinals, pool(), nameOf)?.recapItems ?? [];
+    impactOfFinals(["g2"], twoFinals, pool(), nameOf)?.recapItems ?? [];
 
   it("are pinned for a day of two finals", () => {
     expect(recapOfTwoFinals().map((item) => `${item.kind}: ${item.text}`)).toEqual([
@@ -234,6 +240,383 @@ describe("marking a game final", () => {
     const logs: Record<string, GameLog> = { g2: scored("2", "9", true) };
     const { nextLogs } = finalToggled("g1", logs, 6, pool(), nameOf);
     expect(nextLogs.g2).toBe(logs.g2);
+  });
+});
+
+/*
+ * The whole recap of one game marked final, in each of the three windows a recap can be grouped
+ * by, to the digit: pinned before the recap was asked of several games at once, so the one game's
+ * recap holds exactly through that. A season of six games over three weeks, two final, one scored
+ * and about to be marked final, and three still to play, so the standings, the cut line and the
+ * projection all have something to say.
+ */
+describe("the recap of one game marked final, pinned", () => {
+  const schedule: Matchup[] = [
+    game("p1", "aces", "bruins", "2026-04-05"),
+    game("p2", "cubs", "ducks", "2026-04-05"),
+    game("p3", "aces", "cubs", "2026-04-08"),
+    game("p4", "bruins", "ducks", "2026-04-11"),
+    game("p5", "ducks", "aces", "2026-04-15"),
+    game("p6", "cubs", "bruins", "2026-04-15"),
+  ];
+  const logs: Record<string, GameLog> = {
+    p1: scored("7", "4", true),
+    p2: scored("2", "9", true),
+    p3: scored("1", "6", false),
+    p4: scored("3", "3", true),
+  };
+  const markP3 = (recapGrouping: "game" | "date" | "week") =>
+    finalToggled(
+      "p3",
+      logs,
+      6,
+      pool({
+        matchups: schedule,
+        settings: { ...DEFAULT_SETTINGS, goldCutoff: 2, recapGrouping },
+      }),
+      nameOf
+    ).impact;
+
+  it("by date", () => {
+    expect(markP3("date")).toMatchInlineSnapshot(`
+      {
+        "messages": [
+          "Cubs moved up from #4 to #2",
+          "Cubs moved above the Gold cut line into Gold position",
+          "Aces dropped from #2 to #3",
+          "Aces dropped below the Gold cut line",
+          "Bruins dropped from #3 to #4",
+        ],
+        "projectionExplanations": [
+          {
+            "items": [
+              "Tiebreak movement pushed the projected finish down by 2 spots.",
+            ],
+            "teamId": "aces",
+            "teamName": "Aces",
+          },
+          {
+            "items": [
+              "Recent results lifted the projected finish by 1 spot.",
+            ],
+            "teamId": "bruins",
+            "teamName": "Bruins",
+          },
+          {
+            "items": [
+              "Projected points nudged up by 1, lifting the Gold outlook.",
+              "Standings points moved up by 1 after recent results.",
+            ],
+            "teamId": "cubs",
+            "teamName": "Cubs",
+          },
+        ],
+        "recapItems": [
+          {
+            "impactScore": 85,
+            "kind": "crossed-cut-up",
+            "text": "Cubs moved above the Gold cut line (#4 → #2).",
+            "why": [
+              "Seed moved from outside to inside the cutoff.",
+              "Team now controls its path more directly.",
+            ],
+          },
+          {
+            "impactScore": 85,
+            "kind": "crossed-cut-down",
+            "text": "Aces dropped below the Gold cut line (#2 → #3).",
+            "why": [
+              "Seed moved from inside to outside the cutoff.",
+              "Cut-line movement can swing weekly priorities.",
+            ],
+          },
+          {
+            "impactScore": 70,
+            "kind": "bubble-watch",
+            "text": "Bubble watch: Cubs hold the final Gold slot at #2, with Aces first out at #3.",
+            "why": [
+              "The teams nearest the cut line create the clearest league-wide stakes.",
+            ],
+          },
+          {
+            "impactScore": 66,
+            "kind": "dependency-chain",
+            "text": "Ripple effect: those results moved the standings for Cubs, Aces, Bruins.",
+            "why": [
+              "Finalized results changed standings order for multiple teams.",
+              "Cut-line pressure can move teams through opponent and competitor results, not just their own games.",
+            ],
+          },
+          {
+            "impactScore": 58,
+            "kind": "rank-change",
+            "text": "Cubs climbed from #4 to #2. they took care of business vs Aces in an upset; Aces slipped to #3.",
+          },
+          {
+            "impactScore": 58,
+            "kind": "rank-change",
+            "text": "Aces slipped from #2 to #3. they lost to Cubs in an upset; Cubs climbed to #2.",
+          },
+          {
+            "impactScore": 58,
+            "kind": "rank-change",
+            "text": "Bruins slipped from #3 to #4. final scores across the board scrambled the order.",
+          },
+          {
+            "impactScore": 40,
+            "kind": "summary",
+            "text": "1 game finalized: Aces 1, Cubs 6.",
+          },
+        ],
+        "scores": [
+          "Aces 1, Cubs 6",
+        ],
+        "title": "Latest Update — 4/8",
+      }
+    `);
+  });
+
+  it("by week", () => {
+    expect(markP3("week")).toMatchInlineSnapshot(`
+      {
+        "messages": [
+          "Cubs moved up from #4 to #2",
+          "Cubs moved above the Gold cut line into Gold position",
+          "Aces dropped from #2 to #3",
+          "Aces dropped below the Gold cut line",
+          "Bruins dropped from #3 to #4",
+        ],
+        "projectionExplanations": [
+          {
+            "items": [
+              "Tiebreak movement pushed the projected finish down by 2 spots.",
+            ],
+            "teamId": "aces",
+            "teamName": "Aces",
+          },
+          {
+            "items": [
+              "Tiebreak movement lifted the projected finish by 1 spot.",
+              "Projected points nudged up by 0.5, lifting the Gold outlook.",
+            ],
+            "teamId": "bruins",
+            "teamName": "Bruins",
+          },
+          {
+            "items": [
+              "Projected points nudged up by 1, lifting the Gold outlook.",
+              "Standings points moved up by 1 after recent results.",
+            ],
+            "teamId": "cubs",
+            "teamName": "Cubs",
+          },
+          {
+            "items": [
+              "Projected points nudged up by 0.5, lifting the Gold outlook.",
+              "Standings points moved up by 0.5 after recent results.",
+            ],
+            "teamId": "ducks",
+            "teamName": "Ducks",
+          },
+        ],
+        "recapItems": [
+          {
+            "impactScore": 85,
+            "kind": "crossed-cut-up",
+            "text": "Cubs moved above the Gold cut line (#4 → #2).",
+            "why": [
+              "Seed moved from outside to inside the cutoff.",
+              "Team now controls its path more directly.",
+            ],
+          },
+          {
+            "impactScore": 85,
+            "kind": "crossed-cut-down",
+            "text": "Aces dropped below the Gold cut line (#2 → #3).",
+            "why": [
+              "Seed moved from inside to outside the cutoff.",
+              "Cut-line movement can swing weekly priorities.",
+            ],
+          },
+          {
+            "impactScore": 70,
+            "kind": "bubble-watch",
+            "text": "Bubble watch: Cubs hold the final Gold slot at #2, with Aces first out at #3.",
+            "why": [
+              "The teams nearest the cut line create the clearest league-wide stakes.",
+            ],
+          },
+          {
+            "impactScore": 66,
+            "kind": "dependency-chain",
+            "text": "Ripple effect: those results moved the standings for Cubs, Aces, Bruins.",
+            "why": [
+              "Finalized results changed standings order for multiple teams.",
+              "Cut-line pressure can move teams through opponent and competitor results, not just their own games.",
+            ],
+          },
+          {
+            "impactScore": 58,
+            "kind": "rank-change",
+            "text": "Cubs climbed from #4 to #2. they took care of business vs Aces in an upset; Aces slipped to #3.",
+          },
+          {
+            "impactScore": 58,
+            "kind": "rank-change",
+            "text": "Aces slipped from #2 to #3. they lost to Cubs in an upset; Cubs climbed to #2.",
+          },
+          {
+            "impactScore": 58,
+            "kind": "rank-change",
+            "text": "Bruins slipped from #3 to #4. final scores across the board scrambled the order.",
+          },
+          {
+            "impactScore": 40,
+            "kind": "summary",
+            "text": "2 games went final: Aces 1–Cubs 6; Bruins 3–Ducks 3.",
+          },
+        ],
+        "scores": [
+          "Aces 1, Cubs 6",
+          "Bruins 3, Ducks 3",
+        ],
+        "title": "Latest Update — Week Ending 4/12",
+      }
+    `);
+  });
+
+  it("by game", () => {
+    // The game's window is the game alone, as the date's is in this season, so the two recaps are
+    // one recap under two titles.
+    expect(markP3("game")).toEqual({ ...markP3("date"), title: "Latest Update — Aces vs Cubs" });
+  });
+});
+
+/*
+ * Several games made final at once, as Fill scores, Data Quality's Mark them final and a pasted
+ * schedule's scores make them: one update, recapped over every window they fall in. Three
+ * weekends: both games of the first Saturday and one of the second made final together, the first
+ * Sunday's game marked final by hand before, the second Sunday's still open, and the third weekend
+ * still to play.
+ */
+describe("the recap of several games made final at once", () => {
+  const weekends: Matchup[] = [
+    game("w1", "aces", "bruins", "2026-04-04"),
+    game("w2", "cubs", "ducks", "2026-04-04"),
+    game("w3", "aces", "cubs", "2026-04-05"),
+    game("w4", "bruins", "ducks", "2026-04-11"),
+    game("w5", "ducks", "aces", "2026-04-12"),
+    game("w6", "cubs", "bruins", "2026-04-18"),
+  ];
+  const before: Record<string, GameLog> = {
+    w1: scored("7", "4", false),
+    w2: scored("2", "9", false),
+    w3: scored("1", "6", true),
+    w4: scored("3", "5", false),
+    w5: scored("4", "4", false),
+  };
+  const made = ["w1", "w2", "w4"];
+  const logs: Record<string, GameLog> = {
+    ...before,
+    ...Object.fromEntries(made.map((id) => [id, { ...before[id]!, isFinal: true }])),
+  };
+  const seasonPool = (recapGrouping: RecapGrouping) =>
+    pool({ matchups: weekends, settings: { ...DEFAULT_SETTINGS, goldCutoff: 2, recapGrouping } });
+  const recap = (recapGrouping: RecapGrouping, ids: string[] = made) =>
+    impactOfFinals(ids, logs, seasonPool(recapGrouping), nameOf);
+  const madeScores = ["Aces 7, Bruins 4", "Cubs 2, Ducks 9", "Bruins 3, Ducks 5"];
+
+  it("recaps the finals of every date they fall on, from the first date to the last", () => {
+    const impact = recap("date");
+    expect(impact?.title).toBe("Latest Update — 4/4 to 4/11");
+    expect(impact?.scores).toEqual(madeScores);
+    // Read against the standings with those two dates' finals taken back and no other: the first
+    // Sunday's stays final on both sides.
+    const without = buildRankSnapshot(before, seasonPool("date"));
+    const withThem = buildRankSnapshot(logs, seasonPool("date"));
+    expect(impact?.messages).toEqual(summarizeChanges(without, withThem, 2));
+    expect(impact?.messages.length).toBeGreaterThan(0);
+    expect(impact?.recapItems.find((item) => item.kind === "summary")?.text).toBe(
+      "3 games went final: Aces 7–Bruins 4; Cubs 2–Ducks 9; Bruins 3–Ducks 5."
+    );
+  });
+
+  it("recaps every final of each week they fall in, those made before among them", () => {
+    const impact = recap("week");
+    expect(impact?.title).toBe("Latest Update — Weeks Ending 4/5 to 4/12");
+    expect(impact?.scores).toEqual([
+      "Aces 7, Bruins 4",
+      "Cubs 2, Ducks 9",
+      "Aces 1, Cubs 6",
+      "Bruins 3, Ducks 5",
+    ]);
+  });
+
+  it("recaps the games alone by game, and counts them in the title", () => {
+    const impact = recap("game");
+    expect(impact?.title).toBe("Latest Update — 3 Games");
+    expect(impact?.scores).toEqual(madeScores);
+  });
+
+  it("over one window, gives what marking the last of them final on the Schedule does", () => {
+    // The first Saturday's two games, final together, against the second marked after the first.
+    const firstMarked = { ...before, w1: logs.w1! };
+    for (const recapGrouping of ["date", "week"] as const) {
+      expect(
+        impactOfFinals(
+          ["w1", "w2"],
+          { ...firstMarked, w2: logs.w2! },
+          seasonPool(recapGrouping),
+          nameOf
+        )
+      ).toEqual(finalToggled("w2", firstMarked, 6, seasonPool(recapGrouping), nameOf).impact);
+    }
+  });
+
+  it("lists the scores in the schedule's order, whatever order the games come in", () => {
+    expect(recap("date", ["w4", "w2", "w1"])).toEqual(recap("date"));
+  });
+
+  it("leaves out a game still open or not the season's, and says nothing with none left", () => {
+    expect(recap("date", [...made, "w5", "ghost"])).toEqual(recap("date"));
+    expect(recap("date", ["w5", "ghost"])).toBeNull();
+    expect(recap("date", [])).toBeNull();
+  });
+
+  it("says every one of their scores when too many games are still to play for the detail", () => {
+    const later = Array.from({ length: IMPACT_RECAP_REMAINING_GAME_LIMIT }, (_, i) =>
+      game(`x${i}`, "aces", "bruins", "2026-05-02")
+    );
+    const impact = impactOfFinals(made, logs, pool({ matchups: [...weekends, ...later] }), nameOf);
+    expect(impact?.title).toBe("Latest Update — 3 Games");
+    expect(impact?.scores).toEqual(madeScores);
+    expect(impact?.messages[0]).toMatch(/^Finals saved\. .* paused until/);
+    expect(impact?.recapItems).toEqual([]);
+  });
+});
+
+describe("the pool a season's recap reads against", () => {
+  const settings = { ...DEFAULT_SETTINGS, goldCutoff: 6, regularSeasonGamesPerTeam: 5 };
+  const season = { teams, matchups, bracketLogs: {}, settings };
+
+  it("is the season's teams and games, and the cut line its format gives its own teams", () => {
+    // Six asked of four teams is all four, as the page reads a cut line.
+    expect(recapPoolOf(season)).toEqual({
+      teams,
+      matchups,
+      settings,
+      goldCutoff: 4,
+      hasCutLine: true,
+    });
+    // A league where every team goes on has no line to be inside of.
+    expect(
+      recapPoolOf({ ...season, settings: { ...settings, postseasonFormat: "all" } })
+    ).toMatchObject({ goldCutoff: 4, hasCutLine: false });
+  });
+
+  it("reads the regular season as scheduled once the bracket has a kept score", () => {
+    const begun = recapPoolOf({ ...season, bracketLogs: { b1: scored("3", "2", true) } });
+    expect(begun.settings).toEqual({ ...settings, regularSeasonGamesPerTeam: 0 });
   });
 });
 

@@ -20,15 +20,18 @@
 
 import { displayName } from "./format";
 import { blankLog, isFinal, parseNumber } from "./util";
-import { normalizeDateInput, seasonStartMonth, sundayEndingWeekKey } from "./date";
+import { normalizeDateInput, parseDateValue, seasonStartMonth, sundayEndingWeekKey } from "./date";
 import { weeklyRecap } from "./insights";
 import {
+  bracketBegun,
   calculateTeams,
+  effectiveGoldCutoff,
   getMathGoldStatus,
   getRemainingCounts,
   projectStandings,
   rankOptionsFromSettings,
   rankTeams,
+  regularSeasonSettings,
 } from "./sim";
 import {
   buildProjectionSnapshot,
@@ -36,6 +39,7 @@ import {
   type ProjectionRelevantSettings,
 } from "./projectionDelta";
 import { buildProjectionExplanations } from "./projectionExplanation";
+import type { SeasonState } from "./seasonStore";
 import type {
   GameLog,
   LastImpact,
@@ -86,6 +90,26 @@ export const nameFrom =
   (teamBaseById: ReadonlyMap<string, TeamBase>): NameOf =>
   (teamId) =>
     displayName(teamBaseById.get(teamId)?.name || teamId);
+
+/**
+ * The pool a season's recap reads against: its teams and games, the settings its regular season is
+ * forecast under (`regularSeasonSettings`, which owe no games once the bracket has a kept score),
+ * the cut line its format gives for its number of teams (`effectiveGoldCutoff`), and whether it has
+ * one. The page's own pool is this of the season it draws; a recap read once a change is in reads
+ * it of the season as that change left it, which may hold teams and games the page has not drawn.
+ */
+export const recapPoolOf = ({
+  teams,
+  matchups,
+  bracketLogs,
+  settings,
+}: Pick<SeasonState, "teams" | "matchups" | "bracketLogs" | "settings">): RecapPool => ({
+  teams,
+  matchups,
+  settings: regularSeasonSettings(settings, bracketBegun(bracketLogs)),
+  goldCutoff: effectiveGoldCutoff(settings, teams.length),
+  hasCutLine: settings.postseasonFormat === "cut",
+});
 
 /**
  * The standings the logs make, by place now and projected and by Gold status, but not by Gold %.
@@ -202,53 +226,68 @@ export const projectionExplanationsFor = (
 };
 
 /**
- * The recap for one game going final, or `null` when there is nothing to say.
+ * The recap of games just made final, or `null` when there is nothing to say: the one game a press
+ * of "final" on the Schedule makes (`finalToggled`), or the several that Fill scores, Data
+ * Quality's Mark them final or a pasted schedule's scores make at once.
  *
- * `current` is the log as it stands before the final flag flips and `nextLogs` is the whole set
- * as it is about to become — both are passed rather than derived, because the caller has already
- * built them inside its state updater and rebuilding them here would be a second chance to
- * disagree about what "next" means.
+ * `nextLogs` is the whole set as it is with them final, and `gameIds` the games that went final in
+ * it. A game is recapped with every final in its window (`settings.recapGrouping`: the game alone,
+ * its date or its week), and several games are one update, recapped over all of their windows at
+ * once, so a fill of two weekends says what the two weekends did together rather than what the
+ * last of them did. Where they share a window, that is the recap marking the last of them final
+ * on the Schedule gives; across several, the title runs from the first window to the last in the
+ * season's order. With too many games still to play for the detail, each of their scores is said,
+ * as one game's is.
  *
- * Returns `null` for a game the season does not hold, which is the same answer the caller wants
- * for un-marking a final: nothing to recap either way.
+ * Returns `null` when none of them is a final game the season holds, which is the same answer the
+ * caller wants for un-marking a final: nothing to recap either way.
  */
-export const impactOfFinal = (
-  gameId: string,
-  current: GameLog,
+export const impactOfFinals = (
+  gameIds: Iterable<string>,
   nextLogs: Record<string, GameLog>,
   pool: RecapPool,
   nameOf: NameOf
 ): LastImpact | null => {
   const { matchups, settings, goldCutoff, hasCutLine } = pool;
-  const game = matchups.find((item) => item.id === gameId);
+  const asked = new Set(gameIds);
+  // In the schedule's order, the order a window's finals have always been listed in.
+  const made = matchups.filter((game) => asked.has(game.id) && isFinal(nextLogs[game.id]));
+  const game = made[0];
   if (!game) return null;
 
-  const dateLabel = normalizeDateInput(game.date);
   // On the season's own calendar, so a week from December into January is one.
   const startMonth = seasonStartMonth(matchups.map((matchup) => matchup.date));
-  const weekLabel = sundayEndingWeekKey(game.date, startMonth);
+  const dayOf = (m: Matchup) => normalizeDateInput(m.date);
+  const weekOf = (m: Matchup) => sundayEndingWeekKey(m.date, startMonth);
+  const dateLabel = dayOf(game);
+  const weekLabel = weekOf(game);
   const nextRemainingCount = matchups.reduce(
     (count, matchup) => count + (isFinal(nextLogs[matchup.id]) ? 0 : 1),
     0
   );
   if (nextRemainingCount > IMPACT_RECAP_REMAINING_GAME_LIMIT) {
     return {
-      title: `Latest Update — ${nameOf(game.away)} vs ${nameOf(game.home)}`,
-      scores: [
-        `${nameOf(game.away)} ${parseNumber(current.awayRuns)}, ${nameOf(game.home)} ${parseNumber(current.homeRuns)}`,
-      ],
+      title:
+        made.length === 1
+          ? `Latest Update — ${nameOf(game.away)} vs ${nameOf(game.home)}`
+          : `Latest Update — ${made.length} Games`,
+      scores: made.map((m) => {
+        const log = nextLogs[m.id] || blankLog();
+        return `${nameOf(m.away)} ${parseNumber(log.awayRuns)}, ${nameOf(m.home)} ${parseNumber(log.homeRuns)}`;
+      }),
       messages: [
-        `Final saved. Detailed standings-impact recap is paused until ${IMPACT_RECAP_REMAINING_GAME_LIMIT} or fewer games remain to keep scoring responsive.`,
+        `${made.length === 1 ? "Final" : "Finals"} saved. Detailed standings-impact recap is paused until ${IMPACT_RECAP_REMAINING_GAME_LIMIT} or fewer games remain to keep scoring responsive.`,
       ],
       recapItems: [],
     };
   }
+  const ids = new Set(made.map((m) => m.id));
+  const dates = new Set(made.map(dayOf));
+  const weeks = new Set(made.map(weekOf));
   const sameRecapWindow = (m: Matchup) => {
-    if (settings.recapGrouping === "game") return m.id === gameId;
-    if (settings.recapGrouping === "week") {
-      return sundayEndingWeekKey(m.date, startMonth) === weekLabel;
-    }
-    return normalizeDateInput(m.date) === dateLabel;
+    if (settings.recapGrouping === "game") return ids.has(m.id);
+    if (settings.recapGrouping === "week") return weeks.has(weekOf(m));
+    return dates.has(dayOf(m));
   };
   const groupedFinals = matchups.filter((m) => {
     if (!sameRecapWindow(m)) return false;
@@ -288,15 +327,30 @@ export const impactOfFinal = (
     hasCutLine,
   });
   const projectionExplanations = projectionExplanationsFor(before, after, settings, nameOf);
-  return {
-    title:
-      settings.recapGrouping === "game"
+  // Over several windows, from the first game's to the last's, in the season's order.
+  const span = (labelOf: (m: Matchup) => string) => {
+    const inOrder = [...made].sort(
+      (a, b) => parseDateValue(a.date, startMonth) - parseDateValue(b.date, startMonth)
+    );
+    const label = (m: Matchup | undefined) => labelOf(m ?? game) || "No Date";
+    return `${label(inOrder[0])} to ${label(inOrder[inOrder.length - 1])}`;
+  };
+  const title = () => {
+    if (settings.recapGrouping === "game") {
+      return made.length === 1
         ? `Latest Update — ${finalsSinceLast[0]?.awayName ?? "Away"} vs ${finalsSinceLast[0]?.homeName ?? "Home"}`
-        : settings.recapGrouping === "week"
-          ? `Latest Update — Week Ending ${weekLabel || "No Date"}`
-          : dateLabel
-            ? `Latest Update — ${dateLabel}`
-            : "Latest Update — No Date",
+        : `Latest Update — ${made.length} Games`;
+    }
+    if (settings.recapGrouping === "week") {
+      return weeks.size === 1
+        ? `Latest Update — Week Ending ${weekLabel || "No Date"}`
+        : `Latest Update — Weeks Ending ${span(weekOf)}`;
+    }
+    if (dates.size > 1) return `Latest Update — ${span(dayOf)}`;
+    return dateLabel ? `Latest Update — ${dateLabel}` : "Latest Update — No Date";
+  };
+  return {
+    title: title(),
     scores: finalsSinceLast.map(
       (item) => `${item.awayName} ${item.awayScore}, ${item.homeName} ${item.homeScore}`
     ),
@@ -353,6 +407,6 @@ export const finalToggled = (
   const nextLogs = { ...logs, [gameId]: { ...current, isFinal: !current.isFinal } };
   return {
     nextLogs,
-    impact: isMarkingFinal ? impactOfFinal(gameId, current, nextLogs, pool, nameOf) : null,
+    impact: isMarkingFinal ? impactOfFinals([gameId], nextLogs, pool, nameOf) : null,
   };
 };

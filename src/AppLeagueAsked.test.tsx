@@ -528,6 +528,86 @@ describe("League Standings asking the server what Team Rankings has", () => {
     ]);
   });
 
+  it("recaps every game it makes final on Standings, filled, added or moved, as one update", async () => {
+    // A fill wrote its games final with no recap and no League Story: only the Schedule's toggle
+    // gave one. Here one game is filled, one the schedule lacks is added, and one rained out is
+    // moved to the day it was played, three days in all.
+    saveTeams([
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears", scoutTeamId: "S-BEARS", scoutGcTeamId: "gcBEARS" },
+      { id: "C", name: "Comets" },
+      { id: "D", name: "Ducks" },
+    ]);
+    saveMatchups([
+      { id: "g1", date: "5/1", away: "A", home: "B" },
+      { id: "g2", date: "5/2", away: "C", home: "D" },
+    ]);
+    const played = (scoutGameId: string, date: string, away: string, home: string) => ({
+      scoutGameId,
+      date,
+      awayTeamId: away,
+      homeTeamId: home,
+      awayName: away === "A" ? "Aces" : "Comets",
+      homeName: home === "B" ? "Bears" : "Ducks",
+    });
+    server.plan = {
+      ...PLAN,
+      missing: [
+        { ...played("s8", "5/8", "A", "B"), awayRuns: 3, homeRuns: 5 },
+        { ...played("s9", "5/9", "C", "D"), awayRuns: 4, homeRuns: 1 },
+      ],
+    };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: /schedule/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Fill scores from Team Rankings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Fill 1 game and add 2" }));
+    expect(
+      await screen.findByText(
+        "Filled 1 game. Moved 1 game to the day it was played. Added 1 game between the league's clubs."
+      )
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Standings" }));
+    expect(await screen.findByText("Latest Update — 5/1 to 5/9")).toBeTruthy();
+    expect(screen.getByText("Aces 6, Bears 2")).toBeTruthy();
+    expect(screen.getByText("Comets 4, Ducks 1")).toBeTruthy();
+    expect(screen.getByText("Aces 3, Bears 5")).toBeTruthy();
+    expect(screen.getByText("League Story")).toBeTruthy();
+  });
+
+  it("recaps nothing for a fill that only wrote over a final, as a score corrected by hand", async () => {
+    saveLogs({ g1: { ...blankLog(), awayRuns: "3", homeRuns: "1", isFinal: true } });
+    server.plan = {
+      ...PLAN,
+      rows: [
+        {
+          matchupId: "g1",
+          date: "5/1",
+          awayTeamId: "A",
+          awayName: "Aces",
+          homeTeamId: "B",
+          homeName: "Bears",
+          awayRuns: 6,
+          homeRuns: 2,
+          action: "overwrite",
+          currentAwayRuns: "3",
+          currentHomeRuns: "1",
+        },
+      ],
+    };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: /schedule/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Fill scores from Team Rankings" }));
+    // A score that disagrees is filled only once ticked by name.
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Fill Aces at Bears" }));
+    fireEvent.click(screen.getByRole("button", { name: "Fill 1 game" }));
+    expect(await screen.findByText(/^Filled 1 game/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Standings" }));
+    expect(await screen.findByText("Updated through 5/1.")).toBeTruthy();
+    expect(screen.queryByText("Impact Since Last Update")).toBeNull();
+  });
+
   it("says so when the server could not be asked, and opens nothing", async () => {
     server.plan = null;
     render(<App />);

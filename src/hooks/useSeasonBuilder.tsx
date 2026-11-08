@@ -43,6 +43,8 @@ export type SeasonBuilderInputs = {
   closeTeamData: () => void;
   matchups: Matchup[];
   rankingsLive: boolean;
+  /** Shows the recap of the games given, made final just now, as a final marked on the Schedule. */
+  recapFinals: (gameIds: readonly string[]) => void;
   requestConfirmation: ReturnType<typeof useConfirmation>["request"];
   restoreUndo: UndoSnapshotControls["restore"];
   scoutBridge: LeagueScoutBridge;
@@ -78,6 +80,7 @@ export function useSeasonBuilder({
   closeTeamData,
   matchups,
   rankingsLive,
+  recapFinals,
   requestConfirmation,
   restoreUndo,
   scoutBridge,
@@ -345,9 +348,11 @@ export function useSeasonBuilder({
       matchups: made.matchups,
       logs: { ...now.logs, ...made.logs },
     });
+    // Every game is new, and those with a score went in final: recapped as finals marked on the
+    // Schedule are. A paste with no score leaves no recap, so none from before it stands.
+    recapFinals(made.matchups.map((game) => game.id));
     // As the other ways to start a season do: a team filter kept from another season would hide
     // games just added, under a toast saying they were.
-    setLastImpact(null);
     closeTeamData();
     setScoreboardTeamFilter("ALL");
     setActiveView("games");
