@@ -437,15 +437,19 @@ kept (`leagueGameTimes.test.ts` reads Fill's starts in nine zones, Los Angeles t
 start left from the evening before where the league plays). A start is its day's: a game given
 another day in the Schedule lets go of its start, and one Fill moves to the day it was played
 takes the pool game's start, or none (`movesToApply`). Kept, the moved game showed the old day's
-time and was listed by it among the new day's games, and Fill never gave it another. The
-Schedule, the Dashboard's upcoming games, the Playoff machine, each team's next game and the
-Forecast's notes that name one ("Eliminated if the Bears beat them next", and the rival's game a
-team needs help from, `clinchingPaths.ts`) go by day and then start (`inPlayingOrder`, which
-breaks a day's tie by start since 31 October 2026; the notes read the schedule's stored order
-until then, a round robin's pairings, its dates typed in after), and the Schedule and the
-Dashboard show the start in the device's own time ("5/3 · 10:30 AM"). The forecast's own order of
-the games left is not changed, so no odds move. A game typed in has no start and is listed after
-the day's timed games.
+time and was listed by it among the new day's games, and Fill never gave it another. Nor is the old
+time of day carried to the new day: a make-up game can start at any hour, and a start on its game's
+day is kept over the pool's by Fill and over a pulled copy's by Team Rankings
+(`dedupeLeagueFixtures`), so a carried 9:00 AM would be shown as GameChanger's, here and in Team
+Rankings, and the game's own start never come in. With none, Fill gives it its own once the pool has
+the game's result. The Schedule, the Dashboard's upcoming games, the Playoff machine, each team's
+next game and the Forecast's notes that name one ("Eliminated if the Bears beat them next", and the
+rival's game a team needs help from, `clinchingPaths.ts`) go by day and then start
+(`inPlayingOrder`, which breaks a day's tie by start since 31 October 2026; the notes read the
+schedule's stored order until then, a round robin's pairings, its dates typed in after), and the
+Schedule and the Dashboard show the start in the device's own time ("5/3 · 10:30 AM"). The
+forecast's own order of the games left is not changed, so no odds move. A game typed in has no start
+and is listed after the day's timed games.
 
 ## A season's team list, then its schedule
 
