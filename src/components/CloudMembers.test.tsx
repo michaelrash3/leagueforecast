@@ -23,6 +23,7 @@ const listOf = (): Member[] => [
 const over = (list: Member[], me: string) => {
   const store = memoryMembers(list, () => me);
   const api: MembersApi = {
+    role: () => store.role(),
     list: async () => ((await store.role()) === "owner" ? store.list() : null),
     add: vi.fn((address: string) => store.add(address, NOW)),
     remove: vi.fn((address: string) => store.remove(address)),

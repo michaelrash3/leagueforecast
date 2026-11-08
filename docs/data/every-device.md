@@ -91,6 +91,8 @@ merged, and whatever a merge had to replace is kept.
   **Bring back…** makes it current again from any device, asking twice and
   keeping what it replaces in turn. The server makes it current, for the
   copy's owner alone (1.6), and the device then takes it like any other save.
+  A member's panel lists the versions with **Bring back…** drawn off, and a
+  line under them saying only the owner can (`useOwnerOnly`).
 
 **Meeting a copy for the first time.** A browser signing in with seasons of its
 own keeps them here beside the copy's, merged where they share records; the copy

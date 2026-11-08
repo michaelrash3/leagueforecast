@@ -40,7 +40,7 @@ import {
 import { markTaken, mayWrite } from "./cloudGuard";
 import { announceTaken, reloadWhenFree } from "./cloudTabs";
 import type { CloudAccount, FirebaseCloud, PullJobStore } from "./firebaseCloud";
-import type { Member } from "./members";
+import type { Member, MemberRole } from "./members";
 import { setGcAuthorization } from "../gcAuthorization";
 
 /**
@@ -533,6 +533,23 @@ export const copyReader = async (): Promise<CopyReader | null> => {
     readManifest: () => timed(store.readManifest(), LIVE_LIMITS.meta, "reading the cloud's copy"),
     getChunk: (id) => timed(store.getChunk(id), LIVE_LIMITS.chunk, "fetching the cloud's copy"),
   };
+};
+
+/**
+ * The signed-in member's own place on the copy's list (`members.role`): the owner's, a member's, or
+ * null for the same reasons as `liveReader` and for an account not on the list. What only the owner
+ * may do is drawn off by it for a member (`useOwnerOnly`), and refused by the server and the rules
+ * whatever it says. The session is opened as `liveReader` opens it, so Setup opened straight from a
+ * link finds the account the boot is still signing in.
+ */
+export const cloudRole = async (): Promise<MemberRole | null> => {
+  const state = loadCloudState();
+  if (!state.enabled || !state.uid) return null;
+  const current = await loadSession();
+  if (!current) return null;
+  const account = await current.cloud.account();
+  if (!account || account.uid !== state.uid) return null;
+  return current.cloud.members.role();
 };
 
 /**

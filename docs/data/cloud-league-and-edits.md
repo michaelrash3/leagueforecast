@@ -773,7 +773,12 @@ and an entry whose `role` says `owner` in so many words is the owner's, anything
 a member's year archive or delete is refused before the worker has it, with "Only the cloud copy's
 owner can archive or delete a year". `yearOps.test.ts` holds the server's archive and delete to
 the device's functions on the seeded pool, League Standings' games included, and `editRun.test.ts`
-the one save each makes; the functions' smoke run holds a member's delete refused.
+the one save each makes; the functions' smoke run holds a member's delete refused. Since 8
+November 2026 a member's card draws both buttons off, with a line under them saying only the
+owner can (`OWNER_ONLY`), once the member's own entry on the list has been read (`cloudRole`,
+`useOwnerOnly`): before, a member was walked through the server's preview and the confirmation
+to be refused at the end. The owner's card is as it was, and so is one whose entry is not read
+yet or could not be, the server's refusal standing either way.
 
 **Team Rankings started again, and an earlier version brought back, by the owner** (1.6). Two more
 of the owner's commands, made on the copy's own manifest rather than on a pool (`copyOps.ts`), and
@@ -799,7 +804,9 @@ Nothing on the device is deleted, as the
 device's own Start from scratch does. The Cloud panel's Bring back asks the server
 (`serverRestore.ts`), then takes the copy as it takes any other save, so a device never writes the
 copy to bring a version back. Both are the owner's alone, refused to a member with "Only the cloud
-copy's owner can …", as the functions' smoke run holds for all four of the owner's commands.
+copy's owner can …", as the functions' smoke run holds for all four of the owner's commands, and
+drawn off for a member, Setup's Start again and the Cloud panel's Bring back alike, as a year's
+archive and delete are (above).
 `editRun.test.ts` holds the start, its Undo, a version a device kept brought back, the boards
 emptied and published again, and a save landing between.
 

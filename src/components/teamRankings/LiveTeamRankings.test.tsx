@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CloudManifest, ManifestPart } from "../../lib/cloud/cloudManifest";
 import { LEAGUE_PART } from "../../lib/cloud/cloudPlan";
 import type { CopySeen } from "../../lib/cloud/cloudSession";
+import { OWNER_ONLY } from "../../lib/cloud/members";
 import { BOARD_FAMILY, builtFrom } from "../../lib/live/boardInputs";
 import { forgetDecodedBoards } from "../../lib/live/liveClient";
 import { forgetLiveBoard, liveBoardFor, type RankingsHandover } from "../../lib/live/liveBoard";
@@ -4246,6 +4247,63 @@ describe("Setup on the cloud's board", () => {
     await publish(live, undefined, undefined, 5);
     await waitFor(() => expect(screen.queryByText(STARTED_AGAIN_WAITING["copy.reset"])).toBeNull());
     expect(handedOver()).toBeNull();
+  });
+
+  /*
+   * Archiving or deleting a year and starting Team Rankings again are the copy's owner's alone,
+   * which the server refuses to anyone else (`isOwnerCommand`). A member's Setup draws them off,
+   * each saying so, once the member's entry on the list has been read; the owner's Setup is as it
+   * always was, and so is one whose entry could not be read, the server saying no to a member all
+   * the same.
+   */
+  const OWNERS_CONTROLS = ["Start Team Rankings again", "Archive this year", "Delete this year"];
+  const YEARS = {
+    kind: "year.list",
+    years: [{ year: 2026, pages: 3, games: 8, teams: 7, archives: 0 }],
+  };
+  /** Setup opened with its entry on the list read by `role`, and a year picked to archive. */
+  const ownersControls = async (role: NonNullable<LiveSources["role"]>) => {
+    onSetup();
+    pool.wants = false;
+    const server = editFunction((data) =>
+      (data.query as { kind?: string } | undefined)?.kind === "year.list"
+        ? answered(YEARS)
+        : setupAnswers(data)
+    );
+    open(sourcesOf(live, { call: server.call, role }));
+    fireEvent.change(await screen.findByLabelText("Baseball year"), { target: { value: "2026" } });
+    return {
+      server,
+      controls: () => OWNERS_CONTROLS.map((name) => screen.getByRole("button", { name })),
+    };
+  };
+
+  it("draws the owner's controls off for a member, each saying only the owner can", async () => {
+    const { server, controls } = await ownersControls(async () => "member");
+    await waitFor(() => expect(controls()[0]).toBeDisabled());
+    for (const control of controls()) {
+      expect(control).toBeDisabled();
+      expect(control).toHaveAccessibleDescription(OWNER_ONLY);
+    }
+    // Pressed all the same, nothing is confirmed, asked or sent.
+    for (const control of controls()) fireEvent.click(control);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(said.asked).toEqual([]);
+    expect(edited(server.sent)).toEqual([]);
+    expect(asked(server.sent)).not.toContain("year.archivePreview");
+    expect(asked(server.sent)).not.toContain("year.deletePreview");
+  });
+
+  it.each([
+    ["for the owner", async () => "owner" as const],
+    ["where the entry could not be read", () => Promise.reject(new Error("offline"))],
+  ])("leaves them on %s", async (_whose, read) => {
+    const role = vi.fn(read);
+    const { controls } = await ownersControls(role);
+    await waitFor(() => expect(role).toHaveBeenCalled());
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    for (const control of controls()) expect(control).not.toBeDisabled();
+    expect(screen.queryByText(OWNER_ONLY)).toBeNull();
   });
 
   const LEAGUE: SeasonMeta[] = [{ id: "season-1", name: "Placeholder League", createdAt: T }];

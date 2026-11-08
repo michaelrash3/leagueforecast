@@ -1,8 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CloudStatus, KeptVersion } from "../lib/cloud/cloudSession";
 import { loadDisplacedLeague, saveDisplacedLeague } from "../lib/cloud/cloudState";
+import { OWNER_ONLY } from "../lib/cloud/members";
 import { CloudButton, useCloudPanel } from "./CloudButton";
 import type { MembersApi } from "./CloudMembers";
 import { CloudPanel, savedWhen, sizeOf, type CloudActions } from "./CloudPanel";
@@ -33,12 +34,29 @@ const saved = (over: Partial<Extract<CloudStatus, { kind: "saved" }>> = {}): Clo
   ...over,
 });
 
-/** The list as an account that is not its owner sees it: nothing. */
+/** The list as an account that is not its owner sees it: nothing, and its own entry a member's. */
 const NOT_OWNER: MembersApi = {
+  role: async () => "member",
   list: async () => null,
   add: async () => undefined,
   remove: async () => undefined,
   message: String,
+};
+/** The list as its owner sees it. */
+const OWNER: MembersApi = {
+  ...NOT_OWNER,
+  role: async () => "owner",
+  list: async () => [{ address: ME.email ?? "", role: "owner" }],
+};
+
+/** A Team Rankings this device kept, half an hour before `NOW`. */
+const KEPT: KeptVersion = {
+  group: "g1",
+  keptAt: "2026-09-28T11:30:00Z",
+  why: "lost",
+  fromHere: true,
+  what: ["Team Rankings"],
+  bytes: 2_100_000,
 };
 
 const panel = (
@@ -168,19 +186,8 @@ describe("the cloud panel", () => {
     expect(actions.dismissNotice).toHaveBeenCalledTimes(1);
   });
 
-  it("lists kept versions, and brings one back only when asked twice", async () => {
-    const actions = panel(saved(), {
-      kept: [
-        {
-          group: "g1",
-          keptAt: "2026-09-28T11:30:00Z",
-          why: "lost",
-          fromHere: true,
-          what: ["Team Rankings"],
-          bytes: 2_100_000,
-        },
-      ],
-    });
+  it("lists kept versions, and brings one back for the owner only when asked twice", async () => {
+    const actions = panel(saved(), { kept: [KEPT], members: OWNER });
     expect(
       screen.getByText(/This device's own Team Rankings, kept 30 minutes ago \(2\.1 MB\)/)
     ).toBeInTheDocument();
@@ -190,6 +197,22 @@ describe("the cloud panel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Bring back…" }));
     await userEvent.click(screen.getByRole("button", { name: "Bring it back" }));
     expect(actions.bringBack).toHaveBeenCalledWith("g1");
+    expect(screen.queryByText(OWNER_ONLY)).toBeNull();
+  });
+
+  it("lists kept versions to a member with Bring back off, saying only the owner can", async () => {
+    const actions = panel(saved(), { kept: [KEPT, { ...KEPT, group: "g2" }] });
+    const bringBack = () => screen.getAllByRole("button", { name: "Bring back…" });
+    await waitFor(() => expect(bringBack()[0]).toBeDisabled());
+    for (const button of bringBack()) {
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleDescription(OWNER_ONLY);
+    }
+    // Said once for the list, not under every version in it.
+    expect(screen.getAllByText(OWNER_ONLY)).toHaveLength(1);
+    await userEvent.click(bringBack()[0] as HTMLElement);
+    expect(screen.queryByRole("button", { name: "Bring it back" })).toBeNull();
+    expect(actions.bringBack).not.toHaveBeenCalled();
   });
 
   it("says a copy that is gone is the servers' to make, and offers only to sign out", async () => {

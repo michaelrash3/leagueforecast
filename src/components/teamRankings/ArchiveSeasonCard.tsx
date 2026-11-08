@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { YearSummary } from "../../lib/yearSummary";
 import { button, card } from "../../styles/tokens";
 
@@ -25,6 +25,7 @@ export function ArchiveSeasonCard({
   busy,
   onArchive,
   onDelete,
+  ownerOnly = null,
 }: {
   years: ArchivableYear[];
   /** The year the app considers live, which is offered last and with a warning beside it. */
@@ -33,9 +34,17 @@ export function ArchiveSeasonCard({
   onArchive: (year: number) => void;
   /** Takes the whole year out with nothing kept; the caller asks first. */
   onDelete: (year: number) => void;
+  /**
+   * Said under the buttons, drawn off, where archiving and deleting are the cloud copy's owner's
+   * and this account is a member (the live page's card, `useOwnerOnly`). The years and what each
+   * holds are still there to read. Null on the device's own card, and for the owner.
+   */
+  ownerOnly?: string | null;
 }) {
   const [picked, setPicked] = useState<number | "">("");
   const chosen = years.find((one) => one.year === picked);
+  const reasonId = useId();
+  const describedBy = ownerOnly !== null ? reasonId : undefined;
 
   return (
     <div className={`${card} p-5`}>
@@ -110,7 +119,8 @@ export function ArchiveSeasonCard({
           <div className="mt-4 flex flex-wrap gap-3">
             <button
               type="button"
-              disabled={busy || chosen === undefined || chosen.pages === 0}
+              disabled={busy || ownerOnly !== null || chosen === undefined || chosen.pages === 0}
+              aria-describedby={describedBy}
               onClick={() => chosen && onArchive(chosen.year)}
               className={button.dark}
             >
@@ -118,13 +128,19 @@ export function ArchiveSeasonCard({
             </button>
             <button
               type="button"
-              disabled={busy || chosen === undefined}
+              disabled={busy || ownerOnly !== null || chosen === undefined}
+              aria-describedby={describedBy}
               onClick={() => chosen && onDelete(chosen.year)}
               className={`${button.danger} disabled:cursor-not-allowed disabled:opacity-50`}
             >
               Delete this year
             </button>
           </div>
+          {ownerOnly !== null && (
+            <p id={reasonId} className="mt-2 text-xs text-slate-600 dark:text-slate-300">
+              {ownerOnly}
+            </p>
+          )}
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             Take a backup from the card below first if you may want the games again — neither can be
             undone. Archiving keeps the tables; deleting keeps nothing.
