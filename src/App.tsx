@@ -1813,7 +1813,7 @@ export default function App() {
       </a>
       {isOffline && (
         <div className="bg-amber-100 px-4 py-2 text-center text-xs font-bold text-amber-900 dark:bg-amber-900/70 dark:text-amber-100">
-          {offlineLine(liveLeague.state)}
+          {offlineLine(liveLeague.state, tabReadOnly || seasonArchived)}
         </div>
       )}
       <div className="min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">

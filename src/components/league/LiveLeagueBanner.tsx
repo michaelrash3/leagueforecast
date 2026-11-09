@@ -51,10 +51,14 @@ export const editingOffBecause = (state: LiveLeagueState): string | null =>
  * alone, and of League kept live until its listener hears the connection go, but not of a member's
  * League kept live after that: every control that edits it is off until the cloud answers again.
  * A season stopped for a reason of its own stays read-only with the connection back, so the line
- * says nothing of editing there, and leaves the reason to the one over League.
+ * says nothing of editing there, and leaves the reason to the one over League. So does a season
+ * read-only for a reason `state` does not hold (`heldElse`): archived, or open in a tab another tab
+ * of this browser has the turn from. Each was told its score edits still save, or would once the
+ * connection was back, over a page whose every edit stays off either way.
  */
-export const offlineLine = (state: LiveLeagueState): string => {
+export const offlineLine = (state: LiveLeagueState, heldElse: boolean): string => {
   const kept = "You are offline. Showing what this device has kept";
+  if (heldElse) return `${kept}.`;
   if (editable(state)) return `${kept}; score edits still save in this browser.`;
   return state.kind === "offline" || state.kind === "connecting"
     ? `${kept}; editing is off until the connection is back.`
