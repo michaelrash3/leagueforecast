@@ -1,4 +1,4 @@
-import type { LiveLeagueState } from "../../lib/live/leagueSync";
+import { editable, type LiveLeagueState } from "../../lib/live/leagueSync";
 import type { StateKind } from "../../styles/tokens";
 import { StatePanel } from "../StatePanel";
 
@@ -44,6 +44,26 @@ const SAID: Partial<Record<LiveLeagueState["kind"], { text: string; kind: StateK
 /** Why League Standings may not be edited in `state`, or null when it may. */
 export const editingOffBecause = (state: LiveLeagueState): string | null =>
   SAID[state.kind]?.text ?? null;
+
+/**
+ * The line over the whole page while the device is offline (App's `isOffline`). It told every
+ * device that score edits still save in this browser, which is so of League kept on this device
+ * alone, and of League kept live until its listener hears the connection go, but not of a member's
+ * League kept live after that: every control that edits it is off until the cloud answers again.
+ * A season stopped for a reason of its own stays read-only with the connection back, so the line
+ * says nothing of editing there, and leaves the reason to the one over League. So does a season
+ * read-only for a reason `state` does not hold (`heldElse`): archived, or open in a tab another tab
+ * of this browser has the turn from. Each was told its score edits still save, or would once the
+ * connection was back, over a page whose every edit stays off either way.
+ */
+export const offlineLine = (state: LiveLeagueState, heldElse: boolean): string => {
+  const kept = "You are offline. Showing what this device has kept";
+  if (heldElse) return `${kept}.`;
+  if (editable(state)) return `${kept}; score edits still save in this browser.`;
+  return state.kind === "offline" || state.kind === "connecting"
+    ? `${kept}; editing is off until the connection is back.`
+    : `${kept}.`;
+};
 
 /**
  * What has stopped League kept live and will not mend itself, for a notification (2.6): a fault a

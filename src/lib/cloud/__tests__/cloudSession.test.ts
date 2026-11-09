@@ -453,6 +453,17 @@ describe("the list of who may use the copy", () => {
     await session.signInToCloud();
     expect(session.cloudStatus()).toMatchObject({ kind: "not-owner" });
     expect(await session.cloudMembers()).toBeNull();
+    expect(await session.cloudRole()).toBeNull();
+  });
+
+  it("says the signed-in account's own place on it, which the owner's controls are drawn by", async () => {
+    const laptop = await laptopFirst();
+    expect(await session.cloudRole()).toBe("owner");
+    roleSays = { role: "member" };
+    expect(await session.cloudRole()).toBe("member");
+    // Opened afresh, as Setup opened straight from a link is, before the boot has signed in.
+    runAs(laptop);
+    expect(await session.cloudRole()).toBe("member");
   });
 
   it("is not looked for before anyone signs in, and Firebase is not opened to look", async () => {
@@ -460,6 +471,7 @@ describe("the list of who may use the copy", () => {
     const opened = vi.fn(async () => firebaseFor(ME));
     session.setCloudTestHooks({ openCloud: opened });
     expect(await session.cloudMembers()).toBeNull();
+    expect(await session.cloudRole()).toBeNull();
     await expect(session.addCloudMember("coach@example.test")).rejects.toThrow(/Sign in/);
     await expect(session.removeCloudMember("coach@example.test")).rejects.toThrow(/Sign in/);
     expect(opened).not.toHaveBeenCalled();

@@ -353,11 +353,11 @@ describe("useFullBackup", () => {
     expect(window.localStorage.getItem("league_forecast_last_backup_v1")).toBeTruthy();
   });
 
-  it("with the cloud's board turned off, writes this device's own pool, as it always did", () => {
+  it("where Team Rankings is not the cloud's, writes this device's own pool, as it always did", () => {
     vi.spyOn(backupLib, "readFullBackup").mockReturnValue(fullBackup("current"));
     vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
     const read = vi.spyOn(copyBackupLib, "copyBackup");
-    // A member who turned the board off edits and pulls on this device's pool, kept in step.
+    // Signed in to a copy whose page is this device's own: a copy gone, or a newer build's.
     const { result, showToast } = setup(true, { ok: true, failed: [] }, false);
 
     result.current.exportBackup();

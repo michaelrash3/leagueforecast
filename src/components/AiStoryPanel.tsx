@@ -53,8 +53,8 @@ export type AiStoryPanelProps = {
 };
 
 /**
- * The AI write-up card, shared by the Standings league story and the Forecast
- * write-up so both report their state the same way.
+ * The AI write-up card, shared by the Standings league story, the Forecast write-up and Team
+ * Rankings' Why this ranking, so each says its state the same way.
  */
 export function AiStoryPanel({
   title,

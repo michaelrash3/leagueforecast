@@ -1,6 +1,7 @@
 import { type Dispatch, type SetStateAction, Suspense } from "react";
 import type { useGoldRace } from "../../hooks/useGoldRace";
 import type { useSelectedTeam } from "../../hooks/useSelectedTeam";
+import { EXACT_SCENARIO_REMAINING_GAME_LIMIT } from "../../lib/searchLimits";
 import type { LeagueAverageStats } from "../../lib/teamStats";
 import type { GameLog, LastImpact, Matchup, Settings, TeamWithProjection } from "../../lib/types";
 import { ErrorBoundary } from "../ErrorBoundary";
@@ -25,6 +26,8 @@ export type TeamDrawersProps = {
   matchups: Matchup[];
   renameLeagueTeam: (teamId: string, nextName: string) => void;
   runsOnly: boolean;
+  /** Whether the scenario walk behind the panel's Range and its swing games' seeds is running. */
+  seedWalkEnabled: boolean;
   selectedTeam: TeamWithProjection | null;
   selectedTeamDetail: ReturnType<typeof useSelectedTeam>["selectedTeamDetail"];
   selectedTeamSplitSummary: ReturnType<typeof useSelectedTeam>["selectedTeamSplitSummary"];
@@ -55,6 +58,7 @@ export function TeamDrawers({
   matchups,
   renameLeagueTeam,
   runsOnly,
+  seedWalkEnabled,
   selectedTeam,
   selectedTeamDetail,
   selectedTeamSplitSummary,
@@ -62,6 +66,12 @@ export function TeamDrawers({
   setCompareTeamId,
   settings,
 }: TeamDrawersProps) {
+  /*
+   * The walk runs for an open panel wherever few enough games remain, so off while one is open
+   * means too many are left, and the panel says it waits for that many, as the Forecast's table
+   * does, rather than show the projection as the seed every result leaves.
+   */
+  const seedWalkPausedUntil = seedWalkEnabled ? null : EXACT_SCENARIO_REMAINING_GAME_LIMIT;
   return (
     <>
       {/* Each drawer is fetched the first time it is opened (2.1, 2.7), so each has a boundary of
@@ -74,13 +84,8 @@ export function TeamDrawers({
           <Suspense fallback={null}>
             <TeamDrawer
               team={selectedTeam}
-              range={
-                selectedTeamDetail?.range ?? {
-                  best: selectedTeam.rank ?? 99,
-                  worst: selectedTeam.rank ?? 99,
-                  baseline: selectedTeam.rank ?? 99,
-                }
-              }
+              range={selectedTeamDetail?.range ?? null}
+              seedWalkPausedUntil={seedWalkPausedUntil}
               bubble={selectedTeamDetail?.bubble ?? ""}
               detailsPending={!selectedTeamDetail}
               currentSosRank={selectedTeamDetail?.currentSosRank ?? null}
@@ -144,6 +149,9 @@ export function TeamDrawers({
               matchups={matchups}
               logs={logs}
               runsOnly={runsOnly}
+              hasCutLine={hasCutLine}
+              pitchMode={settings.pitchMode}
+              trackErrors={settings.trackErrors}
               onClose={() => setCompareTeamId(null)}
               onPickRight={(id) => setCompareTeamId(id)}
             />

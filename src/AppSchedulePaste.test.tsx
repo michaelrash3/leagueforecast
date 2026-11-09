@@ -105,6 +105,27 @@ describe("pasting a league's schedule into the page", () => {
     await waitFor(() => expect(loadMatchups()).toEqual([]));
   });
 
+  it("recaps the scores it brought on Standings, as a final marked on the Schedule is", async () => {
+    // A score pasted went in final with no recap and no League Story: only the Schedule's toggle
+    // gave one.
+    const user = userEvent.setup();
+    await openOnSchedule(user);
+    await user.type(
+      await screen.findByLabelText("League schedule to read"),
+      "9/12 Aces @ Bears 3-4{enter}9/19 Bears @ Aces"
+    );
+    await user.click(screen.getByRole("button", { name: "Read the schedule" }));
+    await user.click(screen.getByRole("button", { name: "Add 2 games" }));
+    expect(
+      await screen.findByText("Added 2 games from the pasted schedule; 1 has a final score.")
+    ).toBeTruthy();
+
+    await user.click(screen.getByRole("tab", { name: "Standings" }));
+    expect(await screen.findByText("Latest Update — 9/12")).toBeTruthy();
+    expect(screen.getByText("Aces 3, Bears 4")).toBeTruthy();
+    expect(screen.getByText("League Story")).toBeTruthy();
+  });
+
   it("shows every game added, whatever team the schedule was filtered to", async () => {
     const user = userEvent.setup();
     saveTeams([

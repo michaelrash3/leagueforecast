@@ -1,10 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setGcAuthorization } from "../gcAuthorization";
 import type { RecapItem } from "../insights";
-import { LEAGUE_SUMMARY_ENDPOINT } from "../leagueSummary";
+import {
+  buildLeagueSummaryPrompt,
+  LEAGUE_SUMMARY_ENDPOINT,
+  type LeagueSummaryRequest,
+  sanitizeLeagueSummaryRequest,
+} from "../leagueSummary";
 import {
   buildForecastSummaryRequest,
   buildLeagueSummaryRequest,
+  forecastGamesFor,
   requestLeagueSummary,
 } from "../leagueSummaryClient";
 import { describeLeagueSummaryHealth, fetchLeagueSummaryHealth } from "../leagueSummaryHealth";
@@ -400,6 +406,45 @@ describe("buildForecastSummaryRequest", () => {
         date: "9/20",
       },
     ]);
+  });
+});
+
+describe("forecastGamesFor", () => {
+  const boardRow = (winnerPct: number) => ({
+    awayName: "Wolves",
+    homeName: "Stallions",
+    winnerName: "Stallions",
+    winnerPct,
+    impact: { impactLabel: "High" },
+    game: { date: "9/20" },
+  });
+
+  it("sends the favourite's chance as the percent the board shows", () => {
+    expect(forecastGamesFor([boardRow(0.63)])).toEqual([
+      {
+        awayName: "Wolves",
+        homeName: "Stallions",
+        favoriteName: "Stallions",
+        winPct: 63,
+        impact: "High",
+        date: "9/20",
+      },
+    ]);
+  });
+
+  it("tells the writer the number on the board, rounded as the board rounds it", () => {
+    // 0.575 × 100 is 57.49999999999999 in floating point, so the board's Chance column reads 57%.
+    const request = buildForecastSummaryRequest({
+      seasonLabel: "2026 Spring",
+      cutoff: 7,
+      projections: [],
+      gameForecasts: forecastGamesFor([boardRow(0.63), boardRow(0.575)]),
+    });
+    const received = sanitizeLeagueSummaryRequest(request);
+    expect(received).not.toBeNull();
+    const prompt = buildLeagueSummaryPrompt(received as LeagueSummaryRequest);
+    expect(prompt).toContain("9/20: Wolves at Stallions — Stallions favored at 63%, high impact");
+    expect(prompt).toContain("9/20: Wolves at Stallions — Stallions favored at 57%, high impact");
   });
 });
 

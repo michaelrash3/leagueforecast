@@ -23,6 +23,7 @@ import { useOpeningReleased, usePoolFilled } from "../../hooks/useOpeningHold";
 import { useRankingsPages } from "../../hooks/useRankingsPages";
 import { useStateTop } from "../../hooks/useStateTop";
 import {
+  cloudRole,
   copyReader,
   liveReader,
   poolOnScreen,
@@ -1057,6 +1058,7 @@ function LiveBoard({
               reader={sources ? sources.reader : liveReader}
               showToast={showToast}
               pagesKnown={pagesKnown}
+              role={sources ? sources.role : cloudRole}
             />
           </Suspense>
         ) : section === "archive" ? (

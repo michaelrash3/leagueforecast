@@ -1,11 +1,13 @@
 import { useId, useRef, useState, type ReactNode } from "react";
 import { useEscape, useFocusTrap } from "../hooks/useFocusTrap";
+import { useOwnerOnly } from "../hooks/useOwnerOnly";
 import {
   addCloudMember,
   bringBack,
   cloudErrorMessage,
   cloudKept,
   cloudMembers,
+  cloudRole,
   dismissCloudNotice,
   loadNewer,
   removeCloudMember,
@@ -46,6 +48,7 @@ const SESSION_ACTIONS: CloudActions = {
 
 /** The list of who may use the copy, read and changed through the session. */
 const SESSION_MEMBERS: MembersApi = {
+  role: cloudRole,
   list: cloudMembers,
   add: addCloudMember,
   remove: removeCloudMember,
@@ -141,10 +144,13 @@ function KeptRow({
   version,
   now,
   onBringBack,
+  ownerOnlyId,
 }: {
   version: KeptVersion;
   now: Date;
   onBringBack: (group: string) => void;
+  /** The line saying only the owner brings one back, for a member: the button is off, and says it. */
+  ownerOnlyId?: string;
 }) {
   const [asking, setAsking] = useState(false);
   const whose =
@@ -182,12 +188,66 @@ function KeptRow({
         <button
           type="button"
           onClick={() => setAsking(true)}
-          className="mt-1 text-sm font-black text-blue-700 underline underline-offset-2 hover:text-blue-900 dark:text-blue-300 dark:hover:text-blue-100"
+          disabled={ownerOnlyId !== undefined}
+          aria-describedby={ownerOnlyId}
+          className="mt-1 text-sm font-black text-blue-700 underline underline-offset-2 hover:text-blue-900 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-300 dark:hover:text-blue-100"
         >
           Bring back…
         </button>
       )}
     </li>
+  );
+}
+
+/**
+ * The versions the copy keeps, each with its Bring back, which the server makes for the copy's
+ * owner alone: drawn off for a member (`useOwnerOnly`), with the line saying so once under the
+ * list rather than under every version in it.
+ */
+function KeptVersions({
+  kept,
+  now,
+  members,
+  onBringBack,
+}: {
+  kept: readonly KeptVersion[];
+  now: Date;
+  members: MembersApi;
+  onBringBack: (group: string) => void;
+}) {
+  const ownerOnly = useOwnerOnly(members.role);
+  const reasonId = useId();
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 className="text-sm font-black text-slate-950 dark:text-slate-100">
+        Earlier versions, kept for 30 days
+      </h3>
+      <Note>
+        When two devices change the same thing, the later change is kept and so is the other, here.
+        A device joining the copy keeps its own Team Rankings here too, the nightly refresh keeps
+        the Team Rankings it replaced, so a bad night can be undone, and starting Team Rankings
+        again keeps all it took. Only the cloud copy&apos;s owner can bring one back.
+      </Note>
+      <ul className="flex flex-col gap-2">
+        {kept.map((version) => (
+          <KeptRow
+            key={version.group}
+            version={version}
+            now={now}
+            onBringBack={onBringBack}
+            ownerOnlyId={ownerOnly !== null ? reasonId : undefined}
+          />
+        ))}
+      </ul>
+      {ownerOnly !== null && (
+        <p
+          id={reasonId}
+          className="text-xs font-semibold leading-5 text-slate-600 dark:text-slate-300"
+        >
+          {ownerOnly}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -329,28 +389,7 @@ function Body({
           <DisplacedLeague />
           <CloudMembers api={members} />
           {kept.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <h3 className="text-sm font-black text-slate-950 dark:text-slate-100">
-                Earlier versions, kept for 30 days
-              </h3>
-              <Note>
-                When two devices change the same thing, the later change is kept and so is the
-                other, here. A device joining the copy keeps its own Team Rankings here too, the
-                nightly refresh keeps the Team Rankings it replaced, so a bad night can be undone,
-                and starting Team Rankings again keeps all it took. Only the cloud copy&apos;s owner
-                can bring one back.
-              </Note>
-              <ul className="flex flex-col gap-2">
-                {kept.map((version) => (
-                  <KeptRow
-                    key={version.group}
-                    version={version}
-                    now={now}
-                    onBringBack={actions.bringBack}
-                  />
-                ))}
-              </ul>
-            </div>
+            <KeptVersions kept={kept} now={now} members={members} onBringBack={actions.bringBack} />
           )}
         </>
       );

@@ -61,6 +61,14 @@ const EMPTY_GAME_LOG = blankLog();
  * Game `id` dated `date` ("M/D"), as typed in its field. A start is its day's, so a game moved to
  * another day lets go of its start: kept, the moved game showed the old day's time and was listed
  * by it among the new day's games. The same day written another way keeps it.
+ *
+ * Nor does the old start's time of day go with it to the new day. A start is what GameChanger
+ * said, and a make-up game can start at any hour; carried, a 9:00 AM would be shown and listed as
+ * GameChanger's, in Team Rankings too, and a start on its game's day is kept over the pool's by
+ * Fill (`startsFromFill`) and over a pulled copy's by Team Rankings (`dedupeLeagueFixtures`), so
+ * the game's own start would never come in. With none, Fill gives it its own once the pool has the
+ * game's result. The league's zone is not kept either, so the time of day carried could only be
+ * read in this device's.
  */
 const onDay = (game: Matchup, id: string, date: string): Matchup => {
   if (game.id !== id) return game;

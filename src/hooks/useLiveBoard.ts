@@ -17,6 +17,7 @@ import {
 } from "../lib/live/editClient";
 import type { PullSender } from "../lib/cloud/cloudPulls";
 import { loadCloudState } from "../lib/cloud/cloudState";
+import type { MemberRole } from "../lib/cloud/members";
 import { forgetLiveBoard } from "../lib/live/liveBoard";
 import { afterOpening } from "../lib/live/openingHold";
 import {
@@ -60,6 +61,11 @@ export type LiveSources = {
   copy?: () => Promise<CopyReader | null>;
   /** Where a pull is sent to be run in the cloud (`cloudPulls.ts`), or null: none, when not given. */
   pulls?: () => PullSender | null;
+  /**
+   * The signed-in account's own place on the copy's list (`cloudRole`), which Setup draws the
+   * owner's cards by: none, when not given, and they are drawn on.
+   */
+  role?: () => Promise<MemberRole | null>;
 };
 
 let browserSources: LiveSources | null = null;

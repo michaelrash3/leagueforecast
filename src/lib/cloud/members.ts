@@ -9,6 +9,15 @@
 
 export type MemberRole = "owner" | "member";
 
+/**
+ * Said under what only the copy's owner may do (archive or delete a year, start Team Rankings
+ * again, bring back an earlier version), drawn off for a member (`useOwnerOnly`). The server and
+ * the rules refuse a member all the same (`OWNER_ONLY_MESSAGE`); this spares the member the press
+ * and the confirmation that came before the refusal.
+ */
+export const OWNER_ONLY =
+  "Only the cloud copy's owner can do this. Ask them to do it from their own account.";
+
 export type Member = {
   /** The account's address, in lower case: the entry's document id. */
   address: string;

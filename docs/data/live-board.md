@@ -34,15 +34,15 @@ reset of the app takes them; at most 100 MB are kept, the least recently read
 going first, and a browser whose pool is in localStorage keeps none.
 
 Whether a board on screen is the copy's (`boardStanding`) is decided against the
-copy as this device last read or saved it (`copySeen`), never against the
-device's own pool, which may not be taken in yet: current when the board was built
-from the very board inputs the copy held (`boardInputsPrintOf`), behind when the
-copy has moved on or no one build vouches for the boards, owed when this device
-has unsaved changes to a board input, and unknown before it has read the copy.
-A change to anything a board does not read counts for nothing, and neither does a
-League change while League Standings is kept live (`copyOwed`): it goes to the
-season's own document, which the boards are built from, and is never sent to the
-copy, so counted owed it held every board as waiting on this device for good.
+copy as this device last read it (`copySeen`), never against the device's own
+pool, which may not be taken in yet: current when the board was built from the
+very board inputs the copy held (`boardInputsPrintOf`), behind when the copy has
+moved on or no one build vouches for the boards, and unknown before it has read
+the copy. Until 1.6f a board was owed, too, while this device had unsaved changes
+to a board input (a League change while League Standings was kept live aside,
+which went to the season's own document); now no device writes the copy, so the
+copy is owed nothing (`copyOwed`), and a change made here, counted owed, would
+hold every board as waiting on this device for good.
 
 `liveClient.test.ts` reads boards published to an in-memory store: whole and
 strictly equal to what was published, free from memory or the device's cache, one
@@ -676,9 +676,10 @@ refreshed, each day's levels together, the latest first. How much comes round at
 chosen there and kept on the copy (`refresh.cadence`), which the nightly reads; an
 Organizations file is read on the device and its organizations kept on the copy
 (`orgs.merge`), which the nightly ages teams by, and a file with nothing new says so
-(`EditSaid.same`, said where the copy already held the edit). Pulling a pasted list is the
-pull in the browser, so its card opens the page on this device's copy until the cloud runs
-one; with every other area drawn, that card is now the tests' way to hand the page over.
+(`EditSaid.same`, said where the copy already held the edit). A pasted list is pulled in the
+cloud from the same tab, with no hand-over (`LiveCloudPulls`, "A pasted list, pulled in the
+cloud"), so no card hands the page over any more; the tests hand it over with a refusal by the
+rules (`pullOnDevice`).
 `queries.test.ts` holds the question and its answer; `LiveTeamRankings.test.tsx` the tab
 drawing it, each edit, and the refresh read again after one. Each guard was broken in turn
 and seen to fail a test, 14 of 14, four only after the tests gave the tab a clock of its

@@ -119,7 +119,7 @@ _Part of the design documents; the map is in the repository's [README](../README
   object while a score is typed into a game still being played: a keystroke there
   works nothing out again, and the season is worked out once, when the game is
   marked final. What one tab alone shows waits for that tab: the model's backtest
-  (Dashboard and Forecast) and the season timeline, the bubble and the games that
+  (Dashboard and Forecast), and the season timeline and the games that
   matter most (Forecast), joining the clinch paths, seed ranges, scenario impacts,
   game forecasts and bracket odds that already did. The backtest and the timeline,
   each of which refits the season once per game played, remember their last answer
@@ -140,7 +140,7 @@ _Part of the design documents; the map is in the repository's [README](../README
   - **The numbers did not move.** The pin above holds a half-scored game that is
     not final; it matched before the change and after it.
   - **Guarded** by `src/AppOnScreen.test.tsx`, which counts the calculations
-    themselves: none while a score is typed, no backtest, timeline or bubble when a
+    themselves: none while a score is typed, no backtest or timeline when a
     game is marked final on the Schedule, and each once when its tab opens, not
     again on a second visit.
 - Simulation and trend work run in `src/workers/sim.worker.ts`.

@@ -323,9 +323,14 @@ seasons in ten (`seedRange.ts`). It is not the Projected Standings' **Range**, w
 best and worst seed one remaining result can move the projection to. That walk is a season's
 projection for each way each remaining game can go, the games owed beyond the schedule among
 them ([Postseason format](#postseason-format)), so it waits until 60 or fewer games remain,
-owed ones counted (`useSeedRanges`); until then the column, the phone rows and the Bubble Watch show a
+owed ones counted (`useSeedRanges`); until then the column and the phone rows show a
 dash and the caption says the range is paused, rather than every team's projection at both
-ends, which would read as a seed nothing left to play can move.
+ends, which would read as a seed nothing left to play can move. A team's panel says the same of
+its Range, of the seed a win or a loss leaves in each of its next two games, and of its clinch
+scenarios, which are those seeds in words; and the Forecast's write-up is told no range. Until
+8 November 2026 the panel showed the projection as all three ("#5–#5", "Win: #5 / Loss: #5",
+"win projects #5; loss projects #5") while the table said the range was paused, and the writer
+was told it as each team's realistic seed range.
 
 ## Our team
 
@@ -432,15 +437,19 @@ kept (`leagueGameTimes.test.ts` reads Fill's starts in nine zones, Los Angeles t
 start left from the evening before where the league plays). A start is its day's: a game given
 another day in the Schedule lets go of its start, and one Fill moves to the day it was played
 takes the pool game's start, or none (`movesToApply`). Kept, the moved game showed the old day's
-time and was listed by it among the new day's games, and Fill never gave it another. The
-Schedule, the Dashboard's upcoming games, the Playoff machine, each team's next game and the
-Forecast's notes that name one ("Eliminated if the Bears beat them next", and the rival's game a
-team needs help from, `clinchingPaths.ts`) go by day and then start (`inPlayingOrder`, which
-breaks a day's tie by start since 31 October 2026; the notes read the schedule's stored order
-until then, a round robin's pairings, its dates typed in after), and the Schedule and the
-Dashboard show the start in the device's own time ("5/3 · 10:30 AM"). The forecast's own order of
-the games left is not changed, so no odds move. A game typed in has no start and is listed after
-the day's timed games.
+time and was listed by it among the new day's games, and Fill never gave it another. Nor is the old
+time of day carried to the new day: a make-up game can start at any hour, and a start on its game's
+day is kept over the pool's by Fill and over a pulled copy's by Team Rankings
+(`dedupeLeagueFixtures`), so a carried 9:00 AM would be shown as GameChanger's, here and in Team
+Rankings, and the game's own start never come in. With none, Fill gives it its own once the pool has
+the game's result. The Schedule, the Dashboard's upcoming games, the Playoff machine, each team's
+next game and the Forecast's notes that name one ("Eliminated if the Bears beat them next", and the
+rival's game a team needs help from, `clinchingPaths.ts`) go by day and then start
+(`inPlayingOrder`, which breaks a day's tie by start since 31 October 2026; the notes read the
+schedule's stored order until then, a round robin's pairings, its dates typed in after), and the
+Schedule and the Dashboard show the start in the device's own time ("5/3 · 10:30 AM"). The
+forecast's own order of the games left is not changed, so no odds move. A game typed in has no start
+and is listed after the day's timed games.
 
 ## A season's team list, then its schedule
 

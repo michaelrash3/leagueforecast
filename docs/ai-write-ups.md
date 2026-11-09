@@ -2,18 +2,41 @@
 
 _Part of the design documents; the map is in the repository's [README](../README.md)._
 
-Two panels are written by Gemini when a key is configured: the **League Story**
-on Standings (what just happened) and the **Forecast Write-up** on Forecast
-(what the model expects next). Both use the same endpoint, model selection, and
-failure handling; the request names which one it wants.
+Three panels are written by Gemini when a key is configured: the **League Story**
+on Standings (what just happened), the **Forecast Write-up** on Forecast (what
+the model expects next), and **Why this ranking** on Team Rankings' scouting
+report (why a club is ranked where it is). All three use the same endpoint, model
+selection, failure handling and panel (`AiStoryPanel`); the request names which
+one it wants (`LeagueSummaryKind`), and each has a prompt of its own.
+
+**Each waits to be asked.** Every write-up is a call against the owner's Gemini
+or Groq quota, and they used to fetch themselves: a request was made again
+whenever its facts changed, so switching age group or picking another team in
+Team Rankings sent another, and a few minutes of clicking around cost a few dozen
+write-ups nobody had asked to read (`SummaryMode` in `preferences.ts`). So by
+default a panel with something to write about offers **Write this up with AI**,
+under the deterministic story on Standings and on its own on the other two, and
+a press asks for that set of facts alone: another team, or a new result, is a
+new write-up, which waits to be asked for in its turn (`useLeagueSummary`'s
+`ask`). League Standings' **Settings → AI write-ups → Write them automatically**
+has every panel, Team Rankings' too, fetch its own as soon as it has something to
+say, as they all once did; the choice is this browser's (`lf_summary_mode_v1`).
 
 ## League Story
 
-The Standings panel writes a "League Story" after every update. It is generated
-deterministically from standings facts, and — when a Gemini key is configured —
-replaced by a Gemini analysis written in a beat-writer voice. **The
+After every update the Standings panel tells it as a "League Story", generated
+deterministically from standings facts; once asked for (above), with a Gemini key
+configured, it is replaced by a Gemini analysis written in a beat-writer voice. **The
 deterministic story is always the fallback**, so the app behaves identically
 without a key.
+
+An update is a game marked final on the Schedule, or the games that Fill scores,
+Data Quality's **Mark them final** or a pasted schedule's scores make final at
+once (`impactOfFinals`). A game is recapped with the other finals of its window,
+the game, its date or its week as the recap grouping in Settings says, and games
+made final together are one update, recapped over all of their windows and titled
+from the first to the last ("Latest Update — 4/4 to 4/11"). Finals that arrive
+from another device, and a reload, bring no recap.
 
 The AI analysis is given everything the manager has entered, not just the
 cut-line movement:
@@ -30,6 +53,16 @@ cut-line movement:
 Only derived values are sent — ranks, odds, ratings, per-game averages. Raw game
 logs never leave the browser.
 
+**The standings movement states no Gold %** (8 November 2026). Its lines, from which
+the deterministic story and Copy Recap are written too, are read when a final is
+pressed, off two rankings of the season without the update's finals and with them
+(`buildRankSnapshot`). The Gold odds are the worker's, and it has not answered for
+the season after the press by then. Each ranking carried 0 for every team's odds, so
+the bubble line read "(0%)" for the last team in and the first one out alike, and no
+shift in a team's odds was ever reported, two zeros being equal. The bubble line now
+names the two by place alone and there is no odds-shift line; the model has the odds
+in the standings table sent beside the lines.
+
 ## Forecast Write-up
 
 The Forecast panel explains the projection rather than restating the table: the
@@ -39,7 +72,7 @@ and how much to trust it given the model's measured accuracy.
 
 | Sent to the model | Why                                                                                                                   |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Projected finish  | Projected rank and record, Gold odds with margin of error, realistic seed range.                                      |
+| Projected finish  | Projected rank and record, Gold odds with margin of error, realistic seed range (none while the Range is paused).     |
 | Game predictions  | Favorite and win probability for each upcoming game, with its impact tier.                                            |
 | Games that matter | The high-leverage games the app flags, and the reason each one matters.                                               |
 | Model accuracy    | Backtested hit rate, Brier score, and upset capture, so the write-up can say how much weight the projection deserves. |
@@ -47,9 +80,32 @@ and how much to trust it given the model's measured accuracy.
 The prompt requires the model to treat projections as projections, and to
 describe a near-coin-flip as one rather than as a expectation.
 
-It is requested only while the Forecast view is open, and re-requested when the
+It is requested only while the Forecast view is open, and a new one only when the
 results actually change — not on every simulation tick, whose odds jitter by a
 point or two between runs.
+
+## Why this ranking
+
+Team Rankings' scouting report explains the rank of the club it is on, under
+**Compare with**, once that club has played a game: where it ranks and why, led
+by its opponent-adjusted rating rather than its record; what its schedule says
+about how far to trust the record; how it would likely fare against a few of the
+other ranked clubs; and what the data does not yet support, such as a thin
+sample or no shared opponents with most of the pool. The device's own page and
+the cloud's board ask for it alike, from the rows of the board on screen
+(`buildTeamRankExplanationRequest`).
+
+| Sent to the model  | Why                                                                                                                  |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| Rank and record    | Its place on the board out of how many, its record and the games behind it.                                          |
+| Rating             | Opponent-adjusted, in runs against an average team in the age group.                                                 |
+| Schedule strength  | Its strength-of-schedule rank, 1 the toughest, so the write-up can say how much the record is worth.                 |
+| Projected matchups | Up to eight of the clubs the report sets it against, its top first (`MAX_COMPARISONS`): margin, win chance and tier. |
+
+Team Rankings has no cut line, so its prompt carries none of the Gold Bracket
+lines the League Standings write-ups do. Nor is there a deterministic text behind
+it: until a write-up arrives the panel holds only its button, and one that could
+not be written leaves no panel at all.
 
 ## Configuration
 
@@ -124,16 +180,17 @@ answer is `rate-limited`, with both providers' messages.
 
 Every failure path returns a non-200 with a machine-readable `reason`
 (`unconfigured`, `throttled`, `rate-limited`, `upstream-error`, `no-model`,
-`invalid-request`, `members-only`), and the UI keeps showing the deterministic story rather than
-an error.
+`invalid-request`, `members-only`), and no panel shows an error in place of its text: the League
+Story keeps the deterministic story, the Forecast Write-up says the written forecast is
+unavailable and the table and picks below it are not, and Why this ranking is not drawn (above).
 
 `throttled` and `rate-limited` are deliberately separate. `throttled` is this
 app's own per-browser limit, refused before any model is contacted — so nothing
 was asked of Gemini and walking the model list would not have helped.
 `rate-limited` means Gemini itself refused every model that was tried.
 
-The League Story header says which state it is in, so a misconfiguration is
-diagnosable at a glance instead of looking like "the AI just isn't running":
+The League Story's header, and the Forecast Write-up's, say which state they are in, so a
+misconfiguration is diagnosable at a glance instead of looking like "the AI just isn't running":
 
 | Header shows                         | Meaning                                                                             |
 | ------------------------------------ | ----------------------------------------------------------------------------------- |

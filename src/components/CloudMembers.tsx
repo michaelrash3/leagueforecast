@@ -1,9 +1,14 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
-import { isMemberAddress, memberAddress, type Member } from "../lib/cloud/members";
+import { isMemberAddress, memberAddress, type Member, type MemberRole } from "../lib/cloud/members";
 import { button } from "../styles/tokens";
 
 /** What the list is read and changed through: the cloud session's calls, but for a test. */
 export type MembersApi = {
+  /**
+   * The signed-in account's own entry: the owner's, a member's, or null when it cannot be read;
+   * what only the owner may do in the panel is drawn by it (`useOwnerOnly`).
+   */
+  role: () => Promise<MemberRole | null>;
   /** The list, for its owner; null for anyone else. */
   list: () => Promise<Member[] | null>;
   add: (address: string) => Promise<void>;

@@ -5,7 +5,10 @@ import { displayName } from "../lib/format";
 import { seasonDaysFromToday } from "../lib/leagueFindings";
 import { rememberLast } from "../lib/rememberLast";
 import { scheduleDifficultyForTeam as buildScheduleDifficultyForTeam } from "../lib/scheduleDifficulty";
-import { EXACT_MAGIC_REMAINING_GAME_LIMIT } from "../lib/searchLimits";
+import {
+  EXACT_MAGIC_REMAINING_GAME_LIMIT,
+  EXACT_SCENARIO_REMAINING_GAME_LIMIT,
+} from "../lib/searchLimits";
 import { buildSeasonTimeline, type SeasonTimelineEntry } from "../lib/seasonTimeline";
 import { predictGame } from "../lib/sim";
 import {
@@ -407,6 +410,17 @@ export function useGoldRace({
           return `${opponentLine}: win projects #${swing.winSeed}; loss projects #${swing.lossSeed}.`;
         });
 
+      /*
+       * Each of those is the seed a win and a loss leave, which is the walk's. With the walk off
+       * both are the projection, and "win projects #5; loss projects #5" read as games that cannot
+       * move the team. Only the team panel asks for these, and the walk runs for an open panel
+       * wherever few enough games remain, so off here means too many are left.
+       */
+      if (scenarios.length > 0 && !seedWalkEnabled) {
+        return [
+          `Clinch scenarios are paused until ${EXACT_SCENARIO_REMAINING_GAME_LIMIT} or fewer games remain to keep team modals responsive.`,
+        ];
+      }
       if (!scenarios.length) {
         // None on the schedule, but games owed under games per team are games left all the same.
         const owed = remainingCounts[teamId] ?? 0;
@@ -418,7 +432,7 @@ export function useGoldRace({
       }
       return scenarios;
     },
-    [dashboardById, nextTwoSwingGames, goldCutoff, remainingCounts]
+    [dashboardById, nextTwoSwingGames, seedWalkEnabled, goldCutoff, remainingCounts]
   );
 
   const formatGoldPct = useCallback((team: TeamWithProjection) => formatGoldPctValue(team), []);

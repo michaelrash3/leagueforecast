@@ -19,20 +19,27 @@ export const YEARS_READING = "Reading the years from the cloud…";
 /**
  * Setup's Archive card on the live page (1.6): the years the cloud copy holds, as the server counts
  * them (`year.list`), and a year archived or deleted by the server (`year.archive`, `year.delete`),
- * which only the copy's owner may ask for, and the server says so to anyone else. Each asks first
- * with what the server says it would keep and take (`year.archivePreview`, `year.deletePreview`),
- * in the words the device's own card asks in (`yearSummary.ts`), and the years are read again once
- * it is done.
+ * which only the copy's owner may ask for, and the server says so to anyone else; a member's two
+ * buttons are drawn off, saying so, once the member's entry has been read (`ownerOnly`). Each
+ * asks first with what the server says it would keep and take (`year.archivePreview`,
+ * `year.deletePreview`), in the words the device's own card asks in (`yearSummary.ts`), and the
+ * years are read again once it is done.
  */
 export function LiveArchiveCard({
   edits,
   confirm,
   currentYear,
+  ownerOnly = null,
 }: {
   edits: LiveEdits;
   confirm: Confirmation["request"];
   /** The year of the page on screen, which the card offers with a warning beside it. */
   currentYear: number | undefined;
+  /**
+   * Said under the archive and delete buttons, drawn off, where this account is a member and not
+   * the copy's owner (`useOwnerOnly`); null for the owner, and while that is not known.
+   */
+  ownerOnly?: string | null;
 }) {
   const { ask, edit, say, locked, poolRevision } = edits;
   const [years, setYears] = useState<YearSummary[] | null>(null);
@@ -140,6 +147,7 @@ export function LiveArchiveCard({
         busy={busy}
         onArchive={(year) => void archive(year)}
         onDelete={(year) => void remove(year)}
+        ownerOnly={ownerOnly}
       />
     </>
   );

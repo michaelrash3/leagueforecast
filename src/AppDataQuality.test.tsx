@@ -156,6 +156,24 @@ describe("the Data Quality tab", () => {
     expect(await screen.findByRole("listitem", { name: summary })).toBeInTheDocument();
   });
 
+  it("recaps the games it marks final on Standings, as a final marked on the Schedule is", async () => {
+    // Marked final here, the game had no recap and no League Story: only the Schedule's toggle
+    // gave one.
+    const user = userEvent.setup();
+    await openQuality(user);
+    const summary = "1 past game scored but not marked final";
+    await user.click(
+      within(findingCard(summary)).getByRole("button", { name: "Mark them final…" })
+    );
+    await user.click(within(findingCard(summary)).getByRole("button", { name: "Make the change" }));
+    expect(await screen.findByText("Marked 1 game final.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Standings" }));
+    expect(await screen.findByText("Latest Update — 6/9")).toBeInTheDocument();
+    expect(screen.getByText("Aces 4, Comets 2")).toBeInTheDocument();
+    expect(screen.getByText("League Story")).toBeInTheDocument();
+  });
+
   it("puts games per team back on undoing the schedule's count", async () => {
     // Each team scheduled for three games, with five set: the schedule is even, so its count is
     // offered. The only thing the repair changes is the setting, so it is what undo must restore.

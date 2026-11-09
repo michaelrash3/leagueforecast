@@ -311,10 +311,10 @@ before sections existed, and every hand-made one, still imports unchanged.
 board is to hold no pool, or none it keeps in step, so the three things that write Team Rankings
 into a file read it off the cloud's copy when they are asked: Setup's **Download a backup** on the
 live page, Backup JSON, and Export CSV. Backup JSON and Export CSV read it only where Team
-Rankings is the cloud's for this browser (App's `rankingsLive`): a member who turned the board off
-works on this device's own pool, kept in step, which reaches the copy only with a save that waits
-on pulls and tidies, so there they write this device's pool, as before 1.6e; and an account taken
-off the list, whose board is not the cloud's either, writes its own. Backup JSON takes League
+Rankings is the cloud's for this browser (App's `rankingsLive`), as it is for every member since
+the switch that turned the board off went with the device's saves (1.6f). Anywhere else Team Rankings
+opens on this device's own pool, and they write that, as before 1.6e: a browser with no member
+signed in, an account taken off the list, or a copy gone or a newer build's. Backup JSON takes League
 Standings as it stands when it is pressed, and lays the copy's pool into that once it is read:
 taken after the read, half a minute later on a phone, a season switched to meanwhile would have
 carried the pressed one's schedule under its own id. Each button reads the copy once at a time,

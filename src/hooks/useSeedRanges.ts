@@ -14,8 +14,7 @@ export type SeedRange = { best: number; worst: number; baseline: number };
 type SeedRangeInput = {
   /**
    * Whether the exact walk is on. Off — too many games left to enumerate, or a view that does not
-   * ask — every team's range is its projection three times over, which is honest: nothing here
-   * has looked at what the remaining games could do.
+   * ask — nothing here has looked at what the remaining games could do, so there is no range.
    */
   exact: boolean;
   liveTeams: Team[];
@@ -68,7 +67,7 @@ export const useSeedRanges = ({
    *
    * `exact` belongs in that question as much as the season does, and leaving it out was a bug you
    * could see: it is `activeView === "model"` and a games-remaining limit, so it flips without any
-   * of the teams, games or settings changing. With it off the walk is not run — a range is the
+   * of the teams, games or settings changing. With it off the walk is not run — a range was the
    * team's projection at both ends, and a scenario seed is the 99 that stands for "not worked
    * out" — and both were being written into the caches anyway. Open a team from the standings, go
    * to the model table, and every Range read #3–#3 and every win/loss seed read 99, because the
@@ -134,23 +133,26 @@ export const useSeedRanges = ({
   );
 
   /**
-   * The best and worst seed this team can still reach, over every way its remaining games can go.
+   * The best and worst seed this team can still reach, over every way its remaining games can go,
+   * or null while the walk is off.
    *
-   * Always a range: a team with nothing left to play gets its baseline three times over. The
-   * caller used to wrap this in `?? { best: 99, worst: 99, baseline: 99 }`, which was a branch
-   * nothing could take, standing where a reader would read it as a case the code handles.
+   * With the walk on, always a range: a team with nothing left to play gets its baseline three
+   * times over. The caller used to wrap this in `?? { best: 99, worst: 99, baseline: 99 }`, which
+   * was a branch nothing could take, standing where a reader would read it as a case the code
+   * handles.
+   *
+   * With it off this gave the baseline three times over too, until 8 November 2026, and that read
+   * as a finish nothing left to play can move. The Forecast's table knew to show a dash for it;
+   * the team panel showed it as the team's Range and the Forecast's write-up was told it as a
+   * realistic seed range. A range that is not there cannot be shown by mistake.
    */
   const seedRangeForTeam = useCallback(
-    (teamId: string): SeedRange => {
+    (teamId: string): SeedRange | null => {
+      if (!caches.exact) return null;
       const cached = caches.ranges.get(teamId);
       if (cached) return cached;
       const baseline =
         projectedById.get(teamId)?.rank ?? ranked.find((item) => item.id === teamId)?.rank ?? 99;
-      if (!caches.exact) {
-        const result = { best: baseline, worst: baseline, baseline };
-        caches.ranges.set(teamId, result);
-        return result;
-      }
       let best = baseline;
       let worst = baseline;
       [...caches.games, ...(caches.owed?.games ?? [])]

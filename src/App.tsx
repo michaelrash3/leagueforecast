@@ -47,7 +47,11 @@ import { useDataQuality } from "./hooks/useDataQuality";
 import { useGameForecasts } from "./hooks/useGameForecasts";
 import { useGoldRace } from "./hooks/useGoldRace";
 import { useSinceLastLook } from "./hooks/useSinceLastLook";
-import { editingOffBecause, LiveLeagueBanner } from "./components/league/LiveLeagueBanner";
+import {
+  editingOffBecause,
+  LiveLeagueBanner,
+  offlineLine,
+} from "./components/league/LiveLeagueBanner";
 import { ArchivedBanner } from "./components/league/ArchivedBanner";
 import { EditLock, SeasonEditable } from "./components/league/EditLock";
 import { useTabReadOnly } from "./hooks/useTabReadOnly";
@@ -113,9 +117,10 @@ import { buildBracketProjection } from "./lib/bracket";
 import { buildShareUrl } from "./lib/share";
 import { formatProbabilityMargin, wilsonScoreInterval } from "./lib/probability";
 import {
+  impactOfFinals,
   nameFrom,
   PROJECT_STANDINGS_REMAINING_GAME_LIMIT,
-  type RecapPool,
+  recapPoolOf,
 } from "./lib/impactRecap";
 import { EXACT_SCENARIO_REMAINING_GAME_LIMIT } from "./lib/searchLimits";
 import { useToday } from "./hooks/useToday";
@@ -1256,8 +1261,8 @@ export default function App() {
    * needs, and neither is something it should go and look up for itself.
    */
   const recapPool = useMemo(
-    (): RecapPool => ({ teams, matchups, settings: seasonSettings, goldCutoff, hasCutLine }),
-    [teams, matchups, seasonSettings, goldCutoff, hasCutLine]
+    () => recapPoolOf({ teams, matchups, bracketLogs, settings }),
+    [teams, matchups, bracketLogs, settings]
   );
   const nameOf = useMemo(() => nameFrom(teamBaseById), [teamBaseById]);
 
@@ -1347,6 +1352,22 @@ export default function App() {
   );
 
   const clearLastImpact = useCallback(() => setLastImpact(null), []);
+  /*
+   * The recap of games made final some other way than the Schedule's toggle: by Fill scores, by
+   * Data Quality's Mark them final, or as a pasted schedule's scores. Read off the season as the
+   * store holds it once their writes are in, which the store takes at once (`useSeasonState`),
+   * since a fill can add games and move others to the day they were played, and a paste brings
+   * teams and games of its own, none of which this render's pool and names have met. None of them
+   * final there, no recap stands, as when a final is taken back.
+   */
+  const recapFinals = useCallback(
+    (gameIds: readonly string[]) => {
+      const season = seasonStore.get().season;
+      const names = nameFrom(new Map(season.teams.map((team) => [team.id, team])));
+      setLastImpact(impactOfFinals(gameIds, season.logs, recapPoolOf(season), names));
+    },
+    [seasonStore]
+  );
 
   /*
    * The four buttons a season goes in and out by, and the reset that empties it. Lifted out
@@ -1433,6 +1454,7 @@ export default function App() {
     setLogs,
     captureUndo,
     restoreUndo,
+    recapFinals,
     showToast,
   });
 
@@ -1459,6 +1481,7 @@ export default function App() {
     logs,
     matchups,
     openTeamData,
+    recapFinals,
     requestConfirmation,
     restoreUndo,
     scoutBridge,
@@ -1490,6 +1513,7 @@ export default function App() {
     closeTeamData,
     matchups,
     rankingsLive,
+    recapFinals,
     requestConfirmation,
     restoreUndo,
     scoutBridge,
@@ -1789,8 +1813,7 @@ export default function App() {
       </a>
       {isOffline && (
         <div className="bg-amber-100 px-4 py-2 text-center text-xs font-bold text-amber-900 dark:bg-amber-900/70 dark:text-amber-100">
-          You are offline. Showing what this device has kept; score edits still save in this
-          browser.
+          {offlineLine(liveLeague.state, tabReadOnly || seasonArchived)}
         </div>
       )}
       <div className="min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
@@ -2260,6 +2283,7 @@ export default function App() {
           matchups={matchups}
           renameLeagueTeam={renameLeagueTeam}
           runsOnly={runsOnly}
+          seedWalkEnabled={seedWalkEnabled}
           selectedTeam={selectedTeam}
           selectedTeamDetail={selectedTeamDetail}
           selectedTeamSplitSummary={selectedTeamSplitSummary}

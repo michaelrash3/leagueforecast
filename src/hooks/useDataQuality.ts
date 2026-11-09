@@ -38,6 +38,8 @@ export type DataQualityInputs = {
   logs: Record<string, GameLog>;
   matchups: Matchup[];
   openTeamData: (teamId: string) => void;
+  /** Shows the recap of the games given, made final just now, as a final marked on the Schedule. */
+  recapFinals: (gameIds: readonly string[]) => void;
   requestConfirmation: ReturnType<typeof useConfirmation>["request"];
   restoreUndo: UndoSnapshotControls["restore"];
   scoutBridge: LeagueScoutBridge;
@@ -72,6 +74,7 @@ export function useDataQuality({
   logs,
   matchups,
   openTeamData,
+  recapFinals,
   requestConfirmation,
   restoreUndo,
   scoutBridge,
@@ -269,6 +272,9 @@ export function useDataQuality({
       setLogs((prev) =>
         ids.reduce((next, id) => withFinal(next, id, true, settings.defaultGameInnings), prev)
       );
+      // Each was open until now, so each is a final made, and recapped as one marked on the
+      // Schedule is.
+      recapFinals(ids);
       showToast(
         ids.length === 1 ? "Marked 1 game final." : `Marked ${ids.length} games final.`,
         undo

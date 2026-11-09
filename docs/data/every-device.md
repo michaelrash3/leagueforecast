@@ -91,6 +91,8 @@ merged, and whatever a merge had to replace is kept.
   **Bring back…** makes it current again from any device, asking twice and
   keeping what it replaces in turn. The server makes it current, for the
   copy's owner alone (1.6), and the device then takes it like any other save.
+  A member's panel lists the versions with **Bring back…** drawn off, and a
+  line under them saying only the owner can (`useOwnerOnly`).
 
 **Meeting a copy for the first time.** A browser signing in with seasons of its
 own keeps them here beside the copy's, merged where they share records; the copy
@@ -102,17 +104,16 @@ anywhere, since the copy is the pool every device shares. A browser holding
 nothing anybody made (an untouched first season, a pool with no teams and no
 archived season, whose tables could not be made again) simply takes the copy.
 
-**What is never lost.** A value leaves the copy only because a device recorded
-removing it, and leaves a device only because the copy dropped a value that
-device had synced; never because one side merely does not hold it. A value a
-device had synced and no longer holds, with no record of removing it, is taken
-back from the copy rather than the loss trusted. A browser whose storage failed
-to open syncs nothing at all until it can read it again. A change the browser's
-own storage refused (a full disk, say) is not sent, since the copy would then
-hold what this device does not; the panel says so, and it goes once a write of
-it lands. A value that is listed but cannot be read waits the same way. Every
-value is checked against its fingerprint as it arrives, and one that does not
-match stops the load before anything is written.
+**What is never lost.** A value leaves the copy only by a server's save, since no
+device writes it (1.6f), and leaves a device only because the copy dropped a
+value that device had synced; never because one side merely does not hold it. A
+value a device had synced and no longer holds, with no record of removing it, is
+taken back from the copy rather than the loss trusted. A browser whose storage
+failed to open syncs nothing at all until it can read it again. Every value is
+checked against its fingerprint as it arrives, and one that does not match stops
+the load before anything is written. Until 1.6f a change the device's own
+storage refused (a full disk, say) waited to be sent until a write of it landed,
+since the copy would then have held what the device did not.
 
 **How it is stored.** Each value is gzipped JSON, in pieces of at most
 900,000 bytes, since a Firestore document holds a MiB. A value is fingerprinted

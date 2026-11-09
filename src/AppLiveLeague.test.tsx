@@ -7,7 +7,18 @@ import { scenarioLinkHash } from "./lib/savedScenarios";
 import { buildShareUrl } from "./lib/share";
 import { loadCloudState, saveCloudState } from "./lib/cloud/cloudState";
 import { noteLeagueMet } from "./lib/preferences";
-import { createSeason, listSeasons, loadTeams, saveMatchups, saveTeams } from "./lib/storage";
+import { ARCHIVED_READ_ONLY } from "./lib/seasonArchive";
+import {
+  createSeason,
+  listSeasons,
+  loadSettings,
+  loadTeams,
+  saveMatchups,
+  saveSettings,
+  saveTeams,
+} from "./lib/storage";
+import { adoptTabTurn } from "./lib/tabTurn";
+import { createTabTurn } from "./lib/tabTurnChannel";
 import { DEFAULT_SETTINGS } from "./lib/types";
 import { prefetchAllViews } from "./components/league/leagueViews";
 
@@ -101,6 +112,7 @@ describe("League Standings kept live, on the page", () => {
     saveMatchups([{ id: "g1", date: "5/1", away: "A", home: "B" }]);
   });
   afterEach(() => {
+    adoptTabTurn(null);
     vi.unstubAllGlobals();
     live.state = { kind: "off" };
     live.removed = 0;
@@ -188,6 +200,100 @@ describe("League Standings kept live, on the page", () => {
     expect(await screen.findByLabelText("Aces Runs")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Mark game as final" })).toBeDisabled();
     expect(screen.getByRole("status")).toHaveTextContent(/offline/i);
+  });
+
+  /** The browser telling the page the device has lost its connection. */
+  const goOffline = () =>
+    act(() => {
+      window.dispatchEvent(new Event("offline"));
+    });
+  /** The line over the whole page while the device is offline. */
+  const offlineBanner = () => screen.getByText(/^You are offline\./);
+
+  it("tells a device keeping League itself, offline, that its edits still save here", async () => {
+    // Kept on this device alone, a season is written to this browser's storage whatever the
+    // network does; kept live, so is an edit made before the listener hears the connection go,
+    // which is sent once it is back.
+    const view = render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: /schedule/i }));
+    goOffline();
+    expect(await screen.findByLabelText("Aces Runs")).toBeEnabled();
+    expect(offlineBanner()).toHaveTextContent(
+      /^You are offline\. Showing what this device has kept; score edits still save in this browser\.$/
+    );
+    live.state = { kind: "live" };
+    view.rerender(<App />);
+    expect(screen.getByLabelText("Aces Runs")).toBeEnabled();
+    expect(offlineBanner()).toHaveTextContent(/; score edits still save in this browser\.$/);
+  });
+
+  it("tells a member kept live, offline, that editing is off until the connection is back", async () => {
+    // Every control that edits the season is off then, so an edit saved in this browser is one
+    // nobody can make. The same holds while the season waits for the cloud's version of it.
+    live.state = { kind: "offline" };
+    const view = render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: /schedule/i }));
+    goOffline();
+    expect(await screen.findByLabelText("Aces Runs")).toBeDisabled();
+    expect(offlineBanner()).toHaveTextContent(
+      /^You are offline\. Showing what this device has kept; editing is off until the connection is back\.$/
+    );
+    live.state = { kind: "connecting" };
+    view.rerender(<App />);
+    expect(screen.getByLabelText("Aces Runs")).toBeDisabled();
+    expect(offlineBanner()).toHaveTextContent(/; editing is off until the connection is back\.$/);
+  });
+
+  it("promises nothing of editing offline for a season stopped for a reason of its own", async () => {
+    // Deleted on another device, the season stays read-only once the connection is back: the line
+    // over League gives the reason, and the one over the page says only that the device is offline.
+    live.state = { kind: "gone" };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: /schedule/i }));
+    goOffline();
+    expect(await screen.findByLabelText("Aces Runs")).toBeDisabled();
+    expect(offlineBanner()).toHaveTextContent(
+      /^You are offline\. Showing what this device has kept\.$/
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(/deleted on another device/i);
+  });
+
+  it("promises nothing of editing offline for an archived season, kept here or live", async () => {
+    // Archived, the season stays read-only however the connection goes. The line over the page
+    // said its score edits still save in this browser, and kept live it said editing would come
+    // back with the connection; the banner over League gives the reason instead.
+    saveSettings({ ...loadSettings(), archived: true });
+    const view = render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: /schedule/i }));
+    goOffline();
+    expect(await screen.findByLabelText("Aces Runs")).toBeDisabled();
+    expect(offlineBanner()).toHaveTextContent(
+      /^You are offline\. Showing what this device has kept\.$/
+    );
+    expect(screen.getByText(ARCHIVED_READ_ONLY, { selector: "p, span, div" })).toBeVisible();
+    live.state = { kind: "offline" };
+    view.rerender(<App />);
+    expect(offlineBanner()).toHaveTextContent(
+      /^You are offline\. Showing what this device has kept\.$/
+    );
+  });
+
+  it("promises nothing of editing offline in a tab another tab has the turn from", async () => {
+    // Read-only until Use here is pressed, whatever the connection does; it was told its score
+    // edits still save in this browser, beside the banner saying the tab is read-only.
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: /schedule/i }));
+    await screen.findByLabelText("Aces Runs");
+    const turn = createTabTurn({ channel: null, openedAt: 0, id: "t", claimed: () => false });
+    act(() => adoptTabTurn({ ...turn, readOnly: () => true }));
+    goOffline();
+    expect(screen.getByLabelText("Aces Runs")).toBeDisabled();
+    expect(offlineBanner()).toHaveTextContent(
+      /^You are offline\. Showing what this device has kept\.$/
+    );
+    expect(
+      await screen.findByText(/open in another tab of this browser, so this one is read-only/)
+    ).toBeInTheDocument();
   });
 
   it("is read-only, with the reason as an alert, for a season it must not write", async () => {

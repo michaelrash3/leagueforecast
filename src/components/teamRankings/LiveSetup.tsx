@@ -2,6 +2,8 @@ import { useCallback, useMemo } from "react";
 import type { Confirmation } from "../../hooks/useConfirmation";
 import type { LiveEdits, ShowToast } from "../../hooks/useLiveEdits";
 import type { LiveSources } from "../../hooks/useLiveBoard";
+import { useOwnerOnly } from "../../hooks/useOwnerOnly";
+import type { MemberRole } from "../../lib/cloud/members";
 import { readLastClosedLevel } from "../../lib/live/closedLevelRecord";
 import type { PoolCommand } from "../../lib/live/commands";
 import { overlayGroups, seasonAssignedSaid } from "../../lib/live/groupsOverlay";
@@ -45,8 +47,9 @@ import { AgeGroupsCard, SetupIntroCard } from "./SetupCards";
  * own diagnostics. The pages are the cloud's (`groups`, the ones its last publish carries) with
  * the edits made here drawn over them until a publish carries those too, so a season put on a page
  * shows there at once. A year archived or deleted, and Team Rankings started again, are the
- * server's, the copy's owner's alone (1.6). A backup of Team Rankings is the cloud copy's, read off
- * it when it is asked for (`LiveBackupCard`), so it needs no pool on this device either.
+ * server's, the copy's owner's alone (1.6), and drawn off for a member, saying so (`role`). A
+ * backup of Team Rankings is the cloud copy's, read off it when it is asked for
+ * (`LiveBackupCard`), so it needs no pool on this device either.
  */
 export default function LiveSetup({
   edits,
@@ -62,6 +65,7 @@ export default function LiveSetup({
   reader,
   showToast,
   pagesKnown = true,
+  role,
 }: {
   edits: LiveEdits;
   confirm: Confirmation["request"];
@@ -96,8 +100,16 @@ export default function LiveSetup({
    * no page stay on (3.0).
    */
   pagesKnown?: boolean;
+  /**
+   * The signed-in account's own place on the copy's list (`cloudRole`): a member's draws the
+   * owner's cards off, saying so. None, and they are drawn on, the server refusing a member as
+   * before.
+   */
+  role?: () => Promise<MemberRole | null>;
 }) {
   const { pending, edit, ask, say } = edits;
+  // Read once edits are on, as the cards ask theirs: before, the account may not be signed in yet.
+  const ownerOnly = useOwnerOnly(role, edits.locked === null);
   const shown = useMemo(
     () =>
       overlayGroups(
@@ -183,10 +195,11 @@ export default function LiveSetup({
         edits={edits}
         confirm={confirm}
         currentYear={ageGroupYear(shown.find((group) => group.id === pageId))}
+        ownerOnly={ownerOnly}
       />
       <DiagnosticsCard />
       <LiveBackupCard copy={copy} showToast={showToast} />
-      <LiveStartAgainCard edits={edits} confirm={confirm} />
+      <LiveStartAgainCard edits={edits} confirm={confirm} ownerOnly={ownerOnly} />
     </>
   );
 }

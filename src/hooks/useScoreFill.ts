@@ -7,6 +7,7 @@ import type { SeasonStore } from "../lib/seasonStore";
 import { loadAgeGroups, loadScoutGamesForSeason, loadScoutTeams } from "../lib/teamRankingsStorage";
 import type { GameLog, Matchup, Settings, TeamBase } from "../lib/types";
 import { todayIsoDay } from "../lib/date";
+import { isFinal } from "../lib/util";
 import type { useToast } from "./useToast";
 import type { UndoSnapshotControls } from "./useUndoSnapshot";
 
@@ -33,6 +34,8 @@ export type ScoreFillInputs = {
   setLogs: (update: (prev: Record<string, GameLog>) => Record<string, GameLog>) => void;
   captureUndo: UndoSnapshotControls["capture"];
   restoreUndo: UndoSnapshotControls["restore"];
+  /** Shows the recap of the games given, made final just now, as a final marked on the Schedule. */
+  recapFinals: (gameIds: readonly string[]) => void;
   showToast: ReturnType<typeof useToast>["show"];
 };
 
@@ -53,6 +56,7 @@ export function useScoreFill({
   setLogs,
   captureUndo,
   restoreUndo,
+  recapFinals,
   showToast,
 }: ScoreFillInputs) {
   /**
@@ -242,6 +246,16 @@ export function useScoreFill({
         ...movesToApply(plan, moved, schedule, additions?.move ?? [], innings, prev).logs,
       }));
     }
+    // What this made final, for the recap a final marked on the Schedule gives: each game filled
+    // that was not final already, and every game added or moved, which go in final. A fill that
+    // only wrote over finals made none, and leaves the recap as it was, as a score corrected on
+    // the Schedule does.
+    const madeFinal = [
+      ...matchupIds.filter((id) => !isFinal(logs[id]) && isFinal(result.logs[id])),
+      ...added.matchups.map((game) => game.id),
+      ...Object.keys(moves.dates),
+    ];
+    if (madeFinal.length > 0) recapFinals(madeFinal);
     const count = added.matchups.length;
     showToast(
       [

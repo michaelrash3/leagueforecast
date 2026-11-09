@@ -220,7 +220,9 @@ describe("the date on a game", () => {
 
   /*
    * A start is its day's. Kept through a date typed for another day, the moved game showed the old
-   * day's time and was listed by it among the new day's games.
+   * day's time and was listed by it among the new day's games. Its time of day is not carried to
+   * the new day either: Fill keeps a start on its game's day over the pool's, so the make-up game's
+   * own would never come in (`onDay`).
    */
   it("lets go of the start when the game is moved to another day, and keeps it on the same day", async () => {
     const user = userEvent.setup();

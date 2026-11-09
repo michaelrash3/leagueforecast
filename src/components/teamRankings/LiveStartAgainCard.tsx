@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { Confirmation } from "../../hooks/useConfirmation";
 import type { LiveEdits } from "../../hooks/useLiveEdits";
 import type { YearSummary } from "../../lib/yearSummary";
@@ -34,22 +34,31 @@ export const startAgainConfirmation = (years?: readonly YearSummary[]) => {
 
 /**
  * Starting Team Rankings again on the live page (1.6): the cloud copy's Team Rankings emptied by
- * the server (`copy.reset`), the copy's owner's alone, and the server says so to anyone else. What
- * it takes is kept whole as an earlier version (`copyOps.ts`), so Undo brings it back, and so does
- * the Cloud panel's Bring back while it is one of the six versions kept (`KEEP_GROUPS`), which the
- * nightly's own kept versions push out within a week of refreshes that change anything. Unlike the device's card, nothing on this device is
- * deleted: the cloud's copy is the one started again. Confirmation opens immediately and the
- * server updates its manifest directly, so a stuck pool read cannot block the owner's reset.
+ * the server (`copy.reset`), the copy's owner's alone, and the server says so to anyone else; a
+ * member's button is drawn off, saying so, once the member's entry has been read (`ownerOnly`).
+ * What it takes is kept whole as an earlier version (`copyOps.ts`), so Undo brings it back, and
+ * so does the Cloud panel's Bring back while it is one of the six versions kept (`KEEP_GROUPS`),
+ * which the nightly's own kept versions push out within a week of refreshes that change anything.
+ * Unlike the device's card, nothing on this device is deleted: the cloud's copy is the one started
+ * again. Confirmation opens immediately and the server updates its manifest directly, so a stuck
+ * pool read cannot block the owner's reset.
  */
 export function LiveStartAgainCard({
   edits,
   confirm,
+  ownerOnly = null,
 }: {
   edits: LiveEdits;
   confirm: Confirmation["request"];
+  /**
+   * Said under the button, drawn off, where this account is a member and not the copy's owner
+   * (`useOwnerOnly`); null for the owner, and while that is not known.
+   */
+  ownerOnly?: string | null;
 }) {
   const { edit, say, locked } = edits;
   const [phase, setPhase] = useState<"confirm" | "reset" | null>(null);
+  const reasonId = useId();
 
   const startAgain = async () => {
     if (locked) {
@@ -77,11 +86,16 @@ export function LiveStartAgainCard({
         is kept as an earlier version in the Cloud panel, one of the six most recent kept there for
         30 days at most, so it can be brought back. Only the cloud copy&apos;s owner can do this.
       </p>
+      {/*
+       * Faded only when it is off for a member: the owner's button, off while a start is confirmed
+       * and sent, says so in its own words and keeps the look it always had.
+       */}
       <button
         type="button"
         onClick={() => void startAgain()}
-        disabled={phase !== null}
-        className={`${button.danger} mt-3`}
+        disabled={phase !== null || ownerOnly !== null}
+        aria-describedby={ownerOnly !== null ? reasonId : undefined}
+        className={`${button.danger} mt-3${ownerOnly !== null ? " disabled:cursor-not-allowed disabled:opacity-50" : ""}`}
       >
         {phase === "reset"
           ? "Starting again in the cloud…"
@@ -89,6 +103,11 @@ export function LiveStartAgainCard({
             ? "Waiting for confirmation…"
             : "Start Team Rankings again"}
       </button>
+      {ownerOnly !== null && (
+        <p id={reasonId} className="mt-2 text-xs text-slate-600 dark:text-slate-300">
+          {ownerOnly}
+        </p>
+      )}
       {phase === "reset" && (
         <p role="status" className="mt-3 text-sm text-slate-500 dark:text-slate-400">
           Saving an earlier version and starting Team Rankings again…

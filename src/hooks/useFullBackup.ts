@@ -22,9 +22,10 @@ export type FullBackupOptions = {
   seasonCount: number;
   /**
    * Team Rankings is the cloud's for this browser (App's `rankingsLive`: a member on the cloud's
-   * board). Only then is the copy read for the file. A member who turned the board off works on
-   * this device's own pool, kept in step, which a save reaches the copy from only later, so a file
-   * of the copy's would miss what was done here meanwhile.
+   * board, as every member is since the switch that turned it off went with the device's saves,
+   * 1.6f). Only then is the copy read for the file. Anywhere else the page works on this device's
+   * own pool, and the file is of that: a browser with no member signed in, an account taken off
+   * the list, or a copy gone or a newer build's.
    */
   rankingsLive: boolean;
   /**

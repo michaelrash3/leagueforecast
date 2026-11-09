@@ -35,7 +35,7 @@ export type SelectedTeamInputs = {
   scheduleDifficultyForTeam: ReturnType<typeof useGoldRace>["scheduleDifficultyForTeam"];
   searchedCount: number;
   seasonSettings: Settings;
-  seedRangeForTeam: (teamId: string) => SeedRange;
+  seedRangeForTeam: (teamId: string) => SeedRange | null;
   selectedTeamId: string | null;
   titleRaceBadgeForTeam: ReturnType<typeof useGoldRace>["titleRaceBadgeForTeam"];
 };

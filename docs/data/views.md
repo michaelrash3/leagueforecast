@@ -4,9 +4,9 @@ _Part of the design documents; the map is in the repository's [README](../../REA
 
 ## Boards a server can build
 
-The cloud copy is on its way to being the one place the data lives, with members
+The cloud copy was on its way to being the one place the data lives, with members
 reading views a server builds rather than every device loading the whole pool
-and fitting it itself. The first piece is a way to build the boards anywhere and
+and fitting it itself. The first piece was a way to build the boards anywhere and
 get the browser's answer.
 
 **What a page knows** is one pure function of the stored pool,
@@ -110,7 +110,9 @@ for 30,304 teams and 86,973 games, and 6.1 to 6.7 s for 90,904 teams and
 258,267 games, the size of the real pool, with the process peaking at 870 to
 890 MB resident over four runs, the fixture's own arrays included.
 
-Nothing builds these boards on a server yet; how they are published is next.
+Servers build these boards now: the nightly each night, a rebuild after a save that moved
+what a board reads, and the catch-up on GitHub while the rebuilds do not run. How they are
+published is next.
 
 ## Views a server publishes
 
