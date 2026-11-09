@@ -172,10 +172,39 @@ export type ForecastGameInput = {
   awayName: string;
   homeName: string;
   favoriteName: string;
+  /** The favourite's chance of winning, as a percent from 0 to 100. */
   winPct: number;
   impact?: string;
   date?: string;
 };
+
+/** One row of the Forecast board's game list, as much of it as the write-up is told. */
+export type BoardGameForecast = {
+  awayName: string;
+  homeName: string;
+  winnerName: string;
+  /** The favourite's chance of winning, as the fraction from 0 to 1 the model gives. */
+  winnerPct: number;
+  impact?: { impactLabel: string };
+  game: { date?: string };
+};
+
+/**
+ * The Forecast board's game rows as the write-up's request takes them. The board holds each
+ * favourite's chance as the model's fraction and the request takes a percent: the server clamps
+ * it to 0–100 and prints it with a % sign. Sent as the fraction, a 63% favourite reached the
+ * writer as "favored at 1%". It goes rounded as the board's Chance column rounds it, so the
+ * write-up and the row it writes about name the same number.
+ */
+export const forecastGamesFor = (games: readonly BoardGameForecast[]): ForecastGameInput[] =>
+  games.map((item) => ({
+    awayName: item.awayName,
+    homeName: item.homeName,
+    favoriteName: item.winnerName,
+    winPct: Math.round(item.winnerPct * 100),
+    impact: item.impact?.impactLabel,
+    date: item.game.date,
+  }));
 
 /**
  * Packs the Forecast board into a request: the projected finish for every team,

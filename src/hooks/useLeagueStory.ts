@@ -2,7 +2,11 @@ import { useCallback, useMemo, useState } from "react";
 import type { BacktestResult } from "../lib/backtest";
 import { displayName } from "../lib/format";
 import { recapToStoryBrief } from "../lib/insights";
-import { buildForecastSummaryRequest, buildLeagueSummaryRequest } from "../lib/leagueSummaryClient";
+import {
+  buildForecastSummaryRequest,
+  buildLeagueSummaryRequest,
+  forecastGamesFor,
+} from "../lib/leagueSummaryClient";
 import type { PredictionEngineResult } from "../lib/predictionEngine";
 import { readSummaryMode, type SummaryMode, writeSummaryMode } from "../lib/preferences";
 import type { StatRankings } from "../lib/teamStats";
@@ -176,14 +180,7 @@ export function useLeagueStory({
           worstSeed: range?.worst,
         };
       }),
-      gameForecasts: gameForecasts.slice(0, 18).map((item) => ({
-        awayName: item.awayName,
-        homeName: item.homeName,
-        favoriteName: item.winnerName,
-        winPct: item.winnerPct,
-        impact: item.impact?.impactLabel,
-        date: item.game.date,
-      })),
+      gameForecasts: forecastGamesFor(gameForecasts.slice(0, 18)),
       keyGames: gamesThatMatterMost.slice(0, 10).map((item) => ({
         label: item.label,
         reason: item.reason,
