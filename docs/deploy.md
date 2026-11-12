@@ -210,7 +210,11 @@ the tags are written at build time by a build that knows it (`src/lib/linkPrevie
 - A build with neither (a laptop, CI) writes no such tags and is the page it was.
 
 To check a deployment, view the page's source for `og:image`: its address should open the picture.
-It has not been checked from the container the change was made in, which reaches no deployment.
+Checked on production on 12 November 2026: `https://leagueforecast.vercel.app/` names
+`https://leagueforecast.vercel.app/og.png`, which answers 200 as a 1200 by 630 PNG, the file in
+`public/`. The same reading found the Home Screen icon as iOS asks for it: `apple-touch-icon.png`,
+200, a 180px PNG with no see-through part. What it looks like on a Home Screen still wants a look
+on a phone.
 
 ## Cached live data and reconnection
 

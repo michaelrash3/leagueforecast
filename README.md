@@ -39,20 +39,43 @@ stay permanently red. `.github/dependabot.yml` names each, says what would unblo
 how to re-check rather than trusting what it says. Ignoring by version and not by update-type is
 the point: eslint 10 is skipped, eslint 11 will still get asked about.
 
-Two settings in `package.json` answer what an install would otherwise warn about on every build:
+Two settings in `package.json` answer what an install would otherwise warn about on every build,
+and `functions/package.json` has the first of them for its own install:
 
-- `allowScripts` says no to the two dependencies that ask to run a script on install. npm skips
-  such scripts until a project decides, and warns that it has. Neither is needed here:
+- `allowScripts` says no to the dependencies that ask to run a script on install. npm skips such
+  scripts until a project decides, and warns that it has. None is needed here:
   `@firebase/util`'s writes a default Firebase config from an environment variable Firebase App
   Hosting sets, where this app's config is in its source (`FIREBASE_WEB_CONFIG`), and
-  `protobufjs`'s only checks how a dependent wrote its version. The builds that warned had already
-  run with both skipped, and passed. A new dependency with an install script will warn again, to
+  `protobufjs`'s only checks how a dependent wrote its version. In `functions/`, esbuild's checks
+  the program it runs, which arrives as a package of its own for the machine installing it; the
+  functions build and their smoke test pass without the check. The builds that warned had already
+  run with these skipped, and passed. A new dependency with an install script will warn again, to
   be read and answered with `npm install-scripts approve` or `deny`.
-- `overrides` gives `workbox-build`, which `vite-plugin-pwa` builds the service worker with, glob
-  14 in place of the glob 11 it asks for, whose line its author has stopped supporting. It calls
-  one function of it, `globSync`, to list the files to store ahead, and the service worker built
-  with 14 is the same file, byte for byte, as with 11. Delete the override once `workbox-build`
-  asks for a supported glob itself; `npm ls glob` shows which it gets.
+- `overrides` gives three packages a newer version of one dependency than the one they ask for,
+  each because the one asked for is no longer supported or has a published advisory, and its
+  latest release has not moved. `npm ls <name>` shows what each gets; delete an entry once the
+  package asks for a supported version itself.
+  - `workbox-build`, which `vite-plugin-pwa` builds the service worker with, gets glob 14 for the
+    glob 11 its author has stopped supporting. It calls one function of it, `globSync`, to list
+    the files to store ahead.
+  - `@typescript-eslint/typescript-estree`, the linter's parser, gets minimatch 11 for the
+    minimatch 10 with an advisory against it (a pattern made to be slow to match). Lint passes on
+    it with nothing changed.
+  - `@firebase/firestore` gets `@grpc/grpc-js` 1.14 for the 1.9 it pins, which has two advisories
+    against it. The library is in no file the site serves, since a browser reaches Firestore
+    another way, and the one test that talks to Firestore uses its lite client, which does not
+    load it. So the override changes the copy an install fetches and nothing that runs; it is
+    here so that an audit's list is what still wants reading.
+  - With all three, every file a build writes for a browser is the same, byte for byte, as
+    without them (its source maps were not compared).
+
+`npm audit` is left with four advisories of low severity, all one: `deepmerge`, which
+`workbox-build` reaches through a Rollup plugin, and for which no fixed version exists. In
+`functions/` it is left with seven of moderate severity, in the tooling Google's client libraries
+carry (`glob`, `minimatch`, `rimraf`, `uuid` and what holds them). Clearing those moves
+`google-gax` and `google-auth-library`, which the deployed functions reach Firestore through and
+which nothing here can try against the real thing; they are left to the monthly batch
+(`.github/dependabot.yml`), which a deploy follows.
 
 One warning stays: eslint 9 is past its support, and eslint 10 is the major two of its plugins do
 not yet take (`.github/dependabot.yml`).
