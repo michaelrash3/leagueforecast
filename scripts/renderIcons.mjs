@@ -12,6 +12,8 @@
  *   fills anything see-through with black, so it is given the square that runs to every edge.
  * - `icon-192.png` and `icon-512.png`, the sizes an installable app is asked for.
  * - `icon-maskable-512.png`, for a launcher that cuts its own shape.
+ * - `og.png`, 1200 by 630: the picture a link to the site is shown with in a text thread or a chat
+ *   (`src/lib/linkPreview.ts`). The icon's mark, the app's name and a line saying what it is for.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -42,6 +44,27 @@ try {
     await page.close();
     console.log(`${to}: ${size}px from ${from}`);
   }
+  // The icon's mark by itself, cut to its own edges: on the card's ground, which is the icon's,
+  // the icon's square and the letters under the mark would not show.
+  const path = /<path[^>]*\/>/.exec(readFileSync(join(publicDir, "icon.svg"), "utf8"))?.[0];
+  if (!path) throw new Error("icon.svg has no mark to draw");
+  const mark = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="118 178 276 168">${path}</svg>`;
+  const card = await browser.newPage({ viewport: { width: 1200, height: 630 } });
+  await card.setContent(`<style>
+    html, body { margin: 0; }
+    body { width: 1200px; height: 630px; box-sizing: border-box; padding: 96px; background: #0f172a;
+      color: #fff; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+      display: flex; flex-direction: column; justify-content: center; }
+    svg { display: block; width: 210px; height: 128px; }
+    h1 { margin: 44px 0 0; font-size: 104px; line-height: 1; font-weight: 900; letter-spacing: -0.04em; }
+    p { margin: 28px 0 0; max-width: 900px; font-size: 40px; line-height: 1.3; font-weight: 600; color: #cbd5e1; }
+    i { display: block; margin-top: 44px; width: 136px; height: 8px; border-radius: 4px; background: #38bdf8; }
+  </style>${mark}
+  <h1>League Forecast</h1>
+  <p>Standings, power ratings and playoff odds.</p><i></i>`);
+  await card.screenshot({ path: join(publicDir, "og.png") });
+  await card.close();
+  console.log("og.png: 1200 by 630");
 } finally {
   await browser.close();
 }
