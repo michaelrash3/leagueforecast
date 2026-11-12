@@ -16,5 +16,10 @@
   },
   "devDependencies": {
     "esbuild": "^0.28.2"
+  },
+  "allowScripts": {
+    "@firebase/util": false,
+    "esbuild": false,
+    "protobufjs": false
   }
 }
