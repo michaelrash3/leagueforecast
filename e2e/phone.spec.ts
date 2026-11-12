@@ -99,6 +99,10 @@ test("on a phone the Forecast's charts keep their type, their height and a colou
   page,
 }) => {
   await forecast(page);
+  // Letters set wider than this machine's font draws them, as another machine's does: the app has
+  // no font of its own, and a chart that left its axis a fixed 36px passed here in Inter and put
+  // "100%" out past its left edge in CI's font. A chart has to fit the labels it is given.
+  await page.addStyleTag({ content: "svg text { letter-spacing: 2px; }" });
   for (const [section, name] of [
     ["Gold odds trend", "Outlook"],
     ["Season race", "Season"],
@@ -143,7 +147,10 @@ test("on a phone the Forecast's charts keep their type, their height and a colou
     expect(drawn.lines).toEqual(drawn.keys);
 
     // A finger reads every line at the point it touches, and the readout stays on the screen.
-    await chart.locator("svg").first().tap({ position: { x: 200, y: 100 } });
+    await chart
+      .locator("svg")
+      .first()
+      .tap({ position: { x: 200, y: 100 } });
     const readout = chart.getByTestId("chart-readout");
     await expect(readout).toBeVisible();
     await expect(readout.locator("> div")).toHaveCount(6);

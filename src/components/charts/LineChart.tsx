@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { focusRing, tapArea } from "../../styles/tokens";
 
 export type LineSeries = {
@@ -30,8 +30,42 @@ export const seriesSlots = (ids: readonly string[]): Map<string, number> =>
 /** The width a chart is drawn at before its box has been measured, and where it cannot be. */
 const UNMEASURED_WIDTH = 640;
 
-/** An axis label's width, near enough to keep two from touching: 12px semibold digits and words. */
-const labelWidth = (label: string) => label.length * 7 + 16;
+/**
+ * An axis label's width, near enough to keep two along the bottom from touching: 12px semibold
+ * digits and words, at the 8px a wide system font gives each, and a gap.
+ */
+const labelWidth = (label: string) => label.length * 8 + 16;
+
+/** The room left of the plot before the axis's labels have been measured, and where they cannot be. */
+const UNMEASURED_GUTTER = 44;
+
+/** Between the axis's labels and the plot, and between them and the card's edge. */
+const GUTTER_GAP = 8;
+const GUTTER_EDGE = 4;
+
+/**
+ * The room the axis's labels need left of the plot, measured as the browser has drawn them. The
+ * app sets no font of its own, so the same "100%" is as wide as each device's system font makes
+ * it: a fixed 36px held it in Inter and let it run out past the chart's left edge in the wider
+ * face CI's browser draws, as it would on any device whose own font is wide.
+ */
+const useAxisGutter = (words: string) => {
+  const axis = useRef<SVGGElement>(null);
+  const [gutter, setGutter] = useState(UNMEASURED_GUTTER);
+  useLayoutEffect(() => {
+    let widest = 0;
+    axis.current?.querySelectorAll("text").forEach((label) => {
+      // jsdom draws no text and has no measure of it.
+      if (typeof label.getComputedTextLength !== "function") return;
+      widest = Math.max(widest, label.getComputedTextLength());
+    });
+    // A measure of what the browser has just laid out, which nothing but an effect can read; it is
+    // set before the page is painted, so the axis is never seen at its unmeasured place.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (widest > 0) setGutter(Math.ceil(widest) + GUTTER_GAP + GUTTER_EDGE);
+  }, [words]);
+  return [axis, gutter] as const;
+};
 
 /**
  * The width of the box the chart is drawn in, as it changes. The chart is drawn at that size, one
@@ -84,9 +118,12 @@ export function LineChart({
   const [box, width] = useBoxWidth();
   const [at, setAt] = useState<number | null>(null);
 
+  const ticks = yTicks ?? Array.from({ length: 5 }, (_, i) => yMin + ((yMax - yMin) / 4) * i);
+  const [axis, gutter] = useAxisGutter(ticks.map(valueLabel).join("|"));
+
   // Tall enough to tell five lines apart on a phone, and no taller than a wide screen needs.
   const height = Math.round(Math.max(220, Math.min(340, width * 0.4)));
-  const padding = { top: 12, right: 16, bottom: 28, left: 44 };
+  const padding = { top: 12, right: 16, bottom: 28, left: gutter };
   const innerW = Math.max(1, width - padding.left - padding.right);
   const innerH = height - padding.top - padding.bottom;
 
@@ -97,8 +134,6 @@ export function LineChart({
     const ratio = (clamped - yMin) / Math.max(yMax - yMin, 1);
     return padding.top + (invert ? ratio : 1 - ratio) * innerH;
   };
-
-  const ticks = yTicks ?? Array.from({ length: 5 }, (_, i) => yMin + ((yMax - yMin) / 4) * i);
 
   // As many of the axis's labels as fit without touching, counted back from the last so the
   // latest point is always named.
@@ -150,25 +185,27 @@ export function LineChart({
         >
           <title id={titleId}>{series.map((s) => s.label).join(", ")}</title>
           <desc id={descId}>{described}</desc>
-          {ticks.map((tick) => (
-            <g key={tick}>
-              <line
-                x1={padding.left}
-                x2={padding.left + innerW}
-                y1={yFor(tick)}
-                y2={yFor(tick)}
-                className="stroke-slate-200 dark:stroke-slate-800"
-              />
-              <text
-                x={padding.left - 8}
-                y={yFor(tick) + 4}
-                textAnchor="end"
-                className="fill-slate-600 text-xs font-semibold tabular-nums dark:fill-slate-400"
-              >
-                {valueLabel(tick)}
-              </text>
-            </g>
-          ))}
+          <g ref={axis}>
+            {ticks.map((tick) => (
+              <g key={tick}>
+                <line
+                  x1={padding.left}
+                  x2={padding.left + innerW}
+                  y1={yFor(tick)}
+                  y2={yFor(tick)}
+                  className="stroke-slate-200 dark:stroke-slate-800"
+                />
+                <text
+                  x={padding.left - GUTTER_GAP}
+                  y={yFor(tick) + 4}
+                  textAnchor="end"
+                  className="fill-slate-600 text-xs font-semibold tabular-nums dark:fill-slate-400"
+                >
+                  {valueLabel(tick)}
+                </text>
+              </g>
+            ))}
+          </g>
           {xLabels.map((label, i) =>
             onAxis(i) ? (
               <text

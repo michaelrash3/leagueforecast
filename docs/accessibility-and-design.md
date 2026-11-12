@@ -113,7 +113,10 @@ footnote or a failed panel reads the same on every League view.
   - Drawn at the size of the card, one unit of the SVG to a pixel. Each was drawn to a
     fixed 640 units and stretched to fit, so on a 360px phone its axis was 4.5px type
     and its 240px plot 108px tall, and on a wide desktop the same labels were 19px. The
-    labels are 12px on every screen and the plot is 220 to 340px tall.
+    labels are 12px on every screen and the plot is 220 to 340px tall. The room left
+    of the plot is measured from the axis's labels as the browser drew them, since the
+    app sets no font of its own: a fixed 36px held "100%" in Inter and let it run out
+    past the chart's left edge in the wider face CI's browser draws.
   - A colour for every line. With no team followed, two of the race's five teams were
     the same blue, the fifth colour being the first again; and a fifth line's key had
     no colour beside it at all, its class (`bg-slate-500`) being built by swapping a
@@ -136,8 +139,10 @@ footnote or a failed panel reads the same on every League view.
     "2026-04-05"), as many as fit, and the last is set from the chart's right edge,
     where it ran out past it ("2026-05-").
   - `LineChart.test.tsx` holds the colours, the key, the table, the readout and the
-    axis; `e2e/phone.spec.ts` measures both charts as a 360px phone draws them. Run on
-    the charts as they were, it fails at a scale of 0.447, which is the 4.5px type.
+    axis; `e2e/phone.spec.ts` measures both charts as a 360px phone draws them, with
+    their letters set 2px wider than the machine's font draws them, as another
+    machine's does. Run on the charts as they were, it fails at a scale of 0.447, which
+    is the 4.5px type; run with the fixed 36px, it fails on "100%" outside the chart.
 - **4.5:1 contrast for text, 3:1 for large text.** What fell short, and what it is now:
   - Grey on the page: slate-500 measured 4.35:1 on the page's slate-100, under the
     line on the "Updated through" leads and on inactive tabs. The text roles and tabs
