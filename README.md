@@ -39,6 +39,24 @@ stay permanently red. `.github/dependabot.yml` names each, says what would unblo
 how to re-check rather than trusting what it says. Ignoring by version and not by update-type is
 the point: eslint 10 is skipped, eslint 11 will still get asked about.
 
+Two settings in `package.json` answer what an install would otherwise warn about on every build:
+
+- `allowScripts` says no to the two dependencies that ask to run a script on install. npm skips
+  such scripts until a project decides, and warns that it has. Neither is needed here:
+  `@firebase/util`'s writes a default Firebase config from an environment variable Firebase App
+  Hosting sets, where this app's config is in its source (`FIREBASE_WEB_CONFIG`), and
+  `protobufjs`'s only checks how a dependent wrote its version. The builds that warned had already
+  run with both skipped, and passed. A new dependency with an install script will warn again, to
+  be read and answered with `npm install-scripts approve` or `deny`.
+- `overrides` gives `workbox-build`, which `vite-plugin-pwa` builds the service worker with, glob
+  14 in place of the glob 11 it asks for, whose line its author has stopped supporting. It calls
+  one function of it, `globSync`, to list the files to store ahead, and the service worker built
+  with 14 is the same file, byte for byte, as with 11. Delete the override once `workbox-build`
+  asks for a supported glob itself; `npm ls glob` shows which it gets.
+
+One warning stays: eslint 9 is past its support, and eslint 10 is the major two of its plugins do
+not yet take (`.github/dependabot.yml`).
+
 ## Two modes
 
 The header switches the whole app between them. They keep separate storage and
