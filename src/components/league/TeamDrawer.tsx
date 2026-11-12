@@ -156,11 +156,12 @@ function TeamStatTrendSparkline({
   const first = data[0] ?? 0;
   const last = data[data.length - 1] ?? 0;
   const improved = lowerIsBetter ? last < first : last > first;
-  const tone = improved
-    ? "stroke-emerald-500"
+  // The dot's fill is written out beside the line's stroke, as `Sparkline` does and for its reason.
+  const [stroke, fill] = improved
+    ? ["stroke-emerald-500", "fill-emerald-500"]
     : last === first
-      ? "stroke-slate-500"
-      : "stroke-amber-500";
+      ? ["stroke-slate-500", "fill-slate-500"]
+      : ["stroke-amber-500", "fill-amber-500"];
 
   return (
     <svg
@@ -175,17 +176,12 @@ function TeamStatTrendSparkline({
       <polyline
         points={points}
         fill="none"
-        className={tone}
+        className={stroke}
         strokeWidth="2.75"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <circle
-        cx={width}
-        cy={height - ((last - min) / spread) * height}
-        r="3.5"
-        className={tone.replace("stroke", "fill")}
-      />
+      <circle cx={width} cy={height - ((last - min) / spread) * height} r="3.5" className={fill} />
     </svg>
   );
 }

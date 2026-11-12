@@ -17,8 +17,15 @@ export const Sparkline = React.memo(function Sparkline({ values }: { values: num
     .join(" ");
 
   const last = data[data.length - 1] ?? 0;
-  const tone =
-    last >= 75 ? "stroke-emerald-500" : last >= 40 ? "stroke-blue-500" : "stroke-slate-500";
+  // Both classes written out: Tailwind makes only the classes it can read whole in a source file,
+  // and the dot's fill, once built from the line's by swapping a word, was styled only because the
+  // same words happened to be spelled out in another component.
+  const [stroke, fill] =
+    last >= 75
+      ? ["stroke-emerald-500", "fill-emerald-500"]
+      : last >= 40
+        ? ["stroke-blue-500", "fill-blue-500"]
+        : ["stroke-slate-500", "fill-slate-500"];
 
   return (
     <svg
@@ -33,7 +40,7 @@ export const Sparkline = React.memo(function Sparkline({ values }: { values: num
       <polyline
         points={points}
         fill="none"
-        className={tone}
+        className={stroke}
         strokeWidth="2.5"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -42,7 +49,7 @@ export const Sparkline = React.memo(function Sparkline({ values }: { values: num
         cx={width}
         cy={height - (clamp(last, 0, 100) / 100) * height}
         r="3"
-        className={tone.replace("stroke", "fill")}
+        className={fill}
       />
     </svg>
   );

@@ -10,14 +10,16 @@ import { describe, expect, it } from "vitest";
  * 12px, and the shared styles beside them (`src/styles/tokens.ts`), where the app-mode switch's
  * size lives. A size sized with the screen counts by its floor: the switch's
  * `clamp(11px,3.6vw,14px)` was 11.52px on a 320px phone, and the browser checks, run at 360px, saw
- * it at 12.96px. A line chart's labels are drawn in its SVG at the chart's own scale and are left
- * to it, and the phone's tab bar sizes its labels with the screen down to 9px (`TabNav`), the one
- * size let under 12px.
+ * it at 12.96px. The phone's tab bar sizes its labels with the screen down to 9px (`TabNav`), the
+ * one size let under 12px. A line chart was the other file left out, while its labels were drawn
+ * in its SVG at the chart's own scale; it is drawn one unit to a pixel now (`LineChart`) and read
+ * with the rest, and `e2e/phone.spec.ts` measures its labels as a phone draws them.
  */
-const sources = import.meta.glob<string>(
-  ["/src/**/*.{ts,tsx}", "!/src/**/*.test.{ts,tsx}", "!/src/components/charts/LineChart.tsx"],
-  { query: "?raw", import: "default", eager: true }
-);
+const sources = import.meta.glob<string>(["/src/**/*.{ts,tsx}", "!/src/**/*.test.{ts,tsx}"], {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
 
 /** A size in pixels, or the least of one sized with the screen: `text-[clamp(11px,…)]` is 11. */
 const SIZE = /(?<![\w-])text-\[(?:clamp\()?(\d+(?:\.\d+)?)px/g;

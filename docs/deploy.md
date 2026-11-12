@@ -194,6 +194,24 @@ turns billing off again, since the month's cost is still past it; then link the
 project to its billing account (**Billing → Account management**, the project's
 menu, **Change billing**) and run **Firebase functions** to bring the functions back.
 
+## A shared link's picture
+
+A link to the site, a season shared from the header among them, is shown in a text thread or a
+team chat with a picture (`public/og.png`, drawn by `scripts/renderIcons.mjs`). A preview's
+picture has to be named by its whole address, and the site's address is not in the repository, so
+the tags are written at build time by a build that knows it (`src/lib/linkPreview.ts`):
+
+- On Vercel nothing needs setting. Every build there, a preview's too, is given
+  `VERCEL_PROJECT_PRODUCTION_URL`, the project's shortest production domain, and the tags point at
+  it. This needs "Automatically expose System Environment Variables" left on in the project's
+  settings, which is how a project starts.
+- `VITE_SITE_URL`, set to the site's address, takes its place for a build served from anywhere
+  else, or to name a domain other than the one Vercel picks.
+- A build with neither (a laptop, CI) writes no such tags and is the page it was.
+
+To check a deployment, view the page's source for `og:image`: its address should open the picture.
+It has not been checked from the container the change was made in, which reaches no deployment.
+
 ## Cached live data and reconnection
 
 The Import refresh panel keeps a validated status snapshot per account, so opening

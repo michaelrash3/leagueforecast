@@ -13,7 +13,11 @@ _Part of the design documents; the map is in the repository's [README](../README
   and 15 of the National Top 25 were cut, and clubs of one organisation were cut to
   the same label. Names wrap onto a second line instead, on every League tab, the
   bracket and Team Rankings' top lists. League Stats keeps its ellipsis from `xl`,
-  where its six-column grid would otherwise split names mid-word.
+  where its six-column grid would otherwise split names mid-word, and only for a
+  league that keeps box scores: one that keeps final scores has two lists, R/G and
+  RA/G, which in six columns sat in a third of the card with every name cut
+  ("Lakesi…") beside four empty columns. Those two share the card's width, names
+  whole (`StatRankingsPanel.test.tsx`).
 - Below `sm` the Scouting report is cards, one per fixture and one per opponent,
   rendered in place of the tables (`useWideViewport`) rather than beside them: a
   six-column table in a card's width left the win chance and outlook past the edge
@@ -101,9 +105,44 @@ footnote or a failed panel reads the same on every League view.
   can't be edited) all go through it.
 - **No text under 12px.** The app set 10px and 11px type in 89 places: table headings,
   the names of figures, the run labels on a game card, a team's record. It is all 12px
-  now, but for the phone's tab bar, whose labels are sized with the screen, and a line
-  chart's labels inside its SVG. Section headings that were small capitals, such as
-  Data Quality's "Worth reviewing", are now section titles.
+  now, but for the phone's tab bar, whose labels are sized with the screen. Section
+  headings that were small capitals, such as Data Quality's "Worth reviewing", are now
+  section titles.
+- **The Forecast's line charts** (`LineChart`, since 12 November 2026): Gold Odds Over
+  Recent Games and The Race, Game Day by Game Day.
+  - Drawn at the size of the card, one unit of the SVG to a pixel. Each was drawn to a
+    fixed 640 units and stretched to fit, so on a 360px phone its axis was 4.5px type
+    and its 240px plot 108px tall, and on a wide desktop the same labels were 19px. The
+    labels are 12px on every screen and the plot is 220 to 340px tall. The room left
+    of the plot is measured from the axis's labels as the browser drew them, since the
+    app sets no font of its own: a fixed 36px held "100%" in Inter and let it run out
+    past the chart's left edge in the wider face CI's browser draws.
+  - A colour for every line. With no team followed, two of the race's five teams were
+    the same blue, the fifth colour being the first again; and a fifth line's key had
+    no colour beside it at all, its class (`bg-slate-500`) being built by swapping a
+    word in another and so never written to the stylesheet. The colours are eight of
+    the chart's own (`--chart-1` to `--chart-8` in `index.css`, a light step and a dark
+    one), handed out in the order of the teams' ids so a team keeps its colour while
+    the same teams are drawn. They were measured rather than picked by eye: next to its
+    neighbours each is told apart under simulated red-green colour blindness (9.1 on
+    white and 8.4 on slate-900 at the nearest, in OKLab, against a floor of 8). None is
+    a red, amber or green that means out, chasing or safe elsewhere on the page, and
+    the followed team is told by a heavier line, where it was the green one.
+  - Three of the light steps are under 3:1 against white (2.2 to 2.8:1), so colour is
+    never the only way to a figure: the key prints each line's latest value (the Gold %
+    as its column words it), a readout lists every line at the point under a pointer or
+    a finger, and "Show the numbers" opens all of them as a table.
+  - The race's axis names whole places. Spaced evenly from first to last, an eight-team
+    league's lines were drawn at 1, 2.75, 4.5, 6.25 and 8 and labelled 1, 3, 5, 6 and 8,
+    with "5" printed on the Gold line that falls between fourth and fifth. Its dates are
+    written as the rest of League writes them ("4/5", where the axis printed the stored
+    "2026-04-05"), as many as fit, and the last is set from the chart's right edge,
+    where it ran out past it ("2026-05-").
+  - `LineChart.test.tsx` holds the colours, the key, the table, the readout and the
+    axis; `e2e/phone.spec.ts` measures both charts as a 360px phone draws them, with
+    their letters set 2px wider than the machine's font draws them, as another
+    machine's does. Run on the charts as they were, it fails at a scale of 0.447, which
+    is the 4.5px type; run with the fixed 36px, it fails on "100%" outside the chart.
 - **4.5:1 contrast for text, 3:1 for large text.** What fell short, and what it is now:
   - Grey on the page: slate-500 measured 4.35:1 on the page's slate-100, under the
     line on the "Updated through" leads and on inactive tabs. The text roles and tabs
@@ -138,6 +177,25 @@ footnote or a failed panel reads the same on every League view.
     and 5.37:1 at the strongest and more as it fades, as the seed odds grid does it; the
     audit's seeded pool gives the tidy nothing to find, so `tokens.test.ts` measures it at
     every strength.
+- **The Dashboard's first screen and its side column** (since 12 November 2026).
+  - On a phone the season at a glance (games final, the leader, the Gold cut line) is
+    three lines of one card, each figure beside its name, 100px in all. As cards two to
+    a row the three took 176px of a 360px screen, each name on two lines, and left the
+    third on a row by itself beside an empty half; the Dashboard starts 76px higher.
+    From `sm` they are the three cards in a row they were (`HeaderStatCard`).
+  - On a wide screen the side column held Data Quality alone: at 1280px a card 192px
+    tall beside three predictions 1,317px tall, with the power ratings the page's width
+    under both. With two or more predictions beside them the ratings stand under Data
+    Quality, in the stacked rows a phone is given, which fit a column of 350 to 450px
+    where seven columns do not; the column is then 1,078px of the 1,317 and the page
+    502px shorter. Beside fewer predictions, a finished season among them, the ratings
+    keep the page's width, since a column of them beside one short card leaves the same
+    gap on the other side. A tablet, with one column, keeps the table.
+  - `DashboardBeside.test.tsx` holds which layout a season gets, and `e2e/phone.spec.ts`
+    measures both in the built app: the ratings right of the predictions and under Data
+    Quality at 1280px and below them as a table at 768px, and on a phone three lines the
+    card's width with each figure beside its name. Run on the page as it was, the first
+    fails on the ratings below the predictions and the second on a card 158px wide.
 - **A thumb's tap area on a phone** (`tapArea`): Team Rankings' buttons and links are 44 px
   each way below `sm`, where its main ones were text links 16 to 26 px tall (Scout 34 by 16,
   What if? 48 by 16, the club sheet's Close 33 by 16, Got it 49 by 26, "Open on 10U by

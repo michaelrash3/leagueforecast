@@ -190,13 +190,17 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
  * with nothing they do changed: the values each hook takes and hands back are object keys, which
  * the minifier keeps whole where it had shortened the same names inside one component. By the
  * whole kilobyte again, for the same reason as before.
+ * Dashboard to 8.0 KB on 12 Nov 2026 for its power ratings set beside the predictions on a wide
+ * screen, 7.6 KB against 7.5 KB on main (7,573 bytes against 7,491): which of the two places a
+ * season's ratings are drawn in, and the classes that stack their rows in the side column. The
+ * line had 9 bytes left, so it goes 0.4 KB above what it measures rather than to the next byte.
  */
 const BUDGET = {
   firstDownload: 255_000,
   entryChunk: 97_500,
   css: 15_200,
   views: {
-    Dashboard: 7_500,
+    Dashboard: 8_000,
     "Power Ratings": 3_800,
     Schedule: 8_200,
     Standings: 8_000,

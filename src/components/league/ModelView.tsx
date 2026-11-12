@@ -274,7 +274,7 @@ export function ModelView(props: {
                 Simulated Gold Bracket odds for the top teams after each of the latest results.
               </p>
             </div>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            <span className="self-start rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 sm:self-auto dark:bg-slate-800 dark:text-slate-300">
               Top 5
             </span>
           </div>

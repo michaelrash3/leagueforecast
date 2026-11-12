@@ -2,12 +2,13 @@
 // block, so the config is defined through `vitest/config` instead. It is Vite's `defineConfig`
 // with the test options typed on top; every Vite option below is unchanged.
 import { defineConfig } from "vitest/config";
-import type { Plugin } from "vite";
+import { loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { FIREBASE_WEB_CONFIG } from "./src/lib/cloud/cloudConfig.ts";
 import { GC_TEAM_FUNCTION_URL, LEAGUE_SUMMARY_FUNCTION_URL } from "./src/lib/cloud/apiEndpoints.ts";
 import { widenPolicyInHtml } from "./src/lib/contentPolicy.ts";
+import { previewTags } from "./src/lib/linkPreview.ts";
 import { loadedAtStartTest, type ModuleLinks } from "./src/lib/bootChunk.ts";
 
 /** The plain logic modules, which the boot chunk takes when the page loads them at start. */
@@ -64,10 +65,34 @@ const contentPolicy = (): Plugin => {
   };
 };
 
+/**
+ * Adds a link's preview picture to the page's head, for a build that knows the site's address
+ * (`src/lib/linkPreview.ts`). Vercel's own variable has no `VITE_` before its name, so it is not
+ * among the settings Vite hands a plugin and is read here with the two prefixes asked for.
+ */
+const linkPreview = (): Plugin => {
+  let env: Record<string, string> = {};
+  return {
+    name: "league-forecast:link-preview",
+    configResolved: (config) => {
+      env = loadEnv(config.mode, config.envDir || config.root, [
+        "VITE_SITE_URL",
+        "VERCEL_PROJECT_",
+      ]);
+    },
+    transformIndexHtml: () =>
+      previewTags({
+        VITE_SITE_URL: env.VITE_SITE_URL,
+        VERCEL_PROJECT_PRODUCTION_URL: env.VERCEL_PROJECT_PRODUCTION_URL,
+      }),
+  };
+};
+
 export default defineConfig({
   plugins: [
     react(),
     contentPolicy(),
+    linkPreview(),
     VitePWA({
       /*
        * A new version waits to be let in rather than taking over.
@@ -80,7 +105,7 @@ export default defineConfig({
        * whoever is standing at the field with a phone.
        */
       registerType: "prompt",
-      includeAssets: ["icon.svg", "icon-maskable.svg"],
+      includeAssets: ["icon.svg", "icon-maskable.svg", "apple-touch-icon.png"],
       manifest: {
         name: "League Forecast",
         short_name: "Forecast",
@@ -91,6 +116,9 @@ export default defineConfig({
         display: "standalone",
         start_url: "/",
         scope: "/",
+        // The SVGs for a browser that draws them at any size, and the same two drawn as PNGs
+        // (`scripts/renderIcons.mjs`) for a launcher that takes only those. iOS reads its icon
+        // from `index.html`, and only as a PNG.
         icons: [
           {
             src: "icon.svg",
@@ -98,10 +126,18 @@ export default defineConfig({
             type: "image/svg+xml",
             purpose: "any",
           },
+          { src: "icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
           {
             src: "icon-maskable.svg",
             sizes: "any",
             type: "image/svg+xml",
+            purpose: "maskable",
+          },
+          {
+            src: "icon-maskable-512.png",
+            sizes: "512x512",
+            type: "image/png",
             purpose: "maskable",
           },
         ],

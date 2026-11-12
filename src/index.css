@@ -36,6 +36,38 @@
   animation-delay: -5s;
 }
 
+/* The colours a chart's lines are drawn in (`LineChart`), in the order they are handed out. Eight
+   hues stepped once for a white card and once for a dark one, told apart from their neighbours in
+   this order by a reader with red-green colour blindness as by one without: measured in OKLab
+   under simulated protanopia and deuteranopia, the nearest neighbours are 9.1 apart on white and
+   8.4 on slate-900, against a floor of 8, and 19.6 and 19.3 unsimulated, against 15. Every dark
+   step is 3:1 or better against slate-900. On white the third, fourth and fifth are 2.8, 2.2 and
+   2.7:1, which is why a chart also prints each line's figure in its key and all of them in a
+   table. None is one of the reds, ambers or greens that mean a team is out, chasing or safe. */
+@layer base {
+  :root {
+    --chart-1: #2a78d6;
+    --chart-2: #eb6834;
+    --chart-3: #1baf7a;
+    --chart-4: #eda100;
+    --chart-5: #e87ba4;
+    --chart-6: #008300;
+    --chart-7: #6250d6;
+    --chart-8: #e34948;
+  }
+
+  .dark {
+    --chart-1: #3987e5;
+    --chart-2: #d95926;
+    --chart-3: #199e70;
+    --chart-4: #c98500;
+    --chart-5: #d55181;
+    --chart-6: #008300;
+    --chart-7: #9085e9;
+    --chart-8: #e66767;
+  }
+}
+
 /* Page-level defaults, not utilities: the upgrade tool put these in @layer utilities, where they
    would outrank any utility class applied to <body>. */
 @layer base {

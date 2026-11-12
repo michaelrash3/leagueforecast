@@ -43,8 +43,73 @@ const forecast = async (page: Page) => {
   return brackets;
 };
 
+/** The demo season's Dashboard. */
+const dashboard = async (page: Page) => {
+  await page.goto("/");
+  await openView(page, "Settings");
+  await page.getByRole("button", { name: "Load Demo" }).click();
+  const confirm = page.getByRole("button", { name: "Load demo" });
+  if (await confirm.isVisible({ timeout: 1500 }).catch(() => false)) await confirm.click();
+  await tab(page, "Dashboard").click();
+  await page.getByRole("heading", { name: "Upcoming Game Predictions" }).waitFor();
+};
+
 test.describe("on a desktop", () => {
   test.use({ viewport: { width: 1280, height: 900 } });
+
+  /*
+   * The Dashboard's side column. At 1280px it held Data Quality alone, a card 192px tall beside
+   * three predictions 1,317px tall, and the power ratings ran the page's width under both. The
+   * ratings stand under Data Quality now, in the stacked rows a phone is given, which fit the
+   * column where seven columns do not; a tablet, with one column, keeps them below as a table.
+   */
+  test("the Dashboard sets its power ratings beside the predictions, and a tablet below them", async ({
+    page,
+  }) => {
+    await dashboard(page);
+    const read = () =>
+      page.evaluate(() => {
+        const box = (element: Element | null | undefined) => element!.getBoundingClientRect();
+        const heading = [...document.querySelectorAll("h2")].find(
+          (title) => title.textContent === "Upcoming Game Predictions"
+        );
+        const ratings = document.querySelector('section[aria-label="Power Ratings"]')!;
+        const shown = (element: Element | null) =>
+          element !== null && getComputedStyle(element).display !== "none";
+        return {
+          predictions: box(heading?.parentElement?.parentElement).toJSON() as DOMRect,
+          quality: box(document.querySelector("main aside")).toJSON() as DOMRect,
+          ratings: box(ratings).toJSON() as DOMRect,
+          rows: shown(ratings.querySelector("ul")),
+          table: shown(ratings.querySelector("table")),
+          // Nothing in the stacked rows runs out past the card.
+          inside: [...ratings.querySelectorAll("li")].every(
+            (row) => row.scrollWidth <= row.clientWidth
+          ),
+        };
+      });
+
+    const wide = await read();
+    // Right of the predictions, under Data Quality and its width, starting 24px below it.
+    expect(wide.ratings.left).toBeGreaterThan(wide.predictions.right);
+    expect(wide.ratings.left).toBe(wide.quality.left);
+    expect(wide.ratings.width).toBe(wide.quality.width);
+    expect(wide.ratings.top - wide.quality.bottom).toBe(24);
+    expect(wide.rows).toBe(true);
+    expect(wide.table).toBe(false);
+    expect(wide.inside).toBe(true);
+    // The column is most of the predictions' height now, and still ends before they do.
+    const filled = (wide.ratings.bottom - wide.quality.top) / wide.predictions.height;
+    expect(filled).toBeGreaterThan(0.6);
+    expect(filled).toBeLessThanOrEqual(1);
+
+    await page.setViewportSize({ width: 768, height: 1024 });
+    const tablet = await read();
+    expect(tablet.ratings.top).toBeGreaterThan(tablet.quality.bottom);
+    expect(tablet.ratings.width).toBe(tablet.predictions.width);
+    expect(tablet.rows).toBe(false);
+    expect(tablet.table).toBe(true);
+  });
 
   test("the bracket's rounds still run left to right", async ({ page }) => {
     const brackets = await forecast(page);
@@ -86,6 +151,78 @@ test("on a phone every bracket score box sits on screen and the title odds read 
     .first()
     .boundingBox();
   expect(bar!.width).toBeGreaterThan(100);
+});
+
+/*
+ * The Forecast's two line charts on a phone. Each was drawn to a fixed 640 units and stretched to
+ * its card, so at 360px its axis was set in 4.5px type and its plot was 108px tall; the race's last
+ * date ran out past its edge; a fifth line's key had no colour, its class being one the stylesheet
+ * never held; with no team followed two of the race's five lines were the same blue; and a line's
+ * figures were under a mouse only. A chart is drawn one unit to a pixel now, at its card's width.
+ */
+test("on a phone the Forecast's charts keep their type, their height and a colour for every line", async ({
+  page,
+}) => {
+  await forecast(page);
+  // Letters set wider than this machine's font draws them, as another machine's does: the app has
+  // no font of its own, and a chart that left its axis a fixed 36px passed here in Inter and put
+  // "100%" out past its left edge in CI's font. A chart has to fit the labels it is given.
+  await page.addStyleTag({ content: "svg text { letter-spacing: 2px; }" });
+  for (const [section, name] of [
+    ["Gold odds trend", "Outlook"],
+    ["Season race", "Season"],
+  ] as const) {
+    await page.getByRole("button", { name, exact: true }).click();
+    const chart = page.locator(`section[aria-label="${section}"]`);
+    await chart.locator("svg polyline").first().waitFor();
+    const read = () =>
+      chart.evaluate((card) => {
+        const svg = card.querySelector("svg")!;
+        const box = svg.getBoundingClientRect();
+        // How large one of the chart's units is drawn: 1 once it has measured its card.
+        const scale = box.width / svg.viewBox.baseVal.width;
+        return {
+          scale,
+          height: box.height,
+          texts: [...svg.querySelectorAll("text")].map((text) => {
+            const at = text.getBoundingClientRect();
+            return {
+              text: text.textContent,
+              size: parseFloat(getComputedStyle(text).fontSize) * scale,
+              inside: at.left >= box.left - 0.5 && at.right <= box.right + 0.5,
+            };
+          }),
+          keys: [...card.querySelectorAll("figcaption [aria-hidden]")].map(
+            (key) => getComputedStyle(key).backgroundColor
+          ),
+          lines: [...svg.querySelectorAll("polyline")].map((line) => getComputedStyle(line).stroke),
+        };
+      });
+    await expect.poll(async () => (await read()).scale).toBeCloseTo(1, 2);
+    const drawn = await read();
+
+    expect(drawn.height).toBeGreaterThanOrEqual(200);
+    expect(drawn.texts.length).toBeGreaterThan(4);
+    expect(drawn.texts.filter((text) => text.size < 12)).toEqual([]);
+    expect(drawn.texts.filter((text) => !text.inside)).toEqual([]);
+    // The demo's five lines, each key a colour, no two alike, and each line its key's colour.
+    expect(drawn.keys).toHaveLength(5);
+    expect(drawn.keys).not.toContain("rgba(0, 0, 0, 0)");
+    expect(new Set(drawn.keys).size).toBe(5);
+    expect(drawn.lines).toEqual(drawn.keys);
+
+    // A finger reads every line at the point it touches, and the readout stays on the screen.
+    await chart
+      .locator("svg")
+      .first()
+      .tap({ position: { x: 200, y: 100 } });
+    const readout = chart.getByTestId("chart-readout");
+    await expect(readout).toBeVisible();
+    await expect(readout.locator("> div")).toHaveCount(6);
+    const box = (await readout.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(360);
+  }
 });
 
 /*
@@ -184,6 +321,37 @@ test.describe("the header on a phone", () => {
     await page.getByRole("heading", { level: 1, name: "Team Rankings" }).waitFor();
     const rankings = await header(page);
     expect(rankings.mainBelowTitle).toBeLessThanOrEqual(120);
+  });
+
+  /*
+   * The season at a glance, over the Dashboard. Its three figures were cards two to a row: 176px
+   * of the first screen, each name on two lines, and the third card on a row by itself beside an
+   * empty half. They are three lines of one card, 100px, and the Dashboard starts 76px higher.
+   */
+  test("sets the Dashboard's season figures on three lines of one card", async ({ page }) => {
+    await dashboard(page);
+    const strip = page.getByLabel("League pulse summary");
+    const lines = await strip.evaluate((card) =>
+      [...card.children].map((line) => {
+        const box = line.getBoundingClientRect();
+        const [name, figure] = [...line.children]
+          .filter((part) => getComputedStyle(part).display !== "none")
+          .map((part) => part.getBoundingClientRect());
+        return {
+          width: box.width,
+          height: box.height,
+          // The name and its figure share a line: the figure starts right of where the name ends.
+          abreast: figure!.left >= name!.right && figure!.top < name!.bottom,
+        };
+      })
+    );
+    const card = (await strip.boundingBox())!;
+    expect(lines).toHaveLength(3);
+    // Each the card's own width, less its border, so none sits beside an empty half.
+    lines.forEach((line) => expect(line.width).toBeGreaterThanOrEqual(card.width - 2));
+    expect(lines.filter((line) => !line.abreast)).toEqual([]);
+    expect(card.height).toBeLessThanOrEqual(110);
+    expect((await header(page)).mainBelowTitle).toBeLessThanOrEqual(285);
   });
 });
 
