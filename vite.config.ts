@@ -80,7 +80,7 @@ export default defineConfig({
        * whoever is standing at the field with a phone.
        */
       registerType: "prompt",
-      includeAssets: ["icon.svg", "icon-maskable.svg"],
+      includeAssets: ["icon.svg", "icon-maskable.svg", "apple-touch-icon.png"],
       manifest: {
         name: "League Forecast",
         short_name: "Forecast",
@@ -91,6 +91,9 @@ export default defineConfig({
         display: "standalone",
         start_url: "/",
         scope: "/",
+        // The SVGs for a browser that draws them at any size, and the same two drawn as PNGs
+        // (`scripts/renderIcons.mjs`) for a launcher that takes only those. iOS reads its icon
+        // from `index.html`, and only as a PNG.
         icons: [
           {
             src: "icon.svg",
@@ -98,10 +101,18 @@ export default defineConfig({
             type: "image/svg+xml",
             purpose: "any",
           },
+          { src: "icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
           {
             src: "icon-maskable.svg",
             sizes: "any",
             type: "image/svg+xml",
+            purpose: "maskable",
+          },
+          {
+            src: "icon-maskable-512.png",
+            sizes: "512x512",
+            type: "image/png",
             purpose: "maskable",
           },
         ],
