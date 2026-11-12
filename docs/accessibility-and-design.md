@@ -105,9 +105,39 @@ footnote or a failed panel reads the same on every League view.
   can't be edited) all go through it.
 - **No text under 12px.** The app set 10px and 11px type in 89 places: table headings,
   the names of figures, the run labels on a game card, a team's record. It is all 12px
-  now, but for the phone's tab bar, whose labels are sized with the screen, and a line
-  chart's labels inside its SVG. Section headings that were small capitals, such as
-  Data Quality's "Worth reviewing", are now section titles.
+  now, but for the phone's tab bar, whose labels are sized with the screen. Section
+  headings that were small capitals, such as Data Quality's "Worth reviewing", are now
+  section titles.
+- **The Forecast's line charts** (`LineChart`, since 12 November 2026): Gold Odds Over
+  Recent Games and The Race, Game Day by Game Day.
+  - Drawn at the size of the card, one unit of the SVG to a pixel. Each was drawn to a
+    fixed 640 units and stretched to fit, so on a 360px phone its axis was 4.5px type
+    and its 240px plot 108px tall, and on a wide desktop the same labels were 19px. The
+    labels are 12px on every screen and the plot is 220 to 340px tall.
+  - A colour for every line. With no team followed, two of the race's five teams were
+    the same blue, the fifth colour being the first again; and a fifth line's key had
+    no colour beside it at all, its class (`bg-slate-500`) being built by swapping a
+    word in another and so never written to the stylesheet. The colours are eight of
+    the chart's own (`--chart-1` to `--chart-8` in `index.css`, a light step and a dark
+    one), handed out in the order of the teams' ids so a team keeps its colour while
+    the same teams are drawn. They were measured rather than picked by eye: next to its
+    neighbours each is told apart under simulated red-green colour blindness (9.1 on
+    white and 8.4 on slate-900 at the nearest, in OKLab, against a floor of 8). None is
+    a red, amber or green that means out, chasing or safe elsewhere on the page, and
+    the followed team is told by a heavier line, where it was the green one.
+  - Three of the light steps are under 3:1 against white (2.2 to 2.8:1), so colour is
+    never the only way to a figure: the key prints each line's latest value (the Gold %
+    as its column words it), a readout lists every line at the point under a pointer or
+    a finger, and "Show the numbers" opens all of them as a table.
+  - The race's axis names whole places. Spaced evenly from first to last, an eight-team
+    league's lines were drawn at 1, 2.75, 4.5, 6.25 and 8 and labelled 1, 3, 5, 6 and 8,
+    with "5" printed on the Gold line that falls between fourth and fifth. Its dates are
+    written as the rest of League writes them ("4/5", where the axis printed the stored
+    "2026-04-05"), as many as fit, and the last is set from the chart's right edge,
+    where it ran out past it ("2026-05-").
+  - `LineChart.test.tsx` holds the colours, the key, the table, the readout and the
+    axis; `e2e/phone.spec.ts` measures both charts as a 360px phone draws them. Run on
+    the charts as they were, it fails at a scale of 0.447, which is the 4.5px type.
 - **4.5:1 contrast for text, 3:1 for large text.** What fell short, and what it is now:
   - Grey on the page: slate-500 measured 4.35:1 on the page's slate-100, under the
     line on the "Updated through" leads and on inactive tabs. The text roles and tabs

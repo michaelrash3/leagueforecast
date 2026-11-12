@@ -89,6 +89,71 @@ test("on a phone every bracket score box sits on screen and the title odds read 
 });
 
 /*
+ * The Forecast's two line charts on a phone. Each was drawn to a fixed 640 units and stretched to
+ * its card, so at 360px its axis was set in 4.5px type and its plot was 108px tall; the race's last
+ * date ran out past its edge; a fifth line's key had no colour, its class being one the stylesheet
+ * never held; with no team followed two of the race's five lines were the same blue; and a line's
+ * figures were under a mouse only. A chart is drawn one unit to a pixel now, at its card's width.
+ */
+test("on a phone the Forecast's charts keep their type, their height and a colour for every line", async ({
+  page,
+}) => {
+  await forecast(page);
+  for (const [section, name] of [
+    ["Gold odds trend", "Outlook"],
+    ["Season race", "Season"],
+  ] as const) {
+    await page.getByRole("button", { name, exact: true }).click();
+    const chart = page.locator(`section[aria-label="${section}"]`);
+    await chart.locator("svg polyline").first().waitFor();
+    const read = () =>
+      chart.evaluate((card) => {
+        const svg = card.querySelector("svg")!;
+        const box = svg.getBoundingClientRect();
+        // How large one of the chart's units is drawn: 1 once it has measured its card.
+        const scale = box.width / svg.viewBox.baseVal.width;
+        return {
+          scale,
+          height: box.height,
+          texts: [...svg.querySelectorAll("text")].map((text) => {
+            const at = text.getBoundingClientRect();
+            return {
+              text: text.textContent,
+              size: parseFloat(getComputedStyle(text).fontSize) * scale,
+              inside: at.left >= box.left - 0.5 && at.right <= box.right + 0.5,
+            };
+          }),
+          keys: [...card.querySelectorAll("figcaption [aria-hidden]")].map(
+            (key) => getComputedStyle(key).backgroundColor
+          ),
+          lines: [...svg.querySelectorAll("polyline")].map((line) => getComputedStyle(line).stroke),
+        };
+      });
+    await expect.poll(async () => (await read()).scale).toBeCloseTo(1, 2);
+    const drawn = await read();
+
+    expect(drawn.height).toBeGreaterThanOrEqual(200);
+    expect(drawn.texts.length).toBeGreaterThan(4);
+    expect(drawn.texts.filter((text) => text.size < 12)).toEqual([]);
+    expect(drawn.texts.filter((text) => !text.inside)).toEqual([]);
+    // The demo's five lines, each key a colour, no two alike, and each line its key's colour.
+    expect(drawn.keys).toHaveLength(5);
+    expect(drawn.keys).not.toContain("rgba(0, 0, 0, 0)");
+    expect(new Set(drawn.keys).size).toBe(5);
+    expect(drawn.lines).toEqual(drawn.keys);
+
+    // A finger reads every line at the point it touches, and the readout stays on the screen.
+    await chart.locator("svg").first().tap({ position: { x: 200, y: 100 } });
+    const readout = chart.getByTestId("chart-readout");
+    await expect(readout).toBeVisible();
+    await expect(readout.locator("> div")).toHaveCount(6);
+    const box = (await readout.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(360);
+  }
+});
+
+/*
  * A league site's schedule read into an empty season, looked over on a phone. Its review was a
  * six-column table inside the New Season Builder's card, and at 390px each game's Swap, the only
  * way to put right a row whose home side was guessed, sat at x 328 to 386 against a scroller that

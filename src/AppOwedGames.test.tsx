@@ -338,7 +338,9 @@ describe("a league that owes games the schedule does not show yet, as the page s
     const aces = await settled("the Aces' projection", () =>
       [...document.querySelectorAll("main tr")]
         .map((line) => (line.textContent ?? "").replace(/\s+/g, " ").trim())
-        .filter((line) => line.startsWith("Aces"))
+        // The projected table's row, which goes on to a seed; the Gold odds chart's table of its
+        // figures, above it, has a heading row that starts with the Aces too.
+        .filter((line) => line.startsWith("Aces#"))
         .join("")
     );
     // Their three games, the season's all, and no place to lose.
