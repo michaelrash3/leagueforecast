@@ -13,7 +13,11 @@ _Part of the design documents; the map is in the repository's [README](../README
   and 15 of the National Top 25 were cut, and clubs of one organisation were cut to
   the same label. Names wrap onto a second line instead, on every League tab, the
   bracket and Team Rankings' top lists. League Stats keeps its ellipsis from `xl`,
-  where its six-column grid would otherwise split names mid-word.
+  where its six-column grid would otherwise split names mid-word, and only for a
+  league that keeps box scores: one that keeps final scores has two lists, R/G and
+  RA/G, which in six columns sat in a third of the card with every name cut
+  ("Lakesi…") beside four empty columns. Those two share the card's width, names
+  whole (`StatRankingsPanel.test.tsx`).
 - Below `sm` the Scouting report is cards, one per fixture and one per opponent,
   rendered in place of the tables (`useWideViewport`) rather than beside them: a
   six-column table in a card's width left the win chance and outlook past the edge

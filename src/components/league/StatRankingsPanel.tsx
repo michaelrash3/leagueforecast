@@ -37,6 +37,8 @@ export function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
     return worseIndex === -1 ? fallbackIndex : worseIndex;
   };
 
+  const wide = rankings.metrics.length > 2;
+
   return (
     <section className="bg-white p-5 dark:bg-slate-900">
       <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
@@ -53,7 +55,13 @@ export function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
+      {/* Six lists across a wide screen for a league that keeps box scores. One that keeps final
+          scores only has two, R/G and RA/G, and in six columns they took a third of the card and
+          cut every name to "Lakesi…" beside four empty columns; they share its width instead. */}
+      <div
+        className={`grid grid-cols-1 gap-3 md:grid-cols-2 ${wide ? "xl:grid-cols-6" : ""}`}
+        data-testid="stat-rankings"
+      >
         {rankings.metrics.map((metric) => (
           <div
             key={metric.key}
@@ -74,7 +82,9 @@ export function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
                         {entry.rank}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className="text-sm font-bold wrap-break-word xl:truncate text-slate-950 dark:text-slate-100">
+                        <div
+                          className={`text-sm font-bold wrap-break-word text-slate-950 dark:text-slate-100 ${wide ? "xl:truncate" : ""}`}
+                        >
                           {displayName(entry.teamName)}
                         </div>
                         <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
