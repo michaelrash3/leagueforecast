@@ -393,6 +393,8 @@ export function DashboardView({
           engine.predictions.length
       )
     : 0;
+  const shown = upcoming.slice(0, 3).filter((p) => forecasts.has(p.gameId));
+  const ratingsBeside = shown.length >= 2;
   return (
     <div className="space-y-6">
       {/* The big card first, and the list of what other devices changed while it is not up. Put
@@ -446,8 +448,16 @@ export function DashboardView({
           </div>
         ))}
       </section>
-      {/* `items-start`: the side card ends where its content does, rather than being stretched into an
-          empty white panel the height of the predictions beside it. */}
+      {/* `items-start`: the side column ends where its content does, rather than being stretched into
+          an empty white panel the height of the predictions beside it.
+
+          On a wide screen the side column held Data Quality alone: at 1280px a card 192px tall
+          beside three predictions 1,317px tall, with the Power Ratings under both, the page's
+          width across. With two or more predictions to stand beside, the ratings go under Data
+          Quality in that column (`beside`), which they about fill for a league of eight (1,078px of
+          the 1,317), and the page is 502px shorter. With fewer predictions, a season that is over
+          among them, the ratings keep the full width below: beside one short card they would
+          leave the same gap on the other side. */}
       <section className="grid gap-6 lg:grid-cols-[1.25fr_.75fr] lg:items-start">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -456,7 +466,7 @@ export function DashboardView({
               Open Schedule
             </button>
           </div>
-          {upcoming.slice(0, 3).map((p) => {
+          {shown.map((p) => {
             const forecast = forecasts.get(p.gameId);
             if (!forecast) return null;
             return narrow && openPrediction !== p.gameId ? (
@@ -520,13 +530,16 @@ export function DashboardView({
               />
             ))}
         </div>
-        <DataQualityPanel
-          engine={engine}
-          findings={findings}
-          onOpen={() => setActiveView("quality")}
-        />
+        <div className="space-y-6">
+          <DataQualityPanel
+            engine={engine}
+            findings={findings}
+            onOpen={() => setActiveView("quality")}
+          />
+          {ratingsBeside && <PowerRatingsView engine={engine} compact beside />}
+        </div>
       </section>
-      <PowerRatingsView engine={engine} compact />
+      {!ratingsBeside && <PowerRatingsView engine={engine} compact />}
     </div>
   );
 }

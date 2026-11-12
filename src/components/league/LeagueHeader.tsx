@@ -7,6 +7,7 @@ import { CloudButton } from "../CloudButton";
 import { HeaderStatCard } from "../HeaderStatCard";
 import type { CloudStatus } from "../../lib/cloud/cloudSession";
 import type { Seasons } from "../../hooks/useSeasons";
+import { useNarrowViewport } from "../../hooks/useWideViewport";
 
 /** What `LeagueHeader` reads of App, each by the name App gives it. */
 export type LeagueHeaderProps = {
@@ -60,6 +61,7 @@ export function LeagueHeader({
   totalGamesCount,
   updateApp,
 }: LeagueHeaderProps) {
+  const narrow = useNarrowViewport();
   return (
     <>
       <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
@@ -183,26 +185,34 @@ export function LeagueHeader({
            */}
           {appMode === "league" && activeView === "dashboard" && (
             <div
-              className={`grid grid-cols-2 gap-3 pb-4 sm:grid-cols-3 ${
-                teams.length === 0 ? "hidden" : ""
-              }`}
+              // Three cards in a row, or on a phone one card of three lines (`HeaderStatCard`). The
+              // phone's shape is drawn for a phone rather than styled out of the row's, which took
+              // a dozen classes used nowhere else, 210 bytes of the stylesheet as it is sent.
+              className={`${
+                narrow
+                  ? "mb-4 divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-950"
+                  : "grid grid-cols-2 gap-3 pb-4 sm:grid-cols-3"
+              } ${teams.length === 0 ? "hidden" : ""}`}
               aria-label="League pulse summary"
             >
               <HeaderStatCard
                 label="Games analyzed"
                 value={`${finalCount}/${totalGamesCount}`}
                 accent="from-emerald-400 via-cyan-400 to-blue-500"
+                line={narrow}
               />
               <HeaderStatCard
                 label="Current leader"
                 value={currentLeader ? currentLeader.name : "—"}
                 accent="from-blue-500 via-indigo-500 to-slate-900"
+                line={narrow}
               />
               {hasPostseason && (
                 <HeaderStatCard
                   label={hasCutLine ? "Gold cutoff" : "Postseason"}
                   value={hasCutLine ? `Top ${goldCutoff}` : "All teams"}
                   accent="from-amber-400 via-orange-500 to-red-500"
+                  line={narrow}
                 />
               )}
             </div>

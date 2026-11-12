@@ -43,8 +43,73 @@ const forecast = async (page: Page) => {
   return brackets;
 };
 
+/** The demo season's Dashboard. */
+const dashboard = async (page: Page) => {
+  await page.goto("/");
+  await openView(page, "Settings");
+  await page.getByRole("button", { name: "Load Demo" }).click();
+  const confirm = page.getByRole("button", { name: "Load demo" });
+  if (await confirm.isVisible({ timeout: 1500 }).catch(() => false)) await confirm.click();
+  await tab(page, "Dashboard").click();
+  await page.getByRole("heading", { name: "Upcoming Game Predictions" }).waitFor();
+};
+
 test.describe("on a desktop", () => {
   test.use({ viewport: { width: 1280, height: 900 } });
+
+  /*
+   * The Dashboard's side column. At 1280px it held Data Quality alone, a card 192px tall beside
+   * three predictions 1,317px tall, and the power ratings ran the page's width under both. The
+   * ratings stand under Data Quality now, in the stacked rows a phone is given, which fit the
+   * column where seven columns do not; a tablet, with one column, keeps them below as a table.
+   */
+  test("the Dashboard sets its power ratings beside the predictions, and a tablet below them", async ({
+    page,
+  }) => {
+    await dashboard(page);
+    const read = () =>
+      page.evaluate(() => {
+        const box = (element: Element | null | undefined) => element!.getBoundingClientRect();
+        const heading = [...document.querySelectorAll("h2")].find(
+          (title) => title.textContent === "Upcoming Game Predictions"
+        );
+        const ratings = document.querySelector('section[aria-label="Power Ratings"]')!;
+        const shown = (element: Element | null) =>
+          element !== null && getComputedStyle(element).display !== "none";
+        return {
+          predictions: box(heading?.parentElement?.parentElement).toJSON() as DOMRect,
+          quality: box(document.querySelector("main aside")).toJSON() as DOMRect,
+          ratings: box(ratings).toJSON() as DOMRect,
+          rows: shown(ratings.querySelector("ul")),
+          table: shown(ratings.querySelector("table")),
+          // Nothing in the stacked rows runs out past the card.
+          inside: [...ratings.querySelectorAll("li")].every(
+            (row) => row.scrollWidth <= row.clientWidth
+          ),
+        };
+      });
+
+    const wide = await read();
+    // Right of the predictions, under Data Quality and its width, starting 24px below it.
+    expect(wide.ratings.left).toBeGreaterThan(wide.predictions.right);
+    expect(wide.ratings.left).toBe(wide.quality.left);
+    expect(wide.ratings.width).toBe(wide.quality.width);
+    expect(wide.ratings.top - wide.quality.bottom).toBe(24);
+    expect(wide.rows).toBe(true);
+    expect(wide.table).toBe(false);
+    expect(wide.inside).toBe(true);
+    // The column is most of the predictions' height now, and still ends before they do.
+    const filled = (wide.ratings.bottom - wide.quality.top) / wide.predictions.height;
+    expect(filled).toBeGreaterThan(0.6);
+    expect(filled).toBeLessThanOrEqual(1);
+
+    await page.setViewportSize({ width: 768, height: 1024 });
+    const tablet = await read();
+    expect(tablet.ratings.top).toBeGreaterThan(tablet.quality.bottom);
+    expect(tablet.ratings.width).toBe(tablet.predictions.width);
+    expect(tablet.rows).toBe(false);
+    expect(tablet.table).toBe(true);
+  });
 
   test("the bracket's rounds still run left to right", async ({ page }) => {
     const brackets = await forecast(page);
@@ -256,6 +321,37 @@ test.describe("the header on a phone", () => {
     await page.getByRole("heading", { level: 1, name: "Team Rankings" }).waitFor();
     const rankings = await header(page);
     expect(rankings.mainBelowTitle).toBeLessThanOrEqual(120);
+  });
+
+  /*
+   * The season at a glance, over the Dashboard. Its three figures were cards two to a row: 176px
+   * of the first screen, each name on two lines, and the third card on a row by itself beside an
+   * empty half. They are three lines of one card, 100px, and the Dashboard starts 76px higher.
+   */
+  test("sets the Dashboard's season figures on three lines of one card", async ({ page }) => {
+    await dashboard(page);
+    const strip = page.getByLabel("League pulse summary");
+    const lines = await strip.evaluate((card) =>
+      [...card.children].map((line) => {
+        const box = line.getBoundingClientRect();
+        const [name, figure] = [...line.children]
+          .filter((part) => getComputedStyle(part).display !== "none")
+          .map((part) => part.getBoundingClientRect());
+        return {
+          width: box.width,
+          height: box.height,
+          // The name and its figure share a line: the figure starts right of where the name ends.
+          abreast: figure!.left >= name!.right && figure!.top < name!.bottom,
+        };
+      })
+    );
+    const card = (await strip.boundingBox())!;
+    expect(lines).toHaveLength(3);
+    // Each the card's own width, less its border, so none sits beside an empty half.
+    lines.forEach((line) => expect(line.width).toBeGreaterThanOrEqual(card.width - 2));
+    expect(lines.filter((line) => !line.abreast)).toEqual([]);
+    expect(card.height).toBeLessThanOrEqual(110);
+    expect((await header(page)).mainBelowTitle).toBeLessThanOrEqual(285);
   });
 });
 

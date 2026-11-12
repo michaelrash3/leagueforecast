@@ -42,9 +42,16 @@ const COMPACT_ROWS = 10;
 export function PowerRatingsView({
   engine,
   compact = false,
+  beside = false,
 }: {
   engine: ReturnType<typeof buildPredictionEngine>;
   compact?: boolean;
+  /**
+   * On a wide screen the Dashboard sets its ratings in the column beside the predictions, about
+   * 350 to 430px across: room for the stacked rows a phone is given and not for seven columns. So
+   * from `lg` the rows are stacked there too, and the table is kept for the widths between.
+   */
+  beside?: boolean;
 }) {
   const help = (
     <HelpTip title="How the rating works">
@@ -69,7 +76,7 @@ export function PowerRatingsView({
        * to the table has to be added here too — which is the point, since a column nobody can
        * see on a phone is a column nobody has decided about.
        */}
-      <ul className="space-y-2 sm:hidden">
+      <ul className={`space-y-2 sm:hidden ${beside ? "lg:block" : ""}`}>
         {engine.powerRatings.slice(0, compact ? COMPACT_ROWS : undefined).map((r) => (
           <li
             key={r.teamId}
@@ -104,7 +111,9 @@ export function PowerRatingsView({
           </li>
         ))}
       </ul>
-      <table className="hidden min-w-full text-sm tabular-nums sm:table">
+      <table
+        className={`hidden min-w-full text-sm tabular-nums sm:table ${beside ? "lg:hidden" : ""}`}
+      >
         <thead>
           <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             <th className="py-2">Rank</th>
@@ -150,7 +159,7 @@ export function PowerRatingsView({
   // On the Dashboard, a section of that page; on its own tab, the page (2.5).
   if (compact) {
     return (
-      <section className={`${card} p-5`}>
+      <section className={`${card} p-5`} aria-label="Power Ratings">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className={textRole.sectionTitle}>
             Power Ratings

@@ -177,6 +177,25 @@ footnote or a failed panel reads the same on every League view.
     and 5.37:1 at the strongest and more as it fades, as the seed odds grid does it; the
     audit's seeded pool gives the tidy nothing to find, so `tokens.test.ts` measures it at
     every strength.
+- **The Dashboard's first screen and its side column** (since 12 November 2026).
+  - On a phone the season at a glance (games final, the leader, the Gold cut line) is
+    three lines of one card, each figure beside its name, 100px in all. As cards two to
+    a row the three took 176px of a 360px screen, each name on two lines, and left the
+    third on a row by itself beside an empty half; the Dashboard starts 76px higher.
+    From `sm` they are the three cards in a row they were (`HeaderStatCard`).
+  - On a wide screen the side column held Data Quality alone: at 1280px a card 192px
+    tall beside three predictions 1,317px tall, with the power ratings the page's width
+    under both. With two or more predictions beside them the ratings stand under Data
+    Quality, in the stacked rows a phone is given, which fit a column of 350 to 450px
+    where seven columns do not; the column is then 1,078px of the 1,317 and the page
+    502px shorter. Beside fewer predictions, a finished season among them, the ratings
+    keep the page's width, since a column of them beside one short card leaves the same
+    gap on the other side. A tablet, with one column, keeps the table.
+  - `DashboardBeside.test.tsx` holds which layout a season gets, and `e2e/phone.spec.ts`
+    measures both in the built app: the ratings right of the predictions and under Data
+    Quality at 1280px and below them as a table at 768px, and on a phone three lines the
+    card's width with each figure beside its name. Run on the page as it was, the first
+    fails on the ratings below the predictions and the second on a card 158px wide.
 - **A thumb's tap area on a phone** (`tapArea`): Team Rankings' buttons and links are 44 px
   each way below `sm`, where its main ones were text links 16 to 26 px tall (Scout 34 by 16,
   What if? 48 by 16, the club sheet's Close 33 by 16, Got it 49 by 26, "Open on 10U by
