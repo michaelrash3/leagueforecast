@@ -79,6 +79,12 @@ type RankingsSectionProps = {
   onRemoveTeam: (teamId: string) => void;
   /** The team marked as yours on this page, where it stands and what it plays next. */
   myTeam?: MyTeamGlance | null;
+  /**
+   * The club marked as yours while the board has no row for it, having no result on the page yet
+   * (`myTeamGlance` gives such a club nothing). It can be marked from its panel now, and with no
+   * card the page said nothing of it afterwards: no star, no name, as if the mark had not taken.
+   */
+  myTeamWaiting?: { teamId: string; name: string };
   /** The board's week (`weekMovers`), drawn under the page's own club. */
   thisWeek?: WeekMovers | null;
   /** The page's week from its games (`theWeekly`), drawn in the same card. */
@@ -170,6 +176,7 @@ export function RankingsSection({
   onMarkMine,
   onRemoveTeam,
   myTeam,
+  myTeamWaiting,
   thisWeek,
   weekly = null,
   myWeek = null,
@@ -283,6 +290,24 @@ export function RankingsSection({
       ) : (
         <>
           {watch && <WatchCard {...watch} onOpenTeam={onOpenTeam} />}
+          {!myTeam && myTeamWaiting && (
+            <section aria-label="My team" className={`${card} p-4`}>
+              <button
+                type="button"
+                onClick={() => onOpenTeam(myTeamWaiting.teamId)}
+                className={`${tapArea} text-left text-lg font-black text-slate-950 hover:underline dark:text-white`}
+              >
+                <span aria-hidden="true" className="mr-1 text-amber-700 dark:text-amber-400">
+                  ★
+                </span>
+                {myTeamWaiting.name}
+              </button>
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                Your team on this page. It has no result here yet; its place, its record and its
+                next game show here once it has one.
+              </p>
+            </section>
+          )}
           {myTeam && (
             <MyTeamCard
               glance={myTeam}

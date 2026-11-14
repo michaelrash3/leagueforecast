@@ -975,6 +975,13 @@ export function TeamRankingsView({
     today,
     upcomingRows,
   });
+  // The club marked as the page's own while it has no row on the board, for the short card that
+  // says so (`RankingsSection`).
+  const myTeamWaiting = useMemo(() => {
+    if (myTeamId === undefined || myTeam) return undefined;
+    const club = allKnown.teams.find((team) => team.id === myTeamId);
+    return club ? { teamId: club.id, name: club.name } : undefined;
+  }, [myTeamId, myTeam, allKnown.teams]);
 
   useLeagueClubRanks({
     ageGroups,
@@ -1340,6 +1347,7 @@ export function TeamRankingsView({
               onOpenTeam={openClub}
               onMarkMine={setMyTeam}
               myTeam={myTeam}
+              {...(myTeamWaiting ? { myTeamWaiting } : {})}
               thisWeek={thisWeek}
               weekly={weekly}
               myWeek={myWeek}
@@ -1625,6 +1633,10 @@ export function TeamRankingsView({
                 onClose={closeClub}
                 ratingRowOf={rankingRowOf}
                 {...(openTeamStanding ? { standing: openTeamStanding } : {})}
+                mine={{
+                  on: myTeamId === openTeam.id,
+                  onToggle: () => setMyTeam(openTeam.id),
+                }}
                 watch={{
                   on: watchList.watched.some((club) => club.id === openTeam.id),
                   full: watchList.full,

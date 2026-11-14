@@ -90,6 +90,16 @@ game with the chance to win it (`myTeamGlance`). "Where are we ranked?" is asked
 every field, and without the card the only answer was Show all and a hundred rows
 at a time. The card reads only what the page already has, so it costs nothing.
 
+A club is marked as yours, or the mark taken off, in two places that read the same ("☆ Mark
+mine", "★ My team"): on its row of the full table, and on its own panel, beside Watch. The row was
+the only place until 14 November 2026, and a row is a club with a game on the page, so a club with
+none yet (a league's team before its first score, a GameChanger club whose schedule is still to
+come) could be found by Find a team and opened, and not marked. Marked before it has a result, it
+has a short card where its My Team card will be, naming it and saying its place, record and next
+game show once it has one; until that card existed the page said nothing of a mark just made.
+Neither button is offered where the board takes no edits
+(`MarkMineFromPanel.test.tsx`, and `LiveTeamRankings.test.tsx` for the live board).
+
 **Movement since last week.** The national board and the card mark how far each
 club has moved since the board of a week ago: ▲3, ▼5, or "new" for a club that was
 not ranked then. A board's row keeps the bare mark, its words said only to a screen
