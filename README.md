@@ -77,6 +77,13 @@ carry (`glob`, `minimatch`, `rimraf`, `uuid` and what holds them). Clearing thos
 which nothing here can try against the real thing; they are left to the monthly batch
 (`.github/dependabot.yml`), which a deploy follows.
 
+One thing a dependency's pull request can break that none of its checks would otherwise see:
+Firebase's packages must be installed once each, and a lockfile can hold two of one. With two
+copies of `@firebase/app` the cloud copy fails on every signed-in device ("Service firestore/lite
+is not available"), while the unit tests, which stand in for Firebase, and the browser tests,
+which do not sign in, pass. `src/lib/cloud/__tests__/firebaseCopies.test.ts` reads the lockfile
+for it, says what happened the day it was written, and how to put a lockfile right.
+
 One warning stays: eslint 9 is past its support, and eslint 10 is the major two of its plugins do
 not yet take (`.github/dependabot.yml`).
 
