@@ -727,7 +727,7 @@ function LiveBoard({
    * (`page.myTeam`), with the club as its card has it, so one League Standings made joins the
    * roster under the mark, as the device's page adopts it.
    */
-  const markMine = (teamId: string) => {
+  const markMine = (teamId: string, knownName?: string) => {
     const source = live.source;
     if (!selectedAgeGroupId) return;
     const pageName = ageGroups.find((group) => group.id === selectedAgeGroupId)?.name ?? "";
@@ -737,7 +737,9 @@ function LiveBoard({
         unmark || !source
           ? null
           : ((await readClubCard(source, selectedYear, teamId))?.team ?? null);
-      const name = rows.find((row) => row.teamId === teamId)?.teamName ?? "That club";
+      // A club marked from its own panel may have no row on the board, having no game yet; the
+      // panel hands its name over.
+      const name = knownName ?? rows.find((row) => row.teamId === teamId)?.teamName ?? "That club";
       await edits.edit(
         {
           kind: "page.myTeam",
@@ -1126,6 +1128,9 @@ function LiveBoard({
             onRemoveTeam={() => undefined}
             readOnly={edits.locked !== null}
             myTeam={myTeam}
+            {...(myTeamId !== undefined && !myTeam && mineCard.card
+              ? { myTeamWaiting: { teamId: myTeamId, name: mineCard.card.team.name } }
+              : {})}
             thisWeek={thisWeek}
             weekly={board?.view.weekly ?? null}
             myWeek={myWeek}
@@ -1208,6 +1213,15 @@ function LiveBoard({
                       toggleWatch({ id: openClub, name, ...(gc.length ? { gc } : {}) });
                     },
                   }}
+                  // As the table's rows have it: no mark to set while the board's edits are off.
+                  {...(edits.locked === null
+                    ? {
+                        mine: {
+                          on: openClub === myTeamId,
+                          onToggle: (name: string) => markMine(openClub, name),
+                        },
+                      }
+                    : {})}
                   {...(panelBoard ? { board: panelBoard } : {})}
                 />
               </Suspense>

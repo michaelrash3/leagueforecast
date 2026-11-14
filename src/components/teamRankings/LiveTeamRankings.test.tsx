@@ -1654,6 +1654,31 @@ describe("a club's panel on the cloud's board", () => {
     expect(handedOver()).toBeNull();
   });
 
+  it("marks a club as the page's own from its panel, where a club with no row can be reached", async () => {
+    await withCard();
+    const server = editFunction((data) =>
+      data.warm ? WARMED : made(5, ["league_forecast_scout_age_groups_v1"])
+    );
+    open(sourcesOf(live, { call: server.call }));
+    await tapClub("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    const mark = await within(panel).findByRole("button", { name: "☆ Mark mine" });
+    expect(mark).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(mark);
+    // Said with the name the panel has, which a club without a row has nowhere else.
+    await waitFor(() => expect(said.toasts).toContain("Placeholder S-1 is your team on 12U 2027."));
+    expect(edited(server.sent)).toEqual([
+      {
+        command: { kind: "page.myTeam", ageGroupId: PAGE, teamId: "S-1", adopt: CARD.team },
+        copy: MANIFEST.copy,
+      },
+    ]);
+    expect(await within(panel).findByRole("button", { name: "★ My team" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+  });
+
   it("draws the page's own club as the cloud's pages have it, not this device's copy", async () => {
     // The cloud's pages mark S-1 (marked on another device); this device's copy still says S-2.
     await publish(live, undefined, {

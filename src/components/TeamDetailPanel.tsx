@@ -132,6 +132,18 @@ type TeamDetailPanelProps = {
    */
   watch?: { on: boolean; full: boolean; onToggle: (name: string, club: ScoutTeam) => void };
   /**
+   * Whether the club is the page's own, and the way to mark it so or take the mark off, handed the
+   * club's name for the line that says what was done.
+   *
+   * The Full Rankings table has this button on every row, and it was the only place that did. A
+   * row is a club with a game on the page, so a club with none yet (a league's team before its
+   * first score, a GameChanger club whose schedule is still to come) could be found by Find a team
+   * and opened here, and not be marked: the page then offered it no My Team card and no "Use my
+   * team" for its schedule, which is what the mark is for before a season starts. Left out where
+   * the page takes no edits.
+   */
+  mine?: { on: boolean; onToggle: (name: string) => void };
+  /**
    * Where the club stands on the board on screen, as its rows place it (`myTeamGlance`): on the
    * page's whole board and among its state's clubs there. Absent for a club the board does not
    * list, which the panel then gives no place.
@@ -219,6 +231,7 @@ export function TeamDetailPanel({
   gameNotes,
   ratingRowOf,
   watch,
+  mine,
   standing,
 }: TeamDetailPanelProps) {
   // The game whose What if is open.
@@ -567,6 +580,18 @@ export function TeamDetailPanel({
           )}
         </div>
         <span className="flex shrink-0 items-center gap-1">
+          {mine && (
+            <button
+              type="button"
+              onClick={() => mine.onToggle(team.name)}
+              aria-pressed={mine.on}
+              title="Mark as my team"
+              className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg px-3 text-sm font-bold text-blue-700 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/40 ${focusRing}`}
+            >
+              {/* The table's own words for it, so the two buttons read as the one thing they are. */}
+              {mine.on ? "★ My team" : "☆ Mark mine"}
+            </button>
+          )}
           {watch && (
             <button
               type="button"
