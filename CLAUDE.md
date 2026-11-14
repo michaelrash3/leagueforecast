@@ -54,5 +54,8 @@ Tests are two Vitest projects: `*.test.ts` run in Node, `*.test.tsx` in jsdom.
 ## On Claude Code on the web
 
 `.claude/hooks/session-start.sh` installs dependencies. A Chromium for Playwright is preinstalled
-at `$PLAYWRIGHT_BROWSERS_PATH`; never run `playwright install` here. `curl -I` against the deployed
-site returns 403 through the proxy, so response headers cannot be checked from the container.
+at `$PLAYWRIGHT_BROWSERS_PATH`; never run `playwright install` here. The deployed site is
+`https://leagueforecast.vercel.app`. Whether `curl` reaches it depends on the network the session's
+environment allows: on 12 November 2026 it answered 200 with its headers, where an earlier
+environment's proxy returned 403 and no header could be checked. A pull request's preview is behind
+Vercel's sign-in either way.

@@ -75,6 +75,12 @@
   "overrides": {
     "workbox-build": {
       "glob": "^14.0.6"
+    },
+    "@firebase/firestore": {
+      "@grpc/grpc-js": "^1.14.7"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.8"
     }
   }
 }
