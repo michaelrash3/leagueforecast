@@ -20,7 +20,7 @@
  * ordinary change fits and a real regression does not; raising one is a deliberate edit here whose
  * commit says why.
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
@@ -267,6 +267,15 @@ const SECTIONS = {
  * first download's own line, which has room, would not say so; this does, by name. Read off the
  * source maps, which list every module a file of the build holds, and each must be in some file of
  * the build, or a rename would make the check pass for good.
+ *
+ * One of them holds no code: `gameChangerImport.ts` only passes on what the modules beside it
+ * export, each of which is listed here itself. Vite 8.3.5 (Rolldown 1.2.15) named it in the source
+ * map of the file its neighbours went to all the same; 8.3.7 (Rolldown 1.2.18) names only the
+ * modules a file has code of, so no file of a build holds it, and the check failed every pull
+ * request that took that update with "was the module renamed or removed?". Such a module is asked
+ * a different question, which a rename or a removal fails as surely: that it is there, and still
+ * nothing but re-exports (`reExportsOnly`). Given code of its own, it is back to having to be in
+ * a file of the build.
  */
 const TEAM_RANKINGS_ONLY = [
   "src/lib/teamRankings.ts",
@@ -345,8 +354,29 @@ const sourcesOf = (file) => {
 const builtModules = new Set(
   Object.values(manifest).flatMap((entry) => (entry.file ? sourcesOf(entry.file) : []))
 );
+
+/** One statement that passes on another module's exports, or brings in only its types. */
+const RE_EXPORT =
+  /^(?:export\s+(?:type\s+)?(?:\*(?:\s+as\s+\w+)?|\{[^}]*\})\s+from|import\s+type\s+[^;]+?\s+from)\s+["'][^"']+["']$/;
+
+/**
+ * Whether a module, which must exist, holds nothing but re-exports: no code for a build to put in
+ * any file. Its comments are taken out first and what is left is read a statement at a time.
+ */
+const reExportsOnly = (module) => {
+  const path = resolve(ROOT, module);
+  if (!existsSync(path)) return false;
+  const statements = readFileSync(path, "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "")
+    .split(";")
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+  return statements.length > 0 && statements.every((statement) => RE_EXPORT.test(statement));
+};
+
 for (const module of TEAM_RANKINGS_ONLY) {
-  if (!builtModules.has(module))
+  if (!builtModules.has(module) && !reExportsOnly(module))
     throw new Error(`No file of the build holds ${module}: was the module renamed or removed?`);
 }
 const startModules = new Set([...first].flatMap(sourcesOf));

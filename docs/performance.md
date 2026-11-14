@@ -113,6 +113,10 @@ _Part of the design documents; the map is in the repository's [README](../README
     line has room to hide it. The list holds the two modules that left with them too
     (`ratingRecency.ts`, `teamNameRules.ts`), and the tidy (`gameChangerImport.ts`), which the
     first download never held and which on its own is about that room, 35.0 KB against 33.8.
+    One of the modules named, `gameChangerImport.ts`, only passes on what its neighbours export
+    and has no code of its own. A build under Vite 8.3.7 no longer names such a module in any
+    file's source map, so the check asks of it instead that it is there and still nothing but
+    re-exports; a module with code must be in some file of the build, as before.
 - **League Standings works out only what is on screen** (2.2). Every number it
   shows is read from the games marked final, so its calculations are keyed on
   those scores alone (`finalLogsOf`, held by `useSeasonState`), which stay the same
