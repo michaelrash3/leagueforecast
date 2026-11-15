@@ -81,6 +81,17 @@ const renderPanel = (onPersist: () => boolean, pool: GcImportState = emptyPool) 
   return { toasts };
 };
 
+/*
+ * The day these are set on, inside the season their pool is of (2027's, played from the autumn of
+ * 2026). By the clock they pass until that season is over and fail with it set to 1 September
+ * 2027, three of them, with nothing changed: what a page offers depends on the day it is asked.
+ */
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-14T12:00:00"));
+});
+afterEach(() => vi.useRealTimers());
+
 describe("a save the browser refuses", () => {
   beforeEach(() => {
     asked.length = 0;
