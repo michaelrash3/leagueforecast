@@ -27,6 +27,11 @@ const final = (awayRuns: string, homeRuns: string): GameLog => ({
 
 describe("a season with games either side of 1 January", () => {
   beforeEach(() => {
+    // A day inside the season, between its first game and its second. A team's next game is the
+    // first still to come by the day it is asked, so by the clock this passed until 12 December
+    // 2026 and would then have given 9 January, as the Dashboard rightly does from that day.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-20T12:00:00"));
     window.localStorage.clear();
     window.history.replaceState(null, "", "/");
     vi.stubGlobal(
@@ -54,6 +59,7 @@ describe("a season with games either side of 1 January", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("gives 12 December as the Aces' next game, not 9 January", async () => {

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { poolFixture } from "../../../../scripts/poolFixture";
 import { memoryIo } from "../../cloud/cloudRunner";
 import { finalScoresKey, leagueFixturesOf, scoutLinkCandidates } from "../../teamRankings";
@@ -15,7 +15,20 @@ import {
 import { asJson } from "../editHandle";
 import { answerQuery, LEAGUE_CANDIDATES_MAX, type AnswerOf } from "../queries";
 
-afterEach(() => resetTeamRankingsStore());
+/*
+ * The day the sizes below were measured on. The bridge counts a result once its day has come, by
+ * the clock, and the fixture's games are dated through the spring of 2027: asked later, more of
+ * them are results and the bridge is larger, 6,397 characters by 20 December 2026 against the
+ * 5,000 this holds it under, so the test would have failed by then with nothing changed.
+ */
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-14T12:00:00"));
+});
+afterEach(() => {
+  vi.useRealTimers();
+  resetTeamRankingsStore();
+});
 
 describe("the bridge answer on a page of a real one's size", () => {
   it("sends each team's best clubs and its pick, and keeps the bridge alone", async () => {

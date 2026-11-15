@@ -1786,7 +1786,11 @@ describe("levels this app does not rank", () => {
         games: [],
         fetchedAt: "2026-09-06T00:00:00.000Z",
       },
-      state
+      state,
+      // The day it was pulled, while its season is the one being played. By the clock, the same
+      // pull is turned away for another reason once Fall 2026 is over ("left for a later pull"),
+      // and this test, which is about the first reason, would have failed from then on.
+      { today: "2026-09-06" }
     );
     expect(outcome.issue).toContain("no age group");
     expect(next.ageGroups).toEqual([]);
