@@ -114,6 +114,17 @@ schedule. Data Quality's finding on the setting says what holds the numbers back
 then, and goes once the bracket begins; the setting itself, as Settings shows it and a
 backup or a shared link keeps it, is the league's and does not change.
 
+The bracket the Forecast and the Schedule draw sends the model's favourite on from every
+game still to play (`pickBracketWinner`): the team given the better chance, and the top
+slot where the two are level. Until 15 November 2026 it sent the underdog on in some
+close games on purpose, by a roll hashed from the game and its two teams, so a card read
+"Model pick" over a team it gave 48% and the demo season's Projected Champion was the
+team fourth in the title odds beneath it. Measured on the demo season cut at each of its
+19 counts of finals and seeded at every cutoff, Gold and Silver, 159 of 817 games still
+to play went to the underdog, in 123 of 266 brackets; the other 143 brackets are drawn
+as they were, game for game. The title odds never read the drawn bracket's picks and are
+unchanged: they play the bracket out, which is where an upset's chance is counted.
+
 ## Playoff machine
 
 "If we beat the Bears and the Comets lose, where are we?" The Forecast tab has a
