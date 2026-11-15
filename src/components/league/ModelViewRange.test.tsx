@@ -142,7 +142,8 @@ function Forecast({ walk, postseason = false }: { walk: boolean; postseason?: bo
   );
 }
 
-const SEED_SPAN = /#\d+–#\d+/;
+/** A seed, or two with a dash between: a team with one place left to finish in reads "#4". */
+const SEED_SPAN = /^#\d+(–#\d+)?$/;
 
 /** The Range cell of each row of the Projected Standings table, in order. */
 const rangeCells = () => {
@@ -167,6 +168,8 @@ describe("the Projected Standings' Range", () => {
     expect(cells.every((cell) => SEED_SPAN.test(cell ?? ""))).toBe(true);
     // The fixture's Bears can still move, so the walk is seen to have run.
     expect(cells.some((cell) => /^#(\d+)–#(?!\1$)\d+$/.test(cell ?? ""))).toBe(true);
+    // And no cell is a range from a seed to itself, as "#1–#1" was.
+    expect(cells.some((cell) => /^#(\d+)–#\1$/.test(cell ?? ""))).toBe(false);
   });
 
   it("says the walk is waiting, and shows no seed it has not worked out, before then", () => {
@@ -182,8 +185,8 @@ describe("the Projected Standings' Range", () => {
       )
     ).toBeNull();
     expect(rangeCells()).toEqual(modelRows.map(() => "—"));
-    // Nor on a phone's rows, which show the same range.
-    expect(document.body.textContent).not.toMatch(SEED_SPAN);
+    // Nor on a phone's rows, which show the same range: none anywhere on the page.
+    expect(document.body.textContent).not.toMatch(/#\d+–#\d+/);
   });
 });
 

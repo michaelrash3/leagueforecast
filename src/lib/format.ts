@@ -53,3 +53,23 @@ export const buildTeamFormats = (teams: Pick<Team, "id" | "name" | "w" | "l" | "
   });
   return map;
 };
+
+/**
+ * The seeds a team can still finish in, as every League view writes them: "#2–#4", or "#4" alone
+ * where the best and the worst are the same place. Written as a range either way, three teams of
+ * the demo's eight read "#1–#1", "#4–#4" and "#6–#6".
+ */
+export const seedRangeText = (range: { best: number; worst: number }): string =>
+  range.best === range.worst ? `#${range.best}` : `#${range.best}–#${range.worst}`;
+
+/**
+ * A game as the model sees it from one team's side: who it picks, and that team's own chance.
+ * It read "Model: Southtown Sluggers · 46% team win chance" on a card that is Metro Mashers',
+ * where the 46% is the Mashers' and the eye gave it to the team just named. The figure is given
+ * its team's name, but for the team the model picks, which the line has just named.
+ */
+export const pickAndChanceText = (modelPick: string, teamName: string, winPct: number): string => {
+  const chance = `${Math.round(winPct * 100)}% to win`;
+  // Picked itself, the team is named once.
+  return `Model pick: ${modelPick} · ${modelPick === teamName ? chance : `${teamName} ${chance}`}`;
+};

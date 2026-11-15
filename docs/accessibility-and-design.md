@@ -196,6 +196,31 @@ footnote or a failed panel reads the same on every League view.
     Quality at 1280px and below them as a table at 768px, and on a phone three lines the
     card's width with each figure beside its name. Run on the page as it was, the first
     fails on the ratings below the predictions and the second on a card 158px wide.
+- **A read through every League view** (15 November 2026), for what a reader meets on the page.
+  - **Cards that touched.** `EditLock` is a box laid out as if it were not there, so it can go
+    round one button in a row, and such a box takes no margin. Tailwind's `space-y` is a margin
+    on each child, so inside one nothing followed an `EditLock` at a distance: the Gold bracket's
+    card, the Silver's and the seed odds' touched, the Settings title sat against the card above
+    it, and the Schedule's card for adding a game ran into its filter. The three containers space
+    their children with a grid's gap, which reaches through such a box. `e2e/design.spec.ts` now
+    finds any box with no layout of its own that has something after it inside a `space-x` or
+    `space-y`, on every view at every size; put back, it fails naming the box.
+  - **Names cut with room to spare.** Title odds gave a club's name 112px and an ellipsis from
+    `sm` up, beside a bar a thousand pixels long at 1280px: six of the demo's eight read
+    "Lakeside Lege…". The name has 176px and wraps. The schedule-difficulty cards cut a team's
+    remaining opponents at two lines, so a third opponent was behind an ellipsis with nowhere to
+    read it; they list every one.
+  - **A range from a seed to itself.** A team with one place left to finish in read "#4–#4" in
+    the Projected Standings and on its panel; it reads "#4" (`seedRangeText`).
+  - **Whose chance.** A game on a team's own card read "Model: Southtown Sluggers · 46% team win
+    chance", where the 46% is the card's team's and the eye gives it to the team just named. It
+    reads "Model pick: Southtown Sluggers · Metro Mashers 46% to win", and the team the model
+    picks is named once (`pickAndChanceText`).
+  - **The Schedule's date.** A game's date field showed the date as stored, "2026-05-03" for one
+    a pull or an older build kept, under a heading and beside finals that read "5/3". It shows
+    the day as the rest of the page writes it, and a click into the field and out no longer
+    writes the day again. In the form that adds a game the field is the height and type of the
+    team pickers beside it, where it was a small label's.
 - **A thumb's tap area on a phone** (`tapArea`): Team Rankings' buttons and links are 44 px
   each way below `sm`, where its main ones were text links 16 to 26 px tall (Scout 34 by 16,
   What if? 48 by 16, the club sheet's Close 33 by 16, Got it 49 by 26, "Open on 10U by

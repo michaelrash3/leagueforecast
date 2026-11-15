@@ -81,25 +81,33 @@ function GameDateInput({
   value,
   onCommit,
   ariaLabel,
+  form = false,
 }: {
   value: string;
   onCommit: (value: string) => void;
   ariaLabel?: string;
+  /** In the form that adds a game, where it stands in a row with the two team pickers. */
+  form?: boolean;
 }) {
-  const [draft, setDraft] = useState(value || "");
+  // The day as the rest of the Schedule writes it. A date kept as "2026-05-03", as a pull or an
+  // older build keeps one, stood in this field as stored, under a heading and beside finals that
+  // all read "5/3".
+  const shown = normalizeDateInput(value) || value || "";
+  const [draft, setDraft] = useState(shown);
 
   // Follow the value from outside without an effect: React applies a set during render before
   // painting, so the field never shows the previous date for a frame.
   const [lastValue, setLastValue] = useState(value);
   if (lastValue !== value) {
     setLastValue(value);
-    setDraft(value || "");
+    setDraft(shown);
   }
 
   const commit = () => {
     const normalized = normalizeDateInput(draft);
-    onCommit(normalized);
     setDraft(normalized);
+    // Left as it was, the day is not written again: a click into the field and out is no edit.
+    if (normalized !== shown) onCommit(normalized);
   };
 
   return (
@@ -113,7 +121,11 @@ function GameDateInput({
       onKeyDown={(event) => {
         if (event.key === "Enter") event.currentTarget.blur();
       }}
-      className={`w-28 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-950 ${fieldFocusRing} dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100`}
+      // The form's field is the height and type of the pickers beside it; on a game's card it
+      // stays the small label it is.
+      className={`w-28 rounded-lg border border-slate-300 bg-white font-bold text-slate-950 ${
+        form ? "px-3 py-2" : "px-2 py-1 text-xs"
+      } ${fieldFocusRing} dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100`}
       aria-label={ariaLabel ?? "Game date in M/D format"}
     />
   );
@@ -577,7 +589,9 @@ export function GamesView({
   }, []);
 
   return (
-    <section className="space-y-6">
+    // A grid's gap, not `space-y`: the card that adds a game is inside an `EditLock`, a box laid
+    // out as if it were not there, which takes no margin, so `space-y` left no room under it.
+    <section className="grid grid-cols-1 gap-6">
       {teamList && !hasGames && (
         <TeamListPanel
           teams={teams}
@@ -633,6 +647,7 @@ export function GamesView({
                       value={newDate}
                       onCommit={(v) => setNewDate(v)}
                       ariaLabel="New game date (M/D)"
+                      form
                     />
                     <input id={dateId} type="hidden" value={newDate} readOnly aria-hidden="true" />
                   </div>

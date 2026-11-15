@@ -2174,7 +2174,10 @@ export default function App() {
                       onBringBack={bringFindingBack}
                     />
                   ) : activeView === "settings" ? (
-                    <div className="space-y-6">
+                    // A grid's gap, not `space-y`: the club picker is inside an `EditLock`, a box
+                    // laid out as if it were not there, which takes no margin, so under `space-y`
+                    // the Settings title sat against the card above it.
+                    <div className="grid grid-cols-1 gap-6">
                       <SeasonManager
                         seasons={seasons.all}
                         activeSeasonId={activeSeasonId}

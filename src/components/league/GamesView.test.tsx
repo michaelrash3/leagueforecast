@@ -231,17 +231,33 @@ describe("the date on a game", () => {
     const field = screen.getByLabelText("Date for Rays vs Jays");
     type Update = (prev: (typeof timed)[]) => (typeof timed)[];
 
+    // The same day typed again is no edit: nothing is written, so the start is as it was.
     await user.clear(field);
     await user.type(field, "05/01");
     await user.tab();
-    const same = spies.setMatchups.mock.calls[0]?.[0] as Update;
-    expect(same([timed])[0]).toEqual(timed);
+    expect(spies.setMatchups).not.toHaveBeenCalled();
+    expect(field).toHaveValue("5/1");
 
     await user.clear(field);
     await user.type(field, "5/8");
     await user.tab();
-    const moved = spies.setMatchups.mock.calls[1]?.[0] as Update;
+    const moved = spies.setMatchups.mock.calls[0]?.[0] as Update;
     expect(moved([timed])[0]).toEqual({ ...open, date: "5/8" });
+  });
+
+  it("shows a day kept in another form as the Schedule writes it, and does not rewrite it unasked", async () => {
+    // As a pull or an older build keeps a date; the heading over it and the finals read "5/3".
+    const user = userEvent.setup();
+    const kept = { ...open, date: "2026-05-03" };
+    const { spies } = renderGamesView({ teams, scoreboardGames: [kept] });
+    const field = screen.getByLabelText("Date for Rays vs Jays");
+    expect(field).toHaveValue("5/3");
+
+    // A click into the field and out is no edit.
+    await user.click(field);
+    await user.tab();
+    expect(spies.setMatchups).not.toHaveBeenCalled();
+    expect(field).toHaveValue("5/3");
   });
 });
 

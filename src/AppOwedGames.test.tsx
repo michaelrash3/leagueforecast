@@ -344,7 +344,8 @@ describe("a league that owes games the schedule does not show yet, as the page s
         .join("")
     );
     // Their three games, the season's all, and no place to lose.
-    expect(aces).toMatch(/^Aces#1#10#1–#13-0100%/);
+    // Their one place left is written once, where it read "#1–#1".
+    expect(aces).toMatch(/^Aces#1#10#13-0100%/);
   }, 60_000);
 
   it("still says outside results decide for a team with nothing left to play at all", async () => {

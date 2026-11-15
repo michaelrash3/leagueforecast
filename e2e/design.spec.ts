@@ -155,6 +155,20 @@ const audit = (page: Page) =>
     }
     // Against the layout viewport: a phone zooms out to fit a page that is too wide, and then the
     // window's own width grows with it and hides the overflow.
+    // A box laid out as if it were not there (`display: contents`, as `EditLock` is) takes no
+    // margin, and Tailwind's `space-y` and `space-x` are margins on each child: around such a
+    // box they leave no room after it, so what it holds touches what follows.
+    for (const box of document.querySelectorAll("main *")) {
+      if (getComputedStyle(box).display !== "contents" || !box.parentElement) continue;
+      const spaced = [...box.parentElement.classList].find((name) => /^space-[xy]-/.test(name));
+      if (spaced && box.nextElementSibling) {
+        problems.push({
+          where: where(box),
+          text: (box.textContent ?? "").trim().slice(0, 40),
+          problem: `no room after it: a box with no layout of its own inside ${spaced}`,
+        });
+      }
+    }
     const overflow = document.documentElement.scrollWidth - document.documentElement.clientWidth;
     if (overflow > 0) {
       problems.push({ where: "page", text: "", problem: `${overflow}px wider than the screen` });
