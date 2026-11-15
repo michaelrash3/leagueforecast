@@ -1,6 +1,6 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ageGroup, game, renderTeamRankings, seasonDate, team } from "../test/teamRankingsHarness";
 import type { GcTeamLink, ScoutTeam } from "../lib/teamRankings";
 
@@ -25,6 +25,17 @@ const pool = (teams: ScoutTeam[]) => ({
 const openImport = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(screen.getByRole("tab", { name: "Import" }));
 };
+
+/*
+ * The day these are set on, inside the season their pool is of (2027's, played from the autumn of
+ * 2026). By the clock they pass until that season is over and fail with it set to 1 September
+ * 2027, four of them, with nothing changed: what a page offers depends on the day it is asked.
+ */
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-14T12:00:00"));
+});
+afterEach(() => vi.useRealTimers());
 
 describe("pages that may not be teams yet", () => {
   it("says how many there are and why it matters", async () => {

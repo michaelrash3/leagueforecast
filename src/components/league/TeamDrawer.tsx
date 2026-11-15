@@ -7,7 +7,7 @@ import { HelpTip } from "../HelpTip";
 import { ProjectionExplanation } from "../ProjectionExplanation";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { formatGameDate } from "../../lib/date";
-import { displayName, recordText } from "../../lib/format";
+import { displayName, pickAndChanceText, recordText, seedRangeText } from "../../lib/format";
 import {
   perGame,
   type LeagueAverageStats,
@@ -477,7 +477,7 @@ export function TeamDrawer({
         <div className="mt-6 grid grid-cols-2 gap-3">
           <DrawerMetric label="Record" value={recordText(team)} />
           {hasCutLine && <DrawerMetric label="Gold %" value={goldPctLabel} />}
-          <DrawerMetric label="Range" value={range ? `#${range.best}–#${range.worst}` : "—"} />
+          <DrawerMetric label="Range" value={range ? seedRangeText(range) : "—"} />
           {hasCutLine && <DrawerMetric label="Bubble" value={bubble} pending={detailsPending} />}
           <DrawerMetric label="Runs/Game" value={team.rsg.toFixed(1)} />
           {/* Everything below runs is only ever entered under the full box score. */}
@@ -643,7 +643,7 @@ export function TeamDrawer({
                     </div>
                   </div>
                   <div className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-                    Model: {swing.modelPick} · {Math.round(swing.winPct * 100)}% team win chance
+                    {pickAndChanceText(swing.modelPick, displayName(team.name), swing.winPct)}
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-semibold">
                     <div className="rounded-lg bg-emerald-50 px-3 py-2 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">

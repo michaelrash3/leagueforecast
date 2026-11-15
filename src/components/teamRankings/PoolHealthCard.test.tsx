@@ -1,6 +1,6 @@
 import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ageGroup,
   game,
@@ -53,6 +53,17 @@ const withStandIn = () => {
   ];
   return { ageGroups: [ageGroup(10, 2027)], teams, games };
 };
+
+/*
+ * The day these are set on, inside the season their pool is of (2027's, played from the autumn of
+ * 2026). By the clock they pass until that season is over and fail with it set to 1 September
+ * 2027, six of them, with nothing changed: what a page offers depends on the day it is asked.
+ */
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-14T12:00:00"));
+});
+afterEach(() => vi.useRealTimers());
 
 describe("seeing what the pool is made of", () => {
   it("says nothing until it is asked", async () => {

@@ -63,7 +63,10 @@ export function SeedOddsPanel({
           <ul className="space-y-2">
             {championRows.map((row) => (
               <li key={row.team.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="basis-full text-sm font-bold wrap-break-word sm:w-28 sm:shrink-0 sm:basis-auto sm:truncate text-slate-800 dark:text-slate-200">
+                {/* Wide enough for a club's name on one line, and wrapped where it is longer: at
+                    112px and cut, six of the demo's eight read "Lakeside Lege…" beside a bar a
+                    thousand pixels long. */}
+                <span className="basis-full text-sm font-bold wrap-break-word sm:w-44 sm:shrink-0 sm:basis-auto text-slate-800 dark:text-slate-200">
                   {displayName(row.team.name)}
                 </span>
                 <div className="relative h-5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">

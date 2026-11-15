@@ -26,6 +26,16 @@ import {
  */
 
 const fixture = poolFixture({ seed: 7, clubsPerPage: 300 });
+
+/**
+ * The day the bridge's digits below were taken on, which it is now told. The bridge counts a
+ * result toward a rating once its day has come, by the clock unless it is given a day, and the
+ * fixture's games are dated from the autumn of 2026 to the spring of 2027. Asked by the clock, the
+ * fall season's digest was `f01d8b59` on 14 November 2026 and `b8075615` on the 15th, is another
+ * again by mid-December, and the shared season's moves after that. Nothing had changed but the
+ * date, and the test failed on main for every pull request from that morning.
+ */
+const PINNED_ON = "2026-11-14";
 const yearOfPage = new Map(fixture.ageGroups.map((group) => [group.id, ageGroupYear(group)]));
 const years = [...new Set(fixture.ageGroups.map((group) => ageGroupYear(group)))];
 const gamesOfYear = (year: number | undefined): ScoutGame[] =>
@@ -81,7 +91,8 @@ describe("the answers remembered names give", () => {
             fixture.teams,
             yearGames.get(year) ?? [],
             teams,
-            leagueFixturesOf(teams, matchups, finalScoresKey(matchups, logs))
+            leagueFixturesOf(teams, matchups, finalScoresKey(matchups, logs)),
+            PINNED_ON
           );
           return `${seasonId} ${fingerprint(plain(bridge))}`;
         })

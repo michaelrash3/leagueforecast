@@ -42,6 +42,9 @@ Tests are two Vitest projects: `*.test.ts` run in Node, `*.test.tsx` in jsdom.
 - Pin, then change. Before touching a numeric path, snapshot its output in a test; the change must
   match to the digit unless it is meant to move the number, and then the commit says so.
 - A new guard test is verified by breaking the code it guards and watching it fail.
+- A test on dated data is given its day (a `today` argument, or a faked `Date`). Whatever reads the
+  clock for "has this been played" or "which season is on" moves a pin when the calendar passes one
+  of the fixture's dates: four tests did, the first on 15 November 2026 with nothing changed.
 - Identity, not digests, for "did the input change": arrays are new exactly when the data is.
 - No `any`, no `@ts-ignore`, no `TODO`; `noUncheckedIndexedAccess` is on.
 - Comments explain why, in prose, and say what was measured when a number is claimed.

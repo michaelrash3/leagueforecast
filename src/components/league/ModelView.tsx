@@ -11,7 +11,7 @@ import { backtestPredictions } from "../../lib/backtest";
 import { buildBracketProjection } from "../../lib/bracket";
 import { goldCutLineSnapshot, type ClinchingPathNote } from "../../lib/clinchingPaths";
 import { formatGameDate } from "../../lib/date";
-import { displayName } from "../../lib/format";
+import { displayName, pickAndChanceText, seedRangeText } from "../../lib/format";
 import type { AiProvider, LeagueSummaryErrorReason } from "../../lib/leagueSummary";
 import { projectionConfidenceForTeam } from "../../lib/projectionConfidence";
 import type { SeasonTimelineEntry } from "../../lib/seasonTimeline";
@@ -193,7 +193,7 @@ export function ModelView(props: {
         : "");
   /** A team's Range as the table and the phone rows show it. */
   const rangeText = (range: { best: number; worst: number } | null) =>
-    range ? `#${range.best}–#${range.worst}` : "—";
+    range ? seedRangeText(range) : "—";
 
   /*
    * One section at a time. The tab drew all fourteen blocks one under another, about 10,700px on a
@@ -213,7 +213,10 @@ export function ModelView(props: {
   const show = (key: ForecastSection) => section === key;
 
   return (
-    <section className="space-y-6">
+    // A grid's gap, not `space-y`: the brackets are inside an `EditLock`, a box laid out as if it
+    // were not there, which takes no margin, so under `space-y` the Gold bracket's card, the
+    // Silver's and the seed odds' touched one another.
+    <section className="grid grid-cols-1 gap-6">
       <div>
         <PageHeader title="Forecast" />
         {section === "outlook" && (
@@ -321,7 +324,9 @@ export function ModelView(props: {
                       {sos.label}
                     </span>
                   </div>
-                  <p className="mt-2 line-clamp-2 text-xs font-semibold">{sos.opponents}</p>
+                  {/* Every opponent left, whole: cut to two lines, a team with three games to
+                      play had the third behind an ellipsis and nowhere to read it. */}
+                  <p className="mt-2 text-xs font-semibold">{sos.opponents}</p>
                 </button>
               );
             })}
@@ -655,8 +660,7 @@ export function ModelView(props: {
                           </span>
                         </div>
                         <div className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-                          Model: {swing.modelPick} · {Math.round(swing.winPct * 100)}% team win
-                          chance
+                          {pickAndChanceText(swing.modelPick, displayName(team.name), swing.winPct)}
                         </div>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-xs font-bold">
                           <div className="rounded-lg bg-emerald-50 px-2 py-2 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
