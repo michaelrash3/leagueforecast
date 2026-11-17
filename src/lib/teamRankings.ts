@@ -172,8 +172,11 @@ export const RATING_ERROR_SCALE_FLOOR = 3.5;
  * matchup's curve widens by it (`matchupOddsWidth`): `ratingSpread` over its weighed games, on the
  * fit's own scale or `RATING_ERROR_SCALE_FLOOR`, whichever is more.
  */
-export const ratingErrorOf = (games: number, residualScale: number): number =>
-  ratingSpread(games, Math.max(residualScale, RATING_ERROR_SCALE_FLOOR));
+export const ratingErrorOf = (
+  games: number,
+  residualScale: number,
+  shrinkage: number = DEFAULT_SHRINKAGE
+): number => ratingSpread(games, Math.max(residualScale, RATING_ERROR_SCALE_FLOOR), shrinkage);
 
 /**
  * The discount one fit applies to its ratings before they are ranked or shown.
@@ -3269,11 +3272,15 @@ export const yearFitGames = (rated: readonly RatedScoutGame[]): RatingGame[] => 
 };
 
 /**
- * The fit's two settings a research sweep varies (`modelSweep.ts`): the cap on a game's margin and
- * the ridge's pull toward a club's starting level. Left out, the boards' own, `RATING_CAP` and the
- * fit's default shrinkage; nothing in the app passes either.
+ * The fit's settings a research sweep varies (`modelSweep.ts`): the cap on a game's margin, the
+ * ridge's pull toward a club's starting level, and the ridge the evidence is read with (each club's
+ * weighed games, the discount from its fitted rating to the shown one, and its error:
+ * `effectiveGames`, `discountMiddle`, `ratingErrorOf`). Left out, the boards' own: `RATING_CAP`
+ * and the default shrinkage for both ridges. The evidence's stays the default when only the fit's
+ * is moved, so a setting that moves the fit's alone reads as it always has. Nothing in the app
+ * passes any of them.
  */
-export type ScoutFitTuning = { cap?: number; shrinkage?: number };
+export type ScoutFitTuning = { cap?: number; shrinkage?: number; evidence?: number };
 
 export const fitScoutYear = (
   year: number | undefined,
@@ -3338,15 +3345,18 @@ export const fitScoutYear = (
    * shown rating is the same number wherever it is listed, and an 8U that played up is still on
    * the same scale as the 9Us it played.
    */
+  const evidence = tuning.evidence ?? DEFAULT_SHRINKAGE;
   const effective = effectiveGames(
     adjusted,
-    rated.map(({ game }) => [game.teamAId, game.teamBId] as const)
+    rated.map(({ game }) => [game.teamAId, game.teamBId] as const),
+    evidence
   );
   const middle = discountMiddle(
     { games: effective, residualScale: adjusted.residualScale },
-    nodes.filter((team) => !team.placeholder && !team.nameOnly).map((team) => team.id)
+    nodes.filter((team) => !team.placeholder && !team.nameOnly).map((team) => team.id),
+    evidence
   );
-  const confident = discountAbout(middle, adjusted.residualScale);
+  const confident = discountAbout(middle, adjusted.residualScale, evidence);
   return {
     nodes,
     filedByPage,

@@ -188,9 +188,13 @@ export const chanceAt = (
   return clamp(1 / (1 + Math.exp(-margin / width)), floor, 1 - floor);
 };
 
-/** How far a club's rating on a fit could be off, in runs: what the shown rating's discount reads. */
-const ratingErrorOn = (fit: ScoutYearFit, id: string) =>
-  ratingErrorOf(fit.effective.get(id) ?? 0, fit.adjusted.residualScale);
+/**
+ * How far a club's rating on a fit could be off, in runs: what the shown rating's discount reads,
+ * with the ridge the setting reads the evidence with (`ScoutFitTuning.evidence`), the default's
+ * when it names none.
+ */
+const ratingErrorOn = (fit: ScoutYearFit, id: string, evidence: number = DEFAULT_SHRINKAGE) =>
+  ratingErrorOf(fit.effective.get(id) ?? 0, fit.adjusted.residualScale, evidence);
 
 /**
  * Whether one board lists both sides of a game on a fit, as `rowsOfYearFit` cuts a board from a fit: neither
@@ -226,7 +230,11 @@ const predicted = (fit: ScoutYearFit, game: ScoutGame, variant: ModelVariant) =>
   const a = read(game.teamAId);
   const b = read(game.teamBId);
   const level = fit.homeLevels.get(game.teamAId) ?? fit.homeLevels.get(game.teamBId);
-  const errors = { a: ratingErrorOn(fit, game.teamAId), b: ratingErrorOn(fit, game.teamBId) };
+  const evidence = variant.tuning?.evidence;
+  const errors = {
+    a: ratingErrorOn(fit, game.teamAId, evidence),
+    b: ratingErrorOn(fit, game.teamBId, evidence),
+  };
   return {
     margin: clamp(a - b, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP),
     win: chanceAt(a, b, level, variant.floor, {
@@ -427,7 +435,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
   const cutReadings: ModelSweep["cuts"] = [];
   // Each distinct fit once a cut: the floors share the shipped fit.
   const tuningKey = (variant: ModelVariant) =>
-    `${variant.tuning?.cap ?? ""}|${variant.tuning?.shrinkage ?? ""}`;
+    `${variant.tuning?.cap ?? ""}|${variant.tuning?.shrinkage ?? ""}|${variant.tuning?.evidence ?? ""}`;
 
   for (const cut of cuts) {
     const trained = scoutRatingGames(page.id, teams, games, ageGroups, undefined, cut);
