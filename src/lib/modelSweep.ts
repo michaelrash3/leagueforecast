@@ -84,6 +84,18 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
   },
   { key: "ridge-2.25", why: "half again", tuning: { shrinkage: DEFAULT_SHRINKAGE * 1.5 } },
   { key: "ridge-3", why: "twice it", tuning: { shrinkage: DEFAULT_SHRINKAGE * 2 } },
+  /*
+   * Weaker still. On the boards of October and November 2026 the ridge at half its pull beat the
+   * shipped one clearly (log loss 0.0061 and 0.0053 lower), and three quarters beat it by about
+   * half as much, so the best ridge then lay at half or below; on September's it lay between three
+   * quarters and the shipped one. Each value here is the ridge itself, not a share of
+   * `DEFAULT_SHRINKAGE`, so a key names its ridge whatever the default is.
+   */
+  { key: "ridge-0.15", why: "a tenth of the ridge's pull", tuning: { shrinkage: 0.15 } },
+  { key: "ridge-0.25", why: "a sixth of it", tuning: { shrinkage: 0.25 } },
+  { key: "ridge-0.375", why: "a quarter of it", tuning: { shrinkage: 0.375 } },
+  { key: "ridge-0.5", why: "a third of it", tuning: { shrinkage: 0.5 } },
+  { key: "ridge-1", why: "two thirds of it", tuning: { shrinkage: 1 } },
   { key: "cap-8", why: "a game's margin capped at 8 runs in the fit", tuning: { cap: 8 } },
   { key: "cap-10", why: "at 10", tuning: { cap: 10 } },
   { key: "cap-14", why: "at 14", tuning: { cap: 14 } },
@@ -121,6 +133,29 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
         weight,
       }))
   ),
+  /*
+   * A weaker ridge spreads the ratings and widens each club's error, and the curve reads both, so
+   * the curve chosen on the shipped ridge need not suit another. Three ridges, each on the nine
+   * curves about the shipped one (its own included, so the ridge alone has rows in the slices),
+   * and with the floor at 2% and 5%.
+   */
+  ...[0.5, 0.75, 1].flatMap((shrinkage): ModelVariant[] => [
+    ...[0.5, 0.6, 0.7].flatMap((share) =>
+      [1, 1.6, 2.4].map((weight): ModelVariant => ({
+        key: `r${shrinkage}-c${share}-${weight}`,
+        why: `the ridge at ${shrinkage}, on ${share} of the spread and ${weight} of the variance`,
+        tuning: { shrinkage },
+        share,
+        weight,
+      }))
+    ),
+    ...[0.02, 0.05].map((floor): ModelVariant => ({
+      key: `r${shrinkage}-f${floor}`,
+      why: `the ridge at ${shrinkage}, a chance allowed to ${Math.round(100 - floor * 100)}%`,
+      tuning: { shrinkage },
+      floor,
+    })),
+  ]),
 ];
 
 /** The cut days the sweeps of this pool have read, and the day later games are scored from. */
