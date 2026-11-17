@@ -2,6 +2,7 @@ import { DEFAULT_SHRINKAGE } from "./powerRating";
 import { dayInstant } from "./ratingRecency";
 import { pairedImprovement, type PairedReading } from "./scoutBacktest";
 import { isRankedAgeLevel } from "./teamRankings/seasons";
+import { opponentWeb, type OpponentWeb } from "./teamRankings/opponentWeb";
 import {
   ageGroupYear,
   fitScoutYear,
@@ -190,6 +191,27 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
       weight: 3.2,
     }))
   ),
+  /*
+   * The third read: the discount beside the ridge. A weaker ridge lets a short record's fitted
+   * rating run further than one standard error holds back, so a 3-0 club of big wins can rank
+   * above an 11-1 club, where the table has put what is proved first. Each of these reads the
+   * shown rating more standard errors below the fit's (`ScoutFitTuning.standardErrors`), and every
+   * setting's boards say how many of their top places short records hold (`thinAtTheTop`).
+   */
+  ...[1.25, 1.5, 2].map((errors): ModelVariant => ({
+    key: `e0.5-c0.6-2.4-se${errors}`,
+    why: `one ridge of 0.5 on 0.6/2.4, the shown rating ${errors} errors below the fit's`,
+    tuning: { shrinkage: 0.5, evidence: 0.5, standardErrors: errors },
+    share: 0.6,
+    weight: 2.4,
+  })),
+  {
+    key: "e0.75-c0.6-2.4-se1.25",
+    why: "one ridge of 0.75 on 0.6/2.4, the shown rating 1.25 errors below the fit's",
+    tuning: { shrinkage: 0.75, evidence: 0.75, standardErrors: 1.25 },
+    share: 0.6,
+    weight: 2.4,
+  },
 ];
 
 /** The cut days the sweeps of this pool have read, and the day later games are scored from. */
@@ -239,6 +261,45 @@ export const chanceAt = (
  */
 const ratingErrorOn = (fit: ScoutYearFit, id: string, evidence: number = DEFAULT_SHRINKAGE) =>
   ratingErrorOf(fit.effective.get(id) ?? 0, fit.adjusted.residualScale, evidence);
+
+/** The places at the top of each ranked board the sweep counts, and the record a club is thin under. */
+export const BOARD_TOP = 25;
+export const THIN_RECORD_GAMES = 4;
+
+/**
+ * Of the first `BOARD_TOP` places on each ranked board a fit makes, ranked as a board ranks them
+ * (`rankRows`: the clubs whose web of games reaches the line first, each by the rating a board
+ * shows), how many there are and how many clubs with fewer than `THIN_RECORD_GAMES` games on their
+ * record hold: what the discount keeps a short record from, as a member reads a table. The web is
+ * the cut's (`opponentWeb`), since it is who played whom, not any rating.
+ */
+const thinAtTheTop = (fit: ScoutYearFit, web: OpponentWeb) => {
+  const boards = new Map<number, Array<{ short: boolean; shown: number; games: number }>>();
+  for (const team of fit.nodes) {
+    if (team.placeholder || team.nameOnly) continue;
+    const level = fit.homeLevels.get(team.id);
+    if (level === undefined || !isRankedAgeLevel(level)) continue;
+    const record = fit.records.get(team.id);
+    const entry = {
+      short: !web.reachesLine(team.id),
+      shown: fit.confident(fit.adjusted.ratings.get(team.id) ?? 0, fit.effective.get(team.id) ?? 0),
+      games: record ? record.wins + record.losses + record.ties : 0,
+    };
+    const board = boards.get(level);
+    if (board) board.push(entry);
+    else boards.set(level, [entry]);
+  }
+  let places = 0;
+  let thin = 0;
+  for (const board of boards.values()) {
+    board.sort((a, b) => Number(a.short) - Number(b.short) || b.shown - a.shown);
+    for (const { games } of board.slice(0, BOARD_TOP)) {
+      places += 1;
+      if (games < THIN_RECORD_GAMES) thin += 1;
+    }
+  }
+  return { places, thin };
+};
 
 /**
  * Whether one board lists both sides of a game on a fit, as `rowsOfYearFit` cuts a board from a fit: neither
@@ -375,6 +436,11 @@ export type VariantReading = {
   } | null;
   /** Seconds its fits took, over the cuts. */
   seconds: number;
+  /**
+   * Over the cuts, the first `BOARD_TOP` places of each ranked board as the fit ranks it, and how
+   * many of them clubs of fewer than `THIN_RECORD_GAMES` games on their record hold (`thinAtTheTop`).
+   */
+  top: { places: number; thin: number };
 };
 
 export type ModelSweep = {
@@ -469,6 +535,8 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
     logLoss: [] as number[],
     brier: [] as number[],
     seconds: 0,
+    topPlaces: 0,
+    topThin: 0,
   }));
   // Per variant, per slice and band: the games, the chances said to the side read, and its wins.
   const tallies = variants.map(() =>
@@ -484,7 +552,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
   const cutReadings: ModelSweep["cuts"] = [];
   // Each distinct fit once a cut: the floors share the shipped fit.
   const tuningKey = (variant: ModelVariant) =>
-    `${variant.tuning?.cap ?? ""}|${variant.tuning?.shrinkage ?? ""}|${variant.tuning?.evidence ?? ""}`;
+    `${variant.tuning?.cap ?? ""}|${variant.tuning?.shrinkage ?? ""}|${variant.tuning?.evidence ?? ""}|${variant.tuning?.standardErrors ?? ""}`;
 
   for (const cut of cuts) {
     const trained = scoutRatingGames(page.id, teams, games, ageGroups, undefined, cut);
@@ -549,9 +617,20 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
         thinnerIsA: errorA >= errorB,
       };
     });
+    // The cut's web of games, which every setting's boards share: it is who played whom.
+    const web = opponentWeb(trained.map(({ game }) => [game.teamAId, game.teamBId] as const));
+    const tops = new Map<string, { places: number; thin: number }>();
     variants.forEach((variant, at) => {
       const fit = fitOf(variant, at);
       const pile = piles[at]!;
+      const fitKey = tuningKey(variant);
+      let top = tops.get(fitKey);
+      if (!top) {
+        top = thinAtTheTop(fit, web);
+        tops.set(fitKey, top);
+      }
+      pile.topPlaces += top.places;
+      pile.topThin += top.thin;
       const [byHorizon, byThinnest, byApart] = tallies[at]!;
       scored.forEach(({ game }, index) => {
         const margin = clamp(ratedMargin(game) ?? 0, -RATING_CAP, RATING_CAP);
@@ -629,6 +708,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
       squared: mean(pile.squared),
       vsShipped: vs,
       seconds: pile.seconds,
+      top: { places: pile.topPlaces, thin: pile.topThin },
     };
   });
 

@@ -72,10 +72,12 @@ import {
   type TidyRules,
 } from "../src/lib/gameChangerImport.ts";
 import {
+  BOARD_TOP,
   MODEL_CUTS,
   MODEL_SCORE_FROM,
   MODEL_VARIANTS,
   runModelSweep,
+  THIN_RECORD_GAMES,
   type ModelSweep,
   type SliceBand,
 } from "../src/lib/modelSweep.ts";
@@ -437,6 +439,14 @@ const describeSweep = (sweep: ModelSweep) => {
   }
   say("\n  What each setting is:");
   for (const variant of sweep.variants) say(`    ${variant.key}: ${variant.why}`);
+  say(
+    `\n  The top ${BOARD_TOP} places of each board, ranked as a board ranks them, held by clubs of fewer than ${THIN_RECORD_GAMES} games, over the cuts:`
+  );
+  for (const variant of sweep.variants) {
+    const { places, thin } = variant.top;
+    const share = places > 0 ? ((thin / places) * 100).toFixed(1) : "-";
+    say(`    ${variant.key.padEnd(keyWidth)}${String(thin).padStart(7)} of ${places}  (${share}%)`);
+  }
   say("\n  The shipped model's calibration: the favourite's chance, and how often it won:");
   say("    chance said     games   said    won");
   for (const band of sweep.calibration) {

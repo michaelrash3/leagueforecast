@@ -3277,10 +3277,16 @@ export const yearFitGames = (rated: readonly RatedScoutGame[]): RatingGame[] => 
  * weighed games, the discount from its fitted rating to the shown one, and its error:
  * `effectiveGames`, `discountMiddle`, `ratingErrorOf`). Left out, the boards' own: `RATING_CAP`
  * and the default shrinkage for both ridges. The evidence's stays the default when only the fit's
- * is moved, so a setting that moves the fit's alone reads as it always has. Nothing in the app
- * passes any of them.
+ * is moved, so a setting that moves the fit's alone reads as it always has. `standardErrors` is how
+ * many of a club's errors the shown rating sits below the fit's (`EVIDENCE_STANDARD_ERRORS` when
+ * left out). Nothing in the app passes any of them.
  */
-export type ScoutFitTuning = { cap?: number; shrinkage?: number; evidence?: number };
+export type ScoutFitTuning = {
+  cap?: number;
+  shrinkage?: number;
+  evidence?: number;
+  standardErrors?: number;
+};
 
 export const fitScoutYear = (
   year: number | undefined,
@@ -3356,7 +3362,12 @@ export const fitScoutYear = (
     nodes.filter((team) => !team.placeholder && !team.nameOnly).map((team) => team.id),
     evidence
   );
-  const confident = discountAbout(middle, adjusted.residualScale, evidence);
+  const confident = discountAbout(
+    middle,
+    adjusted.residualScale,
+    evidence,
+    tuning.standardErrors ?? EVIDENCE_STANDARD_ERRORS
+  );
   return {
     nodes,
     filedByPage,
