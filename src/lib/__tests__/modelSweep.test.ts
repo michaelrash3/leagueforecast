@@ -137,6 +137,22 @@ describe("the research sweep of the shipped model", () => {
     }
   });
 
+  it("holds the shipped model and the setting chosen to replace it, to the digit", () => {
+    // Snapshotted on 17 November 2026, before Team Rankings' ridge and curve moved. The first is
+    // the model as it shipped: one ridge of 1.5, a weight of 1.6. The second is the setting chosen
+    // to replace it: one ridge of 0.5 for the fit and the evidence alike, on a weight of 2.4.
+    const reading = (key: string) => {
+      const variant = sweep.variants.find((each) => each.key === key)!;
+      return [variant.logLoss, variant.brier, variant.squared];
+    };
+    expect(reading("shipped")).toEqual([
+      0.4367961184705736, 0.1428247414510809, 14.338066623403552,
+    ]);
+    expect(reading("e0.5-c0.6-2.4")).toEqual([
+      0.4358900046932309, 0.14224468380553787, 14.395171035758334,
+    ]);
+  });
+
   it("moves the fit with the ridge and the cap, and only the chance with the floor", () => {
     const of = (key: string) => sweep.variants.find((variant) => variant.key === key)!;
     expect(of("ridge-3").vsShipped?.squared?.by).not.toBe(0);
