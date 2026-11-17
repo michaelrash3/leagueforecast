@@ -156,6 +156,40 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
       floor,
     })),
   ]),
+  /*
+   * The second read: one ridge for the fit and the evidence alike (`ScoutFitTuning.evidence`), as
+   * the app would ship it, since a board carries one ridge (`BoardFit.shrink`): each club's weighed
+   * games, its discount and its error read it too. On the curves the first read found best with a
+   * weaker ridge, a share of 0.6 and 0.7 and a weight of 1.6, 2.4 and 3.2 (2.4, the edge of its
+   * grid, was best on September's boards), and with the floor at 2%. Beside them the fit's ridge
+   * alone at 0.5 and 0.75 at a weight of 3.2.
+   */
+  ...[0.375, 0.5, 0.75, 1].flatMap((shrinkage): ModelVariant[] => [
+    ...[0.6, 0.7].flatMap((share) =>
+      [1.6, 2.4, 3.2].map((weight): ModelVariant => ({
+        key: `e${shrinkage}-c${share}-${weight}`,
+        why: `one ridge of ${shrinkage}, on ${share} of the spread and ${weight} of the variance`,
+        tuning: { shrinkage, evidence: shrinkage },
+        share,
+        weight,
+      }))
+    ),
+    {
+      key: `e${shrinkage}-f0.02`,
+      why: `one ridge of ${shrinkage}, a chance allowed to 98%`,
+      tuning: { shrinkage, evidence: shrinkage },
+      floor: 0.02,
+    },
+  ]),
+  ...[0.5, 0.75].flatMap((shrinkage) =>
+    [0.6, 0.7].map((share): ModelVariant => ({
+      key: `r${shrinkage}-c${share}-3.2`,
+      why: `the ridge at ${shrinkage}, on ${share} of the spread and 3.2 of the variance`,
+      tuning: { shrinkage },
+      share,
+      weight: 3.2,
+    }))
+  ),
 ];
 
 /** The cut days the sweeps of this pool have read, and the day later games are scored from. */
@@ -163,6 +197,16 @@ export const MODEL_CUTS = ["2026-09-01", "2026-09-08", "2026-09-15"];
 export const MODEL_SCORE_FROM = "2026-09-23";
 
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
+
+/** The middle value of a list, the mean of the two middle ones for an even count; 0 for none. */
+const medianOf = (values: readonly number[]) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  const half = Math.floor(sorted.length / 2);
+  if (sorted.length === 0) return 0;
+  return sorted.length % 2 === 1
+    ? (sorted[half] ?? 0)
+    : ((sorted[half - 1] ?? 0) + (sorted[half] ?? 0)) / 2;
+};
 
 /**
  * The first club's chance against the second, as `predictMatchup` reads it, held to `floor` either
@@ -344,6 +388,11 @@ export type ModelSweep = {
     standIns: number;
     /** The shipped fit's residual scale, in runs, which a row's error reads (`ratingErrorOf`). */
     residualScale: number;
+    /**
+     * The median club's weighed games on the shipped fit (`effectiveGames`), over the clubs a board
+     * could list: how much the cut's clubs had played, which the ridge best for a cut follows.
+     */
+    medianGames: number;
   }[];
   /** Every scored game, and the decided ones the chances are scored on. */
   games: number;
@@ -476,6 +525,11 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
       crossAge: placed.filter(({ on }) => on === "apart").length,
       standIns: placed.filter(({ on }) => on === "standIn").length,
       residualScale: shipped.adjusted.residualScale,
+      medianGames: medianOf(
+        shipped.nodes
+          .filter((team) => !team.placeholder && !team.nameOnly)
+          .map((team) => shipped.effective.get(team.id) ?? 0)
+      ),
     });
     // Each game's place in the slices, off the shipped fit, so a band holds the same games for all.
     const cutAt = dayInstant(cut);

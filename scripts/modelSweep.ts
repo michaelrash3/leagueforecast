@@ -412,11 +412,11 @@ const describeSweep = (sweep: ModelSweep) => {
     return;
   }
   say(
-    "  cut         rated games before   scored after   decided   left out: across ages, stand-ins   residual scale"
+    "  cut         rated games before   scored after   decided   left out: across ages, stand-ins   residual scale   median club's weighed games"
   );
   for (const cut of sweep.cuts) {
     say(
-      `  ${cut.cut}  ${String(cut.trained).padStart(19)}  ${String(cut.scored).padStart(13)}  ${String(cut.decided).padStart(8)}  ${String(cut.crossAge).padStart(10)}  ${String(cut.standIns).padStart(9)}   ${cut.residualScale.toFixed(3).padStart(14)}`
+      `  ${cut.cut}  ${String(cut.trained).padStart(19)}  ${String(cut.scored).padStart(13)}  ${String(cut.decided).padStart(8)}  ${String(cut.crossAge).padStart(10)}  ${String(cut.standIns).padStart(9)}   ${cut.residualScale.toFixed(3).padStart(14)}   ${cut.medianGames.toFixed(1).padStart(27)}`
     );
   }
   say(
