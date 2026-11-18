@@ -31,8 +31,8 @@ const isClub = (team: ScoutTeam) => !team.placeholder && !team.nameOnly;
 
 /** Two of the 10U ratings below to the last digit, by the V8 version that drew them. */
 const LAST_PLACE: Record<string, readonly [number, number]> = {
-  "12.4": [-2.112072401346121, -2.695849503596146],
-  "13.6": [-2.1120724013461216, -2.6958495035961456],
+  "12.4": [-1.0229897499342417, -2.110335791976872],
+  "13.6": [-1.022989749934242, -2.1103357919768713],
 };
 
 describe("a year's fit", () => {
@@ -58,19 +58,26 @@ describe("a year's fit", () => {
      * level (board rules 7, `scheduleCommunities.ts`): the centre from 0.8627496838160694, since
      * the fit's residual scale moved with its ratings, and the clubs of 1, 5 and 26 games from
      * −0.2466, −1.6151 and −2.2127. Which two of them round apart on the two engines moved too.
+     *
+     * Moved on purpose again on 18 November 2026, when the ridge fell to half a game and the shown
+     * rating came to sit 1.5 standard errors below the fit's (board rules 12, `SCOUT_SHRINKAGE`,
+     * `EVIDENCE_STANDARD_ERRORS`): the centre from 0.8628871983096924, and the clubs of 1, 5 and
+     * 26 games from −0.8675, −2.1121 and −2.6958, the discount now cutting the first by 1.07 and
+     * lifting the others by 0.14 and 0.79. Now the first two round apart on Node 22 and Node 24,
+     * measured on both that day, and the third does not.
      */
-    expect(fit.middle).toBe(0.8628871983096924);
+    expect(fit.middle).toBe(0.8990038542430315);
     const shown = (teamId: string) =>
       fit.confident(fit.adjusted.ratings.get(teamId) ?? 0, fit.effective.get(teamId) ?? 0);
-    expect(shown("S-10u_2027-0245")).toBe(-0.8675258195274755);
+    expect(shown("S-10u_2027-0246")).toBe(-2.7566281201650407);
     const engine = (globalThis as { process?: { versions?: { v8?: string } } }).process?.versions
       ?.v8;
     const lastPlace = LAST_PLACE[(engine ?? "").split(".").slice(0, 2).join(".")];
-    expect(shown("S-10u_2027-0182")).toBeCloseTo(-2.11207240134612, 13);
-    expect(shown("S-10u_2027-0246")).toBeCloseTo(-2.69584950359615, 13);
+    expect(shown("S-10u_2027-0245")).toBeCloseTo(-1.02298974993424, 13);
+    expect(shown("S-10u_2027-0182")).toBeCloseTo(-2.11033579197687, 13);
     if (lastPlace) {
-      expect(shown("S-10u_2027-0182")).toBe(lastPlace[0]);
-      expect(shown("S-10u_2027-0246")).toBe(lastPlace[1]);
+      expect(shown("S-10u_2027-0245")).toBe(lastPlace[0]);
+      expect(shown("S-10u_2027-0182")).toBe(lastPlace[1]);
     }
   });
 

@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { NO_REMOVALS } from "../../autoRemoved";
 import { FIXTURE_TODAY, poolFixture } from "../../../../scripts/poolFixture";
-import { DEFAULT_SHRINKAGE } from "../../powerRating";
 import { weightsForGames, recencyBasisFor, recencyWeightOf } from "../../ratingRecency";
 import {
   ageGroupYear,
   EVIDENCE_STANDARD_ERRORS,
   fitScoutYearFor,
   RATING_CAP,
+  SCOUT_SHRINKAGE,
   rankingPoolGroupIds,
   rowsOfYearFit,
   type AgeGroup,
@@ -196,7 +196,7 @@ describe("what each board carries of its fit", () => {
         day: FIXTURE_TODAY,
         errors: EVIDENCE_STANDARD_ERRORS,
         cap: RATING_CAP,
-        shrink: DEFAULT_SHRINKAGE,
+        shrink: SCOUT_SHRINKAGE,
       });
       expect(carried.scale).toBe(fit.adjusted.residualScale);
       expect(carried.middle).toBe(fit.middle);

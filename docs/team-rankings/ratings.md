@@ -350,8 +350,9 @@ and says why it is not in the record.
 
 ### Where a rating starts
 
-The fit counts 1.5 virtual games for every club against an average opponent: the
-ridge that keeps a thin record from running away. Until board rules 7 those games
+The fit counts half a virtual game for every club against an average opponent
+(`SCOUT_SHRINKAGE`; 1.5 until 18 November 2026, **The model, measured**): the ridge
+that keeps a thin record from running away. Until board rules 7 those games
 were played at 0.0, and that has a consequence no table shows. Summed over a piece
 of the schedule that plays nobody outside it, the games cancel, so the piece's
 ratings average exactly 0.0, the pool's average, whatever the piece is worth. A rec
@@ -576,7 +577,7 @@ or a start.
 Under each counted W, L or T row are two figures, keyed once above the list. **Played
 like** is the rating that makes the score exactly what the fit expected: the opponent's
 rating, plus the margin counted, less the runs the age gap was worth. A club's fitted
-rating is the weighted mean of these over its games, with the ridge's 1.5 games played
+rating is the weighted mean of these over its games, with the ridge's half game played
 at its starting level (**Where a rating starts**), which its row carries; on the 2027
 year of 29 September 2026, with those games then at nought, that held for all 83,693 of
 its teams to 5.6e-9, the solver's own tolerance, which is what lets a device rebuild the
@@ -610,13 +611,15 @@ another level (above).
 A game against a side seen once, a stand-in or a club known only from this one schedule,
 reads nearer the club's own rating than its score would, and moves it little. With
 nothing else to go on, the fit lets that side's rating take most of the result: for a
-game of average weight, with the ridge at 1.5, played like comes out two-fifths the
-club's rating, three-fifths the margin counted and three-fifths that side's start
-(**Where a rating starts**). A side met once almost always falls in the club's own league,
-since joining it gains a game and costs next to nothing, so that start is the club's:
-for an island club such a line reads 0.96 runs below what the club's rating and the
-margin alone would give. The game says more about the stand-in than about the club,
-which is also why the discount counts it as 0.6 of a game.
+game of average weight, with the ridge at half a game, played like comes out two-thirds
+the club's rating, a third of the margin counted and a third of that side's start
+(**Where a rating starts**); with the ridge at 1.5, as until 18 November 2026, it was
+two-fifths, three-fifths and three-fifths. A side met once almost always falls in the
+club's own league, since joining it gains a game and costs next to nothing, so that start
+is the club's: for an island club such a line reads 0.53 runs below what the club's
+rating and the margin alone would give (0.96 on the ridge of 1.5). The game says more
+about the stand-in than about the club, which is also why the discount counts it as a
+third of a game.
 
 Played like is exact, but for the 4 places a side with no row on the board carries its
 rating to (within 5e-5), and so is the record's part. The score's part is worked out as
@@ -632,7 +635,12 @@ percentile and gave the same tenth on 238. Both parts are said, the score's read
 or lower and the whole not, on 30,996 of the 532,020 lines the backup's 20 boards with a
 fit gave its 88,106 clubs: on 24,230 the whole rounds to nothing ("moved its rating less
 than 0.1 (score -0.1, one more game +0.1)"), and on 6,766 it reads +0.1 or more. A move
-that rounds to nothing is said on 36,674 lines in all.
+that rounds to nothing is said on 36,674 lines in all. All of that was on the ridge of 1.5.
+On the ridge of half a game (since 18 November 2026) an opponent's rating answers each game
+more, through games of its own the star leaves out, and the estimate is looser. On the seeded
+fixture's 63 games of 10 clubs it was off by 0.012 in the middle, 0.070 at the 95th percentile
+and 0.097 at most, gave the same tenth on 45 and never the wrong sign. The shortcut was off by
+0.203 at the 95th percentile.
 
 No line, and no word of one, is drawn where the lines cannot be shown to add up to the
 board's own row (The live board on a member's device, **What each game did**): a board
@@ -661,8 +669,12 @@ favourite won. Beside the shipped model it fits each setting moved on its own, e
 reads each against it game by game, with a standard error that reads a club's games together
 (`pairedImprovement`):
 
-- the ridge's pull toward a club's starting level at half, three quarters, half again and twice
-  `DEFAULT_SHRINKAGE`;
+- the model as every board read it until 18 November 2026 (`as-before`): one ridge of 1.5, a
+  weight of 1.6 and one standard error of discount;
+- one ridge (`SCOUT_SHRINKAGE`) for the fit and the evidence alike at 0.25, 0.375, 0.75 and 1,
+  either way of the shipped half game;
+- the shown rating's discount (`EVIDENCE_STANDARD_ERRORS`) at 1, 1.25 and 2 standard errors,
+  either way of the shipped 1.5;
 - a game's margin capped at 8, 10, 14 and 16 runs in the fit, against `RATING_CAP`'s 12;
 - the floor under a matchup's chance at 2%, 5% and 12%, against `MATCHUP_PROBABILITY_FLOOR`'s 8%.
   The floor is swept rather than the margin a chance is read to (`MATCHUP_MARGIN_CAP`, 14 runs):
@@ -673,15 +685,15 @@ reads each against it game by game, with a standard error that reads a club's ga
   the favourite from 60% to 85%, which a curve about a tenth wider closed. Like the floor, it leaves
   the fit alone.
 - the matchup read from the fit's own ratings rather than the shown ones (`ratings: "point"`, a
-  row's `pointRating`). A shown rating
-  is the fit's own less one standard error about the year's centre (`EVIDENCE_STANDARD_ERRORS`),
+  row's `pointRating`). A shown rating is the fit's own less 1.5 standard errors about the year's
+  centre (`EVIDENCE_STANDARD_ERRORS`),
   which was measured for which club a table puts first; read into a matchup, it takes the thinner
   club's whole discount off its side of the margin, about a run between a club of four games and
   one of forty.
 - the curve as shipped (`matchupOddsWidth`) with its two settings moved: its width read as
   `sqrt((share × spread)² + weight × (errorA² + errorB²))`, each error the club's `ratingSpread`
-  over its weighed games, the share 0.5, 0.6 and 0.7 of the age's spread and the weight 1, 1.6 and
-  2.4 (`share`, `weight`).
+  over its weighed games, the share 0.5, 0.6 and 0.7 of the age's spread and the weight 1.6, 2.4
+  and 3.2 (`share`, `weight`).
 
 Beside the five-point calibration bands, every setting is read in three slices of the same decided
 games, each band holding the same games for every setting (`VariantSlices`): the favourite by days
@@ -744,3 +756,38 @@ September (143,306 decided games), the third on those of 1, 8 and 15 October sco
   won on the games under five weeks ahead. The fits' residual scales were 4.05, 4.12 and 4.19 runs,
   above the 3.5 a row's error is never read under (`RATING_ERROR_SCALE_FLOOR`), so the floor binds
   only on a pool far smaller than this one.
+
+What it found on the cloud copy of 17 November 2026, in four reads (GitHub runs 44137543625,
+44141345368, 44143424777 and 44152904614). The first read the boards of 7 November alone; the
+other three each read three months: the boards of 1, 8 and 15 September scored from 23 September
+(167,544 decided games), of 1, 8 and 15 October from 23 October (160,188), and of 7 November from 8
+November (15,772). The median club had 2.5, about 5 and 8.8 weighed games at those cuts.
+
+- The curve as wide as a matchup's evidence held on games it was never chosen on. On the boards of
+  7 November its log loss was 0.0076 lower than the single curve's (z 11.4). The favourite won
+  71.2% and the curve said 1.7 points less; the single curve said 4.7 less.
+- Read alone, the ridge best for the chances fell as clubs played more: about 1.125 on September's
+  boards, 0.25 to 0.375 on October's, 0.15 or less on November's. The margins pulled the other way,
+  their squared error best at 1.5 to 2.25 in September. Much of September's preference for a
+  strong ridge was a curve too narrow for a weak one, which more widening for an uncertain pair
+  cures.
+- One ridge of 0.5 for the fit and the evidence, as a board carries one, on a weight of 2.4,
+  lowered the log loss in every month: by 0.0028, 0.0075 and 0.0059 (z 8.2, 22.6 and 12.0). The
+  margins' squared error rose 7.8%, 2.3% and 0.3%, a thin record's margin running further on the
+  weaker pull.
+- The weaker pull also lifted short records up the tables. Clubs of fewer than four games held
+  16.4%, 6.7% and 2.8% of each board's top 25 places at one standard error of discount, against
+  7.6%, 1.9% and none on the model of that day, and a 3-0 club of big wins passed an 11-1 club. At
+  1.5 standard errors they hold 12.3%, 4.7% and 1.6%, and the 11-1 club is first again. The log
+  loss is then 0.0021, 0.0070 and 0.0055 lower (z 5.5, 20.0 and 10.7), and the margins' squared
+  error 9.1%, 3.4% and 1.1% higher.
+
+That last is the model the boards read now (board rules 12): one ridge of half a game
+(`SCOUT_SHRINKAGE`), a weight of 2.4 (`MATCHUP_ODDS_ERROR_WEIGHT`) and 1.5 standard errors of
+discount (`EVIDENCE_STANDARD_ERRORS`), the owner's choice of 17 and 18 November 2026. The model
+before is the setting `as-before`. League Standings keeps its own ridge of 1.5
+(`DEFAULT_SHRINKAGE`), which none of this measured. On half a game a league's start weighs less,
+so the weekly re-measure of the starting level reads it less surely, and a planted league must sit
+further below its start to be named. The panel's estimate of what each game did (**Moved**) is
+looser too, since an opponent's rating answers each game more: on the seeded fixture it was off by
+0.070 runs at the 95th percentile, against 0.052 on the ridge of 1.5, and never the wrong way.

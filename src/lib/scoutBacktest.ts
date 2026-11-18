@@ -5,6 +5,7 @@ import {
 } from "./powerRating";
 import {
   RATING_CAP,
+  SCOUT_SHRINKAGE,
   EVERY_DAY,
   discountAbout,
   discountMiddle,
@@ -495,7 +496,7 @@ export const backtestScoutRatings = (
       const rating = asRatingGame(entry);
       return weights ? { ...rating, weight: weights[at] ?? 1 } : rating;
     }),
-    { cap, ageGapPrior }
+    { cap, ageGapPrior, shrinkage: SCOUT_SHRINKAGE }
   );
 
   let errorSum = 0;
@@ -957,7 +958,7 @@ export const closedLevelCuts = (
     const responded = buildOpponentAdjustedRatings(
       ids,
       rows.map(({ ageGap: _gap, ...row }) => ({ ...row, homeMargin: 0 })),
-      { cap: RATING_CAP, priorCentre: unit }
+      { cap: RATING_CAP, shrinkage: SCOUT_SHRINKAGE, priorCentre: unit }
     ).ratings;
     const point = Float64Array.from(ids, (id) => fit.adjusted.ratings.get(id) ?? 0);
     const response = Float64Array.from(ids, (id) => responded.get(id) ?? 0);

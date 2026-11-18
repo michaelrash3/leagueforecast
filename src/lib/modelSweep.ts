@@ -1,7 +1,7 @@
-import { DEFAULT_SHRINKAGE } from "./powerRating";
 import { dayInstant } from "./ratingRecency";
 import { pairedImprovement, type PairedReading } from "./scoutBacktest";
 import { isRankedAgeLevel } from "./teamRankings/seasons";
+import { opponentWeb, type OpponentWeb } from "./teamRankings/opponentWeb";
 import {
   ageGroupYear,
   fitScoutYear,
@@ -13,6 +13,7 @@ import {
   RATING_CAP,
   ratedMargin,
   ratingErrorOf,
+  SCOUT_SHRINKAGE,
   scoutFitRanks,
   scoutRatingGames,
   type AgeGroup,
@@ -60,7 +61,7 @@ export type ModelVariant = {
   weight?: number;
   /**
    * Which ratings the matchup is read from. "shown", as shipped and when left out: the ratings a
-   * board shows, the fit's own less one standard error about the year's centre
+   * board shows, the fit's own less `EVIDENCE_STANDARD_ERRORS` about the year's centre
    * (`ScoutYearFit.confident`), which is what ranks a thin record behind a proven one. "point": the
    * fit's own best guess (`pointRating` on a row). The discount was measured for which club a
    * table puts first, not for a chance: read into a matchup, it takes a thin club's whole discount
@@ -72,18 +73,37 @@ export type ModelVariant = {
 /** The shipped model first, then each setting moved on its own either way. */
 export const MODEL_VARIANTS: readonly ModelVariant[] = [
   { key: "shipped", why: "the boards as they are" },
+  /*
+   * The model as every board read it until 18 November 2026: one ridge of 1.5 for the fit and
+   * the evidence, on a weight of 1.6, the shown rating one standard error below the fit's. The
+   * sweep's three reads of 17 November chose the shipped one over it.
+   */
   {
-    key: "ridge-0.75",
-    why: "half the ridge's pull toward a club's starting level",
-    tuning: { shrinkage: DEFAULT_SHRINKAGE * 0.5 },
+    key: "as-before",
+    why: "one ridge of 1.5, a weight of 1.6, one error of discount, as boards read until 18 November 2026",
+    tuning: { shrinkage: 1.5, evidence: 1.5, standardErrors: 1 },
+    weight: 1.6,
   },
-  {
-    key: "ridge-1.125",
-    why: "three quarters of it",
-    tuning: { shrinkage: DEFAULT_SHRINKAGE * 0.75 },
-  },
-  { key: "ridge-2.25", why: "half again", tuning: { shrinkage: DEFAULT_SHRINKAGE * 1.5 } },
-  { key: "ridge-3", why: "twice it", tuning: { shrinkage: DEFAULT_SHRINKAGE * 2 } },
+  /*
+   * The shown rating's discount (`EVIDENCE_STANDARD_ERRORS`) either way of the shipped 1.5 errors.
+   * At one, a weaker ridge let a 3-0 club of big wins pass an 11-1 club, and short records held a
+   * sixth of September's top places.
+   */
+  ...[1, 1.25, 2].map((errors): ModelVariant => ({
+    key: `discount-${errors}`,
+    why: `the shown rating ${errors} standard errors below the fit's`,
+    tuning: { standardErrors: errors },
+  })),
+  /*
+   * One ridge (`SCOUT_SHRINKAGE`) for the fit and the evidence alike, either way of the shipped
+   * half game. The best ridge has fallen as a year's clubs played more games: about 1.125 on the
+   * boards of September 2026, 0.25 to 0.375 on October's, 0.15 or less on November's.
+   */
+  ...[0.25, 0.375, 0.75, 1].map((ridge): ModelVariant => ({
+    key: `ridge-${ridge}`,
+    why: `one ridge of ${ridge} games for the fit and the evidence`,
+    tuning: { shrinkage: ridge, evidence: ridge },
+  })),
   { key: "cap-8", why: "a game's margin capped at 8 runs in the fit", tuning: { cap: 8 } },
   { key: "cap-10", why: "at 10", tuning: { cap: 10 } },
   { key: "cap-14", why: "at 14", tuning: { cap: 14 } },
@@ -105,12 +125,11 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
     ratings: "point",
   },
   /*
-   * About the shipped curve, a share of 0.6 and a weight of 1.6, chosen of twelve on the cloud
-   * copy of 6 November 2026 (`matchupOddsWidth`): a tenth of the spread either way, and a weight
-   * of 1 and 2.4.
+   * About the shipped curve, a share of 0.6 and a weight of 2.4 since 17 November 2026
+   * (`matchupOddsWidth`): a tenth of the spread either way, and a weight of 1.6 and 3.2.
    */
   ...[0.5, 0.6, 0.7].flatMap((share) =>
-    [1, 1.6, 2.4]
+    [1.6, 2.4, 3.2]
       .filter(
         (weight) => share !== MATCHUP_ODDS_PROVEN_SHARE || weight !== MATCHUP_ODDS_ERROR_WEIGHT
       )
@@ -128,6 +147,16 @@ export const MODEL_CUTS = ["2026-09-01", "2026-09-08", "2026-09-15"];
 export const MODEL_SCORE_FROM = "2026-09-23";
 
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
+
+/** The middle value of a list, the mean of the two middle ones for an even count; 0 for none. */
+const medianOf = (values: readonly number[]) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  const half = Math.floor(sorted.length / 2);
+  if (sorted.length === 0) return 0;
+  return sorted.length % 2 === 1
+    ? (sorted[half] ?? 0)
+    : ((sorted[half - 1] ?? 0) + (sorted[half] ?? 0)) / 2;
+};
 
 /**
  * The first club's chance against the second, as `predictMatchup` reads it, held to `floor` either
@@ -153,9 +182,52 @@ export const chanceAt = (
   return clamp(1 / (1 + Math.exp(-margin / width)), floor, 1 - floor);
 };
 
-/** How far a club's rating on a fit could be off, in runs: what the shown rating's discount reads. */
-const ratingErrorOn = (fit: ScoutYearFit, id: string) =>
-  ratingErrorOf(fit.effective.get(id) ?? 0, fit.adjusted.residualScale);
+/**
+ * How far a club's rating on a fit could be off, in runs: what the shown rating's discount reads,
+ * with the ridge the setting reads the evidence with (`ScoutFitTuning.evidence`), the boards' own
+ * (`SCOUT_SHRINKAGE`) when it names none.
+ */
+const ratingErrorOn = (fit: ScoutYearFit, id: string, evidence: number = SCOUT_SHRINKAGE) =>
+  ratingErrorOf(fit.effective.get(id) ?? 0, fit.adjusted.residualScale, evidence);
+
+/** The places at the top of each ranked board the sweep counts, and the record a club is thin under. */
+export const BOARD_TOP = 25;
+export const THIN_RECORD_GAMES = 4;
+
+/**
+ * Of the first `BOARD_TOP` places on each ranked board a fit makes, ranked as a board ranks them
+ * (`rankRows`: the clubs whose web of games reaches the line first, each by the rating a board
+ * shows), how many there are and how many clubs with fewer than `THIN_RECORD_GAMES` games on their
+ * record hold: what the discount keeps a short record from, as a member reads a table. The web is
+ * the cut's (`opponentWeb`), since it is who played whom, not any rating.
+ */
+const thinAtTheTop = (fit: ScoutYearFit, web: OpponentWeb) => {
+  const boards = new Map<number, Array<{ short: boolean; shown: number; games: number }>>();
+  for (const team of fit.nodes) {
+    if (team.placeholder || team.nameOnly) continue;
+    const level = fit.homeLevels.get(team.id);
+    if (level === undefined || !isRankedAgeLevel(level)) continue;
+    const record = fit.records.get(team.id);
+    const entry = {
+      short: !web.reachesLine(team.id),
+      shown: fit.confident(fit.adjusted.ratings.get(team.id) ?? 0, fit.effective.get(team.id) ?? 0),
+      games: record ? record.wins + record.losses + record.ties : 0,
+    };
+    const board = boards.get(level);
+    if (board) board.push(entry);
+    else boards.set(level, [entry]);
+  }
+  let places = 0;
+  let thin = 0;
+  for (const board of boards.values()) {
+    board.sort((a, b) => Number(a.short) - Number(b.short) || b.shown - a.shown);
+    for (const { games } of board.slice(0, BOARD_TOP)) {
+      places += 1;
+      if (games < THIN_RECORD_GAMES) thin += 1;
+    }
+  }
+  return { places, thin };
+};
 
 /**
  * Whether one board lists both sides of a game on a fit, as `rowsOfYearFit` cuts a board from a fit: neither
@@ -191,7 +263,11 @@ const predicted = (fit: ScoutYearFit, game: ScoutGame, variant: ModelVariant) =>
   const a = read(game.teamAId);
   const b = read(game.teamBId);
   const level = fit.homeLevels.get(game.teamAId) ?? fit.homeLevels.get(game.teamBId);
-  const errors = { a: ratingErrorOn(fit, game.teamAId), b: ratingErrorOn(fit, game.teamBId) };
+  const evidence = variant.tuning?.evidence;
+  const errors = {
+    a: ratingErrorOn(fit, game.teamAId, evidence),
+    b: ratingErrorOn(fit, game.teamBId, evidence),
+  };
   return {
     margin: clamp(a - b, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP),
     win: chanceAt(a, b, level, variant.floor, {
@@ -288,6 +364,11 @@ export type VariantReading = {
   } | null;
   /** Seconds its fits took, over the cuts. */
   seconds: number;
+  /**
+   * Over the cuts, the first `BOARD_TOP` places of each ranked board as the fit ranks it, and how
+   * many of them clubs of fewer than `THIN_RECORD_GAMES` games on their record hold (`thinAtTheTop`).
+   */
+  top: { places: number; thin: number };
 };
 
 export type ModelSweep = {
@@ -301,6 +382,11 @@ export type ModelSweep = {
     standIns: number;
     /** The shipped fit's residual scale, in runs, which a row's error reads (`ratingErrorOf`). */
     residualScale: number;
+    /**
+     * The median club's weighed games on the shipped fit (`effectiveGames`), over the clubs a board
+     * could list: how much the cut's clubs had played, which the ridge best for a cut follows.
+     */
+    medianGames: number;
   }[];
   /** Every scored game, and the decided ones the chances are scored on. */
   games: number;
@@ -377,6 +463,8 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
     logLoss: [] as number[],
     brier: [] as number[],
     seconds: 0,
+    topPlaces: 0,
+    topThin: 0,
   }));
   // Per variant, per slice and band: the games, the chances said to the side read, and its wins.
   const tallies = variants.map(() =>
@@ -392,7 +480,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
   const cutReadings: ModelSweep["cuts"] = [];
   // Each distinct fit once a cut: the floors share the shipped fit.
   const tuningKey = (variant: ModelVariant) =>
-    `${variant.tuning?.cap ?? ""}|${variant.tuning?.shrinkage ?? ""}`;
+    `${variant.tuning?.cap ?? ""}|${variant.tuning?.shrinkage ?? ""}|${variant.tuning?.evidence ?? ""}|${variant.tuning?.standardErrors ?? ""}`;
 
   for (const cut of cuts) {
     const trained = scoutRatingGames(page.id, teams, games, ageGroups, undefined, cut);
@@ -433,6 +521,11 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
       crossAge: placed.filter(({ on }) => on === "apart").length,
       standIns: placed.filter(({ on }) => on === "standIn").length,
       residualScale: shipped.adjusted.residualScale,
+      medianGames: medianOf(
+        shipped.nodes
+          .filter((team) => !team.placeholder && !team.nameOnly)
+          .map((team) => shipped.effective.get(team.id) ?? 0)
+      ),
     });
     // Each game's place in the slices, off the shipped fit, so a band holds the same games for all.
     const cutAt = dayInstant(cut);
@@ -452,9 +545,20 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
         thinnerIsA: errorA >= errorB,
       };
     });
+    // The cut's web of games, which every setting's boards share: it is who played whom.
+    const web = opponentWeb(trained.map(({ game }) => [game.teamAId, game.teamBId] as const));
+    const tops = new Map<string, { places: number; thin: number }>();
     variants.forEach((variant, at) => {
       const fit = fitOf(variant, at);
       const pile = piles[at]!;
+      const fitKey = tuningKey(variant);
+      let top = tops.get(fitKey);
+      if (!top) {
+        top = thinAtTheTop(fit, web);
+        tops.set(fitKey, top);
+      }
+      pile.topPlaces += top.places;
+      pile.topThin += top.thin;
       const [byHorizon, byThinnest, byApart] = tallies[at]!;
       scored.forEach(({ game }, index) => {
         const margin = clamp(ratedMargin(game) ?? 0, -RATING_CAP, RATING_CAP);
@@ -532,6 +636,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
       squared: mean(pile.squared),
       vsShipped: vs,
       seconds: pile.seconds,
+      top: { places: pile.topPlaces, thin: pile.topThin },
     };
   });
 

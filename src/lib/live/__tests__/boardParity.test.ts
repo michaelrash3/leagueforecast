@@ -277,7 +277,9 @@ const steady = (boards: PageBoard[]) =>
  * another collation, skips this pin and keeps the steady one; a new engine's value is added here
  * once its boards are seen to match its own worker's.
  */
-const DIGIT_PINS: Record<string, string> = { "12.4": "254d394a", "13.6": "20eddb03" };
+// Re-taken under board rules 12 on 18 November 2026, on Node 22 and Node 24 (254d394a and 20eddb03
+// before).
+const DIGIT_PINS: Record<string, string> = { "12.4": "de67370b", "13.6": "e415890c" };
 const engine = (globalThis as { process?: { versions?: { v8?: string } } }).process?.versions?.v8;
 const english = new Intl.Collator().resolvedOptions().locale.startsWith("en");
 const digitPin = english ? DIGIT_PINS[(engine ?? "").split(".").slice(0, 2).join(".")] : undefined;
@@ -838,6 +840,13 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
      * 11 reads a matchup's odds on a curve as wide as its two clubs' evidence (`matchupOddsWidth`),
      * which moves The Weekly's odds on every board and no row: each row gains its club's error
      * (`ratingError`), which these pins leave out, so its steady boards are 10's.
+     * 12 moves every number: the ridge is half a game (`SCOUT_SHRINKAGE`), a shown rating sits 1.5
+     * standard errors below the fit's (`EVIDENCE_STANDARD_ERRORS`), and the odds widen by 2.4 of
+     * the errors' variance. With every club started at average its boards are no longer 5's, nor
+     * 4's with the marked club back, since the ridge and the discount moved too, and the module's
+     * own constants cannot be switched back from here as the starts can; so under 12 those two are
+     * held to fingerprints of their own. The model sweep's "as-before" setting holds the model of
+     * 11 to the digit (`modelSweep.test.ts`).
      */
     const RULES_PINS: Record<number, string> = {
       1: "a2c59173",
@@ -851,13 +860,14 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
       9: "46996e9c",
       10: "46996e9c",
       11: "46996e9c",
+      12: "eac43e77",
     };
     expect(fingerprint(steady(builtBoards(stored())))).toBe(RULES_PINS[BOARD_RULES]);
     starts.off = true;
     try {
-      expect(fingerprint(steady(builtBoards(stored())))).toBe(RULES_PINS[5]);
+      expect(fingerprint(steady(builtBoards(stored())))).toBe("8c77277e");
       expect(fingerprint(steady(builtBoards({ ...stored(), autoRemoved: NO_REMOVALS })))).toBe(
-        RULES_PINS[4]
+        "5279835f"
       );
     } finally {
       starts.off = false;

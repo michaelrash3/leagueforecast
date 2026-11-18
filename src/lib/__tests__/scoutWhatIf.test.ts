@@ -131,38 +131,41 @@ describe("the what-if curve", () => {
      * With `RATING_CAP` at 12 the curve runs to twelve either way. The rows from -8 to 8 and the
      * rating at 3 first came from the cap at 8. Board rules 6 added a circular-schedule deduction
      * and board rules 7 took it off for each club's starting level (`scheduleCommunities.ts`),
-     * which a real re-fit reads the same way, so this pin records that rule too.
+     * which a real re-fit reads the same way, so this pin records that rule too. Board rules 12, on
+     * 18 November 2026, took the ridge to half a game and the discount to 1.5 standard errors
+     * (`SCOUT_SHRINKAGE`, `EVIDENCE_STANDARD_ERRORS`): the ratings spread further, so a run of
+     * margin crosses fewer clubs, and a win by twelve now reaches 21st where it reached 7th.
      */
     expect(curve.points.map((point) => [point.margin, point.rank])).toEqual([
-      [-12, 112],
-      [-11, 110],
-      [-10, 109],
-      [-9, 107],
-      [-8, 104],
-      [-7, 104],
-      [-6, 101],
-      [-5, 98],
-      [-4, 93],
-      [-3, 87],
-      [-2, 80],
-      [-1, 75],
-      [1, 59],
-      [2, 54],
+      [-12, 100],
+      [-11, 100],
+      [-10, 98],
+      [-9, 94],
+      [-8, 91],
+      [-7, 88],
+      [-6, 86],
+      [-5, 83],
+      [-4, 80],
+      [-3, 76],
+      [-2, 70],
+      [-1, 68],
+      [1, 61],
+      [2, 57],
       [3, 48],
-      [4, 43],
-      [5, 38],
-      [6, 31],
-      [7, 27],
-      [8, 21],
-      [9, 17],
-      [10, 15],
-      [11, 12],
-      [12, 7],
+      [4, 42],
+      [5, 41],
+      [6, 37],
+      [7, 30],
+      [8, 27],
+      [9, 25],
+      [10, 24],
+      [11, 23],
+      [12, 21],
     ]);
     expect(curve.winRecord).toBe("7-5");
     expect(curve.lossRecord).toBe("6-6");
     expect(curve.rankedCount).toBe(120);
-    expect(curve.points.find((point) => point.margin === 3)!.rating).toBeCloseTo(-0.4514, 4);
+    expect(curve.points.find((point) => point.margin === 3)!.rating).toBeCloseTo(-0.3858, 4);
   });
 
   /*

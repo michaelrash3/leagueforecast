@@ -1,11 +1,12 @@
 /**
  * Where each rating starts: below average by as much as the club's league keeps to itself.
  *
- * The fit's ridge counts 1.5 virtual games for every rating (`DEFAULT_SHRINKAGE`). Played at
- * nought, as they were until board rules 7, they put nothing on the right-hand side of the normal
- * equations, and summing those equations over a connected piece of the schedule then cancels every
- * game, leaving the piece's ratings summing to exactly nought. So a group of clubs that only ever
- * played each other averaged what the whole nation averages, whatever the group was worth: a rec
+ * The fit's ridge counts virtual games for every rating (`SCOUT_SHRINKAGE`, half a game; 1.5 until
+ * 17 November 2026). Played at nought, as they were until board rules 7, they put nothing on the
+ * right-hand side of the normal equations, and summing those equations over a connected piece of
+ * the schedule then cancels every game, leaving the piece's ratings summing to exactly nought. So a
+ * group of clubs that only ever played each other averaged what the whole nation averages, whatever
+ * the group was worth: a rec
  * league's 8-0 club stood as high in its state as an 8-0 travel club. The games inside the group
  * cannot say how good the group is; something else has to.
  *

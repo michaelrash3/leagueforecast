@@ -53,5 +53,14 @@
  * read every matchup; each row carries its club's error for it (`ratingError`). No rating, row or
  * order moves; The Weekly's odds on every board do, and with them which game is the week's and
  * which results were upsets.
+ * 12: Team Rankings' ridge is half a game where it was 1.5 (`SCOUT_SHRINKAGE`), in the fit and in
+ * what its evidence reads (a club's weighed games, its discount, its error). A matchup's odds widen
+ * by 2.4 of the two clubs' errors' variance where they widened by 1.6 (`MATCHUP_ODDS_ERROR_WEIGHT`),
+ * and a shown rating sits 1.5 standard errors below the fit's where it sat one
+ * (`EVIDENCE_STANDARD_ERRORS`), so a short record does not climb the table on the weaker pull. The
+ * owner chose these on 17 and 18 November 2026, on the model sweep's three months. Every rating,
+ * margin, error and chance moves, and with them the order, the places and The Weekly. A board
+ * carries the ridge and discount it was fitted with (`BoardFit.shrink`, `BoardFit.errors`), so one
+ * built under 11 still reads as it was built until it is rebuilt.
  */
-export const BOARD_RULES = 11;
+export const BOARD_RULES = 12;

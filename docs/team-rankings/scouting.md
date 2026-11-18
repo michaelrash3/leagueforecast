@@ -91,11 +91,13 @@ about both: too sure about two clubs that had played little, and not sure enough
 about two that had proved what they are, which by October was most of them
 (favourites given 72.4% won 75.9%). So a matchup's curve is now as wide as its two
 clubs' evidence (`matchupOddsWidth`): 0.6 of that spread about two clubs known
-exactly, widened by 1.6 of the two ratings' variance, each club's error carried on
-its row (`ratingError`). On October's boards it forecast the later games better
-(log loss 0.0025 lower, z 8.0; 0.0029 on the games under three weeks ahead) and was
-level on September's (0.0002, z 1.0). A row of a board built before rows carried
-an error reads the single curve, until the boards are next built.
+exactly, widened by the two ratings' variance, each club's error carried on its row
+(`ratingError`). On October's boards it forecast the later games better (log loss
+0.0025 lower, z 8.0; 0.0029 on the games under three weeks ahead) and was level on
+September's (0.0002, z 1.0). The variance was weighed 1.6 then; it is 2.4 since 18
+November 2026, when the ridge fell to half a game and a thin record's rating came to
+run further (Ratings, **The model, measured**). A row of a board built before rows
+carried an error reads the single curve, until the boards are next built.
 
 **What if?** Under each fixture is the question the projection cannot answer: not
 who is favoured on Saturday, but where Saturday leaves you. A rating here is not a
@@ -119,10 +121,11 @@ and a third fit at a tie pins it. A straight line between the two ends missed a 
 re-fit's rank 2 times in 160 synthetic cases with stand-ins (at the cap of 8 then in use);
 drawn this way there are none, and the worst rating error is 1.6e-10 runs.
 
-The discount weighs each game by what it can say about the club: `1 - 1/(1.5 + the
-opponent's games)`. A win over a stand-in seen once mostly pins the stand-in, which has
-nothing else to go on, and leaves the club 0.6 of a game, what the ridge leaves it; a win
-over a club with twenty games leaves 0.95. So eight wins over one-game stand-ins are
+The discount weighs each game by what it can say about the club: `1 - 1/(0.5 + the
+opponent's games)`, on the ridge of half a game (1.5 until 18 November 2026). A win over a
+stand-in seen once mostly pins the stand-in, which has nothing else to go on, and leaves the
+club a third of a game, what the ridge leaves it (0.6 on the ridge of 1.5); a win over a club
+with twenty games leaves 0.95. So eight wins over one-game stand-ins are
 discounted more than eight over clubs with seasons of their own, and the Games column still
 counts every game. On the 2027 year of 26 September, with the cap then at eight and the
 win-chance curve fitted to it, fitted as the app fits it and scored on the next week's
