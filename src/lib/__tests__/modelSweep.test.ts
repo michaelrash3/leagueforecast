@@ -138,9 +138,11 @@ describe("the research sweep of the shipped model", () => {
   });
 
   it("holds the shipped model and the setting chosen to replace it, to the digit", () => {
-    // Snapshotted on 17 November 2026, before Team Rankings' ridge and curve moved. The first is
-    // the model as it shipped: one ridge of 1.5, a weight of 1.6. The second is the setting chosen
-    // to replace it: one ridge of 0.5 for the fit and the evidence alike, on a weight of 2.4.
+    // Snapshotted on 17 November 2026, before Team Rankings' ridge, curve and discount moved. The
+    // first is the model as it shipped: one ridge of 1.5, a weight of 1.6, one standard error of
+    // discount. The second is one ridge of 0.5 for the fit and the evidence alike, on a weight of
+    // 2.4. The third is the setting chosen to replace it: the second with its discount at 1.5
+    // standard errors, which keeps what is proved ranked first.
     const reading = (key: string) => {
       const variant = sweep.variants.find((each) => each.key === key)!;
       return [variant.logLoss, variant.brier, variant.squared];
@@ -150,6 +152,9 @@ describe("the research sweep of the shipped model", () => {
     ]);
     expect(reading("e0.5-c0.6-2.4")).toEqual([
       0.4358900046932309, 0.14224468380553787, 14.395171035758334,
+    ]);
+    expect(reading("e0.5-c0.6-2.4-se1.5")).toEqual([
+      0.4347310981263926, 0.1418052191810378, 14.40378798392126,
     ]);
   });
 
