@@ -18,6 +18,7 @@ import {
   discountMiddle,
   fitScoutYear,
   RATING_CAP,
+  SCOUT_SHRINKAGE,
   ratedMargin,
   scoutRatingGames,
   yearFitGames,
@@ -127,9 +128,12 @@ describe("the starting level's weekly re-measure", () => {
   });
 
   it("names a level clearly better when the closed leagues are far below where they start", () => {
-    // Planted six runs down, the weeks read −7.11 ± 0.66, and scored a week at a time with the
-    // other weeks' level, 0.129 ± 0.034 runs a game better than −1.6: z 3.8 against a bar of 2.
-    const { teams, games } = plantedPool(-6, 1);
+    // Planted nine runs down, the weeks read −7.87 ± 0.71, and scored a week at a time with the
+    // other weeks' level, 0.114 ± 0.030 runs a game better than −1.6: z 3.8 against a bar of 2.
+    // Six runs down read as much on the ridge of 1.5. On half a game (`SCOUT_SHRINKAGE`, since 18
+    // November 2026) a league's few outside games set its level more and its start less, so a
+    // start too high costs the fit less, and six runs down reads only z 1.4.
+    const { teams, games } = plantedPool(-9, 1);
     const check = compareClosedLevels("ag_10", teams, games, tenU, MONDAY)!;
 
     expect(check.level!).toBeLessThan(-5);
@@ -139,16 +143,17 @@ describe("the starting level's weekly re-measure", () => {
   });
 
   it("judges by one rival's bar, 2.00 standard errors, and not a stricter one", () => {
-    // Planted 4.5 runs down (seed 3), each week scored with the other weeks' level read
-    // 0.0620 ± 0.0284 runs a game better than −1.6 over 532 games, z 2.18, measured on
-    // 17 October 2026: past one rival's bar of 2.00 and short of two rivals' 2.28 or six
-    // rivals' 2.67, so judging it by any other number of rivals turns its answer over.
-    const { teams, games } = plantedPool(-4.5, 3);
+    // Planted eight runs down (seed 5), each week scored with the other weeks' level read
+    // 0.0684 ± 0.0316 runs a game better than −1.6 over 532 games, z 2.17, measured on
+    // 18 November 2026 on the ridge of half a game: past one rival's bar of 2.00 and short of two
+    // rivals' 2.28 or six rivals' 2.67, so judging it by any other number of rivals turns its
+    // answer over. (On the ridge of 1.5 the case was 4.5 runs down, seed 3, z 2.18.)
+    const { teams, games } = plantedPool(-8, 5);
     const check = compareClosedLevels("ag_10", teams, games, tenU, MONDAY)!;
     const paired = check.paired!;
 
-    expect(paired.by).toBeCloseTo(0.061976562097451574, 9);
-    expect(paired.standardError).toBeCloseTo(0.028411500226436927, 9);
+    expect(paired.by).toBeCloseTo(0.06836603570964075, 9);
+    expect(paired.standardError).toBeCloseTo(0.03156819132433657, 9);
     expect(paired.samples).toBe(532);
     expect(paired.by / paired.standardError).toBeGreaterThan(clearlyBetterBar(1));
     expect(paired.by / paired.standardError).toBeLessThan(clearlyBetterBar(2));
@@ -156,7 +161,7 @@ describe("the starting level's weekly re-measure", () => {
   });
 
   it("names none when the leagues are where the held level starts them", () => {
-    // Planted at −1.6, the weeks read −1.54 ± 0.66, and scored apart 0.0025 ± 0.0029 runs worse.
+    // Planted at −1.6, the weeks read −0.60 ± 0.81, and scored apart 0.0025 ± 0.0075 runs worse.
     const { teams, games } = plantedPool(-1.6, 1);
     const check = compareClosedLevels("ag_10", teams, games, tenU, MONDAY)!;
 
@@ -234,6 +239,7 @@ describe("the fit at any level, from one more solve", () => {
     );
     const fit = buildOpponentAdjustedRatings(ids, yearFitGames(train), {
       cap: RATING_CAP,
+      shrinkage: SCOUT_SHRINKAGE,
       priorCentre: starts,
     });
     const clubs = held.nodes.filter((team) => !team.placeholder && !team.nameOnly);
@@ -284,8 +290,10 @@ describe("the fit at any level, from one more solve", () => {
 
 describe("the re-measure's answer on the seeded fixture, pinned", () => {
   it("is the answer it was", () => {
-    // Taken when the re-measure was written, on 17 October 2026: 479 games in the four weeks to
-    // 14 April 2027, too few to read a level to better than a run and a third.
+    // Taken when the re-measure was written, on 17 October 2026, and again on 18 November 2026,
+    // when the ridge fell to half a game (`SCOUT_SHRINKAGE`) and a league's start came to weigh
+    // less: 479 games in the four weeks to 14 April 2027, too few to read a level to better than a
+    // run and a half (a run and a third on the ridge of 1.5).
     const fixture = poolFixture({ seed: 7, clubsPerPage: 300 });
     const check = compareClosedLevels(
       "ag_10u_2027",
@@ -294,15 +302,15 @@ describe("the re-measure's answer on the seeded fixture, pinned", () => {
       fixture.ageGroups,
       FIXTURE_TODAY
     )!;
-    expect(check.level!).toBeCloseTo(-0.4514346715266759, 9);
-    expect(check.standardError!).toBeCloseTo(1.3081733935301154, 9);
+    expect(check.level!).toBeCloseTo(0.4694097978203704, 9);
+    expect(check.standardError!).toBeCloseTo(1.4367817584283382, 9);
     expect([check.games, check.clusters]).toEqual([479, 335]);
     expect(check.weeks.map((week) => week.games)).toEqual([139, 68, 129, 143]);
-    [-1.3560186990096326, -0.5108054000793136, -0.516045532200112, 0.9151712426581926].forEach(
+    [-0.4995477642005628, 0.29844603964693767, 0.6285719314116935, 1.8310178002924997].forEach(
       (level, at) => expect(check.weeks[at]!.level!).toBeCloseTo(level, 9)
     );
-    expect(check.paired!.by).toBeCloseTo(-0.008450586749299086, 9);
-    expect(check.paired!.standardError).toBeCloseTo(0.01002871596338563, 9);
+    expect(check.paired!.by).toBeCloseTo(-0.006834305913631655, 9);
+    expect(check.paired!.standardError).toBeCloseTo(0.011060963722047077, 9);
     expect(check.paired!.samples).toBe(479);
     expect(check.better).toBe(false);
   });

@@ -176,13 +176,16 @@ describe("League Standings starts on the boards", () => {
     // read a club's games in playing order (`byGameTime`) and so read starts. None of the games
     // ahead here is a league game, so none carries a start onto its board (the next test's do).
     expect(withStarts).toStrictEqual(boardsOf(untimed(timed())));
-    expect(fingerprint(steady(withStarts))).toBe("aa8e91c9");
+    // Under board rules 12 (18 November 2026) every rating moved, so every board did too: aa8e91c9
+    // under 11.
+    expect(fingerprint(steady(withStarts))).toBe("b6a62d61");
     // 28 boards with a week, naming 22 streaks and 9 games ahead between them.
     const weeks = steadyWeeks(withStarts);
     expect(weeks.flatMap(({ weekly }) => weekly?.streaks ?? [])).toHaveLength(22);
     // The weeks' odds read the curve as wide as the two clubs' evidence since 6 November 2026
-    // (`matchupOddsWidth`, board rules 11); read on the single curve they are 23a5731b, as before.
-    expect(fingerprint(weeks)).toBe("53e8d84e");
+    // (`matchupOddsWidth`, board rules 11); read on the single curve they were 23a5731b, as before.
+    // Under board rules 12 the ratings under them moved: 53e8d84e under 11.
+    expect(fingerprint(weeks)).toBe("e3162bdb");
   });
 
   it("publish each board's week as a member's device reads it back, its game ahead's start too", () => {
@@ -227,7 +230,8 @@ describe("League Standings starts on the boards", () => {
      * here; and since a start plays no part in the pick, the same games with these starts too. Since
      * 6 November 2026 the weeks' odds read the curve as wide as the two clubs' evidence
      * (`matchupOddsWidth`, board rules 11), so 52c07ee1, and 9ba760b3 with the starts, are what they
-     * read on the single curve.
+     * read on the single curve. Under board rules 12 (18 November 2026) every rating under them
+     * moved, and 4268dd44 and ab64f6f2, the two under 11, moved with them.
      */
     const steadyOf = (weeks: typeof published) =>
       weeks.map(({ key, weekly }) => ({ key, weekly: steadyWeek(weekly) }));
@@ -236,7 +240,7 @@ describe("League Standings starts on the boards", () => {
       const { start: _start, ...game } = weekly.ahead;
       return { key, weekly: { ...weekly, ahead: game } };
     });
-    expect(fingerprint(steadyOf(unstarted))).toBe("4268dd44");
-    expect(fingerprint(steadyOf(published))).toBe("ab64f6f2");
+    expect(fingerprint(steadyOf(unstarted))).toBe("a7f50b19");
+    expect(fingerprint(steadyOf(published))).toBe("6e4634f8");
   });
 });

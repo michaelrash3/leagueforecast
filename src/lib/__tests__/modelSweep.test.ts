@@ -137,30 +137,29 @@ describe("the research sweep of the shipped model", () => {
     }
   });
 
-  it("holds the shipped model and the setting chosen to replace it, to the digit", () => {
+  it("reads the model as it shipped until 17 November and the one that replaced it, to the digit", () => {
     // Snapshotted on 17 November 2026, before Team Rankings' ridge, curve and discount moved. The
-    // first is the model as it shipped: one ridge of 1.5, a weight of 1.6, one standard error of
-    // discount. The second is one ridge of 0.5 for the fit and the evidence alike, on a weight of
-    // 2.4. The third is the setting chosen to replace it: the second with its discount at 1.5
-    // standard errors, which keeps what is proved ranked first.
+    // model as it shipped then (one ridge of 1.5, a weight of 1.6, one standard error of discount)
+    // is "as-before" now. One ridge of 0.5 for the fit and the evidence on a weight of 2.4, read at
+    // one standard error, is "discount-1". The setting chosen to replace the first, that ridge and
+    // curve with the shown rating 1.5 standard errors below the fit's, is "shipped". Each reads as
+    // it did then, so the change moved the ridge, the curve and the discount, and nothing else.
     const reading = (key: string) => {
       const variant = sweep.variants.find((each) => each.key === key)!;
       return [variant.logLoss, variant.brier, variant.squared];
     };
-    expect(reading("shipped")).toEqual([
+    expect(reading("as-before")).toEqual([
       0.4367961184705736, 0.1428247414510809, 14.338066623403552,
     ]);
-    expect(reading("e0.5-c0.6-2.4")).toEqual([
+    expect(reading("discount-1")).toEqual([
       0.4358900046932309, 0.14224468380553787, 14.395171035758334,
     ]);
-    expect(reading("e0.5-c0.6-2.4-se1.5")).toEqual([
-      0.4347310981263926, 0.1418052191810378, 14.40378798392126,
-    ]);
+    expect(reading("shipped")).toEqual([0.4347310981263926, 0.1418052191810378, 14.40378798392126]);
   });
 
   it("moves the fit with the ridge and the cap, and only the chance with the floor", () => {
     const of = (key: string) => sweep.variants.find((variant) => variant.key === key)!;
-    expect(of("ridge-3").vsShipped?.squared?.by).not.toBe(0);
+    expect(of("ridge-1").vsShipped?.squared?.by).not.toBe(0);
     expect(of("cap-8").vsShipped?.squared?.by).not.toBe(0);
     // A floor leaves the fit alone, so the margin's error is the shipped one's to the digit.
     expect(of("floor-0.02").vsShipped?.squared?.by).toBe(0);
@@ -302,12 +301,24 @@ describe("the research sweep of the shipped model", () => {
     // Snapshotted on this autumn before a matchup could read the fit's own ratings or widen with
     // the two clubs' errors, when every setting read the single curve of the age: each setting
     // read on that curve again says what it said then, so only the curve the boards read moved.
+    // Each is named outright as it was then, on the ridge of 1.5 the fit and its evidence read and
+    // the one standard error of discount until 18 November 2026, so no later change to the sweep's
+    // list or the shipped model can move what these pins hold.
     const sameAsBefore = (key: string): ModelVariant => {
-      const [kind, number] = [key.split("-")[0], Number(key.split("-")[1])];
-      const fit = MODEL_VARIANTS.find((variant) => variant.key === key);
-      const setting: Partial<ModelVariant> =
-        kind === "spread" ? { share: number } : kind === "shipped" ? {} : { ...fit };
-      return { ...setting, key, why: "as read before", share: setting.share ?? 1, weight: 0 };
+      const [kind, value] = [key.split("-")[0], Number(key.split("-")[1])];
+      return {
+        key,
+        why: "as read before",
+        tuning: {
+          shrinkage: kind === "ridge" ? value : 1.5,
+          evidence: 1.5,
+          standardErrors: 1,
+          ...(kind === "cap" ? { cap: value } : {}),
+        },
+        ...(kind === "floor" ? { floor: value } : {}),
+        share: kind === "spread" ? value : 1,
+        weight: 0,
+      };
     };
     const before: Array<[string, number, number, number]> = [
       ["shipped", 0.46241948674893774, 0.14863800042381828, 14.338066623403552],
@@ -371,16 +382,16 @@ describe("the research sweep of the shipped model", () => {
     expect(chanceAt(5, 0, 10, undefined, one)).toBeCloseTo(1 / (1 + Math.exp(-5 / width)), 12);
     expect(chanceAt(5, 0, 10, undefined, one)).toBeLessThan(chanceAt(5, 0, 10));
     expect(chanceAt(0, 5, 10, undefined, one)).toBeGreaterThan(chanceAt(0, 5, 10));
-    // As shipped: 0.6 of the spread, 1.6 of the variance, sqrt(2.607² + 6.4), about 3.63.
-    const shipped = Math.sqrt((0.6 * 4.345) ** 2 + 1.6 * 4);
+    // As shipped: 0.6 of the spread, 2.4 of the variance, sqrt(2.607² + 9.6), about 4.05.
+    const shipped = Math.sqrt((0.6 * 4.345) ** 2 + 2.4 * 4);
     expect(chanceAt(5, 0, 10, undefined, { errors })).toBeCloseTo(
       1 / (1 + Math.exp(-5 / shipped)),
       12
     );
     // Widening reads the chance only: the margin's error is the shipped one's to the digit.
     const of = (key: string) => sweep.variants.find((variant) => variant.key === key)!;
-    expect(of("curve-0.6-2.4").vsShipped?.squared?.by).toBe(0);
-    expect(of("curve-0.6-2.4").logLoss).not.toBe(of("shipped").logLoss);
+    expect(of("curve-0.6-1.6").vsShipped?.squared?.by).toBe(0);
+    expect(of("curve-0.6-1.6").logLoss).not.toBe(of("shipped").logLoss);
   });
 
   it("slices the same decided games for every setting, each game in one band of each slice", () => {
@@ -433,7 +444,7 @@ describe("the research sweep of the shipped model", () => {
     });
     // A widened curve says less for every favourite, in every band of days, and so scores
     // otherwise than the shipped curve on each band's games.
-    const widened = sweep.slices.find(({ key }) => key === "curve-0.7-2.4")!;
+    const widened = sweep.slices.find(({ key }) => key === "curve-0.7-3.2")!;
     sweep.slices[0]!.horizon.forEach((band, at) => {
       if (band.games === 0) return;
       expect(widened.horizon[at]!.said).toBeLessThan(band.said);

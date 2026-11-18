@@ -868,8 +868,10 @@ describe("naming a better setting only when it clearly wins", () => {
   });
 
   it("names none when the lowest average is within the noise", () => {
-    // Held at three this pool reads 0.0015 runs a game better than at two on the averages, with
-    // a paired standard error of 0.0057: the card used to name three best all the same.
+    // Held at three this pool read 0.0015 runs a game better than at two on the averages, with
+    // a paired standard error of 0.0057, and the card used to name three best all the same. On
+    // the ridge of half a game (`SCOUT_SHRINKAGE`, since 18 November 2026) the lowest average is
+    // at 2.5, 0.00002 runs a game under the held two, and the card names none either way.
     const { teams, games } = syntheticPool({
       teamCount: 16,
       gamesPerPair: 3,
@@ -878,7 +880,7 @@ describe("naming a better setting only when it clearly wins", () => {
     });
     const answer = checkTheModel("ag_9", teams, games, groups);
 
-    expect(answer.gaps[0]!.ageGapPrior).toBe(3);
+    expect(answer.gaps[0]!.ageGapPrior).toBe(2.5);
     expect(answer.result.ratedSamples).toBeGreaterThanOrEqual(30);
     expect(answer.betterGap).toBeNull();
   });
@@ -1060,11 +1062,15 @@ describe("naming a better setting only when it clearly wins", () => {
  * apart. Pinned again on 23 October 2026, when the fixture's routs went from 35-1 to 45-1 to stay
  * past the new line of 40: the sweep that tries no cap reads a confirmed rout at 44 where it read
  * 34, so the digits moved, with the old line as with the new, while the sample, the age gap it
- * names and the cap it does not name stay as they were.
+ * names and the cap it does not name stay as they were. Pinned again on 18 November 2026, when the
+ * ridge fell to half a game and the discount rose to 1.5 errors (board rules 12,
+ * `SCOUT_SHRINKAGE`, `EVIDENCE_STANDARD_ERRORS`): every number moved, and the age gap named is
+ * three quarters of the table where it was half. Half still reads lowest on average, but too
+ * spread to clear the bar, and three quarters is the first down the list that does.
  */
 describe("the model check's answer, pinned", () => {
   const fixture = poolFixture({ seed: 7, clubsPerPage: 300 });
-  const EXACT: Record<string, string> = { "13.6": "be7b2f6f" };
+  const EXACT: Record<string, string> = { "13.6": "e586f832" };
   const engine = (globalThis as { process?: { versions?: { v8?: string } } }).process?.versions?.v8;
   const exact = EXACT[(engine ?? "").split(".").slice(0, 2).join(".")];
   const steady = (value: unknown): unknown =>
@@ -1082,12 +1088,13 @@ describe("the model check's answer, pinned", () => {
       fixture.ageGroups
     );
     const answer = { result, gaps, caps, betterGap, betterCap };
-    expect(fingerprint(steady(answer))).toBe("c84319e7");
+    expect(fingerprint(steady(answer))).toBe("efc89578");
     if (exact) expect(fingerprint(answer)).toBe(exact);
-    // What the fixture says, so the pin is seen to be of something: a year of age held at half the
-    // table reads clearly better on its 890 games between rated clubs, and no cap does.
+    // What the fixture says, so the pin is seen to be of something: a year of age held at three
+    // quarters of the table reads clearly better on its 890 games between rated clubs, and no cap
+    // does.
     expect(result.sampleSize).toBe(1130);
-    expect(betterGap).toMatchObject({ value: 1, samples: 890 });
+    expect(betterGap).toMatchObject({ value: 1.5, samples: 890 });
     expect(betterCap).toBeNull();
   });
 });

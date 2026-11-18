@@ -1,4 +1,3 @@
-import { DEFAULT_SHRINKAGE } from "../../powerRating";
 import { recencyBasisFor, type RecencyBasis } from "../../ratingRecency";
 import { hashValue } from "../../cloud/cloudPack";
 import {
@@ -7,6 +6,7 @@ import {
   fitScoutYearFor,
   rankingPoolGroupIds,
   rowsOfYearFit,
+  SCOUT_SHRINKAGE,
   scoutFitRanks,
   scoutFitYear,
   type AgeGroup,
@@ -160,7 +160,7 @@ export const boardFitOf = (
     errors: EVIDENCE_STANDARD_ERRORS,
     gapRuns: adjusted.ageGapRuns,
     cap: adjusted.cap,
-    shrink: DEFAULT_SHRINKAGE,
+    shrink: SCOUT_SHRINKAGE,
     recency: recency && { ...recency },
     away: {
       ids,

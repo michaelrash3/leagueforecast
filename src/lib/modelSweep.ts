@@ -1,4 +1,3 @@
-import { DEFAULT_SHRINKAGE } from "./powerRating";
 import { dayInstant } from "./ratingRecency";
 import { pairedImprovement, type PairedReading } from "./scoutBacktest";
 import { isRankedAgeLevel } from "./teamRankings/seasons";
@@ -14,6 +13,7 @@ import {
   RATING_CAP,
   ratedMargin,
   ratingErrorOf,
+  SCOUT_SHRINKAGE,
   scoutFitRanks,
   scoutRatingGames,
   type AgeGroup,
@@ -61,7 +61,7 @@ export type ModelVariant = {
   weight?: number;
   /**
    * Which ratings the matchup is read from. "shown", as shipped and when left out: the ratings a
-   * board shows, the fit's own less one standard error about the year's centre
+   * board shows, the fit's own less `EVIDENCE_STANDARD_ERRORS` about the year's centre
    * (`ScoutYearFit.confident`), which is what ranks a thin record behind a proven one. "point": the
    * fit's own best guess (`pointRating` on a row). The discount was measured for which club a
    * table puts first, not for a chance: read into a matchup, it takes a thin club's whole discount
@@ -73,30 +73,37 @@ export type ModelVariant = {
 /** The shipped model first, then each setting moved on its own either way. */
 export const MODEL_VARIANTS: readonly ModelVariant[] = [
   { key: "shipped", why: "the boards as they are" },
-  {
-    key: "ridge-0.75",
-    why: "half the ridge's pull toward a club's starting level",
-    tuning: { shrinkage: DEFAULT_SHRINKAGE * 0.5 },
-  },
-  {
-    key: "ridge-1.125",
-    why: "three quarters of it",
-    tuning: { shrinkage: DEFAULT_SHRINKAGE * 0.75 },
-  },
-  { key: "ridge-2.25", why: "half again", tuning: { shrinkage: DEFAULT_SHRINKAGE * 1.5 } },
-  { key: "ridge-3", why: "twice it", tuning: { shrinkage: DEFAULT_SHRINKAGE * 2 } },
   /*
-   * Weaker still. On the boards of October and November 2026 the ridge at half its pull beat the
-   * shipped one clearly (log loss 0.0061 and 0.0053 lower), and three quarters beat it by about
-   * half as much, so the best ridge then lay at half or below; on September's it lay between three
-   * quarters and the shipped one. Each value here is the ridge itself, not a share of
-   * `DEFAULT_SHRINKAGE`, so a key names its ridge whatever the default is.
+   * The model as every board read it until 18 November 2026: one ridge of 1.5 for the fit and
+   * the evidence, on a weight of 1.6, the shown rating one standard error below the fit's. The
+   * sweep's three reads of 17 November chose the shipped one over it.
    */
-  { key: "ridge-0.15", why: "a tenth of the ridge's pull", tuning: { shrinkage: 0.15 } },
-  { key: "ridge-0.25", why: "a sixth of it", tuning: { shrinkage: 0.25 } },
-  { key: "ridge-0.375", why: "a quarter of it", tuning: { shrinkage: 0.375 } },
-  { key: "ridge-0.5", why: "a third of it", tuning: { shrinkage: 0.5 } },
-  { key: "ridge-1", why: "two thirds of it", tuning: { shrinkage: 1 } },
+  {
+    key: "as-before",
+    why: "one ridge of 1.5, a weight of 1.6, one error of discount, as boards read until 18 November 2026",
+    tuning: { shrinkage: 1.5, evidence: 1.5, standardErrors: 1 },
+    weight: 1.6,
+  },
+  /*
+   * The shown rating's discount (`EVIDENCE_STANDARD_ERRORS`) either way of the shipped 1.5 errors.
+   * At one, a weaker ridge let a 3-0 club of big wins pass an 11-1 club, and short records held a
+   * sixth of September's top places.
+   */
+  ...[1, 1.25, 2].map((errors): ModelVariant => ({
+    key: `discount-${errors}`,
+    why: `the shown rating ${errors} standard errors below the fit's`,
+    tuning: { standardErrors: errors },
+  })),
+  /*
+   * One ridge (`SCOUT_SHRINKAGE`) for the fit and the evidence alike, either way of the shipped
+   * half game. The best ridge has fallen as a year's clubs played more games: about 1.125 on the
+   * boards of September 2026, 0.25 to 0.375 on October's, 0.15 or less on November's.
+   */
+  ...[0.25, 0.375, 0.75, 1].map((ridge): ModelVariant => ({
+    key: `ridge-${ridge}`,
+    why: `one ridge of ${ridge} games for the fit and the evidence`,
+    tuning: { shrinkage: ridge, evidence: ridge },
+  })),
   { key: "cap-8", why: "a game's margin capped at 8 runs in the fit", tuning: { cap: 8 } },
   { key: "cap-10", why: "at 10", tuning: { cap: 10 } },
   { key: "cap-14", why: "at 14", tuning: { cap: 14 } },
@@ -118,12 +125,11 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
     ratings: "point",
   },
   /*
-   * About the shipped curve, a share of 0.6 and a weight of 1.6, chosen of twelve on the cloud
-   * copy of 6 November 2026 (`matchupOddsWidth`): a tenth of the spread either way, and a weight
-   * of 1 and 2.4.
+   * About the shipped curve, a share of 0.6 and a weight of 2.4 since 17 November 2026
+   * (`matchupOddsWidth`): a tenth of the spread either way, and a weight of 1.6 and 3.2.
    */
   ...[0.5, 0.6, 0.7].flatMap((share) =>
-    [1, 1.6, 2.4]
+    [1.6, 2.4, 3.2]
       .filter(
         (weight) => share !== MATCHUP_ODDS_PROVEN_SHARE || weight !== MATCHUP_ODDS_ERROR_WEIGHT
       )
@@ -134,84 +140,6 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
         weight,
       }))
   ),
-  /*
-   * A weaker ridge spreads the ratings and widens each club's error, and the curve reads both, so
-   * the curve chosen on the shipped ridge need not suit another. Three ridges, each on the nine
-   * curves about the shipped one (its own included, so the ridge alone has rows in the slices),
-   * and with the floor at 2% and 5%.
-   */
-  ...[0.5, 0.75, 1].flatMap((shrinkage): ModelVariant[] => [
-    ...[0.5, 0.6, 0.7].flatMap((share) =>
-      [1, 1.6, 2.4].map((weight): ModelVariant => ({
-        key: `r${shrinkage}-c${share}-${weight}`,
-        why: `the ridge at ${shrinkage}, on ${share} of the spread and ${weight} of the variance`,
-        tuning: { shrinkage },
-        share,
-        weight,
-      }))
-    ),
-    ...[0.02, 0.05].map((floor): ModelVariant => ({
-      key: `r${shrinkage}-f${floor}`,
-      why: `the ridge at ${shrinkage}, a chance allowed to ${Math.round(100 - floor * 100)}%`,
-      tuning: { shrinkage },
-      floor,
-    })),
-  ]),
-  /*
-   * The second read: one ridge for the fit and the evidence alike (`ScoutFitTuning.evidence`), as
-   * the app would ship it, since a board carries one ridge (`BoardFit.shrink`): each club's weighed
-   * games, its discount and its error read it too. On the curves the first read found best with a
-   * weaker ridge, a share of 0.6 and 0.7 and a weight of 1.6, 2.4 and 3.2 (2.4, the edge of its
-   * grid, was best on September's boards), and with the floor at 2%. Beside them the fit's ridge
-   * alone at 0.5 and 0.75 at a weight of 3.2.
-   */
-  ...[0.375, 0.5, 0.75, 1].flatMap((shrinkage): ModelVariant[] => [
-    ...[0.6, 0.7].flatMap((share) =>
-      [1.6, 2.4, 3.2].map((weight): ModelVariant => ({
-        key: `e${shrinkage}-c${share}-${weight}`,
-        why: `one ridge of ${shrinkage}, on ${share} of the spread and ${weight} of the variance`,
-        tuning: { shrinkage, evidence: shrinkage },
-        share,
-        weight,
-      }))
-    ),
-    {
-      key: `e${shrinkage}-f0.02`,
-      why: `one ridge of ${shrinkage}, a chance allowed to 98%`,
-      tuning: { shrinkage, evidence: shrinkage },
-      floor: 0.02,
-    },
-  ]),
-  ...[0.5, 0.75].flatMap((shrinkage) =>
-    [0.6, 0.7].map((share): ModelVariant => ({
-      key: `r${shrinkage}-c${share}-3.2`,
-      why: `the ridge at ${shrinkage}, on ${share} of the spread and 3.2 of the variance`,
-      tuning: { shrinkage },
-      share,
-      weight: 3.2,
-    }))
-  ),
-  /*
-   * The third read: the discount beside the ridge. A weaker ridge lets a short record's fitted
-   * rating run further than one standard error holds back, so a 3-0 club of big wins can rank
-   * above an 11-1 club, where the table has put what is proved first. Each of these reads the
-   * shown rating more standard errors below the fit's (`ScoutFitTuning.standardErrors`), and every
-   * setting's boards say how many of their top places short records hold (`thinAtTheTop`).
-   */
-  ...[1.25, 1.5, 2].map((errors): ModelVariant => ({
-    key: `e0.5-c0.6-2.4-se${errors}`,
-    why: `one ridge of 0.5 on 0.6/2.4, the shown rating ${errors} errors below the fit's`,
-    tuning: { shrinkage: 0.5, evidence: 0.5, standardErrors: errors },
-    share: 0.6,
-    weight: 2.4,
-  })),
-  {
-    key: "e0.75-c0.6-2.4-se1.25",
-    why: "one ridge of 0.75 on 0.6/2.4, the shown rating 1.25 errors below the fit's",
-    tuning: { shrinkage: 0.75, evidence: 0.75, standardErrors: 1.25 },
-    share: 0.6,
-    weight: 2.4,
-  },
 ];
 
 /** The cut days the sweeps of this pool have read, and the day later games are scored from. */
@@ -256,10 +184,10 @@ export const chanceAt = (
 
 /**
  * How far a club's rating on a fit could be off, in runs: what the shown rating's discount reads,
- * with the ridge the setting reads the evidence with (`ScoutFitTuning.evidence`), the default's
- * when it names none.
+ * with the ridge the setting reads the evidence with (`ScoutFitTuning.evidence`), the boards' own
+ * (`SCOUT_SHRINKAGE`) when it names none.
  */
-const ratingErrorOn = (fit: ScoutYearFit, id: string, evidence: number = DEFAULT_SHRINKAGE) =>
+const ratingErrorOn = (fit: ScoutYearFit, id: string, evidence: number = SCOUT_SHRINKAGE) =>
   ratingErrorOf(fit.effective.get(id) ?? 0, fit.adjusted.residualScale, evidence);
 
 /** The places at the top of each ranked board the sweep counts, and the record a club is thin under. */

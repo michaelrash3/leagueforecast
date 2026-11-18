@@ -285,6 +285,10 @@ const DEFAULT_CAP = 8;
  * Exported because it is half of how sure the fit is about a team: a rating stands on its games
  * plus this many, so the spread of a team's rating goes as `1/sqrt(games + shrinkage)`. Anything
  * that wants to say how confident a rating is needs the same number the fit used, not a copy of it.
+ *
+ * League Standings' ridge, which its forecast reads (`predictionEngine.ts`). Team Rankings has its
+ * own, measured on the nationwide pool and half a game since 17 November 2026 (`SCOUT_SHRINKAGE`),
+ * and passes it to every fit it makes; nothing measured this one against a league's season.
  */
 export const DEFAULT_SHRINKAGE = 1.5;
 const DEFAULT_HOME_FIELD_SHRINKAGE = 3;

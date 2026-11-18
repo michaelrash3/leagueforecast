@@ -211,9 +211,11 @@ describe("the Monday re-measure on the pool the boards were built from", () => {
       /^Starting level re-measured on the 2027 squad year, 2027-03-15 to 2027-04-11: -?\d+\.\d\d \+\/- \d+\.\d\d on \d+ games in \d+ clusters \(weeks of \d+, \d+, \d+, \d+\), in 21 s\.$/
     );
     // The sign is only in the word, the size printed bare: on this fixture the other weeks' level
-    // did 0.00043 runs a game better than -1.6 (by +0.000434), not clearly so.
+    // did 0.00553 runs a game better than -1.6, not clearly so. (0.00043 +/- 0.01259 on the ridge
+    // of 1.5; on half a game, since 18 November 2026, a league's start weighs less and its level
+    // is read less surely.)
     expect(lines[1]).toMatch(
-      /^ {2}Each week scored with the level the other weeks read: 0\.00043 \+\/- 0\.01259 runs a game better than the -1\.6 held, over 457 games; not clearly better, so the level held stands\.$/
+      /^ {2}Each week scored with the level the other weeks read: 0\.00553 \+\/- 0\.01419 runs a game better than the -1\.6 held, over 457 games; not clearly better, so the level held stands\.$/
     );
     const said = lines.join("\n");
     for (const team of fixture.teams) expect(said).not.toContain(team.name);

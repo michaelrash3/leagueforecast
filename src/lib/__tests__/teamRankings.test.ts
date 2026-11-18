@@ -818,27 +818,30 @@ describe("buildScoutingReport", () => {
       ]);
     };
     // The rows with their errors taken off read the single curve of the age, as a board built
-    // before rows carried them is read: the digits from before the curve read the clubs' evidence.
+    // before rows carried them is read. On 18 November 2026 the ridge fell to half a game and the
+    // discount rose to 1.5 errors (board rules 12, `SCOUT_SHRINKAGE`, `EVIDENCE_STANDARD_ERRORS`),
+    // so every margin and chance here moved; these are its digits.
     expect(previewsOf(rows.map(({ ratingError: _error, ...row }) => row))).toEqual([
-      ["A", "-5.333333333333", "0.237160667551", "Underdog", false],
-      ["E", "-2.556341630501", "0.363550418229", "Underdog", true],
-      ["D", "-0.889343482595", "0.451448999298", "Toss-up", false],
-      ["C", "-0.289999688435", "0.484123647334", "Toss-up", false],
-      ["F", "-0.270627344787", "0.485183564459", "Toss-up", true],
-      ["E", "-2.556341630501", "0.363550418229", "Underdog", true],
-      ["D", "-0.889343482595", "0.451448999298", "Toss-up", false],
+      ["A", "-6.857142857143", "0.182110686290", "Underdog", false],
+      ["E", "-2.918391822992", "0.345405420368", "Underdog", true],
+      ["D", "-0.467938078660", "0.474396014546", "Toss-up", false],
+      ["C", "-0.242557144437", "0.486719600532", "Toss-up", false],
+      ["F", "0.281608177008", "0.515417245704", "Toss-up", true],
+      ["E", "-2.918391822992", "0.345405420368", "Underdog", true],
+      ["D", "-0.467938078660", "0.474396014546", "Toss-up", false],
     ]);
     // On a curve as wide as the two clubs' evidence (`matchupOddsWidth`, 6 November 2026), every
     // chance moves and no margin or tier: this pool of five games reads its noise small, so its
     // errors are read on the floor's scale (`RATING_ERROR_SCALE_FLOOR`), about as sure as before.
+    // On a weight of 2.4 (18 November 2026) the Elks, a pair never compared, read as a toss-up.
     expect(previewsOf(rows)).toEqual([
-      ["A", "-5.333333333333", "0.235956830832", "Underdog", false],
-      ["E", "-2.556341630501", "0.370839876705", "Underdog", true],
-      ["D", "-0.889343482595", "0.453426251529", "Toss-up", false],
-      ["C", "-0.289999688435", "0.483632893782", "Toss-up", false],
-      ["F", "-0.270627344787", "0.486013169843", "Toss-up", true],
-      ["E", "-2.556341630501", "0.370839876705", "Underdog", true],
-      ["D", "-0.889343482595", "0.453426251529", "Toss-up", false],
+      ["A", "-6.857142857143", "0.252483602627", "Underdog", false],
+      ["E", "-2.918391822992", "0.406130607472", "Toss-up", true],
+      ["D", "-0.467938078660", "0.483106837617", "Toss-up", false],
+      ["C", "-0.242557144437", "0.490185667708", "Toss-up", false],
+      ["F", "0.281608177008", "0.509165560575", "Toss-up", true],
+      ["E", "-2.918391822992", "0.406130607472", "Toss-up", true],
+      ["D", "-0.467938078660", "0.483106837617", "Toss-up", false],
     ]);
   });
 

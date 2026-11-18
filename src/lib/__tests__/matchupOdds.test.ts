@@ -170,8 +170,10 @@ describe("the odds curve as wide as a matchup's evidence", () => {
   });
 
   it("previews a matchup between rows with no error as it did before, to the digit", () => {
-    // A pool of four, its previews snapshotted before rows carried an error; the same rows with
-    // their errors taken off, as a board built before them is read, preview the same.
+    // A pool of four, its previews snapshotted before rows carried an error, and again on 18
+    // November 2026, when the ridge and the discount moved its ratings: the same rows with their
+    // errors taken off, as a board built before them is read, preview on the single curve of the
+    // age, to the digit.
     const teams: ScoutTeam[] = [
       { id: "A", name: "Aces" },
       { id: "B", name: "Bears" },
@@ -196,18 +198,18 @@ describe("the odds curve as wide as a matchup's evidence", () => {
     ];
     const rows = buildTeamRankings("ag1", teams, played);
     const before: Array<[string, string, number]> = [
-      ["A", "B", 0.7060408326969742],
-      ["A", "D", 0.7142388152607415],
-      ["A", "C", 0.745617915261263],
-      ["B", "A", 0.2939591673030259],
-      ["B", "D", 0.5099558680369058],
-      ["B", "C", 0.5496220354249689],
-      ["D", "A", 0.2857611847392585],
-      ["D", "B", 0.4900441319630942],
-      ["D", "C", 0.5397447077693609],
-      ["C", "A", 0.25438208473873697],
-      ["C", "B", 0.45037796457503104],
-      ["C", "D", 0.4602552922306392],
+      ["A", "B", 0.7447776266367595],
+      ["A", "D", 0.7539200853463033],
+      ["A", "C", 0.7882398745120346],
+      ["B", "A", 0.25522237336324044],
+      ["B", "D", 0.5121674890077422],
+      ["B", "C", 0.56055082131834],
+      ["D", "A", 0.24607991465369677],
+      ["D", "B", 0.48783251099225766],
+      ["D", "C", 0.5485263397157364],
+      ["C", "A", 0.21176012548796538],
+      ["C", "B", 0.43944917868166],
+      ["C", "D", 0.45147366028426356],
     ];
     const row = (id: string) => rows.find((one) => one.teamId === id)!;
     const without = (id: string) => {
@@ -216,6 +218,7 @@ describe("the odds curve as wide as a matchup's evidence", () => {
     };
     for (const [a, b, chance] of before) {
       expect(previewMatchup(without(a), without(b)).winProb).toBe(chance);
+      expect(chance).toBe(predictMatchup(row(a).rating, row(b).rating).winProbA);
       // Every row the pool builds now carries its club's error, and its preview reads the curve.
       expect(row(a).ratingError).toBeGreaterThan(0);
       expect(previewMatchup(row(a), row(b)).winProb).toBe(
@@ -229,11 +232,12 @@ describe("the odds curve as wide as a matchup's evidence", () => {
     // At 12U the single curve is 4.565 runs wide.
     const at12 = (error: number) => matchupOddsWidth(12, { a: error, b: error });
     expect(at12(0)).toBeCloseTo(0.6 * 4.565, 12);
-    expect(at12(0.5)).toBeCloseTo(2.881, 3);
-    expect(at12(1)).toBeCloseTo(3.271, 3);
-    expect(at12(2)).toBeCloseTo(4.506, 3);
-    expect(at12(2.5)).toBeCloseTo(5.244, 3);
-    expect(at12(1)).toBeCloseTo(Math.sqrt((0.6 * 4.565) ** 2 + 1.6 * 2), 12);
+    // On a weight of 2.4 since 18 November 2026 (2.881, 3.271, 4.506 and 5.244 on 1.6).
+    expect(at12(0.5)).toBeCloseTo(2.95, 3);
+    expect(at12(1)).toBeCloseTo(3.507, 3);
+    expect(at12(2)).toBeCloseTo(5.167, 3);
+    expect(at12(2.5)).toBeCloseTo(6.124, 3);
+    expect(at12(1)).toBeCloseTo(Math.sqrt((0.6 * 4.565) ** 2 + 2.4 * 2), 12);
     // Narrower than the single curve about a proven pair, wider about a thin one.
     expect(at12(1)).toBeLessThan(matchupOddsSpread(12));
     expect(at12(2.5)).toBeGreaterThan(matchupOddsSpread(12));

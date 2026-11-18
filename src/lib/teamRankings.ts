@@ -4,7 +4,6 @@ import {
   buildOpponentAdjustedRatings,
   byRating,
   bySchedule,
-  DEFAULT_SHRINKAGE,
   type OpponentAdjustedRatings,
   type RatingGame,
 } from "./powerRating";
@@ -119,10 +118,10 @@ export const RATING_CAP = 12;
  * about 0.6. The cap at 12 widens both by about a fifth: on the pool of 26 September the residual
  * scale they are read off went from 3.52 runs to 4.29.
  *
- * So what is ranked and shown is the rating less one standard error: not what a team might be, but
- * what it is confidently worth. It is the "conservative rating" a skill system reports, for the
- * same reason, and it is why a 4-0 club sits behind an 11-1 club that has proved as much over
- * nearly three times the schedule.
+ * So what is ranked and shown is the rating less one and a half standard errors: not what a team
+ * might be, but what it is confidently worth. It is the "conservative rating" a skill system
+ * reports, for the same reason, and it is why a 4-0 club sits behind an 11-1 club that has proved
+ * as much over nearly three times the schedule.
  *
  * One, measured rather than picked, with the cap at 8. On the real pool's 2026 year — 59,408
  * out-of-sample games between teams the fit had seen — discounts from a quarter of an error to one
@@ -134,11 +133,47 @@ export const RATING_CAP = 12;
  * 10-1. One standard error is the plain reading of the thing and costs nothing, so it is not tuned
  * any finer than that.
  *
+ * One and a half since 18 November 2026, when the ridge fell to half a game (`SCOUT_SHRINKAGE`). A
+ * weaker pull lets a short record's fitted rating run further, and one error no longer held it
+ * back. On the model sweep's three reads of the cloud copy of 17 November (`scripts/modelSweep.ts`),
+ * clubs of fewer than four games held 7.6%, 1.9% and none of each board's top 25 places on the
+ * shipped model of that day. At the ridge of 0.5 and one error they held 16.4%, 6.7% and 2.8%, and
+ * in the pool of `confidentRating.test.ts` a club 3-0 by six a game passed one 11-1 by five. At one
+ * and a half they hold 12.3%, 4.7% and 1.6%, and the 11-1 club is first again. The chances keep
+ * most of what the weaker ridge gained: log loss 0.0021, 0.0070 and 0.0055 lower than that day's
+ * model on the boards of September, October and November (z 5.5, 20.0 and 10.7), against 0.0028,
+ * 0.0075 and 0.0059 at one error. The owner chose that trade on 18 November 2026.
+ *
  * Deliberately not a minimum-games cut-off. A cut-off says a team with nine games does not exist
  * and a team with ten is believed outright; this says a thin record counts for as much as it can
  * support, which is the truth and needs no threshold to argue about.
  */
-export const EVIDENCE_STANDARD_ERRORS = 1;
+export const EVIDENCE_STANDARD_ERRORS = 1.5;
+
+/**
+ * Team Rankings' ridge: the virtual games each club's rating is played at its league's starting
+ * level (`scheduleCommunities.ts`), and the same count in what the evidence reads. A club's
+ * weighed games (`effectiveGames`), the discount from its fitted rating to the shown one
+ * (`evidenceDiscount`) and its error (`ratingErrorOf`) all read it, so one number says how sure the
+ * fit is, as a board carries it (`BoardFit.shrink`). League Standings keeps its own,
+ * `DEFAULT_SHRINKAGE`'s 1.5, which nothing here measured.
+ *
+ * Half a game since 17 November 2026; it was that 1.5 before. The model sweep
+ * (`scripts/modelSweep.ts`) read the cloud copy that day on the boards of three months: 1, 8 and
+ * 15 September, where the median club had 2.5 weighed games; 1, 8 and 15 October (about 5); and 7
+ * November (8.8). It scored 167,544, 160,188 and 15,772 later decided games between two clubs one
+ * board lists. Read alone, the ridge best for the chances fell as clubs played: about 1.125 in
+ * September, 0.25 to 0.375 in October, 0.15 or less in November. Much of September's preference
+ * for a strong ridge was a curve too narrow for a weak one, which more widening for an uncertain
+ * pair cures (`MATCHUP_ODDS_ERROR_WEIGHT`). One ridge of 0.5 on that curve lowered the log loss in
+ * every month: by 0.0028, 0.0075 and 0.0059 (z 8.2, 22.6 and 12.0, a club's games read together).
+ * The margins a board states cost: their squared error rose 7.8%, 2.3% and 0.3%, since a weaker
+ * pull lets a thin record's margin run further. The owner chose the chances that day. The next
+ * day the owner added a discount of 1.5 errors (`EVIDENCE_STANDARD_ERRORS`), so that a short record
+ * does not climb the table on the weaker pull. With it the log loss is 0.0021, 0.0070 and 0.0055
+ * lower (z 5.5, 20.0 and 10.7), and the margins' squared error 9.1%, 3.4% and 1.1% higher.
+ */
+export const SCOUT_SHRINKAGE = 0.5;
 
 /**
  * How far a rating could be off, in runs: `scale / sqrt(games + shrinkage)`.
@@ -151,7 +186,7 @@ export const EVIDENCE_STANDARD_ERRORS = 1;
 export const ratingSpread = (
   games: number,
   residualScale: number,
-  shrinkage: number = DEFAULT_SHRINKAGE
+  shrinkage: number = SCOUT_SHRINKAGE
 ): number => residualScale / Math.sqrt(Math.max(0, games) + shrinkage);
 
 /**
@@ -175,7 +210,7 @@ export const RATING_ERROR_SCALE_FLOOR = 3.5;
 export const ratingErrorOf = (
   games: number,
   residualScale: number,
-  shrinkage: number = DEFAULT_SHRINKAGE
+  shrinkage: number = SCOUT_SHRINKAGE
 ): number => ratingSpread(games, Math.max(residualScale, RATING_ERROR_SCALE_FLOOR), shrinkage);
 
 /**
@@ -213,7 +248,7 @@ export const evidenceDiscount = (
   adjusted: Pick<OpponentAdjustedRatings, "games" | "residualScale">,
   /** The clubs to centre on. Every fitted team when left out, which is right for a pool of clubs. */
   centreOn?: Iterable<string>,
-  shrinkage: number = DEFAULT_SHRINKAGE,
+  shrinkage: number = SCOUT_SHRINKAGE,
   standardErrors: number = EVIDENCE_STANDARD_ERRORS
 ): ((rating: number, games: number) => number) =>
   discountAbout(
@@ -235,7 +270,7 @@ export const evidenceDiscount = (
 export const discountMiddle = (
   adjusted: Pick<OpponentAdjustedRatings, "games" | "residualScale">,
   centreOn?: Iterable<string>,
-  shrinkage: number = DEFAULT_SHRINKAGE
+  shrinkage: number = SCOUT_SHRINKAGE
 ): number => {
   let sum = 0;
   let count = 0;
@@ -257,7 +292,7 @@ export const discountAbout =
   (
     middle: number,
     residualScale: number,
-    shrinkage: number = DEFAULT_SHRINKAGE,
+    shrinkage: number = SCOUT_SHRINKAGE,
     standardErrors: number = EVIDENCE_STANDARD_ERRORS
   ): ((rating: number, games: number) => number) =>
   (rating, games) => {
@@ -272,10 +307,11 @@ export const discountAbout =
  *
  * A game against a club seen twenty times pins this team's rating against a known one; a game
  * against a stand-in seen once mostly pins the stand-in, which has nothing else to go on, and the
- * ridge leaves this team about `shrinkage / (1 + shrinkage)` of it — 0.6 at the default, which is
- * the weight here. So a record of eight wins over one-game stand-ins is thinner evidence than eight
- * over clubs with seasons of their own, and discounted for it. Measured with the app's own fit and
- * discount, the cap then 8, on the 2027 year of 26 September 2026, over eight cut days: the Brier
+ * ridge leaves this team about `shrinkage / (1 + shrinkage)` of it — a third at the default, 0.6
+ * at the 1.5 it was until 17 November 2026 — which is the weight here. So a record of eight wins
+ * over one-game stand-ins is thinner evidence than eight over clubs with seasons of their own, and
+ * discounted for it. Measured with the app's own fit and discount, the cap then 8 and the ridge
+ * 1.5, on the 2027 year of 26 September 2026, over eight cut days: the Brier
  * score of the next week's same-level games improved at every cut, -0.00010 ± 0.00002 pooled over
  * 73,614 games, and margin error by 0.0016 runs; scaling every count down by the pool's average
  * ratio instead, or shuffling which opponent a game was against, gained nothing, so it is the
@@ -286,7 +322,7 @@ export const discountAbout =
 export const effectiveGames = (
   adjusted: Pick<OpponentAdjustedRatings, "games">,
   pairs: Iterable<readonly [string, string]>,
-  shrinkage: number = DEFAULT_SHRINKAGE
+  shrinkage: number = SCOUT_SHRINKAGE
 ): Map<string, number> => {
   const effective = new Map<string, number>();
   for (const [a, b] of pairs) {
@@ -3009,7 +3045,7 @@ export const buildTeamRankings = (
       neutral: true,
       ...(weights ? { weight: weights[at] ?? 1 } : {}),
     })),
-    { cap: RATING_CAP, priorCentre: startingLevels(communities) }
+    { cap: RATING_CAP, shrinkage: SCOUT_SHRINKAGE, priorCentre: startingLevels(communities) }
   );
 
   const records = recordsFor(playedGames);
@@ -3276,10 +3312,10 @@ export const yearFitGames = (rated: readonly RatedScoutGame[]): RatingGame[] => 
  * ridge's pull toward a club's starting level, and the ridge the evidence is read with (each club's
  * weighed games, the discount from its fitted rating to the shown one, and its error:
  * `effectiveGames`, `discountMiddle`, `ratingErrorOf`). Left out, the boards' own: `RATING_CAP`
- * and the default shrinkage for both ridges. The evidence's stays the default when only the fit's
- * is moved, so a setting that moves the fit's alone reads as it always has. `standardErrors` is how
- * many of a club's errors the shown rating sits below the fit's (`EVIDENCE_STANDARD_ERRORS` when
- * left out). Nothing in the app passes any of them.
+ * and `SCOUT_SHRINKAGE` for both ridges. The evidence's stays `SCOUT_SHRINKAGE` when only the
+ * fit's is moved, so a setting that names the fit's ridge alone moves the fit and nothing else.
+ * `standardErrors` is how many of a club's errors the shown rating sits below the fit's
+ * (`EVIDENCE_STANDARD_ERRORS` when left out). Nothing in the app passes any of them.
  */
 export type ScoutFitTuning = {
   cap?: number;
@@ -3327,7 +3363,7 @@ export const fitScoutYear = (
 
   const adjusted = buildOpponentAdjustedRatings(nodeIds, yearFitGames(rated), {
     cap: tuning.cap ?? RATING_CAP,
-    ...(tuning.shrinkage === undefined ? {} : { shrinkage: tuning.shrinkage }),
+    shrinkage: tuning.shrinkage ?? SCOUT_SHRINKAGE,
     priorCentre: startingLevels(communities),
   });
 
@@ -3351,7 +3387,7 @@ export const fitScoutYear = (
    * shown rating is the same number wherever it is listed, and an 8U that played up is still on
    * the same scale as the 9Us it played.
    */
-  const evidence = tuning.evidence ?? DEFAULT_SHRINKAGE;
+  const evidence = tuning.evidence ?? SCOUT_SHRINKAGE;
   const effective = effectiveGames(
     adjusted,
     rated.map(({ game }) => [game.teamAId, game.teamBId] as const),
@@ -3594,7 +3630,7 @@ export const matchupOddsSpread = (ageLevel?: number): number => {
  * (`ScoutRankingRow.ratingError`). See `matchupOddsWidth` for what was measured.
  */
 export const MATCHUP_ODDS_PROVEN_SHARE = 0.6;
-export const MATCHUP_ODDS_ERROR_WEIGHT = 1.6;
+export const MATCHUP_ODDS_ERROR_WEIGHT = 2.4;
 
 /** Each side's `ratingError`, the first club's as `a`. */
 export type MatchupErrors = { a: number; b: number };
@@ -3621,8 +3657,19 @@ export type MatchupErrors = { a: number; b: number };
  * evidence came within a point; on September's the proven pairs' 6.1 points closed to 2.5. It moves
  * no rating and no margin: the curve reads them, nothing more.
  *
+ * The weight is 2.4 since 17 November 2026, when the ridge fell to half a game (`SCOUT_SHRINKAGE`).
+ * A weaker pull lets a thin record's rating run further, and its error grows with it, so the odds
+ * about a thin pair need more widening than 1.6 gave. On the sweep's read of that day, the ridge at
+ * 0.5 on a weight of 1.6 was 0.0004 worse than the old model on September's boards, where most
+ * pairs were thin. On 2.4 it was 0.0028 better there, and 0.0075 and 0.0059 on October's and
+ * November's boards (z 8.2, 22.6 and 12.0), and with the shown rating 1.5 errors below the fit's,
+ * as it is (`EVIDENCE_STANDARD_ERRORS`), 0.0021, 0.0070 and 0.0055. The share stays 0.6: 0.7 did
+ * better on September's boards (0.0034 at one error) and worse on October's and November's (0.0066
+ * and 0.0038).
+ *
  * At 12U, where the single curve is 4.565 runs wide, the width about two clubs each half a run
- * uncertain is 2.881 runs, each a run 3.271, each two runs 4.506, and each two and a half 5.244.
+ * uncertain is 2.950 runs, each a run 3.507, each two runs 5.167, and each two and a half 6.124
+ * (2.881, 3.271, 4.506 and 5.244 on 1.6).
  */
 export const matchupOddsWidth = (ageLevel?: number, errors?: MatchupErrors): number =>
   oddsWidthWith(ageLevel, errors, MATCHUP_ODDS_PROVEN_SHARE, MATCHUP_ODDS_ERROR_WEIGHT);

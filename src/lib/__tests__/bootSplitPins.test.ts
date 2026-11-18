@@ -339,51 +339,51 @@ describe("the numbers worked out from one pool, pinned before the boot split", (
     ).toMatchInlineSnapshot(`
       [
         {
-          "pointRating": 0.486523,
+          "pointRating": 0.749129,
           "rank": 1,
-          "rating": 0.637077,
+          "rating": 1.023296,
           "record": "4-1",
-          "strengthOfSchedule": -1.995196,
+          "strengthOfSchedule": -2.094282,
           "teamId": "S-BEARS",
         },
         {
-          "pointRating": -0.016981,
+          "pointRating": 0.258502,
           "rank": 2,
-          "rating": 0.054339,
+          "rating": 0.417059,
           "record": "3-1",
-          "strengthOfSchedule": -2.046166,
+          "strengthOfSchedule": -2.140597,
           "teamId": "S-ACES",
         },
         {
-          "pointRating": -0.563034,
+          "pointRating": -0.14185,
           "rank": 3,
-          "rating": -0.614066,
+          "rating": -0.246176,
           "record": "1-1-1",
-          "strengthOfSchedule": -1.064784,
+          "strengthOfSchedule": -0.910018,
           "teamId": "S-ELKS",
         },
         {
-          "pointRating": -1.970329,
+          "pointRating": -2.001464,
           "rank": 4,
-          "rating": -1.890379,
+          "rating": -1.808446,
           "record": "2-2",
-          "strengthOfSchedule": -1.270951,
+          "strengthOfSchedule": -1.241638,
           "teamId": "S-COMETS",
         },
         {
-          "pointRating": -1.710545,
+          "pointRating": -1.477721,
           "rank": 5,
-          "rating": -1.9287,
+          "rating": -1.969321,
           "record": "0-1-1",
-          "strengthOfSchedule": -0.290008,
+          "strengthOfSchedule": 0.058326,
           "teamId": "S-FOXES",
         },
         {
-          "pointRating": -4.990313,
+          "pointRating": -5.832333,
           "rank": 6,
-          "rating": -5.02295,
+          "rating": -5.862149,
           "record": "0-3",
-          "strengthOfSchedule": -0.500263,
+          "strengthOfSchedule": -0.331278,
           "teamId": "S-DUCKS",
         },
       ]
@@ -395,8 +395,8 @@ describe("the numbers worked out from one pool, pinned before the boot split", (
       winProbA: millionth(odds.winProbA),
     }).toMatchInlineSnapshot(`
       {
-        "projectedMargin": 0.582739,
-        "winProbA": 0.534346,
+        "projectedMargin": 0.606237,
+        "winProbA": 0.535726,
       }
     `);
   });

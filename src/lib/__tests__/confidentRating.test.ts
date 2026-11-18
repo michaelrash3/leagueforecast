@@ -6,6 +6,7 @@ import {
   EVIDENCE_STANDARD_ERRORS,
   ratingSpread,
   RATING_CAP,
+  SCOUT_SHRINKAGE,
   type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
@@ -101,15 +102,16 @@ describe("discounting a rating for how little is behind it", () => {
   });
 
   it("weighs each game by how much its opponent has played", () => {
-    // A one-game stand-in leaves the club 0.6 of a game, what the ridge leaves it; a twenty-game
-    // club 1 - 1/21.5. A game against a side the fit never read is not counted.
+    // On the boards' ridge of half a game (`SCOUT_SHRINKAGE`), a one-game stand-in leaves the club
+    // a third of a game, what the ridge leaves it, and a twenty-game club 1 - 1/20.5. A game
+    // against a side the fit never read is not counted.
     const counted = effectiveGames(fit(4, { a: 2, s: 1, big: 20 }), [
       ["a", "s"],
       ["a", "big"],
       ["a", "gone"],
     ]);
-    expect(counted.get("a")).toBeCloseTo(0.6 + (1 - 1 / 21.5), 9);
-    expect(counted.get("s")).toBeCloseTo(1 - 1 / 3.5, 9);
+    expect(counted.get("a")).toBeCloseTo(1 / 3 + (1 - 1 / 20.5), 9);
+    expect(counted.get("s")).toBeCloseTo(1 - 1 / 2.5, 9);
     expect(counted.has("gone")).toBe(false);
   });
 
@@ -205,7 +207,7 @@ describe("a 3-0 club and an 11-1 club", () => {
     expect(thick.games).toBe(12);
   });
 
-  it("shows the working: the shown rating is the best guess less one standard error", () => {
+  it("shows the working: the shown rating is the best guess less one and a half standard errors", () => {
     const { teams, games, thin } = ranked();
     // Refit the same games directly, so the table's number is tied to the model's own output
     // rather than to a constant remembered from when this was written.
@@ -224,7 +226,7 @@ describe("a 3-0 club and an 11-1 club", () => {
         neutral: true,
         ...(weights ? { weight: weights[at] ?? 1 } : {}),
       })),
-      { cap: RATING_CAP }
+      { cap: RATING_CAP, shrinkage: SCOUT_SHRINKAGE }
     );
     expect(thin.pointRating).toBeCloseTo(refit.ratings.get("T-THIN")!, 9);
     // Off its games weighed by its opponents' (`effectiveGames`), not the raw three.

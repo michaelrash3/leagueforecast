@@ -434,7 +434,7 @@ export type ScoutRankingRow = {
   rank: number;
   /**
    * What the table ranks and shows: the opponent-adjusted expected margin vs an average team in
-   * this pool, in runs, less one standard error for how little may stand behind it. See
+   * this pool, in runs, less 1.5 standard errors for how little may stand behind it. See
    * `confidentRating` and `EVIDENCE_STANDARD_ERRORS`.
    */
   rating: number;

@@ -75,9 +75,10 @@ describe("the clubs watched on a page", () => {
     const card = watchCard();
     expect(card).not.toBeNull();
     if (!card) return;
-    // Third on the ladder, 1-1, with its rating.
+    // Third on the ladder, 1-1, with its rating: signed, or 0.0 for a club rated dead average,
+    // as the Cubs are on the ridge of half a game.
     expect(card).toHaveTextContent(/#3\s*Cubs/);
-    expect(card).toHaveTextContent(/1-1 · [+-]\d\.\d/);
+    expect(card).toHaveTextContent(/1-1 · (?:[+-]\d\.\d|0\.0)/);
     await user.click(within(card).getByRole("button", { name: "Cubs" }));
     expect(await screen.findByRole("dialog", { name: "Cubs" })).toBeInTheDocument();
     await closeSheet(user);

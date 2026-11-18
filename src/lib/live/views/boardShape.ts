@@ -106,7 +106,8 @@ export const BOARD_FIT_VERSION = 3;
  *   scale (`residualScale`), the centre of the clubs' spreads (`discountMiddle`) and how many
  *   standard errors (`EVIDENCE_STANDARD_ERRORS`).
  * - `gapRuns`, `cap`, `shrink`: the runs a year of age gap was worth (`ageGapRuns`), the most one
- *   game's margin counts (`RATING_CAP`) and the ridge (`DEFAULT_SHRINKAGE`).
+ *   game's margin counts (`RATING_CAP`) and the ridge (`SCOUT_SHRINKAGE`; 1.5 on a board built
+ *   before 17 November 2026, which a device reads off the board, not the build).
  * - `recency`: what each game's weight was built from (`recencyBasisFor`), or null where the
  *   games were weighed alike.
  * - `away`: every side a row's rated game names that has no row on this board (a club known only
