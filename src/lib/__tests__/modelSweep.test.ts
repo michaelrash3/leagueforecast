@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import { chanceAt, MODEL_VARIANTS, runModelSweep, type ModelVariant } from "../modelSweep";
 import {
   fitScoutYear,
+  GAMES_RIDGE_BOUNDS,
   MATCHUP_MARGIN_CAP,
   predictMatchup,
   RATING_CAP,
+  ridgeOverGames,
+  SCOUT_SHRINKAGE,
   scoutRatingGames,
   type AgeGroup,
   type ScoutGame,
@@ -531,6 +534,100 @@ describe("the research sweep of the shipped model", () => {
     for (const band of sweep.calibration.filter((one) => one.games > 0)) {
       expect(band.said).toBeGreaterThanOrEqual(band.from - 1e-9);
       expect(band.said).toBeLessThanOrEqual(band.to + 1e-9);
+    }
+  });
+
+  it("reads a ridge off the median club's games, held between its bounds", () => {
+    const clubs: ScoutTeam[] = [
+      { id: "A", name: "A" },
+      { id: "B", name: "B" },
+      { id: "C", name: "C" },
+      { id: "slot", name: "Winner of game 1", placeholder: true } as ScoutTeam,
+    ];
+    const game = (id: string, a: string, b: string) => ({
+      game: {
+        id,
+        ageGroupId: PAGE,
+        teamAId: a,
+        teamBId: b,
+        teamAScore: 5,
+        teamBScore: 3,
+        date: "2026-08-01",
+      },
+      ageGap: 0,
+    });
+    // A plays four, B three, C one: the median club, B, has three. The slot's four games are not
+    // a club's, so they count toward no median.
+    const rated = [
+      game("1", "A", "B"),
+      game("2", "A", "B"),
+      game("3", "A", "B"),
+      game("4", "A", "C"),
+      ...["5", "6", "7", "8"].map((id) => game(id, "slot", "slot")),
+    ];
+    expect(ridgeOverGames(1.5, clubs, rated)).toBe(0.5);
+    expect(ridgeOverGames(30, clubs, rated)).toBe(GAMES_RIDGE_BOUNDS.high);
+    expect(ridgeOverGames(0.03, clubs, rated)).toBe(GAMES_RIDGE_BOUNDS.low);
+    // A year whose median club has played nothing is held as hard as any.
+    expect(ridgeOverGames(2, clubs, [])).toBe(GAMES_RIDGE_BOUNDS.high);
+  });
+
+  it("fits on the ridge it reads off the games as a fit given that ridge for both", () => {
+    const trained = scoutRatingGames(PAGE, teams, games, groups, undefined, "2026-09-15");
+    const read = fitScoutYear(2027, teams, games, trained, groups, { ridgeOverGames: 2 });
+    const ridge = ridgeOverGames(2, read.nodes, trained);
+    expect(read.ridge).toBe(ridge);
+    expect(read.evidenceRidge).toBe(ridge);
+    expect(ridge).not.toBe(SCOUT_SHRINKAGE);
+    const given = fitScoutYear(2027, teams, games, trained, groups, {
+      shrinkage: ridge,
+      evidence: ridge,
+    });
+    expect([...read.adjusted.ratings]).toEqual([...given.adjusted.ratings]);
+    expect([...read.effective]).toEqual([...given.effective]);
+    // The boards' fit says it read both at the boards' ridge.
+    const plain = fitScoutYear(2027, teams, games, trained, groups);
+    expect([plain.ridge, plain.evidenceRidge]).toEqual([SCOUT_SHRINKAGE, SCOUT_SHRINKAGE]);
+    // And each cut of the sweep says what every ridge read off its games came to.
+    for (const cut of sweep.cuts) {
+      expect(cut.ridges.map(({ key }) => key)).toEqual(
+        MODEL_VARIANTS.filter(({ tuning }) => tuning?.ridgeOverGames !== undefined).map(
+          ({ key }) => key
+        )
+      );
+    }
+  });
+
+  it("reads a margin apart from the chance, which stays the setting's own", () => {
+    const variants: ModelVariant[] = [
+      MODEL_VARIANTS[0]!,
+      MODEL_VARIANTS.find(({ key }) => key === "point")!,
+      // A second fit at the boards' own ridge is the boards' fit, so its margin is `point`'s.
+      { key: "own-ridge", why: "", margin: { ridge: SCOUT_SHRINKAGE } },
+      // Shrunk by none of the errors, the margin is the fit's own gap.
+      { key: "no-shrink", why: "", margin: { shrink: 0 } },
+      MODEL_VARIANTS.find(({ key }) => key === "margin-shrink-1")!,
+      MODEL_VARIANTS.find(({ key }) => key === "margin-ridge-1.5")!,
+    ];
+    const read = runModelSweep({
+      ageGroups: groups,
+      teams,
+      games,
+      year: 2027,
+      today: "2026-10-31",
+      variants,
+    });
+    const of = (key: string) => read.variants.find((variant) => variant.key === key)!;
+    expect(of("own-ridge").squared).toBe(of("point").squared);
+    expect(of("no-shrink").squared).toBe(of("point").squared);
+    expect(of("margin-shrink-1").squared).not.toBe(of("point").squared);
+    expect(of("margin-ridge-1.5").squared).not.toBe(of("point").squared);
+    // The chances are the shipped ones to the digit, whatever the margin is read from.
+    for (const key of ["own-ridge", "no-shrink", "margin-shrink-1", "margin-ridge-1.5"]) {
+      expect([of(key).logLoss, of(key).brier]).toEqual([
+        of("shipped").logLoss,
+        of("shipped").brier,
+      ]);
     }
   });
 });

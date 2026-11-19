@@ -3286,6 +3286,12 @@ export type ScoutYearFit = {
   middle: number;
   confident: (rating: number, games: number) => number;
   pieces: ReturnType<typeof scheduleComponents>;
+  /**
+   * The ridge the fit was solved with, and the one its evidence (weighed games, discount, error)
+   * was read with: both `SCOUT_SHRINKAGE` on every board, and a research sweep's own otherwise.
+   */
+  ridge: number;
+  evidenceRidge: number;
 };
 
 /**
@@ -3322,6 +3328,47 @@ export type ScoutFitTuning = {
   shrinkage?: number;
   evidence?: number;
   standardErrors?: number;
+  /**
+   * A ridge read off how much the year's clubs have played, in place of `shrinkage`: this many
+   * games over the median club's rated games in the fit, held between `GAMES_RIDGE_BOUNDS`
+   * (`ridgeOverGames`), and the evidence's ridge with it unless `evidence` names its own. The sweep
+   * of 18 November 2026 found the ridge best for the chances lower the more a cut's clubs had
+   * played, about 0.5 to 0.75 on September's boards and 0.25 or below on October's and November's.
+   */
+  ridgeOverGames?: number;
+};
+
+/** The least and most a ridge read off the year's games (`ridgeOverGames`) comes to. */
+export const GAMES_RIDGE_BOUNDS = { low: 0.1, high: 1.5 } as const;
+
+/**
+ * `perMedian` games over the median club's rated games, over the clubs a board could list (no
+ * club known only by name and no slot), held between `GAMES_RIDGE_BOUNDS`: the high bound for a
+ * year whose median club has played nothing. A research setting (`ScoutFitTuning.ridgeOverGames`).
+ */
+export const ridgeOverGames = (
+  perMedian: number,
+  nodes: readonly ScoutTeam[],
+  rated: readonly RatedScoutGame[]
+): number => {
+  const played = new Map<string, number>();
+  rated.forEach(({ game }) => {
+    played.set(game.teamAId, (played.get(game.teamAId) ?? 0) + 1);
+    played.set(game.teamBId, (played.get(game.teamBId) ?? 0) + 1);
+  });
+  const counts = nodes
+    .filter((team) => !team.placeholder && !team.nameOnly)
+    .map((team) => played.get(team.id) ?? 0)
+    .sort((a, b) => a - b);
+  const half = Math.floor(counts.length / 2);
+  const median =
+    counts.length === 0
+      ? 0
+      : counts.length % 2 === 1
+        ? (counts[half] ?? 0)
+        : ((counts[half - 1] ?? 0) + (counts[half] ?? 0)) / 2;
+  if (median <= 0) return GAMES_RIDGE_BOUNDS.high;
+  return Math.min(GAMES_RIDGE_BOUNDS.high, Math.max(GAMES_RIDGE_BOUNDS.low, perMedian / median));
 };
 
 export const fitScoutYear = (
@@ -3361,9 +3408,13 @@ export const fitScoutYear = (
   const pieces = scheduleComponents(nodeIds, pairs);
   const communities = scheduleCommunities(nodeIds, pairs, pieces);
 
+  const ridge =
+    tuning.ridgeOverGames === undefined
+      ? (tuning.shrinkage ?? SCOUT_SHRINKAGE)
+      : ridgeOverGames(tuning.ridgeOverGames, nodes, rated);
   const adjusted = buildOpponentAdjustedRatings(nodeIds, yearFitGames(rated), {
     cap: tuning.cap ?? RATING_CAP,
-    shrinkage: tuning.shrinkage ?? SCOUT_SHRINKAGE,
+    shrinkage: ridge,
     priorCentre: startingLevels(communities),
   });
 
@@ -3387,7 +3438,8 @@ export const fitScoutYear = (
    * shown rating is the same number wherever it is listed, and an 8U that played up is still on
    * the same scale as the 9Us it played.
    */
-  const evidence = tuning.evidence ?? SCOUT_SHRINKAGE;
+  const evidence =
+    tuning.evidence ?? (tuning.ridgeOverGames === undefined ? SCOUT_SHRINKAGE : ridge);
   const effective = effectiveGames(
     adjusted,
     rated.map(({ game }) => [game.teamAId, game.teamBId] as const),
@@ -3417,6 +3469,8 @@ export const fitScoutYear = (
     middle,
     confident,
     pieces,
+    ridge,
+    evidenceRidge: evidence,
   };
 };
 
