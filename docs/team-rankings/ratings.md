@@ -671,8 +671,18 @@ reads each against it game by game, with a standard error that reads a club's ga
 
 - the model as every board read it until 18 November 2026 (`as-before`): one ridge of 1.5, a
   weight of 1.6 and one standard error of discount;
-- one ridge (`SCOUT_SHRINKAGE`) for the fit and the evidence alike at 0.25, 0.375, 0.75 and 1,
-  either way of the shipped half game;
+- one ridge (`SCOUT_SHRINKAGE`) for the fit and the evidence alike at 0.15, 0.25, 0.375, 0.75
+  and 1, either way of the shipped half game;
+- a ridge that falls as the year's clubs play (`ridgeOverGames`): 1.5, 2, 3 or 4 games over the
+  median club's rated games, held between a tenth of a game and 1.5, for the fit and the
+  evidence, and at 2 also on a weight of 1.6 and 3.2. On the shipped curve the ridge best for the
+  chances was 0.5 to 0.75 on September's boards and 0.25 or below on October's and November's;
+- the margin read apart from the chance, which stays the shipped one (`ModelVariant.margin`):
+  from the fit's own ratings on a second fit at a ridge of 1 or 1.5, or shrunk by 0.5, 1 or 2 of
+  the two clubs' errors' variance against the variance of the year's ratings, and the falling
+  ridge at 2 with its margin so shrunk. A weaker ridge made the chances better and the margins
+  worse in every month, and a margin carries none of the widening a chance has for an uncertain
+  pair;
 - the shown rating's discount (`EVIDENCE_STANDARD_ERRORS`) at 1, 1.25 and 2 standard errors,
   either way of the shipped 1.5;
 - a game's margin capped at 8, 10, 14 and 16 runs in the fit, against `RATING_CAP`'s 12;
