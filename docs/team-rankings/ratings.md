@@ -680,7 +680,11 @@ reads each against it game by game, with a standard error that reads a club's ga
 - the margin read apart from the chance, which stays the shipped one (`ModelVariant.margin`):
   from the fit's own ratings on a second fit at a ridge of 1 or 1.5, or shrunk by 0.5, 1 or 2 of
   the two clubs' errors' variance against the variance of the year's ratings, and the falling
-  ridge at 2 with its margin so shrunk. A weaker ridge made the chances better and the margins
+  ridge at 2 with its margin so shrunk. The shrink by one is also read in the two forms that never
+  name the other winner than the chance, as a forecast's headline names the chance's favourite and
+  the margin's size: stated as nothing where the two disagree (`agree`), and the shown ratings' gap
+  shrunk instead (`from: "shown"`). Each setting says how many games its margin named the other
+  club on. A weaker ridge made the chances better and the margins
   worse in every month, and a margin carries none of the widening a chance has for an uncertain
   pair;
 - the shown rating's discount (`EVIDENCE_STANDARD_ERRORS`) at 1, 1.25 and 2 standard errors,

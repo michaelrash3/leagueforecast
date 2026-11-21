@@ -75,9 +75,13 @@ export type ModelVariant = {
    *   fit and the evidence.
    * - `shrink`: the margin read from the fit's own ratings, times `V / (V + shrink × (errorA² +
    *   errorB²))`, where `V` is the variance of those ratings over the clubs a board could list:
-   *   the share of a gap that is the clubs and not the noise in measuring them.
+   *   the share of a gap that is the clubs and not the noise in measuring them. With `from`
+   *   "shown", the gap shrunk is the shown ratings' instead, the gap the chance reads, so the two
+   *   always name the same winner. With `agree`, a margin that names the other club than the one
+   *   the chance favours is stated as nothing, as a forecast's headline names the chance's
+   *   favourite and the margin's size (`forecastWords`).
    */
-  margin?: { ridge: number } | { shrink: number };
+  margin?: { ridge: number } | { shrink: number; from?: "point" | "shown"; agree?: boolean };
 };
 
 /** The shipped model first, then each setting moved on its own either way. */
@@ -144,6 +148,20 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
     why: `the margin from the fit's own ratings, shrunk by ${shrink} of the two errors' variance`,
     margin: { shrink },
   })),
+  /*
+   * The shrunk margin in the two forms a matchup could state it without naming the other winner
+   * than its chance: stated as nothing where the two disagree, or shrunk from the shown gap.
+   */
+  {
+    key: "margin-shrink-1-agree",
+    why: "margin-shrink-1, stated as nothing where it names the other winner than the chance",
+    margin: { shrink: 1, agree: true },
+  },
+  {
+    key: "margin-shrink-1-shown",
+    why: "the shown ratings' gap shrunk by 1 of the two errors' variance; the chances as shipped",
+    margin: { shrink: 1, from: "shown" },
+  },
   // Both at once: the falling ridge's chances, with its margins shrunk.
   ...[0.5, 1, 2].map((shrink): ModelVariant => ({
     key: `games-ridge-2-shrink-${shrink}`,
@@ -337,25 +355,28 @@ const predicted = (
     a: ratingErrorOn(fit, game.teamAId),
     b: ratingErrorOn(fit, game.teamBId),
   };
+  const win = chanceAt(a, b, level, variant.floor, {
+    ...(variant.share === undefined ? {} : { share: variant.share }),
+    ...(variant.weight === undefined ? {} : { weight: variant.weight }),
+    errors,
+  });
   let gap = a - b;
+  let against = false;
   if (variant.margin) {
     const ownOn = (id: string) => marginFit.adjusted.ratings.get(id) ?? 0;
-    gap = ownOn(game.teamAId) - ownOn(game.teamBId);
+    const shown = "shrink" in variant.margin && variant.margin.from === "shown";
+    gap = shown ? a - b : ownOn(game.teamAId) - ownOn(game.teamBId);
     if ("shrink" in variant.margin) {
       const variance = ratingVariance(marginFit);
       const noise =
         ratingErrorOn(marginFit, game.teamAId) ** 2 + ratingErrorOn(marginFit, game.teamBId) ** 2;
       gap *= variance / (variance + variant.margin.shrink * noise);
     }
+    // A margin for the first club beside a chance under evens for it, or the other way round.
+    against = (gap > 0 && win < 0.5) || (gap < 0 && win > 0.5);
+    if (against && "shrink" in variant.margin && variant.margin.agree) gap = 0;
   }
-  return {
-    margin: clamp(gap, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP),
-    win: chanceAt(a, b, level, variant.floor, {
-      ...(variant.share === undefined ? {} : { share: variant.share }),
-      ...(variant.weight === undefined ? {} : { weight: variant.weight }),
-      errors,
-    }),
-  };
+  return { margin: clamp(gap, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP), win, against };
 };
 
 /** One band of the shipped model's calibration: games whose favourite it gave this much. */
@@ -449,6 +470,12 @@ export type VariantReading = {
    * many of them clubs of fewer than `THIN_RECORD_GAMES` games on their record hold (`thinAtTheTop`).
    */
   top: { places: number; thin: number };
+  /**
+   * Of the scored games, how many the setting stated a margin for one club beside a chance under
+   * evens for it (`ModelVariant.margin`, before `agree` states it as nothing); 0 for a setting
+   * whose margin is its chance's gap.
+   */
+  against: number;
 };
 
 export type ModelSweep = {
@@ -547,6 +574,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
     seconds: 0,
     topPlaces: 0,
     topThin: 0,
+    against: 0,
   }));
   // Per variant, per slice and band: the games, the chances said to the side read, and its wins.
   const tallies = variants.map(() =>
@@ -662,6 +690,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
         const margin = clamp(ratedMargin(game) ?? 0, -RATING_CAP, RATING_CAP);
         const guess = predicted(fit, game, variant, marginFit);
         pile.squared.push((guess.margin - margin) ** 2);
+        if (guess.against) pile.against += 1;
         if (margin === 0) return;
         const won = margin > 0;
         const chance = clamp(won ? guess.win : 1 - guess.win, 1e-9, 1);
@@ -735,6 +764,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
       vsShipped: vs,
       seconds: pile.seconds,
       top: { places: pile.topPlaces, thin: pile.topThin },
+      against: pile.against,
     };
   });
 

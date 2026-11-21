@@ -608,6 +608,10 @@ describe("the research sweep of the shipped model", () => {
       { key: "no-shrink", why: "", margin: { shrink: 0 } },
       MODEL_VARIANTS.find(({ key }) => key === "margin-shrink-1")!,
       MODEL_VARIANTS.find(({ key }) => key === "margin-ridge-1.5")!,
+      MODEL_VARIANTS.find(({ key }) => key === "margin-shrink-1-agree")!,
+      MODEL_VARIANTS.find(({ key }) => key === "margin-shrink-1-shown")!,
+      // The shown gap shrunk by none of the errors is the shipped margin.
+      { key: "shown-no-shrink", why: "", margin: { shrink: 0, from: "shown" } },
     ];
     const read = runModelSweep({
       ageGroups: groups,
@@ -622,8 +626,26 @@ describe("the research sweep of the shipped model", () => {
     expect(of("no-shrink").squared).toBe(of("point").squared);
     expect(of("margin-shrink-1").squared).not.toBe(of("point").squared);
     expect(of("margin-ridge-1.5").squared).not.toBe(of("point").squared);
+    // A margin that is its chance's own gap, shrunk or not, never names the other winner.
+    expect(of("shipped").against).toBe(0);
+    expect(of("shown-no-shrink").squared).toBe(of("shipped").squared);
+    expect(of("shown-no-shrink").against).toBe(0);
+    expect(of("margin-shrink-1-shown").against).toBe(0);
+    expect(of("margin-shrink-1-shown").squared).not.toBe(of("shipped").squared);
+    // The fit's own gap, shrunk, names the other winner on some games of this autumn, and `agree`
+    // counts the same games and states each as nothing.
+    expect(of("margin-shrink-1").against).toBeGreaterThan(0);
+    expect(of("margin-shrink-1-agree").against).toBe(of("margin-shrink-1").against);
+    expect(of("margin-shrink-1-agree").squared).not.toBe(of("margin-shrink-1").squared);
     // The chances are the shipped ones to the digit, whatever the margin is read from.
-    for (const key of ["own-ridge", "no-shrink", "margin-shrink-1", "margin-ridge-1.5"]) {
+    for (const key of [
+      "own-ridge",
+      "no-shrink",
+      "margin-shrink-1",
+      "margin-ridge-1.5",
+      "margin-shrink-1-agree",
+      "margin-shrink-1-shown",
+    ]) {
       expect([of(key).logLoss, of(key).brier]).toEqual([
         of("shipped").logLoss,
         of("shipped").brier,

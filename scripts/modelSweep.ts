@@ -454,6 +454,17 @@ const describeSweep = (sweep: ModelSweep) => {
     const share = places > 0 ? ((thin / places) * 100).toFixed(1) : "-";
     say(`    ${variant.key.padEnd(keyWidth)}${String(thin).padStart(7)} of ${places}  (${share}%)`);
   }
+  // Only a margin read apart from its chance can name the other winner.
+  const against = sweep.variants.filter((variant) => variant.against > 0);
+  if (against.length > 0) {
+    say(
+      `\n  Of the ${sweep.games} scored games, those whose stated margin names the other club than the chance favours:`
+    );
+    for (const variant of against) {
+      const share = ((variant.against / Math.max(1, sweep.games)) * 100).toFixed(1);
+      say(`    ${variant.key.padEnd(keyWidth)}${String(variant.against).padStart(7)}  (${share}%)`);
+    }
+  }
   say("\n  The shipped model's calibration: the favourite's chance, and how often it won:");
   say("    chance said     games   said    won");
   for (const band of sweep.calibration) {
