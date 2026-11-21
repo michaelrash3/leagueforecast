@@ -26,6 +26,7 @@ export const ROW_FIELDS: { [K in keyof ScoutRankingRow]-?: FieldKind } = {
   rating: "number",
   pointRating: "number",
   ratingError: "number?",
+  ratingVariance: "number?",
   levelPrior: "number?",
   outsideGames: "number?",
   record: "string",

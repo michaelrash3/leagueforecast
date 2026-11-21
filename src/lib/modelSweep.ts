@@ -6,6 +6,8 @@ import {
   ageGroupYear,
   fitScoutYear,
   MATCHUP_MARGIN_CAP,
+  MATCHUP_MARGIN_SHRINK,
+  matchupMarginShare,
   MATCHUP_ODDS_ERROR_WEIGHT,
   MATCHUP_ODDS_PROVEN_SHARE,
   MATCHUP_PROBABILITY_FLOOR,
@@ -13,7 +15,6 @@ import {
   RATING_CAP,
   ratedMargin,
   ratingErrorOf,
-  SCOUT_SHRINKAGE,
   scoutFitRanks,
   scoutRatingGames,
   type AgeGroup,
@@ -68,6 +69,18 @@ export type ModelVariant = {
    * off its side of the margin, about a run between a four-game club and a forty-game one.
    */
   ratings?: "shown" | "point";
+  /**
+   * The margin a matchup states, apart from its chance, which stays the setting's own. Left out, as
+   * shipped since 21 November 2026 (`matchupMarginShare`): the gap the chance reads, times
+   * `V / (V + shrink × (errorA² + errorB²))`, where `V` is the variance of the fit's own ratings over
+   * the clubs a board could list, at `MATCHUP_MARGIN_SHRINK`.
+   * - `shrink`: another weight of the two errors' variance; 0 states the whole gap, as every
+   *   matchup did until 21 November 2026.
+   * - `from` "point": the fit's own ratings' gap shrunk instead, which can name the other club
+   *   than the chance on a thin record; `agree` states such a margin as nothing, as a forecast's
+   *   headline names the chance's favourite and states the margin's size (`forecastWords`).
+   */
+  margin?: { shrink?: number; from?: "chance" | "point"; agree?: boolean };
 };
 
 /** The shipped model first, then each setting moved on its own either way. */
@@ -80,9 +93,10 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
    */
   {
     key: "as-before",
-    why: "one ridge of 1.5, a weight of 1.6, one error of discount, as boards read until 18 November 2026",
+    why: "one ridge of 1.5, a weight of 1.6, one error of discount, the whole gap as the margin, as boards read until 18 November 2026",
     tuning: { shrinkage: 1.5, evidence: 1.5, standardErrors: 1 },
     weight: 1.6,
+    margin: { shrink: 0 },
   },
   /*
    * The shown rating's discount (`EVIDENCE_STANDARD_ERRORS`) either way of the shipped 1.5 errors.
@@ -96,14 +110,56 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
   })),
   /*
    * One ridge (`SCOUT_SHRINKAGE`) for the fit and the evidence alike, either way of the shipped
-   * half game. The best ridge has fallen as a year's clubs played more games: about 1.125 on the
-   * boards of September 2026, 0.25 to 0.375 on October's, 0.15 or less on November's.
+   * half game. On the shipped curve and discount, the best for the chances was 0.5 to 0.75 on the
+   * boards of September 2026 and 0.25 or below on October's and November's (18 November 2026).
    */
-  ...[0.25, 0.375, 0.75, 1].map((ridge): ModelVariant => ({
+  ...[0.15, 0.25, 0.375, 0.75, 1].map((ridge): ModelVariant => ({
     key: `ridge-${ridge}`,
     why: `one ridge of ${ridge} games for the fit and the evidence`,
     tuning: { shrinkage: ridge, evidence: ridge },
   })),
+  /*
+   * A ridge that falls as the year's clubs play: so many games over the median club's rated
+   * games (`ridgeOverGames`), for the fit and the evidence. At 2, a median club of three games is
+   * held by two thirds of a game and one of ten by a fifth.
+   */
+  ...[1.5, 2, 3, 4].map((perMedian): ModelVariant => ({
+    key: `games-ridge-${perMedian}`,
+    why: `a ridge of ${perMedian} games over the median club's games, for the fit and the evidence`,
+    tuning: { ridgeOverGames: perMedian },
+  })),
+  ...[1.6, 3.2].map((weight): ModelVariant => ({
+    key: `games-ridge-2-w${weight}`,
+    why: `games-ridge-2 on a weight of ${weight}`,
+    tuning: { ridgeOverGames: 2 },
+    weight,
+  })),
+  /*
+   * The margin a matchup states (`ModelVariant.margin`), the chances as shipped: the whole gap, as
+   * every matchup stated it until 21 November 2026; the shipped shrink by half and by two of the two
+   * errors' variance; and the fit's own gap shrunk, which was as good but named the other club than
+   * the chance on 5.6%, 4.8% and 3.8% of games (Actions run 44916980269), with and without `agree`.
+   */
+  {
+    key: "margin-whole",
+    why: "the whole gap as the margin, as every matchup stated it until 21 November 2026",
+    margin: { shrink: 0 },
+  },
+  ...[0.5, 2].map((shrink): ModelVariant => ({
+    key: `margin-shrink-${shrink}`,
+    why: `the margin shrunk by ${shrink} of the two errors' variance`,
+    margin: { shrink },
+  })),
+  {
+    key: "margin-point",
+    why: "the fit's own gap shrunk as the margin, which can name the other winner",
+    margin: { from: "point" },
+  },
+  {
+    key: "margin-point-agree",
+    why: "margin-point, stated as nothing where it names the other winner than the chance",
+    margin: { from: "point", agree: true },
+  },
   { key: "cap-8", why: "a game's margin capped at 8 runs in the fit", tuning: { cap: 8 } },
   { key: "cap-10", why: "at 10", tuning: { cap: 10 } },
   { key: "cap-14", why: "at 14", tuning: { cap: 14 } },
@@ -184,11 +240,11 @@ export const chanceAt = (
 
 /**
  * How far a club's rating on a fit could be off, in runs: what the shown rating's discount reads,
- * with the ridge the setting reads the evidence with (`ScoutFitTuning.evidence`), the boards' own
- * (`SCOUT_SHRINKAGE`) when it names none.
+ * with the ridge the fit read its evidence with (`ScoutYearFit.evidenceRidge`), the boards' own
+ * (`SCOUT_SHRINKAGE`) unless a setting moved it.
  */
-const ratingErrorOn = (fit: ScoutYearFit, id: string, evidence: number = SCOUT_SHRINKAGE) =>
-  ratingErrorOf(fit.effective.get(id) ?? 0, fit.adjusted.residualScale, evidence);
+const ratingErrorOn = (fit: ScoutYearFit, id: string) =>
+  ratingErrorOf(fit.effective.get(id) ?? 0, fit.adjusted.residualScale, fit.evidenceRidge);
 
 /** The places at the top of each ranked board the sweep counts, and the record a club is thin under. */
 export const BOARD_TOP = 25;
@@ -263,19 +319,24 @@ const predicted = (fit: ScoutYearFit, game: ScoutGame, variant: ModelVariant) =>
   const a = read(game.teamAId);
   const b = read(game.teamBId);
   const level = fit.homeLevels.get(game.teamAId) ?? fit.homeLevels.get(game.teamBId);
-  const evidence = variant.tuning?.evidence;
   const errors = {
-    a: ratingErrorOn(fit, game.teamAId, evidence),
-    b: ratingErrorOn(fit, game.teamBId, evidence),
+    a: ratingErrorOn(fit, game.teamAId),
+    b: ratingErrorOn(fit, game.teamBId),
   };
-  return {
-    margin: clamp(a - b, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP),
-    win: chanceAt(a, b, level, variant.floor, {
-      ...(variant.share === undefined ? {} : { share: variant.share }),
-      ...(variant.weight === undefined ? {} : { weight: variant.weight }),
-      errors,
-    }),
-  };
+  const win = chanceAt(a, b, level, variant.floor, {
+    ...(variant.share === undefined ? {} : { share: variant.share }),
+    ...(variant.weight === undefined ? {} : { weight: variant.weight }),
+    errors,
+  });
+  const gap = variant.margin?.from === "point" ? own(game.teamAId) - own(game.teamBId) : a - b;
+  // As `predictMatchup` states it (`matchupMarginShare`), at the setting's shrink.
+  let margin =
+    gap *
+    matchupMarginShare(errors, fit.ratingVariance, variant.margin?.shrink ?? MATCHUP_MARGIN_SHRINK);
+  // A margin for the first club beside a chance under evens for it, or the other way round.
+  const against = (margin > 0 && win < 0.5) || (margin < 0 && win > 0.5);
+  if (against && variant.margin?.agree) margin = 0;
+  return { margin: clamp(margin, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP), win, against };
 };
 
 /** One band of the shipped model's calibration: games whose favourite it gave this much. */
@@ -369,6 +430,12 @@ export type VariantReading = {
    * many of them clubs of fewer than `THIN_RECORD_GAMES` games on their record hold (`thinAtTheTop`).
    */
   top: { places: number; thin: number };
+  /**
+   * Of the scored games, how many the setting stated a margin for one club beside a chance under
+   * evens for it (`ModelVariant.margin`, before `agree` states it as nothing); 0 for a setting
+   * whose margin is its chance's gap, shrunk or whole.
+   */
+  against: number;
 };
 
 export type ModelSweep = {
@@ -387,6 +454,8 @@ export type ModelSweep = {
      * could list: how much the cut's clubs had played, which the ridge best for a cut follows.
      */
     medianGames: number;
+    /** The ridge each setting that reads one off the year's games came to (`ridgeOverGames`). */
+    ridges: { key: string; ridge: number }[];
   }[];
   /** Every scored game, and the decided ones the chances are scored on. */
   games: number;
@@ -465,6 +534,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
     seconds: 0,
     topPlaces: 0,
     topThin: 0,
+    against: 0,
   }));
   // Per variant, per slice and band: the games, the chances said to the side read, and its wins.
   const tallies = variants.map(() =>
@@ -480,7 +550,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
   const cutReadings: ModelSweep["cuts"] = [];
   // Each distinct fit once a cut: the floors share the shipped fit.
   const tuningKey = (variant: ModelVariant) =>
-    `${variant.tuning?.cap ?? ""}|${variant.tuning?.shrinkage ?? ""}|${variant.tuning?.evidence ?? ""}|${variant.tuning?.standardErrors ?? ""}`;
+    `${variant.tuning?.cap ?? ""}|${variant.tuning?.shrinkage ?? ""}|${variant.tuning?.evidence ?? ""}|${variant.tuning?.standardErrors ?? ""}|${variant.tuning?.ridgeOverGames ?? ""}`;
 
   for (const cut of cuts) {
     const trained = scoutRatingGames(page.id, teams, games, ageGroups, undefined, cut);
@@ -526,6 +596,11 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
           .filter((team) => !team.placeholder && !team.nameOnly)
           .map((team) => shipped.effective.get(team.id) ?? 0)
       ),
+      ridges: variants.flatMap((variant, at) =>
+        variant.tuning?.ridgeOverGames === undefined
+          ? []
+          : [{ key: variant.key, ridge: fitOf(variant, at).ridge }]
+      ),
     });
     // Each game's place in the slices, off the shipped fit, so a band holds the same games for all.
     const cutAt = dayInstant(cut);
@@ -564,6 +639,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
         const margin = clamp(ratedMargin(game) ?? 0, -RATING_CAP, RATING_CAP);
         const guess = predicted(fit, game, variant);
         pile.squared.push((guess.margin - margin) ** 2);
+        if (guess.against) pile.against += 1;
         if (margin === 0) return;
         const won = margin > 0;
         const chance = clamp(won ? guess.win : 1 - guess.win, 1e-9, 1);
@@ -637,6 +713,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
       vsShipped: vs,
       seconds: pile.seconds,
       top: { places: pile.topPlaces, thin: pile.topThin },
+      against: pile.against,
     };
   });
 

@@ -16,7 +16,9 @@ should lose, by how many runs, and each side's chance ("Hill Hawks should beat R
 Otters by 2.3 runs. Win chance: Hill Hawks 64%, River Otters 36%"). The numbers are
 `previewMatchup`'s, the same the report gives that club added by name, put into words
 by `forecastWords`; a margin too small to move either chance off 50% is called dead
-even rather than handed a winner. It carries no caveat, even for two clubs nothing in
+even rather than handed a winner. The margin is the gap between the two shown ratings
+pulled toward even for how far either could be off (`matchupMarginShare`), which the
+line under it says (`marginWhy`); see "The model, measured" for why. It carries no caveat, even for two clubs nothing in
 the pool joins: every forecast is an estimate, and the answer is what was asked for.
 A club picked on another page that is not ranked on this one says so. The answer
 needs only the two ratings, so it shows the moment a club is picked.

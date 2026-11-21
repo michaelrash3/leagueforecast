@@ -421,6 +421,13 @@ const describeSweep = (sweep: ModelSweep) => {
       `  ${cut.cut}  ${String(cut.trained).padStart(19)}  ${String(cut.scored).padStart(13)}  ${String(cut.decided).padStart(8)}  ${String(cut.crossAge).padStart(10)}  ${String(cut.standIns).padStart(9)}   ${cut.residualScale.toFixed(3).padStart(14)}   ${cut.medianGames.toFixed(1).padStart(27)}`
     );
   }
+  // What each ridge read off the year's games came to on each cut.
+  for (const cut of sweep.cuts) {
+    if (cut.ridges.length === 0) continue;
+    say(
+      `  ${cut.cut} ridges read off the games: ${cut.ridges.map(({ key, ridge }) => `${key} ${ridge.toFixed(3)}`).join(", ")}`
+    );
+  }
   say(
     `  Scored: ${sweep.games} games over the cuts, ${sweep.decided} of them decided; ` +
       `${sweep.crossAge} across ages and ${sweep.standIns} with a stand-in left out, ` +
@@ -446,6 +453,17 @@ const describeSweep = (sweep: ModelSweep) => {
     const { places, thin } = variant.top;
     const share = places > 0 ? ((thin / places) * 100).toFixed(1) : "-";
     say(`    ${variant.key.padEnd(keyWidth)}${String(thin).padStart(7)} of ${places}  (${share}%)`);
+  }
+  // Only a margin read apart from its chance can name the other winner.
+  const against = sweep.variants.filter((variant) => variant.against > 0);
+  if (against.length > 0) {
+    say(
+      `\n  Of the ${sweep.games} scored games, those whose stated margin names the other club than the chance favours:`
+    );
+    for (const variant of against) {
+      const share = ((variant.against / Math.max(1, sweep.games)) * 100).toFixed(1);
+      say(`    ${variant.key.padEnd(keyWidth)}${String(variant.against).padStart(7)}  (${share}%)`);
+    }
   }
   say("\n  The shipped model's calibration: the favourite's chance, and how often it won:");
   say("    chance said     games   said    won");

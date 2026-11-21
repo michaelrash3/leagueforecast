@@ -1,5 +1,10 @@
-import { MATCHUP_MARGIN_CAP } from "./teamRankings";
-import type { MatchupPreview } from "./teamRankings/types";
+import {
+  MATCHUP_MARGIN_CAP,
+  matchupErrorsOf,
+  matchupMarginShare,
+  matchupVarianceOf,
+} from "./teamRankings";
+import type { MatchupPreview, ScoutRankingRow } from "./teamRankings/types";
 
 /** "2.3 runs", "1.0 run", and the clamp the projection never states past. */
 const runsOf = (margin: number): string => {
@@ -51,6 +56,20 @@ export const forecastWords = (
     chances: `Win chance: ${winner} ${winnerPct}%, ${loser} ${100 - winnerPct}%`,
   };
 };
+
+/**
+ * What a forecast's margin is, said after the two ratings it is read from: the gap between them,
+ * and, where the two rows carry what pulls it toward even (`matchupMarginShare`), that it is
+ * pulled toward even for how far either rating could be off. A row of a board built before rows
+ * carried the year's variance states the whole gap, and is said as one.
+ */
+export const marginWhy = (
+  a: Pick<ScoutRankingRow, "ratingError" | "ratingVariance">,
+  b: Pick<ScoutRankingRow, "ratingError" | "ratingVariance">
+): string =>
+  matchupMarginShare(matchupErrorsOf(a, b), matchupVarianceOf(a, b)) < 1
+    ? "the margin is the gap between them, pulled toward even for how far either rating could be off"
+    : "the margin is the gap between them";
 
 /** "+2.1", "-0.4", and "0.0" for anything that rounds to nothing, which `toFixed` signs "-0.0". */
 export const formatRating = (rating: number): string => {

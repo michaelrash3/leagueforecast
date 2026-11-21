@@ -454,6 +454,13 @@ export type ScoutRankingRow = {
    */
   ratingError?: number;
   /**
+   * The variance of the fit's own ratings over its year's clubs, in runs², the same on every row of
+   * a fit: what a matchup's projected margin is pulled toward even against, by the two clubs'
+   * errors (`matchupMarginShare`). Left out on a row of a board built before rows carried it,
+   * whose matchups state the whole gap between the two shown ratings.
+   */
+  ratingVariance?: number;
+  /**
    * Where the fit started this club, in runs: the level its ridge's virtual games were played at
    * (`startingLevel`), below average by as much as its league keeps to itself. It is in
    * `pointRating` already; it is here because a device rebuilding that rating from the club's

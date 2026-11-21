@@ -671,8 +671,20 @@ reads each against it game by game, with a standard error that reads a club's ga
 
 - the model as every board read it until 18 November 2026 (`as-before`): one ridge of 1.5, a
   weight of 1.6 and one standard error of discount;
-- one ridge (`SCOUT_SHRINKAGE`) for the fit and the evidence alike at 0.25, 0.375, 0.75 and 1,
-  either way of the shipped half game;
+- one ridge (`SCOUT_SHRINKAGE`) for the fit and the evidence alike at 0.15, 0.25, 0.375, 0.75
+  and 1, either way of the shipped half game;
+- a ridge that falls as the year's clubs play (`ridgeOverGames`): 1.5, 2, 3 or 4 games over the
+  median club's rated games, held between a tenth of a game and 1.5, for the fit and the
+  evidence, and at 2 also on a weight of 1.6 and 3.2. On the shipped curve the ridge best for the
+  chances was 0.5 to 0.75 on September's boards and 0.25 or below on October's and November's;
+- the margin a matchup states, apart from its chance, which stays the shipped one
+  (`ModelVariant.margin`): the whole gap, as every matchup stated it until 21 November 2026
+  (`margin-whole`); the shown gap pulled toward even by half or by two of the two clubs' errors'
+  variance, about the shipped one; and the fit's own gap so pulled (`margin-point`), with its
+  margin stated as nothing where it names the other club than the chance (`margin-point-agree`).
+  Each setting says how many games its margin named the other club on. A weaker ridge made the chances better and the margins
+  worse in every month, and a margin carries none of the widening a chance has for an uncertain
+  pair;
 - the shown rating's discount (`EVIDENCE_STANDARD_ERRORS`) at 1, 1.25 and 2 standard errors,
   either way of the shipped 1.5;
 - a game's margin capped at 8, 10, 14 and 16 runs in the fit, against `RATING_CAP`'s 12;
@@ -791,3 +803,31 @@ so the weekly re-measure of the starting level reads it less surely, and a plant
 further below its start to be named. The panel's estimate of what each game did (**Moved**) is
 looser too, since an opponent's rating answers each game more: on the seeded fixture it was off by
 0.070 runs at the 95th percentile, against 0.052 on the ridge of 1.5, and never the wrong way.
+
+What it found on the cloud copies of 19 and 21 November 2026 (GitHub runs 44601244858 and
+44916980269), on the same three months' boards, asked whether the margins could be had back
+without the chances:
+
+- A ridge read off how much the year's clubs had played (`ridgeOverGames`), at two games over the
+  median club's, came to 0.67 in September, 0.4 to 0.29 in October and 0.2 in November. It did not
+  help September's chances (z 0.2), which is where the margins were worst. It helped October's and
+  November's (log loss 0.0017 and 0.0029 lower, z 14.5 and 9.0) but lifted short records into the
+  top 25 again: 6.3% and 4.8% of places, against 4.7% and 1.6%.
+- The margin read apart from the chance did what the ridge could not. The shown ratings' gap,
+  pulled toward even by one of the two clubs' errors' variance against the variance of the year's
+  ratings, had a squared error of 40.89, 35.80 and 32.90 runs² against the whole gap's 45.89,
+  38.14 and 33.98, and less than the old ridge's 42.08, 36.89 and 33.58. A pull of half or of two
+  was close behind, a second fit at a stronger ridge did less well, and adding the falling ridge
+  bettered the margins by no more than a tenth of a run².
+- The fit's own ratings' gap pulled the same way was as good, but named the other club than the
+  chance on 5.6%, 4.8% and 3.8% of games, a thin record's own rating sitting above its shown one.
+  A forecast's headline names the chance's favourite and states the margin's size
+  (`forecastWords`), so the shown gap is what is pulled; it never names the other club.
+
+So since 21 November 2026 (board rules 13) a matchup's projected margin is its shown ratings' gap
+times `V / (V + errorA² + errorB²)` (`matchupMarginShare`, `MATCHUP_MARGIN_SHRINK`), each row
+carrying `V`, the variance of the fit's own ratings over the year's clubs (`ratingVariance`). No
+rating, rank or chance moves. The same gap promises fewer runs between two short records than
+between two long ones, and a forecast says so ("pulled toward even for how far either rating could
+be off"). A row of a board built under 12 carries no variance and states the whole gap until the
+board is rebuilt. The sweep's `margin-whole` is the margin as it was.

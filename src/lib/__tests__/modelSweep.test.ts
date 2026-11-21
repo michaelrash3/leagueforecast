@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import { chanceAt, MODEL_VARIANTS, runModelSweep, type ModelVariant } from "../modelSweep";
 import {
   fitScoutYear,
+  GAMES_RIDGE_BOUNDS,
   MATCHUP_MARGIN_CAP,
   predictMatchup,
   RATING_CAP,
+  ridgeOverGames,
+  SCOUT_SHRINKAGE,
   scoutRatingGames,
   type AgeGroup,
   type ScoutGame,
@@ -151,10 +154,14 @@ describe("the research sweep of the shipped model", () => {
     expect(reading("as-before")).toEqual([
       0.4367961184705736, 0.1428247414510809, 14.338066623403552,
     ]);
-    expect(reading("discount-1")).toEqual([
-      0.4358900046932309, 0.14224468380553787, 14.395171035758334,
-    ]);
-    expect(reading("shipped")).toEqual([0.4347310981263926, 0.1418052191810378, 14.40378798392126]);
+    // Their chances read as they did then. Their margins were re-taken on 21 November 2026, when a
+    // matchup's margin came to be shrunk by the two clubs' errors (`MATCHUP_MARGIN_SHRINK`); stated
+    // as the whole gap they read as then, 14.395171035758334 and 14.40378798392126, the second of
+    // which `margin-whole` holds. "as-before" states the whole gap still.
+    expect(reading("discount-1").slice(0, 2)).toEqual([0.4358900046932309, 0.14224468380553787]);
+    expect(reading("shipped").slice(0, 2)).toEqual([0.4347310981263926, 0.1418052191810378]);
+    expect(reading("discount-1")[2]).toBe(14.347539905464506);
+    expect(reading("shipped")[2]).toBe(14.332104827214291);
   });
 
   it("moves the fit with the ridge and the cap, and only the chance with the floor", () => {
@@ -318,6 +325,8 @@ describe("the research sweep of the shipped model", () => {
         ...(kind === "floor" ? { floor: value } : {}),
         share: kind === "spread" ? value : 1,
         weight: 0,
+        // The whole gap, as every matchup stated it until 21 November 2026.
+        margin: { shrink: 0 },
       };
     };
     const before: Array<[string, number, number, number]> = [
@@ -531,6 +540,98 @@ describe("the research sweep of the shipped model", () => {
     for (const band of sweep.calibration.filter((one) => one.games > 0)) {
       expect(band.said).toBeGreaterThanOrEqual(band.from - 1e-9);
       expect(band.said).toBeLessThanOrEqual(band.to + 1e-9);
+    }
+  });
+
+  it("reads a ridge off the median club's games, held between its bounds", () => {
+    const clubs: ScoutTeam[] = [
+      { id: "A", name: "A" },
+      { id: "B", name: "B" },
+      { id: "C", name: "C" },
+      { id: "slot", name: "Winner of game 1", placeholder: true } as ScoutTeam,
+    ];
+    const game = (id: string, a: string, b: string) => ({
+      game: {
+        id,
+        ageGroupId: PAGE,
+        teamAId: a,
+        teamBId: b,
+        teamAScore: 5,
+        teamBScore: 3,
+        date: "2026-08-01",
+      },
+      ageGap: 0,
+    });
+    // A plays four, B three, C one: the median club, B, has three. The slot's four games are not
+    // a club's, so they count toward no median.
+    const rated = [
+      game("1", "A", "B"),
+      game("2", "A", "B"),
+      game("3", "A", "B"),
+      game("4", "A", "C"),
+      ...["5", "6", "7", "8"].map((id) => game(id, "slot", "slot")),
+    ];
+    expect(ridgeOverGames(1.5, clubs, rated)).toBe(0.5);
+    expect(ridgeOverGames(30, clubs, rated)).toBe(GAMES_RIDGE_BOUNDS.high);
+    expect(ridgeOverGames(0.03, clubs, rated)).toBe(GAMES_RIDGE_BOUNDS.low);
+    // A year whose median club has played nothing is held as hard as any.
+    expect(ridgeOverGames(2, clubs, [])).toBe(GAMES_RIDGE_BOUNDS.high);
+  });
+
+  it("fits on the ridge it reads off the games as a fit given that ridge for both", () => {
+    const trained = scoutRatingGames(PAGE, teams, games, groups, undefined, "2026-09-15");
+    const read = fitScoutYear(2027, teams, games, trained, groups, { ridgeOverGames: 2 });
+    const ridge = ridgeOverGames(2, read.nodes, trained);
+    expect(read.ridge).toBe(ridge);
+    expect(read.evidenceRidge).toBe(ridge);
+    expect(ridge).not.toBe(SCOUT_SHRINKAGE);
+    const given = fitScoutYear(2027, teams, games, trained, groups, {
+      shrinkage: ridge,
+      evidence: ridge,
+    });
+    expect([...read.adjusted.ratings]).toEqual([...given.adjusted.ratings]);
+    expect([...read.effective]).toEqual([...given.effective]);
+    // The boards' fit says it read both at the boards' ridge.
+    const plain = fitScoutYear(2027, teams, games, trained, groups);
+    expect([plain.ridge, plain.evidenceRidge]).toEqual([SCOUT_SHRINKAGE, SCOUT_SHRINKAGE]);
+    // And each cut of the sweep says what every ridge read off its games came to.
+    for (const cut of sweep.cuts) {
+      expect(cut.ridges.map(({ key }) => key)).toEqual(
+        MODEL_VARIANTS.filter(({ tuning }) => tuning?.ridgeOverGames !== undefined).map(
+          ({ key }) => key
+        )
+      );
+    }
+  });
+
+  it("reads a margin apart from the chance, which stays the setting's own", () => {
+    const of = (key: string) => sweep.variants.find((variant) => variant.key === key)!;
+    // The whole gap is the margin every matchup stated before the shrink, so it reads the shipped
+    // margin's error as pinned on 17 November, to the digit, and `as-before` reads its own as then.
+    expect(of("margin-whole").squared).toBe(14.40378798392126);
+    expect(of("as-before").squared).toBe(14.338066623403552);
+    expect(of("shipped").squared).not.toBe(of("margin-whole").squared);
+    // A margin that is its chance's own gap, shrunk or whole, never names the other winner.
+    for (const key of ["shipped", "margin-whole", "margin-shrink-0.5", "margin-shrink-2"]) {
+      expect(of(key).against).toBe(0);
+    }
+    // The fit's own gap, shrunk, names the other winner on some games of this autumn, and `agree`
+    // counts the same games and states each as nothing.
+    expect(of("margin-point").against).toBeGreaterThan(0);
+    expect(of("margin-point-agree").against).toBe(of("margin-point").against);
+    expect(of("margin-point-agree").squared).not.toBe(of("margin-point").squared);
+    // The chances are the shipped ones to the digit, whatever the margin is read from.
+    for (const key of [
+      "margin-whole",
+      "margin-shrink-0.5",
+      "margin-shrink-2",
+      "margin-point",
+      "margin-point-agree",
+    ]) {
+      expect([of(key).logLoss, of(key).brier]).toEqual([
+        of("shipped").logLoss,
+        of("shipped").brier,
+      ]);
     }
   });
 });

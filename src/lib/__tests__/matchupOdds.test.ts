@@ -2,11 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   buildScoutingReport,
   buildTeamRankings,
+  fitScoutYear,
+  MATCHUP_MARGIN_CAP,
+  MATCHUP_MARGIN_SHRINK,
   matchupErrorsOf,
+  matchupMarginShare,
+  matchupVarianceOf,
   matchupOddsSpread,
   matchupOddsWidth,
   predictMatchup,
   previewMatchup,
+  ratingVarianceOver,
   type ScoutGame,
   type ScoutTeam,
 } from "../teamRankings";
@@ -264,7 +270,127 @@ describe("the odds curve as wide as a matchup's evidence", () => {
     expect(predictMatchup(3, 0, 12, thin).winProbA).toBeLessThan(single);
     expect(predictMatchup(40, 0, 12, proven).winProbA).toBeCloseTo(0.92, 10);
     expect(predictMatchup(0, 40, 12, proven).winProbA).toBeCloseTo(0.08, 10);
-    // The margin is the ratings' gap, whatever the curve.
+    // Given no variance, the margin is the ratings' gap, whatever the curve.
     expect(predictMatchup(3, 0, 12, thin).projectedMargin).toBe(3);
+  });
+});
+
+/*
+ * The margin a matchup states: the shown ratings' gap pulled toward even by the two clubs' errors,
+ * against the variance of the year's ratings (`matchupMarginShare`, 21 November 2026). The chance
+ * still reads the whole gap, so no chance moves.
+ */
+describe("the margin a matchup states", () => {
+  it("is the gap times V / (V + errorA² + errorB²), and no chance moves", () => {
+    expect(MATCHUP_MARGIN_SHRINK).toBe(1);
+    const errors = { a: 1.5, b: 2 };
+    const variance = 9;
+    const read = predictMatchup(3, 0, 12, errors, variance);
+    // 9 / (9 + 2.25 + 4) of three runs.
+    expect(read.projectedMargin).toBeCloseTo((3 * 9) / 15.25, 12);
+    expect(read.winProbA).toBe(predictMatchup(3, 0, 12, errors).winProbA);
+    // The same pull from the other bench, and none for two clubs known exactly.
+    expect(predictMatchup(0, 3, 12, errors, variance).projectedMargin).toBe(-read.projectedMargin);
+    expect(predictMatchup(3, 0, 12, { a: 0, b: 0 }, variance).projectedMargin).toBe(3);
+    // Held to the cap after the pull, as before it.
+    expect(predictMatchup(60, 0, 12, errors, variance).projectedMargin).toBe(MATCHUP_MARGIN_CAP);
+  });
+
+  it("states the whole gap where an error or the year's variance is not known", () => {
+    expect(predictMatchup(3, 0, 12).projectedMargin).toBe(3);
+    expect(predictMatchup(3, 0, 12, { a: 1, b: 1 }).projectedMargin).toBe(3);
+    expect(predictMatchup(3, 0, 12, undefined, 9).projectedMargin).toBe(3);
+    for (const variance of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(matchupMarginShare({ a: 1, b: 1 }, variance)).toBe(1);
+    }
+    expect(matchupMarginShare({ a: Number.NaN, b: 1 }, 9)).toBe(1);
+    // A shrink of nought, which a research sweep reads, states the whole gap too.
+    expect(matchupMarginShare({ a: 1, b: 1 }, 9, 0)).toBe(1);
+    expect(matchupVarianceOf({ ratingVariance: 4 }, {})).toBeUndefined();
+    expect(matchupVarianceOf({}, { ratingVariance: 4 })).toBeUndefined();
+    expect(matchupVarianceOf({ ratingVariance: 4 }, { ratingVariance: 4 })).toBe(4);
+  });
+
+  it("never names the other club than the chance, and never states more than the gap", () => {
+    for (const gap of [-9, -3, -0.4, -0.01, 0.01, 0.4, 3, 9]) {
+      for (const error of [0.3, 1, 2.6, 5]) {
+        const read = predictMatchup(gap, 0, 12, { a: error, b: 0.5 }, 6);
+        expect(Math.sign(read.projectedMargin)).toBe(Math.sign(read.winProbA - 0.5));
+        expect(Math.abs(read.projectedMargin)).toBeLessThan(Math.abs(gap));
+      }
+    }
+  });
+
+  it("is carried on every row as its fit's variance, and read by a preview", () => {
+    const teams: ScoutTeam[] = ["A", "B", "C", "D"].map((id) => ({ id, name: `Club ${id}` }));
+    const game = (id: string, a: string, b: string, sa: number, sb: number): ScoutGame => ({
+      id,
+      ageGroupId: "ag1",
+      teamAId: a,
+      teamBId: b,
+      teamAScore: sa,
+      teamBScore: sb,
+      date: "2026-08-01",
+    });
+    const games = [game("1", "A", "B", 9, 2), game("2", "B", "C", 6, 4), game("3", "C", "D", 5, 5)];
+    const rows = buildTeamRankings("ag1", teams, games);
+    const ratings = new Map(rows.map((row) => [row.teamId, row.pointRating]));
+    const variance = ratingVarianceOver(
+      ratings,
+      teams.map(({ id }) => id)
+    );
+    expect(variance).toBeGreaterThan(0);
+    for (const row of rows) expect(row.ratingVariance).toBe(variance);
+    const [a, b] = [
+      rows.find((row) => row.teamId === "A")!,
+      rows.find((row) => row.teamId === "C")!,
+    ];
+    const preview = previewMatchup(a, b);
+    const share = matchupMarginShare(matchupErrorsOf(a, b), variance);
+    expect(share).toBeGreaterThan(0);
+    expect(share).toBeLessThan(1);
+    expect(preview.projectedMargin).toBe((a.rating - b.rating) * share);
+    // A row of a board built before rows carried the variance states the whole gap.
+    const { ratingVariance: _variance, ...older } = a;
+    expect(previewMatchup(older, b).projectedMargin).toBe(a.rating - b.rating);
+    expect(previewMatchup(older, b).winProb).toBe(preview.winProb);
+  });
+
+  it("reads the year fit's variance over the clubs a board could list", () => {
+    const teams: ScoutTeam[] = [
+      { id: "A", name: "A" },
+      { id: "B", name: "B" },
+      { id: "C", name: "C" },
+      { id: "slot", name: "Winner of game 1", placeholder: true } as ScoutTeam,
+    ];
+    const rated = [
+      ["A", "B", 8, 1],
+      ["B", "C", 4, 3],
+      ["A", "slot", 9, 0],
+    ].map(([a, b, sa, sb], at) => ({
+      game: {
+        id: String(at),
+        ageGroupId: "ag_10u_2027",
+        teamAId: a as string,
+        teamBId: b as string,
+        teamAScore: sa as number,
+        teamBScore: sb as number,
+        date: "2026-08-01",
+      },
+      ageGap: 0,
+    }));
+    const groups = [{ id: "ag_10u_2027", name: "10U 2027", year: 2027 } as never];
+    const fit = fitScoutYear(
+      2027,
+      teams,
+      rated.map(({ game }) => game),
+      rated,
+      groups
+    );
+    expect(fit.ratingVariance).toBe(ratingVarianceOver(fit.adjusted.ratings, ["A", "B", "C"]));
+    // The slot is in the fit and in no board, so its rating is in no variance a margin reads.
+    expect(fit.ratingVariance).not.toBe(
+      ratingVarianceOver(fit.adjusted.ratings, ["A", "B", "C", "slot"])
+    );
   });
 });

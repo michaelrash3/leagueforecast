@@ -173,8 +173,10 @@ export function RankingMethodPanel({ id, onClose }: { id: string; onClose: () =>
       <p className="mt-3">
         <span className="font-bold text-slate-950 dark:text-white">Win probability</span> comes from
         the gap between two ratings, and never leaves {pct(MATCHUP_PROBABILITY_FLOOR)}–
-        {pct(1 - MATCHUP_PROBABILITY_FLOOR)}. Projected margins stop at {MATCHUP_MARGIN_CAP} runs.
-        Youth baseball has no locks, and a number closer to certain than that would be claiming one.
+        {pct(1 - MATCHUP_PROBABILITY_FLOOR)}. A projected margin is that gap pulled toward even for
+        how far either rating could be off, so the same gap promises fewer runs between two short
+        records than between two long ones, and it stops at {MATCHUP_MARGIN_CAP} runs. Youth
+        baseball has no locks, and a number closer to certain than that would be claiming one.
       </p>
 
       <p className="mt-3">
