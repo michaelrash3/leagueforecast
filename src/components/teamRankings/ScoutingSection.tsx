@@ -11,7 +11,7 @@ import {
   type UpcomingMatchup,
 } from "../../lib/teamRankings";
 import { dayAndTime, formatIsoDayShort } from "../../lib/date";
-import { forecastWords, formatRating } from "../../lib/matchupForecast";
+import { forecastWords, formatRating, marginWhy } from "../../lib/matchupForecast";
 import { holdsFrom, type WhatIfCurve, type WhatIfDeclined } from "../../lib/scoutWhatIf";
 import type { WhatIfState } from "../../hooks/useRankingsWorker";
 import type { LeagueSummaryState } from "../../hooks/useLeagueSummary";
@@ -65,7 +65,7 @@ const formatDay = (row: UpcomingMatchup) => dayAndTime(formatIsoDayShort(row.dat
 /**
  * The answer to the question the pickers ask — how would this team fare against that one — said
  * before anything else: who should win, who should lose, by how many runs, and each side's chance
- * (`forecastWords`), then the two ratings the margin is the gap between.
+ * (`forecastWords`), then the two ratings the margin is read from (`marginWhy`).
  *
  * It sat nowhere at all at first. Compare with laid out the meetings, the common opponents and each
  * club's best and worst, and left the reader to work the answer out from them, which is the one
@@ -95,7 +95,7 @@ function ClubForecast({ forRow, against }: { forRow: ScoutRankingRow; against: S
       <p className="mt-2 text-xs wrap-break-word text-slate-500 dark:text-slate-400">
         Why: {forRow.teamName} rates {formatRating(forRow.rating)} runs against an average club (#
         {forRow.rank.toLocaleString()}) and {against.teamName} {formatRating(against.rating)} (#
-        {against.rank.toLocaleString()}); the margin is the gap between them.
+        {against.rank.toLocaleString()}); {marginWhy(forRow, against)}.
       </p>
     </section>
   );

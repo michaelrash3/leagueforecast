@@ -3058,6 +3058,10 @@ export const buildTeamRankings = (
     { games: effective, residualScale: adjusted.residualScale },
     teams.filter(isClub).map((team) => team.id)
   );
+  const ratingVariance = ratingVarianceOver(
+    adjusted.ratings,
+    teams.filter(isClub).map((team) => team.id)
+  );
   const rows = teams
     /*
      * Everyone is in the fit above, because every one of them was somebody's opponent. Only clubs
@@ -3076,6 +3080,7 @@ export const buildTeamRankings = (
         rating: confident(adjusted.ratings.get(team.id) ?? 0, effective.get(team.id) ?? 0),
         pointRating: adjusted.ratings.get(team.id) ?? 0,
         ratingError: ratingErrorOf(effective.get(team.id) ?? 0, adjusted.residualScale),
+        ratingVariance,
         ...startOf(communities, team.id),
         record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
         wins,
@@ -3292,6 +3297,8 @@ export type ScoutYearFit = {
    */
   ridge: number;
   evidenceRidge: number;
+  /** The variance of its own ratings over the year's clubs (`ratingVarianceOver`), each row's. */
+  ratingVariance: number;
 };
 
 /**
@@ -3336,6 +3343,20 @@ export type ScoutFitTuning = {
    * played, about 0.5 to 0.75 on September's boards and 0.25 or below on October's and November's.
    */
   ridgeOverGames?: number;
+};
+
+/**
+ * The variance of a fit's own ratings over `ids` (the year's clubs a board could list): what a
+ * matchup's margin is shrunk against (`matchupMarginShare`). 0 for no club.
+ */
+export const ratingVarianceOver = (
+  ratings: ReadonlyMap<string, number>,
+  ids: readonly string[]
+): number => {
+  if (ids.length === 0) return 0;
+  const values = ids.map((id) => ratings.get(id) ?? 0);
+  const centre = values.reduce((sum, rating) => sum + rating, 0) / values.length;
+  return values.reduce((sum, rating) => sum + (rating - centre) ** 2, 0) / values.length;
 };
 
 /** The least and most a ridge read off the year's games (`ridgeOverGames`) comes to. */
@@ -3471,6 +3492,10 @@ export const fitScoutYear = (
     pieces,
     ridge,
     evidenceRidge: evidence,
+    ratingVariance: ratingVarianceOver(
+      adjusted.ratings,
+      nodes.filter((team) => !team.placeholder && !team.nameOnly).map((team) => team.id)
+    ),
   };
 };
 
@@ -3554,6 +3579,7 @@ export const rowsOfYearFit = (
         rating: confident(adjusted.ratings.get(team.id) ?? 0, effective.get(team.id) ?? 0),
         pointRating: adjusted.ratings.get(team.id) ?? 0,
         ratingError: ratingErrorOf(effective.get(team.id) ?? 0, adjusted.residualScale),
+        ratingVariance: fit.ratingVariance,
         ...startOf(fit.communities, team.id),
         record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
         wins,
@@ -3746,6 +3772,55 @@ export const oddsWidthWith = (
   return variance > 0 ? Math.sqrt(proven * proven + variance) : proven;
 };
 
+/**
+ * How hard a matchup's projected margin is pulled toward even by its two clubs' errors: the margin
+ * stated is the shown ratings' gap times `V / (V + MATCHUP_MARGIN_SHRINK × (errorA² + errorB²))`
+ * (`matchupMarginShare`), where `V` is the variance of the fit's own ratings over the year's clubs
+ * (`ScoutRankingRow.ratingVariance`): the share of a gap that is the two clubs rather than the noise
+ * in measuring them. The chance still reads the whole gap, on its own widened curve.
+ *
+ * The margin had read the whole gap, and a weaker ridge made it worse: the ridge of half a game
+ * (`SCOUT_SHRINKAGE`, 18 November 2026) bettered every month's chances and left the margins 9.1%,
+ * 3.4% and 1.1% further off than the old ridge's on the boards of September, October and November.
+ * A margin carries none of the widening a chance has for an uncertain pair. The model sweep read the
+ * cloud copy of 21 November 2026 (Actions run 44916980269) on those boards, scoring 172,866, 165,727
+ * and 16,665 later games: the gap so shrunk had a squared error of 40.89, 35.80 and 32.90 runs²
+ * against 45.89, 38.14 and 33.98 (10.9%, 6.1% and 3.2% less; z 39.8, 27.8 and 10.4), and less than
+ * the old ridge's 42.08, 36.89 and 33.58. Shrunk by half or by two was close behind (run 44601244858).
+ * The fit's own ratings' gap shrunk the same way was as good, 40.89, 35.78 and 32.83, but named the
+ * other club than the chance on 5.6%, 4.8% and 3.8% of games, where a forecast's headline names the
+ * chance's favourite and states the margin's size (`forecastWords`). The shown gap shrunk never does.
+ */
+export const MATCHUP_MARGIN_SHRINK = 1;
+
+/**
+ * The share of a matchup's gap its projected margin states, at `shrink` of the two errors' variance
+ * (`MATCHUP_MARGIN_SHRINK` when left out; a research sweep reads others): one, the whole gap, at a
+ * shrink of nought, or where either error or the year's variance is not known (a row of a board built before
+ * rows carried them), so such a margin reads as it always has.
+ */
+export const matchupMarginShare = (
+  errors: MatchupErrors | undefined,
+  variance: number | undefined,
+  shrink: number = MATCHUP_MARGIN_SHRINK
+): number => {
+  if (!errors || !Number.isFinite(errors.a) || !Number.isFinite(errors.b)) return 1;
+  if (variance === undefined || !Number.isFinite(variance) || variance <= 0) return 1;
+  return variance / (variance + shrink * (errors.a ** 2 + errors.b ** 2));
+};
+
+/**
+ * The variance of the year's ratings two rows carry (`ScoutRankingRow.ratingVariance`), the mean of
+ * the two, which is either's on two rows of one board; undefined where either carries none.
+ */
+export const matchupVarianceOf = (
+  a: Pick<ScoutRankingRow, "ratingVariance">,
+  b: Pick<ScoutRankingRow, "ratingVariance">
+): number | undefined =>
+  a.ratingVariance === undefined || b.ratingVariance === undefined
+    ? undefined
+    : (a.ratingVariance + b.ratingVariance) / 2;
+
 /** The two rows' errors, where both carry one: what `matchupOddsWidth` widens a matchup by. */
 export const matchupErrorsOf = (
   a: Pick<ScoutRankingRow, "ratingError">,
@@ -3768,15 +3843,23 @@ export const predictMatchup = (
   ratingA: number,
   ratingB: number,
   ageLevel?: number,
-  errors?: MatchupErrors
+  errors?: MatchupErrors,
+  variance?: number
 ) => {
-  const margin = clamp(ratingA - ratingB, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP);
+  const gap = ratingA - ratingB;
+  const margin = clamp(gap, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP);
   const winProbA = clamp(
     1 / (1 + Math.exp(-margin / matchupOddsWidth(ageLevel, errors))),
     MATCHUP_PROBABILITY_FLOOR,
     1 - MATCHUP_PROBABILITY_FLOOR
   );
-  return { projectedMargin: margin, winProbA, winProbB: 1 - winProbA };
+  // The chance reads the whole gap; the margin states the share of it that is the clubs.
+  const projectedMargin = clamp(
+    gap * matchupMarginShare(errors, variance),
+    -MATCHUP_MARGIN_CAP,
+    MATCHUP_MARGIN_CAP
+  );
+  return { projectedMargin, winProbA, winProbB: 1 - winProbA };
 };
 
 const tierFor = (winProb: number): MatchupTier =>
@@ -3797,7 +3880,8 @@ export const previewMatchup = (
     forRow.rating,
     opponent.rating,
     forRow.ageLevel ?? opponent.ageLevel,
-    matchupErrorsOf(forRow, opponent)
+    matchupErrorsOf(forRow, opponent),
+    matchupVarianceOf(forRow, opponent)
   );
   return {
     opponentId: opponent.teamId,
@@ -3964,7 +4048,8 @@ export const buildUpcomingSchedule = (
         forRow.rating,
         opponent.rating,
         forRow.ageLevel ?? opponent.ageLevel,
-        matchupErrorsOf(forRow, opponent)
+        matchupErrorsOf(forRow, opponent),
+        matchupVarianceOf(forRow, opponent)
       );
       return {
         ...base,

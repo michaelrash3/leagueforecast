@@ -834,7 +834,9 @@ describe("buildScoutingReport", () => {
     // chance moves and no margin or tier: this pool of five games reads its noise small, so its
     // errors are read on the floor's scale (`RATING_ERROR_SCALE_FLOOR`), about as sure as before.
     // On a weight of 2.4 (18 November 2026) the Elks, a pair never compared, read as a toss-up.
-    expect(previewsOf(rows)).toEqual([
+    // Read without the year's variance, as a row of a board built under rules 12 is, each margin is
+    // the whole gap, as it was then.
+    expect(previewsOf(rows.map(({ ratingVariance: _variance, ...row }) => row))).toEqual([
       ["A", "-6.857142857143", "0.252483602627", "Underdog", false],
       ["E", "-2.918391822992", "0.406130607472", "Toss-up", true],
       ["D", "-0.467938078660", "0.483106837617", "Toss-up", false],
@@ -842,6 +844,18 @@ describe("buildScoutingReport", () => {
       ["F", "0.281608177008", "0.509165560575", "Toss-up", true],
       ["E", "-2.918391822992", "0.406130607472", "Toss-up", true],
       ["D", "-0.467938078660", "0.483106837617", "Toss-up", false],
+    ]);
+    // With it (21 November 2026, `MATCHUP_MARGIN_SHRINK`), every margin is pulled toward even by
+    // the two clubs' errors and no chance or tier moves. This pool of five games is read on the
+    // errors' floor (`RATING_ERROR_SCALE_FLOOR`), so its pull is hard: a quarter to a third is left.
+    expect(previewsOf(rows)).toEqual([
+      ["A", "-2.172906259417", "0.252483602627", "Underdog", false],
+      ["E", "-0.659589397810", "0.406130607472", "Toss-up", true],
+      ["D", "-0.126869438597", "0.483106837617", "Toss-up", false],
+      ["C", "-0.079798255172", "0.490185667708", "Toss-up", false],
+      ["F", "0.063646617438", "0.509165560575", "Toss-up", true],
+      ["E", "-0.659589397810", "0.406130607472", "Toss-up", true],
+      ["D", "-0.126869438597", "0.483106837617", "Toss-up", false],
     ]);
   });
 

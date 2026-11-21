@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { forecastWords, formatRating } from "../matchupForecast";
+import { forecastWords, formatRating, marginWhy } from "../matchupForecast";
 import { predictMatchup } from "../teamRankings";
 
 /** The words for a margin, with the chance the curve gives it at 12U. */
@@ -86,5 +86,22 @@ describe("formatRating", () => {
     expect(formatRating(-0.44)).toBe("-0.4");
     expect(formatRating(-0.03)).toBe("0.0");
     expect(formatRating(0.03)).toBe("0.0");
+  });
+});
+
+describe("marginWhy", () => {
+  it("says the margin is pulled toward even only where the two rows carry what pulls it", () => {
+    const pulled =
+      "the margin is the gap between them, pulled toward even for how far either rating could be off";
+    const whole = "the margin is the gap between them";
+    const row = { ratingError: 1.2, ratingVariance: 6 };
+    expect(marginWhy(row, row)).toBe(pulled);
+    // A row of a board built before rows carried the variance or the error states the whole gap.
+    expect(marginWhy({ ratingError: 1.2 }, row)).toBe(whole);
+    expect(marginWhy({ ratingVariance: 6 }, row)).toBe(whole);
+    // Two clubs known exactly are pulled by nothing.
+    expect(
+      marginWhy({ ratingError: 0, ratingVariance: 6 }, { ratingError: 0, ratingVariance: 6 })
+    ).toBe(whole);
   });
 });

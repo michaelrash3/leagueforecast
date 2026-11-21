@@ -62,5 +62,11 @@
  * margin, error and chance moves, and with them the order, the places and The Weekly. A board
  * carries the ridge and discount it was fitted with (`BoardFit.shrink`, `BoardFit.errors`), so one
  * built under 11 still reads as it was built until it is rebuilt.
+ * 13: a matchup's projected margin is the shown ratings' gap pulled toward even by its two clubs'
+ * errors (`matchupMarginShare`, `MATCHUP_MARGIN_SHRINK`), against the variance of the year's
+ * ratings, which each row carries (`ratingVariance`); the owner's choice of 21 November 2026, on the
+ * model sweep's three months. No rating, chance, row or order moves; every margin does, and with it
+ * The Weekly's game of the week as it states one. A row of a board built under 12 carries no
+ * variance, so its matchups state the whole gap until the board is rebuilt.
  */
-export const BOARD_RULES = 12;
+export const BOARD_RULES = 13;

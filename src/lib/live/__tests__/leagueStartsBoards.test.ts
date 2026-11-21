@@ -117,6 +117,8 @@ const steady = (boards: PageBoard[]) =>
           overallRank: _overall,
           // Added to the rows after these were pinned; it moves nothing else (`ratingError`).
           ratingError: _ratingError,
+          // Likewise the year's variance, which only a matchup's margin reads (`ratingVariance`).
+          ratingVariance: _ratingVariance,
           ...row
         }) => ({
           ...row,
@@ -184,8 +186,11 @@ describe("League Standings starts on the boards", () => {
     expect(weeks.flatMap(({ weekly }) => weekly?.streaks ?? [])).toHaveLength(22);
     // The weeks' odds read the curve as wide as the two clubs' evidence since 6 November 2026
     // (`matchupOddsWidth`, board rules 11); read on the single curve they were 23a5731b, as before.
-    // Under board rules 12 the ratings under them moved: 53e8d84e under 11.
-    expect(fingerprint(weeks)).toBe("e3162bdb");
+    // Under board rules 12 the ratings under them moved: 53e8d84e under 11. Under 13 (21 November
+    // 2026) the game ahead's margin is pulled toward even by its two clubs' errors
+    // (`matchupMarginShare`): e3162bdb under 12, which the weeks read again with the rows'
+    // `ratingVariance` taken off.
+    expect(fingerprint(weeks)).toBe("1c67a8da");
   });
 
   it("publish each board's week as a member's device reads it back, its game ahead's start too", () => {
@@ -231,7 +236,10 @@ describe("League Standings starts on the boards", () => {
      * 6 November 2026 the weeks' odds read the curve as wide as the two clubs' evidence
      * (`matchupOddsWidth`, board rules 11), so 52c07ee1, and 9ba760b3 with the starts, are what they
      * read on the single curve. Under board rules 12 (18 November 2026) every rating under them
-     * moved, and 4268dd44 and ab64f6f2, the two under 11, moved with them.
+     * moved, and 4268dd44 and ab64f6f2, the two under 11, moved with them. Under 13 (21 November
+     * 2026) each game ahead's margin is pulled toward even by its two clubs' errors
+     * (`matchupMarginShare`): a7f50b19 and 6e4634f8 under 12, read again with the rows'
+     * `ratingVariance` taken off.
      */
     const steadyOf = (weeks: typeof published) =>
       weeks.map(({ key, weekly }) => ({ key, weekly: steadyWeek(weekly) }));
@@ -240,7 +248,7 @@ describe("League Standings starts on the boards", () => {
       const { start: _start, ...game } = weekly.ahead;
       return { key, weekly: { ...weekly, ahead: game } };
     });
-    expect(fingerprint(steadyOf(unstarted))).toBe("a7f50b19");
-    expect(fingerprint(steadyOf(published))).toBe("6e4634f8");
+    expect(fingerprint(steadyOf(unstarted))).toBe("0874da26");
+    expect(fingerprint(steadyOf(published))).toBe("9802ee77");
   });
 });

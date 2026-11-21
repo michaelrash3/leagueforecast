@@ -6,6 +6,8 @@ import {
   ageGroupYear,
   fitScoutYear,
   MATCHUP_MARGIN_CAP,
+  MATCHUP_MARGIN_SHRINK,
+  matchupMarginShare,
   MATCHUP_ODDS_ERROR_WEIGHT,
   MATCHUP_ODDS_PROVEN_SHARE,
   MATCHUP_PROBABILITY_FLOOR,
@@ -68,20 +70,17 @@ export type ModelVariant = {
    */
   ratings?: "shown" | "point";
   /**
-   * The margin a matchup states read apart from its chance, which stays the setting's own. A
-   * weaker ridge made the chances better and the margins worse in every month of the sweep of 18
-   * November 2026, since a margin carries none of the widening a chance has for an uncertain pair.
-   * - `ridge`: the margin read from the fit's own ratings on a second fit at this ridge, for the
-   *   fit and the evidence.
-   * - `shrink`: the margin read from the fit's own ratings, times `V / (V + shrink × (errorA² +
-   *   errorB²))`, where `V` is the variance of those ratings over the clubs a board could list:
-   *   the share of a gap that is the clubs and not the noise in measuring them. With `from`
-   *   "shown", the gap shrunk is the shown ratings' instead, the gap the chance reads, so the two
-   *   always name the same winner. With `agree`, a margin that names the other club than the one
-   *   the chance favours is stated as nothing, as a forecast's headline names the chance's
-   *   favourite and the margin's size (`forecastWords`).
+   * The margin a matchup states, apart from its chance, which stays the setting's own. Left out, as
+   * shipped since 21 November 2026 (`matchupMarginShare`): the gap the chance reads, times
+   * `V / (V + shrink × (errorA² + errorB²))`, where `V` is the variance of the fit's own ratings over
+   * the clubs a board could list, at `MATCHUP_MARGIN_SHRINK`.
+   * - `shrink`: another weight of the two errors' variance; 0 states the whole gap, as every
+   *   matchup did until 21 November 2026.
+   * - `from` "point": the fit's own ratings' gap shrunk instead, which can name the other club
+   *   than the chance on a thin record; `agree` states such a margin as nothing, as a forecast's
+   *   headline names the chance's favourite and states the margin's size (`forecastWords`).
    */
-  margin?: { ridge: number } | { shrink: number; from?: "point" | "shown"; agree?: boolean };
+  margin?: { shrink?: number; from?: "chance" | "point"; agree?: boolean };
 };
 
 /** The shipped model first, then each setting moved on its own either way. */
@@ -94,9 +93,10 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
    */
   {
     key: "as-before",
-    why: "one ridge of 1.5, a weight of 1.6, one error of discount, as boards read until 18 November 2026",
+    why: "one ridge of 1.5, a weight of 1.6, one error of discount, the whole gap as the margin, as boards read until 18 November 2026",
     tuning: { shrinkage: 1.5, evidence: 1.5, standardErrors: 1 },
     weight: 1.6,
+    margin: { shrink: 0 },
   },
   /*
    * The shown rating's discount (`EVIDENCE_STANDARD_ERRORS`) either way of the shipped 1.5 errors.
@@ -135,40 +135,31 @@ export const MODEL_VARIANTS: readonly ModelVariant[] = [
     weight,
   })),
   /*
-   * The margin read apart from the chance (`ModelVariant.margin`): the chances are the shipped
-   * ones, so only the margin's error moves.
+   * The margin a matchup states (`ModelVariant.margin`), the chances as shipped: the whole gap, as
+   * every matchup stated it until 21 November 2026; the shipped shrink by half and by two of the two
+   * errors' variance; and the fit's own gap shrunk, which was as good but named the other club than
+   * the chance on 5.6%, 4.8% and 3.8% of games (Actions run 44916980269), with and without `agree`.
    */
-  ...[1, 1.5].map((ridge): ModelVariant => ({
-    key: `margin-ridge-${ridge}`,
-    why: `the margin from the fit's own ratings on a ridge of ${ridge}; the chances as shipped`,
-    margin: { ridge },
-  })),
-  ...[0.5, 1, 2].map((shrink): ModelVariant => ({
+  {
+    key: "margin-whole",
+    why: "the whole gap as the margin, as every matchup stated it until 21 November 2026",
+    margin: { shrink: 0 },
+  },
+  ...[0.5, 2].map((shrink): ModelVariant => ({
     key: `margin-shrink-${shrink}`,
-    why: `the margin from the fit's own ratings, shrunk by ${shrink} of the two errors' variance`,
+    why: `the margin shrunk by ${shrink} of the two errors' variance`,
     margin: { shrink },
   })),
-  /*
-   * The shrunk margin in the two forms a matchup could state it without naming the other winner
-   * than its chance: stated as nothing where the two disagree, or shrunk from the shown gap.
-   */
   {
-    key: "margin-shrink-1-agree",
-    why: "margin-shrink-1, stated as nothing where it names the other winner than the chance",
-    margin: { shrink: 1, agree: true },
+    key: "margin-point",
+    why: "the fit's own gap shrunk as the margin, which can name the other winner",
+    margin: { from: "point" },
   },
   {
-    key: "margin-shrink-1-shown",
-    why: "the shown ratings' gap shrunk by 1 of the two errors' variance; the chances as shipped",
-    margin: { shrink: 1, from: "shown" },
+    key: "margin-point-agree",
+    why: "margin-point, stated as nothing where it names the other winner than the chance",
+    margin: { from: "point", agree: true },
   },
-  // Both at once: the falling ridge's chances, with its margins shrunk.
-  ...[0.5, 1, 2].map((shrink): ModelVariant => ({
-    key: `games-ridge-2-shrink-${shrink}`,
-    why: `games-ridge-2, its margin shrunk by ${shrink} of the two errors' variance`,
-    tuning: { ridgeOverGames: 2 },
-    margin: { shrink },
-  })),
   { key: "cap-8", why: "a game's margin capped at 8 runs in the fit", tuning: { cap: 8 } },
   { key: "cap-10", why: "at 10", tuning: { cap: 10 } },
   { key: "cap-14", why: "at 14", tuning: { cap: 14 } },
@@ -255,24 +246,6 @@ export const chanceAt = (
 const ratingErrorOn = (fit: ScoutYearFit, id: string) =>
   ratingErrorOf(fit.effective.get(id) ?? 0, fit.adjusted.residualScale, fit.evidenceRidge);
 
-/**
- * The variance of a fit's own ratings over the clubs a board could list, which a shrunk margin
- * reads (`ModelVariant.margin`); once a fit.
- */
-const spreadOfFit = new WeakMap<ScoutYearFit, number>();
-const ratingVariance = (fit: ScoutYearFit) => {
-  const known = spreadOfFit.get(fit);
-  if (known !== undefined) return known;
-  const ratings = fit.nodes
-    .filter((team) => !team.placeholder && !team.nameOnly)
-    .map((team) => fit.adjusted.ratings.get(team.id) ?? 0);
-  const centre = ratings.reduce((sum, rating) => sum + rating, 0) / Math.max(1, ratings.length);
-  const variance =
-    ratings.reduce((sum, rating) => sum + (rating - centre) ** 2, 0) / Math.max(1, ratings.length);
-  spreadOfFit.set(fit, variance);
-  return variance;
-};
-
 /** The places at the top of each ranked board the sweep counts, and the record a club is thin under. */
 export const BOARD_TOP = 25;
 export const THIN_RECORD_GAMES = 4;
@@ -337,12 +310,7 @@ const boardPlacer = (fit: ScoutYearFit) => {
  * Only for two clubs one board lists (`boardPlacer`): no other matchup is ever stated, and the sweep
  * leaves those games out rather than score a forecast nobody was shown.
  */
-const predicted = (
-  fit: ScoutYearFit,
-  game: ScoutGame,
-  variant: ModelVariant,
-  marginFit: ScoutYearFit = fit
-) => {
+const predicted = (fit: ScoutYearFit, game: ScoutGame, variant: ModelVariant) => {
   const own = (id: string) => fit.adjusted.ratings.get(id) ?? 0;
   const read =
     variant.ratings === "point"
@@ -360,23 +328,15 @@ const predicted = (
     ...(variant.weight === undefined ? {} : { weight: variant.weight }),
     errors,
   });
-  let gap = a - b;
-  let against = false;
-  if (variant.margin) {
-    const ownOn = (id: string) => marginFit.adjusted.ratings.get(id) ?? 0;
-    const shown = "shrink" in variant.margin && variant.margin.from === "shown";
-    gap = shown ? a - b : ownOn(game.teamAId) - ownOn(game.teamBId);
-    if ("shrink" in variant.margin) {
-      const variance = ratingVariance(marginFit);
-      const noise =
-        ratingErrorOn(marginFit, game.teamAId) ** 2 + ratingErrorOn(marginFit, game.teamBId) ** 2;
-      gap *= variance / (variance + variant.margin.shrink * noise);
-    }
-    // A margin for the first club beside a chance under evens for it, or the other way round.
-    against = (gap > 0 && win < 0.5) || (gap < 0 && win > 0.5);
-    if (against && "shrink" in variant.margin && variant.margin.agree) gap = 0;
-  }
-  return { margin: clamp(gap, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP), win, against };
+  const gap = variant.margin?.from === "point" ? own(game.teamAId) - own(game.teamBId) : a - b;
+  // As `predictMatchup` states it (`matchupMarginShare`), at the setting's shrink.
+  let margin =
+    gap *
+    matchupMarginShare(errors, fit.ratingVariance, variant.margin?.shrink ?? MATCHUP_MARGIN_SHRINK);
+  // A margin for the first club beside a chance under evens for it, or the other way round.
+  const against = (margin > 0 && win < 0.5) || (margin < 0 && win > 0.5);
+  if (against && variant.margin?.agree) margin = 0;
+  return { margin: clamp(margin, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP), win, against };
 };
 
 /** One band of the shipped model's calibration: games whose favourite it gave this much. */
@@ -473,7 +433,7 @@ export type VariantReading = {
   /**
    * Of the scored games, how many the setting stated a margin for one club beside a chance under
    * evens for it (`ModelVariant.margin`, before `agree` states it as nothing); 0 for a setting
-   * whose margin is its chance's gap.
+   * whose margin is its chance's gap, shrunk or whole.
    */
   against: number;
 };
@@ -591,15 +551,6 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
   // Each distinct fit once a cut: the floors share the shipped fit.
   const tuningKey = (variant: ModelVariant) =>
     `${variant.tuning?.cap ?? ""}|${variant.tuning?.shrinkage ?? ""}|${variant.tuning?.evidence ?? ""}|${variant.tuning?.standardErrors ?? ""}|${variant.tuning?.ridgeOverGames ?? ""}`;
-  // The second fit a margin read on a ridge of its own is made on (`ModelVariant.margin`).
-  const marginVariant = (variant: ModelVariant): ModelVariant | undefined =>
-    variant.margin && "ridge" in variant.margin
-      ? {
-          key: `${variant.key}:margin`,
-          why: "",
-          tuning: { shrinkage: variant.margin.ridge, evidence: variant.margin.ridge },
-        }
-      : undefined;
 
   for (const cut of cuts) {
     const trained = scoutRatingGames(page.id, teams, games, ageGroups, undefined, cut);
@@ -674,8 +625,6 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
     const tops = new Map<string, { places: number; thin: number }>();
     variants.forEach((variant, at) => {
       const fit = fitOf(variant, at);
-      const second = marginVariant(variant);
-      const marginFit = second ? fitOf(second, at) : fit;
       const pile = piles[at]!;
       const fitKey = tuningKey(variant);
       let top = tops.get(fitKey);
@@ -688,7 +637,7 @@ export const runModelSweep = (input: ModelSweepInput): ModelSweep => {
       const [byHorizon, byThinnest, byApart] = tallies[at]!;
       scored.forEach(({ game }, index) => {
         const margin = clamp(ratedMargin(game) ?? 0, -RATING_CAP, RATING_CAP);
-        const guess = predicted(fit, game, variant, marginFit);
+        const guess = predicted(fit, game, variant);
         pile.squared.push((guess.margin - margin) ** 2);
         if (guess.against) pile.against += 1;
         if (margin === 0) return;

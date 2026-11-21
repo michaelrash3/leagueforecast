@@ -256,6 +256,9 @@ const steady = (boards: PageBoard[]) =>
           // A club's error was added to the rows after these were pinned; it reads the fit and
           // moves nothing else, which the pins holding with it left out say (`ratingError`).
           ratingError: _ratingError,
+          // So was the year's variance (`ratingVariance`), the same on every row of a fit, which
+          // only a matchup's margin reads.
+          ratingVariance: _ratingVariance,
           ...row
         }) => ({
           ...row,
@@ -278,8 +281,9 @@ const steady = (boards: PageBoard[]) =>
  * once its boards are seen to match its own worker's.
  */
 // Re-taken under board rules 12 on 18 November 2026, on Node 22 and Node 24 (254d394a and 20eddb03
-// before).
-const DIGIT_PINS: Record<string, string> = { "12.4": "de67370b", "13.6": "e415890c" };
+// before), and under 13 on 21 November 2026 (de67370b and e415890c before, which the boards read
+// again with the rows' `ratingVariance` taken off, and so every margin the whole gap).
+const DIGIT_PINS: Record<string, string> = { "12.4": "2d5456b4", "13.6": "32447c1d" };
 const engine = (globalThis as { process?: { versions?: { v8?: string } } }).process?.versions?.v8;
 const english = new Intl.Collator().resolvedOptions().locale.startsWith("en");
 const digitPin = english ? DIGIT_PINS[(engine ?? "").split(".").slice(0, 2).join(".")] : undefined;
@@ -847,6 +851,10 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
      * own constants cannot be switched back from here as the starts can; so under 12 those two are
      * held to fingerprints of their own. The model sweep's "as-before" setting holds the model of
      * 11 to the digit (`modelSweep.test.ts`).
+     * 13 pulls a matchup's projected margin toward even by its two clubs' errors
+     * (`matchupMarginShare`), which moves The Weekly's game of the week as it states one and no
+     * row: each row gains the year's variance (`ratingVariance`), which these pins leave out, so
+     * its steady boards are 12's.
      */
     const RULES_PINS: Record<number, string> = {
       1: "a2c59173",
@@ -861,6 +869,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
       10: "46996e9c",
       11: "46996e9c",
       12: "eac43e77",
+      13: "eac43e77",
     };
     expect(fingerprint(steady(builtBoards(stored())))).toBe(RULES_PINS[BOARD_RULES]);
     starts.off = true;

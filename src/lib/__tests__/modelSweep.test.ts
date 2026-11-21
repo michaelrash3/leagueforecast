@@ -154,10 +154,14 @@ describe("the research sweep of the shipped model", () => {
     expect(reading("as-before")).toEqual([
       0.4367961184705736, 0.1428247414510809, 14.338066623403552,
     ]);
-    expect(reading("discount-1")).toEqual([
-      0.4358900046932309, 0.14224468380553787, 14.395171035758334,
-    ]);
-    expect(reading("shipped")).toEqual([0.4347310981263926, 0.1418052191810378, 14.40378798392126]);
+    // Their chances read as they did then. Their margins were re-taken on 21 November 2026, when a
+    // matchup's margin came to be shrunk by the two clubs' errors (`MATCHUP_MARGIN_SHRINK`); stated
+    // as the whole gap they read as then, 14.395171035758334 and 14.40378798392126, the second of
+    // which `margin-whole` holds. "as-before" states the whole gap still.
+    expect(reading("discount-1").slice(0, 2)).toEqual([0.4358900046932309, 0.14224468380553787]);
+    expect(reading("shipped").slice(0, 2)).toEqual([0.4347310981263926, 0.1418052191810378]);
+    expect(reading("discount-1")[2]).toBe(14.347539905464506);
+    expect(reading("shipped")[2]).toBe(14.332104827214291);
   });
 
   it("moves the fit with the ridge and the cap, and only the chance with the floor", () => {
@@ -321,6 +325,8 @@ describe("the research sweep of the shipped model", () => {
         ...(kind === "floor" ? { floor: value } : {}),
         share: kind === "spread" ? value : 1,
         weight: 0,
+        // The whole gap, as every matchup stated it until 21 November 2026.
+        margin: { shrink: 0 },
       };
     };
     const before: Array<[string, number, number, number]> = [
@@ -599,52 +605,28 @@ describe("the research sweep of the shipped model", () => {
   });
 
   it("reads a margin apart from the chance, which stays the setting's own", () => {
-    const variants: ModelVariant[] = [
-      MODEL_VARIANTS[0]!,
-      MODEL_VARIANTS.find(({ key }) => key === "point")!,
-      // A second fit at the boards' own ridge is the boards' fit, so its margin is `point`'s.
-      { key: "own-ridge", why: "", margin: { ridge: SCOUT_SHRINKAGE } },
-      // Shrunk by none of the errors, the margin is the fit's own gap.
-      { key: "no-shrink", why: "", margin: { shrink: 0 } },
-      MODEL_VARIANTS.find(({ key }) => key === "margin-shrink-1")!,
-      MODEL_VARIANTS.find(({ key }) => key === "margin-ridge-1.5")!,
-      MODEL_VARIANTS.find(({ key }) => key === "margin-shrink-1-agree")!,
-      MODEL_VARIANTS.find(({ key }) => key === "margin-shrink-1-shown")!,
-      // The shown gap shrunk by none of the errors is the shipped margin.
-      { key: "shown-no-shrink", why: "", margin: { shrink: 0, from: "shown" } },
-    ];
-    const read = runModelSweep({
-      ageGroups: groups,
-      teams,
-      games,
-      year: 2027,
-      today: "2026-10-31",
-      variants,
-    });
-    const of = (key: string) => read.variants.find((variant) => variant.key === key)!;
-    expect(of("own-ridge").squared).toBe(of("point").squared);
-    expect(of("no-shrink").squared).toBe(of("point").squared);
-    expect(of("margin-shrink-1").squared).not.toBe(of("point").squared);
-    expect(of("margin-ridge-1.5").squared).not.toBe(of("point").squared);
-    // A margin that is its chance's own gap, shrunk or not, never names the other winner.
-    expect(of("shipped").against).toBe(0);
-    expect(of("shown-no-shrink").squared).toBe(of("shipped").squared);
-    expect(of("shown-no-shrink").against).toBe(0);
-    expect(of("margin-shrink-1-shown").against).toBe(0);
-    expect(of("margin-shrink-1-shown").squared).not.toBe(of("shipped").squared);
+    const of = (key: string) => sweep.variants.find((variant) => variant.key === key)!;
+    // The whole gap is the margin every matchup stated before the shrink, so it reads the shipped
+    // margin's error as pinned on 17 November, to the digit, and `as-before` reads its own as then.
+    expect(of("margin-whole").squared).toBe(14.40378798392126);
+    expect(of("as-before").squared).toBe(14.338066623403552);
+    expect(of("shipped").squared).not.toBe(of("margin-whole").squared);
+    // A margin that is its chance's own gap, shrunk or whole, never names the other winner.
+    for (const key of ["shipped", "margin-whole", "margin-shrink-0.5", "margin-shrink-2"]) {
+      expect(of(key).against).toBe(0);
+    }
     // The fit's own gap, shrunk, names the other winner on some games of this autumn, and `agree`
     // counts the same games and states each as nothing.
-    expect(of("margin-shrink-1").against).toBeGreaterThan(0);
-    expect(of("margin-shrink-1-agree").against).toBe(of("margin-shrink-1").against);
-    expect(of("margin-shrink-1-agree").squared).not.toBe(of("margin-shrink-1").squared);
+    expect(of("margin-point").against).toBeGreaterThan(0);
+    expect(of("margin-point-agree").against).toBe(of("margin-point").against);
+    expect(of("margin-point-agree").squared).not.toBe(of("margin-point").squared);
     // The chances are the shipped ones to the digit, whatever the margin is read from.
     for (const key of [
-      "own-ridge",
-      "no-shrink",
-      "margin-shrink-1",
-      "margin-ridge-1.5",
-      "margin-shrink-1-agree",
-      "margin-shrink-1-shown",
+      "margin-whole",
+      "margin-shrink-0.5",
+      "margin-shrink-2",
+      "margin-point",
+      "margin-point-agree",
     ]) {
       expect([of(key).logLoss, of(key).brier]).toEqual([
         of("shipped").logLoss,
